@@ -160,30 +160,112 @@
 
 ## Traceability
 
-*(Preenchido durante criação do roadmap)*
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01..07 | Phase 1 | Pending |
-| PWA-01..05 | Phase 1 | Pending |
-| AUTH-01..08 | Phase 2 | Pending |
-| UI-05, UI-06 | Phase 2 | Pending |
-| CRED-01..11 | Phase 3 | Pending |
-| UI-04, UI-07, UI-08 | Phase 3 | Pending |
-| SCHED-01..06 | Phase 4 | Pending |
-| ACOMP-01..05 | Phase 5 | Pending |
-| PAY-01..04 | Phase 5 | Pending |
-| COUR-01..05 | Phase 6 | Pending |
-| ADMO-01..11 | Phase 7 | Pending |
-| ADMG-01..11 | Phase 7 | Pending |
-| ADMF-01..04 | Phase 7 | Pending |
-| UI-01..10 | Across phases | Pending |
+| INFRA-01 | Phase 1 — Foundation | Pending |
+| INFRA-02 | Phase 1 — Foundation | Pending |
+| INFRA-03 | Phase 1 — Foundation | Pending |
+| INFRA-04 | Phase 1 — Foundation | Pending |
+| INFRA-05 | Phase 1 — Foundation | Pending |
+| INFRA-06 | Phase 1 — Foundation | Pending |
+| INFRA-07 | Phase 1 — Foundation | Pending |
+| PWA-01 | Phase 1 — Foundation | Pending |
+| PWA-02 | Phase 1 — Foundation | Pending |
+| PWA-03 | Phase 1 — Foundation | Pending |
+| PWA-04 | Phase 1 — Foundation | Pending |
+| PWA-05 | Phase 1 — Foundation | Pending |
+| UI-01 | Phase 1 — Foundation | Pending |
+| UI-02 | Phase 1 — Foundation | Pending |
+| UI-03 | Phase 1 — Foundation | Pending |
+| UI-05 | Phase 1 — Foundation | Pending |
+| UI-10 | Phase 1 — Foundation | Pending |
+| AUTH-01 | Phase 2 — Authentication | Pending |
+| AUTH-02 | Phase 2 — Authentication | Pending |
+| AUTH-03 | Phase 2 — Authentication | Pending |
+| AUTH-04 | Phase 2 — Authentication | Pending |
+| AUTH-05 | Phase 2 — Authentication | Pending |
+| AUTH-06 | Phase 2 — Authentication | Pending |
+| AUTH-07 | Phase 2 — Authentication | Pending |
+| AUTH-08 | Phase 2 — Authentication | Pending |
+| UI-06 | Phase 2 — Authentication | Pending |
+| CRED-01 | Phase 3 — Credits & Commerce | Pending |
+| CRED-02 | Phase 3 — Credits & Commerce | Pending |
+| CRED-03 | Phase 3 — Credits & Commerce | Pending |
+| CRED-04 | Phase 3 — Credits & Commerce | Pending |
+| CRED-05 | Phase 3 — Credits & Commerce | Pending |
+| CRED-06 | Phase 3 — Credits & Commerce | Pending |
+| CRED-07 | Phase 3 — Credits & Commerce | Pending |
+| CRED-08 | Phase 3 — Credits & Commerce | Pending |
+| CRED-09 | Phase 3 — Credits & Commerce | Pending |
+| CRED-10 | Phase 3 — Credits & Commerce | Pending |
+| CRED-11 | Phase 3 — Credits & Commerce | Pending |
+| PAY-01 | Phase 3 — Credits & Commerce | Pending |
+| PAY-02 | Phase 3 — Credits & Commerce | Pending |
+| UI-04 | Phase 3 — Credits & Commerce | Pending |
+| UI-07 | Phase 3 — Credits & Commerce | Pending |
+| UI-08 | Phase 3 — Credits & Commerce | Pending |
+| SCHED-01 | Phase 4 — Scheduling | Pending |
+| SCHED-02 | Phase 4 — Scheduling | Pending |
+| SCHED-03 | Phase 4 — Scheduling | Pending |
+| SCHED-04 | Phase 4 — Scheduling | Pending |
+| SCHED-05 | Phase 4 — Scheduling | Pending |
+| SCHED-06 | Phase 4 — Scheduling | Pending |
+| ACOMP-01 | Phase 5 — Delivery Experience | Pending |
+| ACOMP-02 | Phase 5 — Delivery Experience | Pending |
+| ACOMP-03 | Phase 5 — Delivery Experience | Pending |
+| ACOMP-04 | Phase 5 — Delivery Experience | Pending |
+| ACOMP-05 | Phase 5 — Delivery Experience | Pending |
+| PAY-03 | Phase 5 — Delivery Experience | Pending |
+| PAY-04 | Phase 5 — Delivery Experience | Pending |
+| COUR-01 | Phase 6 — Courier App | Pending |
+| COUR-02 | Phase 6 — Courier App | Pending |
+| COUR-03 | Phase 6 — Courier App | Pending |
+| COUR-04 | Phase 6 — Courier App | Pending |
+| COUR-05 | Phase 6 — Courier App | Pending |
+| ADMO-01 | Phase 7 — Admin Panel | Pending |
+| ADMO-02 | Phase 7 — Admin Panel | Pending |
+| ADMO-03 | Phase 7 — Admin Panel | Pending |
+| ADMO-04 | Phase 7 — Admin Panel | Pending |
+| ADMO-05 | Phase 7 — Admin Panel | Pending |
+| ADMO-06 | Phase 7 — Admin Panel | Pending |
+| ADMO-07 | Phase 7 — Admin Panel | Pending |
+| ADMO-08 | Phase 7 — Admin Panel | Pending |
+| ADMO-09 | Phase 7 — Admin Panel | Pending |
+| ADMO-10 | Phase 7 — Admin Panel | Pending |
+| ADMO-11 | Phase 7 — Admin Panel | Pending |
+| ADMG-01 | Phase 7 — Admin Panel | Pending |
+| ADMG-02 | Phase 7 — Admin Panel | Pending |
+| ADMG-03 | Phase 7 — Admin Panel | Pending |
+| ADMG-04 | Phase 7 — Admin Panel | Pending |
+| ADMG-05 | Phase 7 — Admin Panel | Pending |
+| ADMG-06 | Phase 7 — Admin Panel | Pending |
+| ADMG-07 | Phase 7 — Admin Panel | Pending |
+| ADMG-08 | Phase 7 — Admin Panel | Pending |
+| ADMG-09 | Phase 7 — Admin Panel | Pending |
+| ADMG-10 | Phase 7 — Admin Panel | Pending |
+| ADMG-11 | Phase 7 — Admin Panel | Pending |
+| ADMF-01 | Phase 7 — Admin Panel | Pending |
+| ADMF-02 | Phase 7 — Admin Panel | Pending |
+| ADMF-03 | Phase 7 — Admin Panel | Pending |
+| ADMF-04 | Phase 7 — Admin Panel | Pending |
+| UI-09 | Phase 7 — Admin Panel | Pending |
 
 **Coverage:**
-- v1 requirements: 67 total
-- Mapped to phases: 67
+- v1 requirements: 87 total
+- Mapped to phases: 87
 - Unmapped: 0 ✓
+
+**Phase Distribution:**
+| Phase | Requirements | Count |
+|-------|-------------|-------|
+| Phase 1 — Foundation | INFRA-01..07, PWA-01..05, UI-01, UI-02, UI-03, UI-05, UI-10 | 17 |
+| Phase 2 — Authentication | AUTH-01..08, UI-06 | 9 |
+| Phase 3 — Credits & Commerce | CRED-01..11, PAY-01..02, UI-04, UI-07, UI-08 | 16 |
+| Phase 4 — Scheduling | SCHED-01..06 | 6 |
+| Phase 5 — Delivery Experience | ACOMP-01..05, PAY-03..04 | 7 |
+| Phase 6 — Courier App | COUR-01..05 | 5 |
+| Phase 7 — Admin Panel | ADMO-01..11, ADMG-01..11, ADMF-01..04, UI-09 | 27 |
 
 ---
 *Requirements defined: 2026-06-13*
-*Last updated: 2026-06-13 após definição inicial*
+*Last updated: 2026-06-13 — traceability completa após criação do roadmap*
