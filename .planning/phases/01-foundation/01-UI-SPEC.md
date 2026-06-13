@@ -61,6 +61,8 @@ Exceptions:
 - App icon background: `#160C04` (darker than espresso, per handoff)
 - Border radius on fields: 14px; buttons: 16px; cards: 18–22px; app icon: 30%; pills: 999px
 
+Note: border-radius and SVG component size values (86px BreadMark, 132px app icon, 14px field border-radius, 18px card border-radius minimum) are design-exact values from brand.jsx — these govern shape rendering, not grid layout spacing, and are exempt from the 4px grid constraint.
+
 ---
 
 ## Typography
@@ -72,11 +74,11 @@ Two fonts. Exactly 4 size roles. Exactly 2 weight tiers.
 | Body | Hanken Grotesk | 15px | 400 | 1.5 | normal |
 | Label | Hanken Grotesk | 12.5px | 700 | 1.4 | 0.01em |
 | Heading | Bricolage Grotesque | 21px | 700 | 1.2 | -0.02em |
-| Display | Bricolage Grotesque | 32px | 700–800 | 1.1 | -0.02em to -0.03em |
+| Display | Bricolage Grotesque | 32px | 700 | 1.1 | -0.02em |
 
 Additional type rules specific to SplashScreen:
 - App name "Cheirin de Pão": 32px, Bricolage Grotesque, weight 700, color `#FBF3E4`
-- Tagline "PÃO FRESCO NA PORTA": 12px, Hanken Grotesk, weight 600, letter-spacing 0.26em, color `#E3AC3F`
+- Tagline "PÃO FRESCO NA PORTA": 12px, Hanken Grotesk, weight 700, letter-spacing 0.26em, color `#E3AC3F`
 - Install card title: 15px, Hanken Grotesk, weight 700, color `#241608`
 - Button text: 15px, Hanken Grotesk, weight 700, letter-spacing -0.01em
 
@@ -84,12 +86,9 @@ Tailwind v4 `@theme` declarations:
 ```css
 --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", serif;
 --font-body: "Hanken Grotesk", sans-serif;
---text-xs: 11px;
 --text-sm: 12.5px;
 --text-base: 15px;
---text-lg: 18px;
 --text-xl: 21px;
---text-2xl: 26px;
 --text-3xl: 32px;
 ```
 
@@ -127,6 +126,10 @@ All values from `THEMES.light` in `brand.jsx`. Tema CLARO only.
 | 60% dominant | `#FAF5EC` (app-bg) | App background, all general surfaces |
 | 30% secondary | `#FFFFFF` / `#FBF6EC` / `#F4EBDA` | Cards, install card, field backgrounds |
 | 10% accent | `#E3AC3F` (gold) | Reserved for specific elements — see list below |
+
+**Semantic role distinction:**
+- `--color-gold` (`#E3AC3F`) = brand focal accent — logo, primary CTA, tagline; the dominant brand expression color
+- `--color-accent` (`#B0702A`) = warm amber for secondary interactive text — ghost links, dismissal actions, focus states
 
 **Accent (`#E3AC3F`) reserved exclusively for:**
 - BreadMark SVG symbol color (default color prop)
@@ -170,11 +173,13 @@ Accessibility: `role="img"` + `aria-label="Cheirin de Pão"` on the SVG element.
 
 Full viewport layout. Dark theme by exception (espresso background), not using `--color-app-bg`.
 
+Primary focal point: app icon container (132px) with BreadMark symbol (86px) — the dominant visual element on the screen.
+
 Layout (top to bottom, centered column):
 1. Top vinheta: radial gradient from `rgba(227,172,63,0.15)` to transparent, centered at top of screen
 2. App icon: 132px × 132px square, `border-radius: 30%`, background `#160C04`, box-shadow `shadow-strong`, contains `<BreadMark size={86} />`
 3. App name: "Cheirin de Pão", 32px Bricolage Grotesque 700, color `#FBF3E4`, margin-top 20px
-4. Tagline: "PÃO FRESCO NA PORTA", 12px Hanken Grotesk 600, letter-spacing 0.26em, color `#E3AC3F`, margin-top 8px
+4. Tagline: "PÃO FRESCO NA PORTA", 12px Hanken Grotesk 700, letter-spacing 0.26em, color `#E3AC3F`, margin-top 8px
 5. Spacer (flex-grow to push footer down)
 6. Install card (white surface card, padding 20px, border-radius 22px, `shadow-soft`):
    - Card title: "Instalar o Cheirin", 15px weight 700
@@ -194,12 +199,12 @@ When `isInstallable === true` AND `isStandalone === false`:
 When `isIOS === true` AND `isStandalone === false`:
 - Renders a bottom sheet (fixed bottom, slides up on mount) over the SplashScreen
 - Background: `#FFFFFF` surface card, border-radius 22px 22px 0 0, padding 24px
-- Title: "Adicionar à tela inicial", 18px Bricolage Grotesque 700
+- Title: "Adicionar à tela inicial", 21px Bricolage Grotesque 700
 - Step-by-step visual instructions (3 steps):
   1. Icon: share/arrow-up — "Toque em" + share icon glyph
   2. Icon: list — "Role e toque em"
   3. Text: "'Adicionar à Tela Inicial'"
-- Each step row: icon 24px, text 14px Hanken Grotesk 400, gap 12px, min-height 44px
+- Each step row: icon 24px, text 15px Hanken Grotesk 400, gap 12px, min-height 44px
 - Dismiss: tap outside or "Entendi" text button at bottom, 15px weight 700, color `#B0702A`
 - Sheet uses `useInstallPrompt` hook: `isIOS` detection via UA regex
 
@@ -267,6 +272,12 @@ The full `globals.css` `@theme` block the executor must create:
   /* Fonts */
   --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", serif;
   --font-body: "Hanken Grotesk", sans-serif;
+
+  /* Text sizes — exactly 4 role-aligned tokens */
+  --text-sm: 12.5px;
+  --text-base: 15px;
+  --text-xl: 21px;
+  --text-3xl: 32px;
 
   /* Color tokens — THEMES.light only */
   --color-page-bg: #C9BBA2;
