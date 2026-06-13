@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Turborepo
+.turbo/
+
+# Test coverage
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# Prisma generated
+apps/api/src/generated/

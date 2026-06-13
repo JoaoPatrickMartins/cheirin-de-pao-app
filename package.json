@@ -1,0 +1,14 @@
+{
+  "name": "cheirin-de-pao",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "2.9.18"
+  }
+}
