@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  /* Fonts */
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", serif;
+  --font-body: "Hanken Grotesk", sans-serif;
+
+  /* Text sizes — exactly 4 role-aligned tokens */
+  --text-sm: 12.5px;
+  --text-base: 15px;
+  --text-xl: 21px;
+  --text-3xl: 32px;
+
+  /* Color tokens — THEMES.light only */
+  --color-page-bg: #C9BBA2;
+  --color-app-bg: #FAF5EC;
+  --color-surface: #FFFFFF;
+  --color-surface-alt: #FBF6EC;
+  --color-surface-2: #F4EBDA;
+  --color-espresso: #1E1207;
+  --color-icon-bg: #160C04;
+  --color-text: #241608;
+  --color-text-sec: #7C6A50;
+  --color-text-ter: #A89A82;
+  --color-gold: #E3AC3F;
+  --color-gold-soft: #F3DDA6;
+  --color-accent: #B0702A;
+  --color-good: #3E7C53;
+  --color-good-soft: #DCEBDF;
+  --color-primary-btn-text: #FBF3E4;
+
+  /* Border colors (rgba — accessed via CSS var; no utility class generated) */
+  --color-border: rgba(43, 26, 12, 0.10);
+  --color-border-2: rgba(43, 26, 12, 0.06);
+
+  /* Shadows (accessed via CSS var — no utility class generated) */
+  --shadow-soft: 0 1px 2px rgba(43,26,12,0.05), 0 4px 14px -8px rgba(43,26,12,0.18);
+  --shadow-strong: 0 1px 2px rgba(43,26,12,0.05), 0 10px 30px -12px rgba(43,26,12,0.22);
+
+  /* Border radii */
+  --radius-field: 14px;
+  --radius-btn: 16px;
+  --radius-card: 22px;
+  --radius-pill: 999px;
+  --radius-app-icon: 30%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
