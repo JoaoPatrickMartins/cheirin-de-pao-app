@@ -1,0 +1,282 @@
+// Prisma v6.19.3 — MongoDB adapter
+// NEVER run `prisma migrate dev` — MongoDB does not support Prisma migrations
+// Only use: `prisma generate` (after schema changes) and `prisma validate` (CI)
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ===== COMPOSITE TYPES (embedded documents) =====
+
+type Address {
+  street     String
+  number     String
+  complement String?
+  city       String
+  state      String
+  zip        String
+}
+
+// ===== ENUMS =====
+
+enum UserRole {
+  CLIENT
+  COURIER
+  ADMIN
+}
+
+enum CondoType {
+  SINGLE_ENTRANCE
+  BLOCKS
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+enum TransactionType {
+  PURCHASE
+  DELIVERY
+  REFUND
+  EXPIRY
+}
+
+enum OrderType {
+  SINGLE
+  SCHEDULED
+}
+
+enum OrderStatus {
+  SCHEDULED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  PENDING
+  CONFIRMED
+}
+
+enum DeliveryListStatus {
+  OPEN
+  CLOSED
+  COMPLETED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  FINALIZED
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum NotificationType {
+  DELIVERY_EVE
+  DELIVERY_DONE
+  LOW_CREDIT
+  CUTOFF
+  RECONFIGURE
+  CREDIT_PURCHASED
+}
+
+// ===== MODELS (15 collections) =====
+
+// 1. User — clientes, entregadores e admins
+model User {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  email         String?   @unique
+  phone         String?   @unique
+  role          UserRole
+  name          String
+  cpf           String    @unique
+  birthDate     DateTime?
+  isBlocked     Boolean   @default(false)
+  condominiumId String?   @db.ObjectId
+  apartment     String?
+  block         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// 2. Condominium — condomínios cadastrados
+model Condominium {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  address   Address
+  type      CondoType
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// 3. Combo — pacotes de créditos de pãezinhos
+model Combo {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  quantity  Int
+  price     Float
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 4. Promotion — promoções e descontos temporários por combo
+model Promotion {
+  id            String       @id @default(auto()) @map("_id") @db.ObjectId
+  comboId       String       @db.ObjectId
+  discountType  DiscountType
+  discountValue Float
+  startsAt      DateTime
+  endsAt        DateTime
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+// 5. Setting — configurações globais (horário de corte, preço avulso, etc.)
+model Setting {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 6. CreditTransaction — movimentação de créditos (imutável — sem updatedAt)
+model CreditTransaction {
+  id          String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String          @db.ObjectId
+  type        TransactionType
+  quantity    Int
+  referenceId String?
+  description String?
+  createdAt   DateTime        @default(now())
+}
+
+// 7. Schedule — agendamento semanal personalizado por cliente
+model Schedule {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String   @db.ObjectId
+  condominiumId     String   @db.ObjectId
+  weeklyQty         Json
+  deliveryTime      String
+  notifyReconfigure Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// 8. Order — pedidos unitários (avulsos ou gerados pelo schedule)
+model Order {
+  id             String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String      @db.ObjectId
+  type           OrderType
+  quantity       Int
+  scheduledDate  DateTime
+  status         OrderStatus
+  deliveryListId String?     @db.ObjectId
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+// 9. Delivery — registro de entrega com confirmação por entregador
+model Delivery {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  orderId     String         @db.ObjectId
+  courierId   String         @db.ObjectId
+  deliveredAt DateTime?
+  confirmedAt DateTime?
+  status      DeliveryStatus
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+// 10. DeliveryList — lista consolidada por condomínio para entregadores
+model DeliveryList {
+  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+  date          DateTime
+  condominiumId String             @db.ObjectId
+  courierId     String?            @db.ObjectId
+  status        DeliveryListStatus
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+// 11. Supplier — fornecedores de pãezinhos
+model Supplier {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  cnpj         String   @unique
+  phone        String?
+  email        String?
+  address      Address
+  pricePerUnit Float
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// 12. PurchaseOrder — pedidos de compra ao fornecedor (cabeçalho)
+model PurchaseOrder {
+  id            String              @id @default(auto()) @map("_id") @db.ObjectId
+  date          DateTime
+  totalQuantity Int
+  cutoffTime    DateTime
+  status        PurchaseOrderStatus
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+}
+
+// 13. PurchaseOrderItem — itens do pedido separados por fornecedor
+model PurchaseOrderItem {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  purchaseOrderId String   @db.ObjectId
+  supplierId      String   @db.ObjectId
+  quantity        Int
+  unitPrice       Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// 14. Payment — pagamentos via Mercado Pago (Pix/cartão)
+model Payment {
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String        @db.ObjectId
+  amount        Float
+  method        PaymentMethod
+  status        PaymentStatus
+  mercadoPagoId String?       @unique
+  comboId       String?       @db.ObjectId
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+// 15. Notification — fila de notificações por tipo (imutável — sem updatedAt)
+model Notification {
+  id          String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String           @db.ObjectId
+  type        NotificationType
+  title       String
+  body        String
+  isRead      Boolean          @default(false)
+  actionRoute String?
+  createdAt   DateTime         @default(now())
+}
