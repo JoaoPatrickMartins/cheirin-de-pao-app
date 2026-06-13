@@ -33,7 +33,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Acessar o app no iPhone (iOS 16.4+) mostra o banner com instrução visual passo a passo para adicionar à tela inicial
   4. PWA instalado abre como app standalone (sem barra do navegador) com a tela Splash em fundo espresso e símbolo dourado BreadMark
   5. API Fastify responde em `/health` com status 200 e conexão com MongoDB Atlas confirmada nos logs
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 01-01-PLAN.md — Monorepo scaffold + workspace config + Vitest test infrastructure
+- [ ] 01-02-PLAN.md — Fastify API + Prisma schema (15 collections) + /health endpoint + MongoDB Atlas connection
+- [ ] 01-03-PLAN.md — Frontend PWA + design tokens + BreadMark + SplashScreen + install prompts + React Router
 **UI hint**: yes
 
 ### Phase 2: Authentication
@@ -127,7 +131,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/TBD | Not started | - |
+| 1. Foundation | 0/3 | Not started | - |
 | 2. Authentication | 0/TBD | Not started | - |
 | 3. Credits & Commerce | 0/TBD | Not started | - |
 | 4. Scheduling | 0/TBD | Not started | - |
