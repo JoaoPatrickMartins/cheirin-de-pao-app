@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  web:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    command: npm run dev --workspace=apps/web
+    environment:
+      - NODE_ENV=development
+    networks:
+      - cheirin-network
+
+  api:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "3001:3001"
+    command: npm run dev --workspace=apps/api
+    environment:
+      - NODE_ENV=development
+    networks:
+      - cheirin-network
+
+networks:
+  cheirin-network:
+    driver: bridge
+
+# Note: No MongoDB service — project uses MongoDB Atlas (remote only per CLAUDE.md)
