@@ -13,7 +13,7 @@ Construção do PWA Cheirin de Pão em 7 fases verticais. Cada fase entrega um b
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Monorepo, Dev Container, Prisma schema, shared packages e PWA shell instalável
+- [x] **Phase 1: Foundation** - Monorepo, Dev Container, Prisma schema, shared packages e PWA shell instalável (completed 2026-06-13)
 - [ ] **Phase 2: Authentication** - OTP login, cadastro em 5 passos, sessão permanente e roteamento por perfil
 - [ ] **Phase 3: Credits & Commerce** - Compra de combos, compra personalizada, saldo de créditos e pagamento via Mercado Pago
 - [ ] **Phase 4: Scheduling** - Agenda semanal, pedido único, reserva de créditos e compra automática
@@ -45,8 +45,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Fastify API + Prisma schema (15 collections) + /health endpoint + MongoDB Atlas connection
-- [ ] 01-03-PLAN.md — Frontend PWA + design tokens + BreadMark + SplashScreen + install prompts + React Router
+- [x] 01-02-PLAN.md — Fastify API + Prisma schema (15 collections) + /health endpoint + MongoDB Atlas connection
+- [x] 01-03-PLAN.md — Frontend PWA + design tokens + BreadMark + SplashScreen + install prompts + React Router
 
 **UI hint**: yes
 
@@ -159,7 +159,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 1/3 | In Progress|  |
+| 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 0/TBD | Not started | - |
 | 3. Credits & Commerce | 0/TBD | Not started | - |
 | 4. Scheduling | 0/TBD | Not started | - |
