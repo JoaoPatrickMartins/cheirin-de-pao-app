@@ -108,8 +108,8 @@ Plans:
 
 **Wave 1** *(blocked on Wave 0 completion — 03-02 e 03-04 são paralelos)*
 
-- [ ] 03-02-PLAN.md — Módulo payments API (POST /payments/pix, POST /payments/card, GET /payments/:id/status) + módulo credits API (GET /combos, GET /pricing, GET /credits/history)
-- [ ] 03-04-PLAN.md — AuthContext (creditBalance) + ClientTabBar + router sub-rotas /client + HomeA + CreditBalanceCard + CreditHistoryScreen + PlaceholderScreen
+- [x] 03-02-PLAN.md — Módulo payments API (POST /payments/pix, POST /payments/card, GET /payments/:id/status) + módulo credits API (GET /combos, GET /pricing, GET /credits/history)
+- [x] 03-04-PLAN.md — AuthContext (creditBalance) + ClientTabBar + router sub-rotas /client + HomeA + CreditBalanceCard + CreditHistoryScreen + PlaceholderScreen
 
 **Wave 2** *(blocked on Wave 1 — 03-03 depende de 03-02; 03-05 depende de 03-04)*
 
@@ -199,7 +199,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
-| 3. Credits & Commerce | 1/6 | In Progress|  |
+| 3. Credits & Commerce | 3/6 | In Progress|  |
 | 4. Scheduling | 0/TBD | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
