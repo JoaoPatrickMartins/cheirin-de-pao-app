@@ -99,7 +99,7 @@ export function LoginScreen() {
       } else if (res.status === 401) {
         const err = (await res.json()) as { error?: string }
         const errMsg = err.error ?? ''
-        if (errMsg.toLowerCase().includes('expired')) {
+        if (errMsg.toLowerCase().includes('expir')) {
           setError('Código expirado. Solicite um novo.')
         } else {
           setError('Código incorreto. Verifique e tente de novo.')
