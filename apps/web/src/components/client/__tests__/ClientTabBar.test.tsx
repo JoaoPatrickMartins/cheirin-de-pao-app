@@ -1,24 +1,84 @@
-// ClientTabBar component tests -- Wave 0 stubs (RED state)
+// ClientTabBar component tests
 // Requirements: UI-08 (4 abas com labels corretos; aba ativa com cor diferente)
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-
-// import ClientTabBar from '../ClientTabBar'
+import { ClientTabBar } from '../ClientTabBar'
 
 describe('ClientTabBar [UI-08]', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   describe('renderizacao das abas', () => {
-    it('TODO: renderiza exatamente 4 abas de navegacao', () => { expect(true).toBe(false) })
-    it('TODO: aba "Inicio" esta presente com label correto', () => { expect(true).toBe(false) })
-    it('TODO: aba "Agenda" esta presente com label correto', () => { expect(true).toBe(false) })
-    it('TODO: aba "Creditos" esta presente com label correto', () => { expect(true).toBe(false) })
-    it('TODO: aba "Perfil" esta presente com label correto', () => { expect(true).toBe(false) })
+    it('renderiza exatamente 4 abas de navegacao', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/home']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      const buttons = screen.getAllByRole('button')
+      expect(buttons).toHaveLength(4)
+    })
+
+    it('aba "Inicio" esta presente com label correto', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/home']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      expect(screen.getByText('Início')).toBeDefined()
+    })
+
+    it('aba "Agenda" esta presente com label correto', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/home']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      expect(screen.getByText('Agenda')).toBeDefined()
+    })
+
+    it('aba "Creditos" esta presente com label correto', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/home']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      expect(screen.getByText('Créditos')).toBeDefined()
+    })
+
+    it('aba "Pedidos" esta presente com label correto', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/home']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      expect(screen.getByText('Pedidos')).toBeDefined()
+    })
   })
 
   describe('estado ativo', () => {
-    it('TODO: aba ativa recebe classe/cor diferente das abas inativas', () => { expect(true).toBe(false) })
-    it('TODO: apenas uma aba esta ativa por vez', () => { expect(true).toBe(false) })
+    it('aba ativa tem data-active="true" diferente das inativas', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/home']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      const activeButtons = screen.getAllByRole('button').filter(
+        btn => btn.getAttribute('data-active') === 'true'
+      )
+      expect(activeButtons).toHaveLength(1)
+    })
+
+    it('apenas uma aba esta ativa por vez', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/creditos']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      const activeButtons = screen.getAllByRole('button').filter(
+        btn => btn.getAttribute('data-active') === 'true'
+      )
+      expect(activeButtons).toHaveLength(1)
+    })
   })
 })
