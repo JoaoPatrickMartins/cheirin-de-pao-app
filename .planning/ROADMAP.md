@@ -14,7 +14,7 @@ Construção do PWA Cheirin de Pão em 7 fases verticais. Cada fase entrega um b
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Monorepo, Dev Container, Prisma schema, shared packages e PWA shell instalável (completed 2026-06-13)
-- [ ] **Phase 2: Authentication** - OTP login, cadastro em 5 passos, sessão permanente e roteamento por perfil
+- [x] **Phase 2: Authentication** - OTP login, cadastro em 5 passos, sessão permanente e roteamento por perfil (completed 2026-06-14)
 - [ ] **Phase 3: Credits & Commerce** - Compra de combos, compra personalizada, saldo de créditos e pagamento via Mercado Pago
 - [ ] **Phase 4: Scheduling** - Agenda semanal, pedido único, reserva de créditos e compra automática
 - [ ] **Phase 5: Delivery Experience** - Rastreamento 3 estados, notificações push, histórico e central de notificações
@@ -73,16 +73,16 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion — 02-02 and 02-02b are sequential: 02-02b depends on 02-02)*
 
 - [x] 02-02-PLAN.md — Auth business logic core: schemas, repository, service, OTP service, unit tests
-- [ ] 02-02b-PLAN.md — Auth wiring: routes, controller, authenticate plugin (preHandler only), admin bootstrap, GET /condominiums, server.ts
+- [x] 02-02b-PLAN.md — Auth wiring: routes, controller, authenticate plugin (preHandler only), admin bootstrap, GET /condominiums, server.ts
 
 **Wave 3** *(blocked on Wave 2 completion — depends on 02-02b)*
 
-- [ ] 02-03-PLAN.md — AuthContext + ProtectedRoute + LoadingScreen + router rewiring + profile layout guards
+- [x] 02-03-PLAN.md — AuthContext + ProtectedRoute + LoadingScreen + router rewiring + profile layout guards
 
 **Wave 4** *(blocked on Wave 3 completion — plans 04 and 05 are parallel)*
 
-- [ ] 02-04-PLAN.md — LoginScreen (2-step OTP login) + apiFetch wrapper + OtpInput + ResendTimer
-- [ ] 02-05-PLAN.md — OnboardingScreen (5-step registration) + StepDots + CondoSearch + ChannelSelector + CourierRegisterScreen
+- [x] 02-04-PLAN.md — LoginScreen (2-step OTP login) + apiFetch wrapper + OtpInput + ResendTimer
+- [x] 02-05-PLAN.md — OnboardingScreen (5-step registration) + StepDots + CondoSearch + ChannelSelector + CourierRegisterScreen
 
 **UI hint**: yes
 
@@ -179,7 +179,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
-| 2. Authentication | 2/6 | In Progress|  |
+| 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 0/TBD | Not started | - |
 | 4. Scheduling | 0/TBD | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |
