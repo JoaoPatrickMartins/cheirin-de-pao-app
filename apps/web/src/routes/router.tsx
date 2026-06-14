@@ -1,30 +1,50 @@
 import { createBrowserRouter } from 'react-router'
 import { SplashScreen } from '../pages/splash/SplashScreen'
+import { AuthProvider } from '../contexts/AuthContext'
 
 export const router = createBrowserRouter([
   {
-    path: '/',
-    element: <SplashScreen />,
-  },
-  {
-    path: '/client',
-    lazy: () =>
-      import('../pages/client/ClientLayout').then((m) => ({
-        Component: m.ClientLayout,
-      })),
-  },
-  {
-    path: '/courier',
-    lazy: () =>
-      import('../pages/courier/CourierLayout').then((m) => ({
-        Component: m.CourierLayout,
-      })),
-  },
-  {
-    path: '/admin',
-    lazy: () =>
-      import('../pages/admin/AdminLayout').then((m) => ({
-        Component: m.AdminLayout,
-      })),
+    Component: AuthProvider,
+    children: [
+      {
+        path: '/',
+        element: <SplashScreen />,
+      },
+      {
+        path: '/login',
+        lazy: () =>
+          import('../pages/auth/LoginScreen').then((m) => ({
+            Component: m.LoginScreen,
+          })),
+      },
+      {
+        path: '/register',
+        lazy: () =>
+          import('../pages/auth/OnboardingScreen').then((m) => ({
+            Component: m.OnboardingScreen,
+          })),
+      },
+      {
+        path: '/client',
+        lazy: () =>
+          import('../pages/client/ClientLayout').then((m) => ({
+            Component: m.ClientLayout,
+          })),
+      },
+      {
+        path: '/courier',
+        lazy: () =>
+          import('../pages/courier/CourierLayout').then((m) => ({
+            Component: m.CourierLayout,
+          })),
+      },
+      {
+        path: '/admin',
+        lazy: () =>
+          import('../pages/admin/AdminLayout').then((m) => ({
+            Component: m.AdminLayout,
+          })),
+      },
+    ],
   },
 ])
