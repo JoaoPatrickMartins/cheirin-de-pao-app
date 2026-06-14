@@ -112,6 +112,9 @@ model User {
   condominiumId String?   @db.ObjectId
   apartment     String?
   block         String?
+  creditBalance Int       @default(0)
+  autoRecharge  Json?
+  cardTokenMp   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -263,10 +266,11 @@ model Payment {
   amount        Float
   method        PaymentMethod
   status        PaymentStatus
-  mercadoPagoId String?       @unique
-  comboId       String?       @db.ObjectId
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  mercadoPagoId  String?       @unique
+  comboId        String?       @db.ObjectId
+  customQuantity Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 }
 
 // 15. Notification — fila de notificações por tipo (imutável — sem updatedAt)
