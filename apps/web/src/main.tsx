@@ -9,8 +9,14 @@ import './styles/globals.css'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import OneSignal from 'react-onesignal'
+import { initMercadoPago } from '@mercadopago/sdk-react'
 import { RouterProvider } from 'react-router'
 import { router } from './routes/router'
+
+// initMercadoPago chamado uma vez; guard para não chamar em testes (sem VITE_MP_PUBLIC_KEY)
+if (import.meta.env.VITE_MP_PUBLIC_KEY) {
+  initMercadoPago(import.meta.env.VITE_MP_PUBLIC_KEY as string, { locale: 'pt-BR' })
+}
 
 // react-onesignal prevents double-init on StrictMode re-renders.
 // Phase 1: SDK initialized only. Push notifications tested in Phase 5.
