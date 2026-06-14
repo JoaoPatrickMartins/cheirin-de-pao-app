@@ -15,7 +15,8 @@ export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
       }))
       return reply.send(result)
     } catch (err) {
-      return reply.status(500).send({ error: String(err) })
+      fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro ao carregar condomínios.' })
     }
   })
 }
