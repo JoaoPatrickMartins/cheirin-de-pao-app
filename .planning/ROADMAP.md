@@ -104,7 +104,7 @@ Plans:
 Plans:
 **Wave 0** *(bloqueante — deve completar antes dos demais)*
 
-- [ ] 03-01-PLAN.md — Schema Prisma (creditBalance, autoRecharge, cardTokenMp, customQuantity) + prisma generate + stubs de teste Wave 0
+- [x] 03-01-PLAN.md — Schema Prisma (creditBalance, autoRecharge, cardTokenMp, customQuantity) + prisma generate + stubs de teste Wave 0
 
 **Wave 1** *(blocked on Wave 0 completion — 03-02 e 03-04 são paralelos)*
 
@@ -199,7 +199,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
-| 3. Credits & Commerce | 0/6 | Not started | - |
+| 3. Credits & Commerce | 1/6 | In Progress|  |
 | 4. Scheduling | 0/TBD | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
