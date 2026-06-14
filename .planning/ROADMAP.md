@@ -64,17 +64,18 @@ Plans:
   4. Admin cadastra entregador pelo painel e entregador consegue fazer login com OTP
   5. Login de Admin funciona com OTP — sem tela de cadastro público disponível
 
-**Plans**: 5 plans
+**Plans**: 6 plans
 Plans:
 **Wave 1**
 
 - [ ] 02-01-PLAN.md — Prisma schema extension (Session + OtpCode) + db push + CpfSchema + Wave 0 test stubs
 
-**Wave 2** *(blocked on Wave 1 completion)*
+**Wave 2** *(blocked on Wave 1 completion — 02-02 and 02-02b are sequential: 02-02b depends on 02-02)*
 
-- [ ] 02-02-PLAN.md — API auth module (register/OTP/verify/couriers) + authenticate plugin + admin bootstrap + GET /condominiums
+- [ ] 02-02-PLAN.md — Auth business logic core: schemas, repository, service, OTP service, unit tests
+- [ ] 02-02b-PLAN.md — Auth wiring: routes, controller, authenticate plugin (preHandler only), admin bootstrap, GET /condominiums, server.ts
 
-**Wave 3** *(blocked on Wave 2 completion)*
+**Wave 3** *(blocked on Wave 2 completion — depends on 02-02b)*
 
 - [ ] 02-03-PLAN.md — AuthContext + ProtectedRoute + LoadingScreen + router rewiring + profile layout guards
 

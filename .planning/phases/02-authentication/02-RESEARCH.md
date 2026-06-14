@@ -672,22 +672,25 @@ export async function seedAdminIfAbsent(prisma: PrismaClient): Promise<void> {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Admin CPF requirement for bootstrap**
    - What we know: `User.cpf` is `@unique` in the Prisma schema. CPF is required for CLIENT and COURIER.
    - What's unclear: Should ADMIN users also have a real CPF? The CONTEXT.md `D-09` doesn't mention CPF for admin bootstrap env vars.
    - Recommendation: Add `ADMIN_CPF` to `.env.example` as optional. If absent, use a placeholder like `'00000000000'` with a note that it should be updated. Alternatively, make `cpf` nullable for ADMIN role.
+   - **RESOLVED:** Admin CPF is optional. `admin-seed.ts` (Plan 02-02b) uses `process.env.ADMIN_CPF ?? '00000000000'` as a placeholder. `ADMIN_CPF` is documented in `.env.example` as an optional env var with an inline comment. No schema change required — the placeholder value satisfies the `@unique` constraint at bootstrap time.
 
 2. **`X-Device-Id` header naming**
    - What we know: CONTEXT.md says device_id is sent; doesn't specify the HTTP header name.
    - What's unclear: Is the header `X-Device-Id`, `x-device-id`, `device-id`, or sent as part of the request body?
    - Recommendation: Use `X-Device-Id` HTTP header (consistent with common API conventions). Document in `authenticate.ts` and the frontend `apiFetch` wrapper.
+   - **RESOLVED:** Standardized as `X-Device-Id` HTTP header (title-case). Used in `authenticate.ts` (`request.headers['x-device-id']`) and injected by the frontend `apiFetch` wrapper on every call. Both Plans 02-02b and 02-04 implement this consistently.
 
 3. **Condominium list population for step 3 of registration**
    - What we know: Step 3 of `OnboardingScreen` shows a searchable list of condominiums from the database.
    - What's unclear: At Phase 2, no condominiums are seeded. The empty state is handled in the design ("Seu condomínio ainda não é parceiro"). But should Phase 2 include a seed of at least one test condominium to enable success criteria #1 to be verifiable?
    - Recommendation: Add a `GET /condominiums` public endpoint in Phase 2 (needed for the registration form) and seed 1-2 test condominiums in the bootstrap step.
+   - **RESOLVED:** `GET /condominiums` public endpoint is included in Plan 02-02b (`condominiums.route.ts`). The CondoSearch empty state ("Seu condomínio ainda não é parceiro.") handles the zero-condominium case gracefully. Manual success criterion SC1 (complete registration) requires at least one condominium in Atlas — the developer seeds one manually or via the Atlas UI during Phase 2 testing.
 
 ---
 
