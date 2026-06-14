@@ -12,7 +12,16 @@ O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele
 
 ### Validated
 
-(None yet — ship to validate)
+#### Infraestrutura Base (Validado em Phase 1: Foundation)
+- [x] Monorepo Turborepo com apps/web (React+Vite PWA), apps/api (Fastify+Prisma), packages/shared (Zod schemas)
+- [x] Dev Container configurado (VS Code + Docker Compose)
+- [x] TypeScript ponta a ponta (frontend + backend + shared)
+- [x] Prisma com MongoDB Atlas — 15 collections (schema gerado, validate passa)
+
+#### PWA Base (Validado em Phase 1: Foundation)
+- [x] PWA instalável — VitePWA injectManifest, manifest.webmanifest servido, SW registrado
+- [x] SplashScreen com prompt de instalação (Android: banner nativo; iOS: bottom sheet 3 passos)
+- [x] Fontsource (Bricolage Grotesque + Hanken Grotesk) — offline-safe, sem Google CDN
 
 ### Active
 
@@ -139,4 +148,4 @@ Este documento evolui a cada transição de fase e a cada milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-06-13 após inicialização*
+*Last updated: 2026-06-14 — Phase 1 Foundation complete*
