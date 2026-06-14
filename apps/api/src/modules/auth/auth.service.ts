@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { FastifyInstance } from 'fastify'
 import { AuthRepository } from './auth.repository.js'
 import { sendSmsOtp, sendEmailOtp } from './otp.service.js'
@@ -12,7 +12,8 @@ export class AuthService {
   }
 
   generateOtpCode(): string {
-    return Math.floor(1000 + Math.random() * 9000).toString()
+    // randomInt é CSPRNG: gera inteiro em [min, max) com segurança criptográfica
+    return randomInt(1000, 10000).toString()
   }
 
   hashValue(value: string): string {
@@ -74,7 +75,12 @@ export class AuthService {
     // Pitfall 2: explicit expiry check
     if (otp.expiresAt < new Date()) return { error: 'OTP expirado', status: 401 }
 
-    if (otp.code !== this.hashValue(code)) return { error: 'Código inválido', status: 401 }
+    // Comparação segura contra timing attacks
+    const expectedHash = Buffer.from(this.hashValue(code), 'hex')
+    const actualHash = Buffer.from(otp.code, 'hex')
+    const match =
+      expectedHash.length === actualHash.length && timingSafeEqual(expectedHash, actualHash)
+    if (!match) return { error: 'Código inválido', status: 401 }
 
     await this.repo.markOtpUsed(otp.id)
 
