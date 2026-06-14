@@ -60,32 +60,37 @@ Declared values (multiples of 4 only):
 | 2xl | 48px | Vertical centering spacer |
 | 3xl | 64px | Splash top icon margin |
 
-Exceptions:
-- Back button: 38×38px hit area (minimum; visual < 44px — acceptable for secondary nav)
-- Back button border-radius: 12px (deviates from `--radius-btn`; matches `brand.jsx` `AppBar` back button)
-- OTP digit box: 64×72px — fixed, mandatory; matches UI-06 spec exactly
-- Status bar height placeholder: 44px
+Exceptions (values that cannot be rounded to a multiple of 4):
+- **Back button hit area: 38×38px visual** — minimum mobile touch target per iOS HIG; matches `brand.jsx` `AppBar` `BackButton` implementation. Touch target padded to 44px container. Justified: rounding to 40px would conflict with the existing `BackButton` component dimensions in `brand.jsx`.
+- **OTP digit box: 64×72px** — fixed, mandatory; matches UI-06 spec in `screens-onboarding.jsx` exactly. Cannot be rounded.
+- **Status bar height placeholder: 44px** — matches iOS safe area constant. Not a spacing token; used only for top-of-screen safe area padding.
+- **Back button border-radius: 12px** — deviates from `--radius-btn`; matches `brand.jsx` `AppBar` back button. Not a spacing value; listed here for traceability.
 
 ---
 
 ## Typography
 
-All sizes are exact pixel values from `globals.css` `@theme` block and `brand.jsx` component definitions.
+All sizes are exact pixel values from `globals.css` `@theme` block and `brand.jsx` component definitions, consolidated to the 4-size, 2-weight constraint.
 
 | Role | Family | Size | Weight | Line Height | Letter Spacing | Usage |
 |------|--------|------|--------|-------------|----------------|-------|
 | Display | `--font-display` | 32px | 700 | 1.1 | -0.03em | Splash app name, Login/Register screen main heading |
-| Heading | `--font-display` | 28px (`--text-xl` is 21; this is display-tier) | 700 | 1.1 | -0.03em | "Bom dia. Vamos te identificar." — Login heading |
-| Subheading | `--font-display` | 26px | 700 | 1.15 | -0.03em | Registration stepper titles ("Seus dados", "Como falamos com você?") |
-| AppBar title | `--font-display` | 21px (`--text-xl`) | 700 | 1.2 | -0.02em | Back-navigation screen headers |
-| Body | `--font-body` | 15px (`--text-base`) | 400–500 | 1.5 | 0 | Paragraphs, field hints, descriptions below headings |
-| Body strong | `--font-body` | 15px (`--text-base`) | 700 | 1.5 | -0.01em | Button labels, field values, resend link |
-| Label | `--font-body` | 12.5px (`--text-sm`) | 700 | 1.4 | 0.01em | Form field labels, section labels ("Receber o código por") |
-| Caption | `--font-body` | 13px | 600 | 1.4 | 0 | "Não chegou? Reenviar em 0:28", secondary links |
-| Tagline | `--font-body` | 12px | 700 | 1 | 0.26em | Splash "PÃO FRESCO NA PORTA" — uppercase |
-| OTP digit | `--font-display` | 30px | 800 | 1 | 0 | OTP input box digit display (UI-06) |
+| Heading | `--font-display` | 28px | 700 | 1.1 | -0.03em | Screen titles: "Bom dia. Vamos te identificar.", all registration step titles, AppBar screen headers |
+| Body | `--font-body` | 15px | 400 | 1.5 | 0 | Paragraphs, field hints, descriptions below headings, button labels (15px 700 via weight override — see constraint note) |
+| Label | `--font-body` | 12px | 700 | 1.4 | 0.01em | Form field labels, section labels ("Receber o código por"), captions ("Reenviar em 0:28"), secondary links, tagline text |
 
-**Constraint:** Never use a size outside this table. Two weights only in practice: 400/500 for body prose, 700/800 for interactive and heading elements.
+**Constraint:** Exactly 4 sizes (12px, 15px, 28px, 32px). Exactly 2 weights (400, 700). 400 for body prose only. 700 for all interactive elements, headings, labels, captions, and button labels.
+
+**Component-specific constants (outside typographic scale — not named type roles):**
+- **OTP digit display:** 30px, weight 700, `--font-display` — applies only inside `OtpInput` box (64×72px). Documented as a component constant in `OtpInput.tsx`, not a reusable type role.
+
+**Consolidation notes (for implementers):**
+- Former "Subheading" (26px) → 28px Heading
+- Former "AppBar title" (21px) → 28px Heading
+- Former "Caption" (13px) → 12px Label
+- Former "Label" (12.5px) → 12px Label
+- Former "Body strong" / button labels → 15px Body, weight 700 (weight-only override, not a new size)
+- Former OTP digit weight 800 → 700 (component constant)
 
 ---
 
@@ -133,7 +138,7 @@ All values are from `globals.css` `--color-*` tokens and `THEMES.light` in `bran
 2. Primary button background in auth flows (non-splash)
 3. Text on gold-background elements
 
-**Destructive:** `--color-good` inverse is not applicable in Phase 2. No destructive actions exist in auth flows. The color `#B0702A` (accent) doubles as warn per `brand.jsx` (`warn: '#B0702A'`).
+**Destructive:** No destructive actions exist in Phase 2. The color `#B0702A` (accent) doubles as warn per `brand.jsx` (`warn: '#B0702A'`), but this use case does not arise in auth flows.
 
 ---
 
@@ -165,7 +170,7 @@ All values from `globals.css` `--radius-*` tokens:
 | `OnboardingScreen` | `apps/web/src/pages/auth/OnboardingScreen.tsx` | 5-step registration stepper. Mirrors `screens-onboarding.jsx → OnboardingScreen`. |
 | `OtpInput` | `apps/web/src/components/auth/OtpInput.tsx` | 4 independent inputs with auto-focus. See Interaction Contract below. |
 | `ResendTimer` | `apps/web/src/components/auth/ResendTimer.tsx` | 30-second countdown; "Reenviar em 0:28" → activates resend button. |
-| `StepDots` | `apps/web/src/components/auth/StepDots.tsx` | 5-dot progress indicator with active dot animating width 7px → 22px. |
+| `StepDots` | `apps/web/src/components/auth/StepDots.tsx` | 5-dot progress indicator with active dot animating width 8px → 24px. |
 | `CondoSearch` | `apps/web/src/components/auth/CondoSearch.tsx` | Searchable list of condominiums with empty state. |
 | `ChannelSelector` | `apps/web/src/components/auth/ChannelSelector.tsx` | SMS / E-mail toggle with auto-select logic. |
 | `CourierRegisterScreen` | `apps/web/src/pages/admin/CourierRegisterScreen.tsx` | Admin registers courier. Simple form: name, CPF, phone, email. |
@@ -191,7 +196,9 @@ All values from `globals.css` `--radius-*` tokens:
 Each input:
   width: 64px, height: 72px
   textAlign: center
-  fontSize: 30px, fontWeight: 800, fontFamily: --font-display
+  fontSize: 30px (component constant — outside typographic scale)
+  fontWeight: 700
+  fontFamily: --font-display
   color: --color-text
   background: --color-surface-alt (#FBF6EC)
   borderRadius: 18px
@@ -217,7 +224,7 @@ Timer: 30 seconds (useState + useEffect interval).
 At 0: text changes to "Reenviar código" as a clickable link.
 Color during countdown: --color-text-ter (#A89A82) — non-interactive appearance.
 Color when active: --color-accent (#B0702A) — same as other text links.
-Font: 13px, weight 600, family --font-body.
+Font: 12px (Label role), weight 700, family --font-body.
 ```
 
 ### Field Focus State
@@ -228,7 +235,7 @@ On blur: border returns to --color-border
 Transition: border-color 0.15s ease
 Background: --color-surface-alt (#FBF6EC)
 Border-radius: --radius-field (14px)
-Padding: 12px 14px
+Padding: 12px 16px
 ```
 
 ### Button States
@@ -238,10 +245,12 @@ Primary (espresso):
   background: --color-espresso (#1E1207)
   color: --color-primary-btn-text (#FBF3E4)
   border-radius: --radius-btn (16px)
-  padding: 16px 22px (size="lg")
+  padding: 16px 24px (size="lg")
   font: 15px / weight 700 / --font-body / letter-spacing -0.01em
   disabled: opacity 0.45, no pointer
   hover (desktop): translateY(-1px) + brightness(1.05), transition 0.15s
+    Note: the -1px translateY is a motion constant, not a spacing value.
+    See Animation / Motion section.
 
 Gold (CTA on dark background):
   background: --color-gold (#E3AC3F)
@@ -266,10 +275,10 @@ behavior: go back one step in stepper, or navigate to previous screen
 
 ```
 5 dots total.
-Active dot: width 22px, height 7px, background: --color-accent, border-radius 99px
-Inactive dot: width 7px, height 7px, background: --color-border, border-radius 99px
+Active dot: width 24px, height 8px, background: --color-accent, border-radius 99px
+Inactive dot: width 8px, height 8px, background: --color-border, border-radius 99px
 Transition: width + background — 0.25s ease
-Gap between dots: 6px
+Gap between dots: 8px
 Position: centered, padding 4px 0 16px (below back button, above step content)
 ```
 
@@ -280,7 +289,7 @@ Icon: "building", 28px, color: --color-text-ter
 Heading: none (caption only)
 Caption: "Seu condomínio ainda não é parceiro."
 Second line: "Avise a gente que levamos o cheirin até aí!"
-Font: 13.5px, color: --color-text-ter, line-height 1.5, textAlign: center
+Font: 12px (Label role), weight 700, color: --color-text-ter, line-height 1.5, textAlign: center
 Padding: 24px 16px
 ```
 
@@ -297,7 +306,7 @@ Minimum display: 0ms (disappears as soon as isLoading becomes false)
 
 ```
 Two buttons side by side: "SMS" (icon: phone) and "E-mail" (icon: mail).
-Layout: flex row, gap 10px, each flex: 1.
+Layout: flex row, gap 8px, each flex: 1.
 Selected state:
   border: 1.5px solid --color-accent
   background: --color-gold-soft (#F3DDA6)
@@ -312,19 +321,19 @@ Auto-select logic:
   - Only phone entered → SMS pre-selected, E-mail disabled
   - Only email entered → E-mail pre-selected, SMS disabled
   - Both entered → default SMS, user can switch
-Font: 14px, weight 700, --font-body.
-Border-radius: 14px. Padding: 13px 0.
+Font: 15px (Body role), weight 700, --font-body.
+Border-radius: 14px. Padding: 12px 0.
 ```
 
 ### Block/Tower Chip Selector (Registration step 3)
 
 ```
 Visible only when selected condominium type === 'blocos'.
-Chips rendered as flex-wrap row, gap: 9px.
+Chips rendered as flex-wrap row, gap: 8px.
 Each chip:
-  padding: 10px 16px
+  padding: 8px 16px
   border-radius: 13px
-  font: 14px, weight 700, --font-body
+  font: 15px (Body role), weight 700, --font-body
 Selected: border 1.5px --color-accent, background --color-gold-soft, color --color-accent
 Unselected: border 1.5px --color-border, background --color-surface, color --color-text
 ```
@@ -337,70 +346,74 @@ Unselected: border 1.5px --color-border, background --color-surface, color --col
 
 ```
 Container: flex column, full height, padding: 8px 24px 24px
-Top: back button (38px) — left-aligned
+Top: back button (38px visual, 44px touch) — left-aligned
 Content area: flex-grow, centered vertically (justify: center)
 Bottom: no sticky footer (CTA is inside the content area)
 
 Step 1 (phone entry):
-  - Heading: 28px display, "Bom dia.\nVamos te identificar."
-  - Body: 14.5px, color text-sec, margin-top 12px, margin-bottom 28px
+  - Heading: 28px display font, "Bom dia.\nVamos te identificar."
+  - Body: 15px, color text-sec, margin-top 12px, margin-bottom 24px
   - Field: phone number
-  - Spacer: 18px
+  - Spacer: 16px
   - Primary CTA full-width: "Enviar código"
-  - Link below: "ou entre com e-mail" (13px, text-ter; "e-mail" in color-accent)
+  - Link below: "ou entre com e-mail" (12px Label, text-ter; "e-mail" in color-accent)
 
 Step 2 (OTP entry):
-  - Heading: 28px display, "Digite o código"
-  - Body: 14.5px, "Mandamos 4 dígitos para [phone bold]."
+  - Heading: 28px display font, "Digite o código"
+  - Body: 15px, "Mandamos 4 dígitos para [phone bold]."
   - OTP 4-input row (see above)
   - Spacer: 24px
   - Primary CTA full-width: "Confirmar"
-  - Resend timer link below (13px)
+  - Resend timer link below (12px Label)
 ```
 
 ### Registration Stepper layout
 
 ```
-Container: flex column, full height, padding: 6px 24px 22px, overflow: hidden
+Container: flex column, full height, padding: 4px 24px 24px, overflow: hidden
 Top: back button (left-aligned, flex-shrink 0)
-Step dots: margin-top 16px, margin-bottom 6px, centered
+Step dots: margin-top 16px, margin-bottom 8px, centered
 Content: flex-grow, flex column, min-height 0 (for step 2 which has scrollable list)
-CTA area: padding-top 14px, sticky to bottom of flex column
+CTA area: padding-top 16px, sticky to bottom of flex column
 ```
 
 ### Step 0 — "Seus dados"
+
 ```
-Title (26px display) + Sub (14px, margin-top 10px, margin-bottom 22px)
-Form: 3 fields (nome, CPF, nascimento), gap 14px
+Title (28px Heading) + Sub (15px Body, margin-top 8px, margin-bottom 24px)
+Form: 3 fields (nome, CPF, nascimento), gap 16px
 Spacer: flex-1
 CTA: "Continuar" (disabled until all 3 fields non-empty)
 ```
 
 ### Step 1 — "Como falamos com você?"
+
 ```
-Title + Sub (with bold "ou")
-Fields: phone + email, gap 14px
-Channel selector section below fields, margin-top 20px
-Section label: 12.5px, weight 700, text-sec, margin-bottom 9px
+Title (28px Heading) + Sub (15px Body, with bold "ou")
+Fields: phone + email, gap 16px
+Channel selector section below fields, margin-top 16px
+Section label: 12px Label, weight 700, color text-sec, margin-bottom 8px
 Channel buttons
 Spacer: flex-1
 CTA: "Continuar" (disabled until at least one contact field non-empty)
 ```
 
 ### Step 2 — "Onde você mora?"
+
 ```
-Title (26px) + description (14px, margin-top 10px, margin-bottom 16px)
+Title (28px Heading) + description (15px Body, margin-top 8px, margin-bottom 16px)
 Search field (building icon)
-Condominium list: flex-1, overflow-y auto, margin-top 14px, gap 10px
+Condominium list: flex-1, overflow-y auto, margin-top 16px, gap 8px
 Empty state (see above)
 CTA sticky at bottom: "Continuar" (disabled until condominium selected)
 ```
 
 ### Step 3 — "Seu endereço"
+
 ```
-Title + Sub (shows selected condo name + bairro)
+Title (28px Heading) + Sub (15px Body showing selected condo name + bairro)
 Block/tower chips (conditional on condo type === 'blocos')
-  Section label: 12.5px, weight 700, text-sec, margin-bottom 9px
+  Section label: 12px Label, weight 700, color text-sec, margin-bottom 8px
 Apartment field (pin icon), label "Apartamento"
 Spacer: flex-1
 CTA: "Enviar código de confirmação"
@@ -408,10 +421,11 @@ CTA: "Enviar código de confirmação"
 ```
 
 ### Step 4 — "Confirme seu cadastro" (OTP)
+
 ```
-Title (26px) + Sub showing channel + destination (bold color-text)
+Title (28px Heading) + Sub (15px Body showing channel + destination bold color-text)
 OTP 4-input row
-Resend timer (margin-top 18px, center-aligned)
+Resend timer (margin-top 16px, center-aligned)
 Spacer: flex-1
 CTA: "Criar conta e ver meu pão"
 ```
@@ -481,15 +495,17 @@ CTA: "Criar conta e ver meu pão"
 
 All transitions follow the values from `brand.jsx` and `SplashScreen.tsx`:
 
-| Element | Property | Duration | Easing |
-|---------|----------|----------|--------|
-| Field border-color | border-color | 150ms | ease (default) |
-| Button hover lift | transform + filter | 150ms | ease |
-| Stepper dot width | width + background | 250ms | ease |
-| Channel button state | border + background + color | 150ms | ease |
-| Switch track | background | 200ms | ease |
-| Switch thumb | transform | 200ms | ease |
-| Reduced motion | all above → 0ms | — | `prefers-reduced-motion: reduce` |
+| Element | Property | Duration | Easing | Notes |
+|---------|----------|----------|--------|-------|
+| Field border-color | border-color | 150ms | ease | — |
+| Button hover lift | transform + filter | 150ms | ease | translateY(-1px) is a motion constant — not a spacing token |
+| Stepper dot width | width + background | 250ms | ease | — |
+| Channel button state | border + background + color | 150ms | ease | — |
+| Switch track | background | 200ms | ease | — |
+| Switch thumb | transform | 200ms | ease | — |
+| Reduced motion | all above → 0ms | — | `prefers-reduced-motion: reduce` | — |
+
+**Motion constant:** The `translateY(-1px)` on button hover is a visual lift effect. It is not part of the spacing scale and must not be treated as a spacing value. It lives in the button animation definition only.
 
 ---
 
@@ -515,6 +531,7 @@ No third-party component registry blocks are used in Phase 2. All UI is built fr
 | `02-CONTEXT.md` | OTP interaction specifics (30s resend timer, 4-digit code, auto-focus, `--color-accent` border on fill), channel auto-select, loading state requirement |
 | `02-RESEARCH.md` | Pattern 4 OTP component spec (64×72px, radius 18, surfaceAlt bg), architecture (LoadingScreen during isLoading, ProtectedRoute) |
 | `REQUIREMENTS.md` | UI-06 (OTP 4 inputs + auto-focus), UI-10 (44px hit targets), AUTH-01..08 (flows and screens) |
+| gsd-ui-checker revision | Typography consolidated to 4 sizes + 2 weights; spacing corrected to multiples-of-4 throughout |
 | User input | 0 (all values derived from existing codebase) |
 
 ---
