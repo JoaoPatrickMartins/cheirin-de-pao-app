@@ -29,7 +29,7 @@ export class AuthController {
       if (err instanceof ZodError) {
         return reply.status(400).send({ error: zodMessage(err) })
       }
-      return reply.status(400).send({ error: String(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
     }
     try {
       const result = await this.service.register(body)
@@ -38,7 +38,8 @@ export class AuthController {
       }
       return reply.status(201).send(result)
     } catch (err) {
-      return reply.status(400).send({ error: String(err) })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
 
@@ -50,7 +51,7 @@ export class AuthController {
       if (err instanceof ZodError) {
         return reply.status(400).send({ error: zodMessage(err) })
       }
-      return reply.status(400).send({ error: String(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
     }
     try {
       const { phone, email } = body
@@ -66,9 +67,10 @@ export class AuthController {
       const channel = phone ? 'sms' : 'email'
       const dest = (phone ?? email)!
       await this.service.sendOtp(user.id, channel, dest)
-      return reply.status(200).send({ ok: true })
+      return reply.status(200).send({ ok: true, userId: user.id })
     } catch (err) {
-      return reply.status(400).send({ error: String(err) })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
 
@@ -80,7 +82,7 @@ export class AuthController {
       if (err instanceof ZodError) {
         return reply.status(400).send({ error: zodMessage(err) })
       }
-      return reply.status(400).send({ error: String(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
     }
     try {
       const { userId, code, deviceId } = body
@@ -104,7 +106,8 @@ export class AuthController {
         user: { id: user.id, role: user.role, name: user.name },
       })
     } catch (err) {
-      return reply.status(400).send({ error: String(err) })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
 
@@ -121,7 +124,7 @@ export class AuthController {
       if (err instanceof ZodError) {
         return reply.status(400).send({ error: zodMessage(err) })
       }
-      return reply.status(400).send({ error: String(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
     }
     try {
       const result = await this.service.registerCourier(body)
@@ -130,7 +133,8 @@ export class AuthController {
       }
       return reply.status(201).send(result)
     } catch (err) {
-      return reply.status(400).send({ error: String(err) })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
 }
