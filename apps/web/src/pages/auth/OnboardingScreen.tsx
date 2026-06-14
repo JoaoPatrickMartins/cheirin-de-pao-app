@@ -184,6 +184,7 @@ export function OnboardingScreen() {
   /** Step 4: verify OTP */
   const handleOtpComplete = async (code: string) => {
     if (!userId) return
+    if (loading) return // guard contra dupla submissão (OtpInput.onComplete + botão)
     setError(null)
     setLoading(true)
     try {
