@@ -44,6 +44,15 @@ export const router = createBrowserRouter([
           import('../pages/admin/AdminLayout').then((m) => ({
             Component: m.AdminLayout,
           })),
+        children: [
+          {
+            path: 'couriers/new',
+            lazy: () =>
+              import('../pages/admin/CourierRegisterScreen').then((m) => ({
+                Component: m.CourierRegisterScreen,
+              })),
+          },
+        ],
       },
     ],
   },
