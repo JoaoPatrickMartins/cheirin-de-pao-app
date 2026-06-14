@@ -280,3 +280,26 @@ model Notification {
   actionRoute String?
   createdAt   DateTime         @default(now())
 }
+
+// 16. Session — persistent device sessions
+model Session {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  token      String   @unique
+  deviceId   String
+  lastUsedAt DateTime @default(now())
+  expiresAt  DateTime
+  isRevoked  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+// 17. OtpCode — one-time codes for login and registration
+model OtpCode {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String    @db.ObjectId
+  code      String
+  channel   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
