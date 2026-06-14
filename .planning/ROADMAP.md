@@ -72,7 +72,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion — 02-02 and 02-02b are sequential: 02-02b depends on 02-02)*
 
-- [ ] 02-02-PLAN.md — Auth business logic core: schemas, repository, service, OTP service, unit tests
+- [x] 02-02-PLAN.md — Auth business logic core: schemas, repository, service, OTP service, unit tests
 - [ ] 02-02b-PLAN.md — Auth wiring: routes, controller, authenticate plugin (preHandler only), admin bootstrap, GET /condominiums, server.ts
 
 **Wave 3** *(blocked on Wave 2 completion — depends on 02-02b)*
@@ -179,7 +179,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
-| 2. Authentication | 1/6 | In Progress|  |
+| 2. Authentication | 2/6 | In Progress|  |
 | 3. Credits & Commerce | 0/TBD | Not started | - |
 | 4. Scheduling | 0/TBD | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |

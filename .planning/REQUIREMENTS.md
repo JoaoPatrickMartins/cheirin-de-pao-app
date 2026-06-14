@@ -28,11 +28,11 @@
 ### Autenticação (AUTH)
 
 - [ ] **AUTH-01**: Cliente pode se cadastrar em 5 passos: Dados → Contato → Condomínio → Endereço → Verificação OTP
-- [ ] **AUTH-02**: Cadastro exige nome completo, CPF, data de nascimento, pelo menos telefone ou e-mail, condomínio e apartamento
-- [ ] **AUTH-03**: Bloco/Torre obrigatório apenas se o condomínio for do tipo blocos/torres
-- [ ] **AUTH-04**: Canal de confirmação automático — SMS se tiver telefone, e-mail se cadastrou apenas e-mail
-- [ ] **AUTH-05**: Login sem senha — usuário recebe código OTP (4 dígitos) via SMS ou e-mail
-- [ ] **AUTH-06**: Sessão permanente após primeiro login — novo código solicitado apenas em troca de dispositivo, limpeza do navegador ou após 90 dias de inatividade
+- [x] **AUTH-02**: Cadastro exige nome completo, CPF, data de nascimento, pelo menos telefone ou e-mail, condomínio e apartamento
+- [x] **AUTH-03**: Bloco/Torre obrigatório apenas se o condomínio for do tipo blocos/torres
+- [x] **AUTH-04**: Canal de confirmação automático — SMS se tiver telefone, e-mail se cadastrou apenas e-mail
+- [x] **AUTH-05**: Login sem senha — usuário recebe código OTP (4 dígitos) via SMS ou e-mail
+- [x] **AUTH-06**: Sessão permanente após primeiro login — novo código solicitado apenas em troca de dispositivo, limpeza do navegador ou após 90 dias de inatividade
 - [ ] **AUTH-07**: Entregador cadastrado pelo Admin (não faz auto-cadastro)
 - [ ] **AUTH-08**: Admin faz login com OTP — sem cadastro público
 
@@ -180,11 +180,11 @@
 | UI-05 | Phase 1 — Foundation | Pending |
 | UI-10 | Phase 1 — Foundation | Pending |
 | AUTH-01 | Phase 2 — Authentication | Pending |
-| AUTH-02 | Phase 2 — Authentication | Pending |
-| AUTH-03 | Phase 2 — Authentication | Pending |
-| AUTH-04 | Phase 2 — Authentication | Pending |
-| AUTH-05 | Phase 2 — Authentication | Pending |
-| AUTH-06 | Phase 2 — Authentication | Pending |
+| AUTH-02 | Phase 2 — Authentication | Complete |
+| AUTH-03 | Phase 2 — Authentication | Complete |
+| AUTH-04 | Phase 2 — Authentication | Complete |
+| AUTH-05 | Phase 2 — Authentication | Complete |
+| AUTH-06 | Phase 2 — Authentication | Complete |
 | AUTH-07 | Phase 2 — Authentication | Pending |
 | AUTH-08 | Phase 2 — Authentication | Pending |
 | UI-06 | Phase 2 — Authentication | Pending |
