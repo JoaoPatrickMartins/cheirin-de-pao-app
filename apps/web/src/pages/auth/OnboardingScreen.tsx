@@ -243,7 +243,7 @@ export function OnboardingScreen() {
   const step1Valid = telefone.trim().length > 0 || email.trim().length > 0
 
   // Step 3 CTA disabled until apartment filled (and block if BLOCKS condo)
-  const step3Valid = apto.trim() !== '' && (!isBlocksCondo || bloco !== null)
+  const step3Valid = apto.trim() !== ''
 
   const otpDestination = canal === 'sms' ? telefone : email
   const otpChannelLabel = canal === 'sms' ? 'SMS' : 'e-mail'
@@ -517,46 +517,15 @@ export function OnboardingScreen() {
             </p>
           )}
 
-          {/* Block/Tower chip selector — only for BLOCKS condos */}
-          {isBlocksCondo && selectedCondo?.blocks && selectedCondo.blocks.length > 0 && (
-            <div style={{ marginBottom: 18 }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontFamily: 'var(--font-body)',
-                  fontWeight: 700,
-                  color: 'var(--color-text-sec)',
-                  marginBottom: 8,
-                }}
-              >
-                Bloco / Torre
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {selectedCondo.blocks.map((b) => {
-                  const isActive = bloco === b
-                  return (
-                    <button
-                      key={b}
-                      type="button"
-                      onClick={() => setBloco(b)}
-                      style={{
-                        padding: '8px 16px',
-                        borderRadius: 13,
-                        border: `1.5px solid ${isActive ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                        background: isActive ? 'var(--color-gold-soft)' : 'var(--color-surface)',
-                        color: isActive ? 'var(--color-accent)' : 'var(--color-text)',
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 15,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {b}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
+          {/* Block/Tower text input — only for BLOCKS condos */}
+          {isBlocksCondo && (
+            <FieldRow
+              label="Bloco / Torre"
+              icon="pin"
+              value={bloco ?? ''}
+              onChange={(v) => setBloco(v || null)}
+              placeholder="Ex.: Bloco A"
+            />
           )}
 
           <FieldRow
