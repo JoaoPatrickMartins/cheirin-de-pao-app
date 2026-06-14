@@ -68,7 +68,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Prisma schema extension (Session + OtpCode) + db push + CpfSchema + Wave 0 test stubs
+- [x] 02-01-PLAN.md — Prisma schema extension (Session + OtpCode) + db push + CpfSchema + Wave 0 test stubs
 
 **Wave 2** *(blocked on Wave 1 completion — 02-02 and 02-02b are sequential: 02-02b depends on 02-02)*
 
@@ -179,7 +179,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
-| 2. Authentication | 0/5 | Not started | - |
+| 2. Authentication | 1/6 | In Progress|  |
 | 3. Credits & Commerce | 0/TBD | Not started | - |
 | 4. Scheduling | 0/TBD | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |
