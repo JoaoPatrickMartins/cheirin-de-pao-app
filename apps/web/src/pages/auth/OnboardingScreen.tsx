@@ -61,7 +61,8 @@ export function OnboardingScreen() {
   const [apto, setApto] = useState('')
 
   // Step 4 — OTP
-  const [otpDigits, setOtpDigits] = useState(['', '', '', ''])
+  const [otpCode, setOtpCode] = useState('')
+  const [otpKey, setOtpKey] = useState(0)
   const [userId, setUserId] = useState<string | null>(null)
 
   const selectedCondo = condos.find((c) => c.id === selectedCondoId) ?? null
@@ -170,7 +171,8 @@ export function OnboardingScreen() {
         return
       }
 
-      setOtpDigits(['', '', '', ''])
+      setOtpCode('')
+      setOtpKey((k) => k + 1)
       setStep(4)
     } catch {
       setError('Algo deu errado. Verifique sua conexão e tente novamente.')
@@ -205,7 +207,8 @@ export function OnboardingScreen() {
         } else {
           setError('Código incorreto. Verifique e tente de novo.')
         }
-        setOtpDigits(['', '', '', ''])
+        setOtpCode('')
+        setOtpKey((k) => k + 1)
         return
       }
 
@@ -610,9 +613,8 @@ export function OnboardingScreen() {
           </p>
 
           <OtpInput
-            value={otpDigits}
-            onChange={setOtpDigits}
-            onComplete={handleOtpComplete}
+            key={otpKey}
+            onComplete={(code) => { setOtpCode(code); void handleOtpComplete(code) }}
           />
 
           <div style={{ marginTop: 16, textAlign: 'center' }}>
@@ -625,10 +627,9 @@ export function OnboardingScreen() {
 
           <PrimaryBtn
             onClick={() => {
-              const code = otpDigits.join('')
-              if (code.length === 4) void handleOtpComplete(code)
+              if (otpCode.length === 4) void handleOtpComplete(otpCode)
             }}
-            disabled={otpDigits.some((d) => d === '') || loading}
+            disabled={otpCode.length < 4 || loading}
           >
             {loading ? 'Verificando...' : 'Criar conta e ver meu pão'}
           </PrimaryBtn>
