@@ -31,6 +31,21 @@ function formatCpf(raw: string): string {
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
 }
 
+/** Format raw 8-digit date string as DD/MM/AAAA */
+function formatDate(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+}
+
+/** Convert DD/MM/AAAA to ISO 8601, undefined if incomplete */
+function parseBirthDate(display: string): string | undefined {
+  const digits = display.replace(/\D/g, '')
+  if (digits.length !== 8) return undefined
+  return `${digits.slice(4)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}T00:00:00.000Z`
+}
+
 const TOTAL_STEPS = 5
 
 export function OnboardingScreen() {
@@ -135,7 +150,7 @@ export function OnboardingScreen() {
         body: JSON.stringify({
           name: nome,
           cpf: rawCpf,
-          birthDate: dataNascimento,
+          birthDate: parseBirthDate(dataNascimento),
           ...(telefone ? { phone: telefone } : {}),
           ...(email ? { email } : {}),
           channel: canal,
@@ -237,7 +252,7 @@ export function OnboardingScreen() {
   }
 
   // Step 0 CTA disabled until all fields filled
-  const step0Valid = nome.trim() !== '' && cpfDisplay.trim() !== '' && dataNascimento.trim() !== ''
+  const step0Valid = nome.trim() !== '' && cpfDisplay.trim() !== '' && dataNascimento.replace(/\D/g, '').length === 8
 
   // Step 1 CTA disabled until at least one contact field
   const step1Valid = telefone.trim().length > 0 || email.trim().length > 0
@@ -337,7 +352,7 @@ export function OnboardingScreen() {
               label="Data de nascimento"
               icon="calendar"
               value={dataNascimento}
-              onChange={setDataNascimento}
+              onChange={(v) => setDataNascimento(formatDate(v))}
               placeholder="DD / MM / AAAA"
               type="tel"
             />
