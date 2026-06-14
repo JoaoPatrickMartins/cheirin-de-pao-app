@@ -16,12 +16,11 @@ export interface OtpInputProps {
  */
 export function OtpInput({ onComplete, disabled = false }: OtpInputProps) {
   const [digits, setDigits] = useState(['', '', '', ''])
-  const refs = [
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-    useRef<HTMLInputElement>(null),
-  ]
+  const ref0 = useRef<HTMLInputElement>(null)
+  const ref1 = useRef<HTMLInputElement>(null)
+  const ref2 = useRef<HTMLInputElement>(null)
+  const ref3 = useRef<HTMLInputElement>(null)
+  const refs = [ref0, ref1, ref2, ref3]
 
   const setDigit = (i: number, v: string) => {
     // Reject non-numeric — only single digit or empty string allowed
