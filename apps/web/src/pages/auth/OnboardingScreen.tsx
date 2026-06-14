@@ -230,9 +230,9 @@ export function OnboardingScreen() {
 
       const { token, user } = (await res.json()) as {
         token: string
-        user: { id: string; role: 'CLIENT' | 'COURIER' | 'ADMIN'; name: string }
+        user: { id: string; role: 'CLIENT' | 'COURIER' | 'ADMIN'; name: string; creditBalance?: number }
       }
-      auth.login(token, user)
+      auth.login(token, { ...user, creditBalance: user.creditBalance ?? 0 })
       navigate('/client')
     } catch {
       setError('Algo deu errado. Verifique sua conexão e tente novamente.')

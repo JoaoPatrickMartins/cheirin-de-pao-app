@@ -82,12 +82,13 @@ export function LoginScreen() {
       if (res.ok) {
         const data = (await res.json()) as {
           token: string
-          user: { id: string; role: string; name: string }
+          user: { id: string; role: string; name: string; creditBalance?: number }
         }
         auth.login(data.token, {
           id: data.user.id,
           role: data.user.role as 'CLIENT' | 'COURIER' | 'ADMIN',
           name: data.user.name,
+          creditBalance: data.user.creditBalance ?? 0,
         })
         // Role-based redirect (AUTH-08: admin → /admin)
         const roleRoutes: Record<string, string> = {
