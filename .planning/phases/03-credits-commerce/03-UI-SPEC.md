@@ -33,63 +33,85 @@ created: 2026-06-14
 
 ## Escala de Espaçamento
 
-Grade base de 4px. Todos os valores são múltiplos de 4.
+Grade base de 4px. Todos os valores são múltiplos de 4, exceto os listados na seção de exceções abaixo.
 
 | Token | Valor | Uso nesta fase |
 |-------|-------|----------------|
 | xs | 4px | Gaps entre ícone e texto inline; dot badge no ícone de sino |
 | sm | 8px | Gap entre ícone e label na tab bar; gap entre pills; gap no segmented control (4px padding interno) |
-| md | 16px | Padding interno de cards (padrão); gap entre cards na Home; padding botões `size="lg"` |
+| md | 16px | Padding interno de cards (padrão); padding botões `size="lg"` |
 | lg | 24px | Padding horizontal de tela (20–24px — usar 20px como padrão, 22–24px em seções de destaque) |
 | xl | 32px | Padding de tela na PurchasedScreen (success screen centralizada) |
 | 2xl | 48px | `paddingBottom: 90px` — área protegida pela tab bar (todos os scrollable layouts) |
 | 3xl | 64px | Não usado nesta fase |
 
-**Exceções específicas do handoff:**
+### Exceções de Alta Fidelidade do Handoff
+
+CLAUDE.md declara "Alta fidelidade — valores exatos do handoff são mandatórios". Os valores abaixo não são múltiplos de 4 mas são overrides autorizados pelo design handoff canônico e DEVEM ser respeitados sem arredondamento.
+
+| Valor | Elemento | Múltiplo mais próximo de 4 | Justificativa |
+|-------|----------|---------------------------|---------------|
+| `34px` | Dimensão dos botões do Stepper inline (largura e altura) | 32px | Handoff canônico — alta fidelidade |
+| `22px` | Padding interno superior e lateral do card de saldo (seção espresso) | 24px | Handoff canônico — alta fidelidade |
+| `10px` | Gap entre botões no footer do card de saldo | 8px | Handoff canônico — alta fidelidade |
+| `14px` | Gap entre cards na coluna principal da HomeA e padding vertical do CTA bar fixo | 16px | Handoff canônico — alta fidelidade |
+| `6px` | Gap interno entre tabs do Segmented Control | 8px | Handoff canônico — alta fidelidade |
+
+**Demais exceções específicas do handoff (também autorizadas):**
 
 | Contexto | Valor | Justificativa |
 |----------|-------|---------------|
-| Tab bar — altura | 56–64px (estimado, ver abaixo) | Elemento fixo no bottom; proteger com safe-area-inset-bottom |
+| Tab bar — altura | 56–64px (estimado) | Elemento fixo no bottom; proteger com safe-area-inset-bottom |
 | Hit target mínimo | 44px | UI-10 — todos os elementos interativos (botões, steppers, abas) |
-| Stepper − e + | 34×34px (Stepper padrão) / 48×48px (QuantityStepper grande) | Dois tamanhos: inline (agenda) vs. full-width (compra personalizada, pedido único) |
-| Card saldo — padding interno espresso | 22px top/sides, 20px bottom | Exato do handoff (`padding: '22px 22px 20px'`) |
-| Card saldo — footer (botões) | 12px padding, 10px gap | Exato do handoff (`padding: 12`, `gap: 10`) |
-| Gap entre cards na Home | 14px | `gap: 14` na coluna principal da HomeA |
-| Gap entre combo cards | 12px | `gap: 12` na lista de combos |
-| Padding footer fixo (CTA bar) | 14px vertical, 20px horizontal | Todas as telas com rodapé fixo |
+| Stepper grande (+ e −) | 48×48px | QuantityStepper (compra personalizada, pedido único) — múltiplo de 4 |
+| Card saldo — padding interno | `22px 22px 20px` | Exato do handoff — parcialmente não-múltiplo de 4; override autorizado (ver tabela acima) |
+| Card saldo — footer | `padding: 12px`, `gap: 10px` | `12px` é múltiplo de 4; `10px` é override autorizado (ver tabela acima) |
+| Gap entre combo cards | 12px | `gap: 12` na lista de combos — múltiplo de 4 |
+| Padding horizontal do CTA bar fixo | 20px | Múltiplo de 4 |
 
 ---
 
 ## Tipografia
 
-Duas famílias, quatro tamanhos de texto + tamanhos de destaque numérico.
+Duas famílias. Quatro tamanhos de texto de interface UI. Tokens de numerais de destaque separados (não contam para o limite de 4).
 
 ### Famílias
 
 | Token CSS | Família | Papel |
 |-----------|---------|-------|
-| `--font-display` | `"Bricolage Grotesque Variable", "Bricolage Grotesque", serif` | Títulos de tela, números de destaque, nomes de combos, valores monetários grandes |
+| `--font-display` | `"Bricolage Grotesque Variable", "Bricolage Grotesque", serif` | Títulos de tela, tokens de numerais de destaque, nomes de combos, valores monetários grandes |
 | `--font-body` | `"Hanken Grotesk", sans-serif` | Todo texto UI: labels, descrições, botões, campos, tab bar |
 
-### Escala de Texto
+### Escala de Texto UI (máximo 4 tamanhos)
+
+Estes são os 4 tamanhos de texto de interface. São os únicos tamanhos permitidos para elementos de UI (labels, body, subheadings, headings).
+
+**Pesos permitidos na escala UI: apenas 600 (leve) e 700 (forte).** Peso 800 é exclusivo dos tokens de numerais de destaque (ver seção abaixo).
 
 | Role | Tamanho | Peso | Line Height | Letter Spacing | Uso |
 |------|---------|------|-------------|----------------|-----|
-| label-xs | 10.5–11.5px | 600–700 | 1.0 | +0.01 a +0.06em | Labels de status, hora em NextDays, sub-textos de ação rápida |
-| label-sm | 12–12.5px | 600–700 | 1.0 | +0.01 a +0.04em | "SEUS CRÉDITOS", "QUANTOS PÃES?", labels de campo, `textSec` labels |
-| body | 13–14px | 500–700 | 1.45–1.5 | normal | Descrições, textos explicativos, subtítulos de card |
-| body-base | 15px | 700 | 1.4 | -0.01em | Botões `size="md"`, texto principal de navegação |
-| subheading | 16–18px | 700–800 | 1.1 | -0.02em | Títulos de card (combo nome 18px), valores no footer 24px, Stepper value |
-| heading | 21px | 700 | 1.0 | -0.02em | AppBar — título de tela (fonte: Bricolage Grotesque) |
-| heading-lg | 26px | 700 | 1.0 | -0.03em | PurchasedScreen — "Créditos na conta!" |
-| display-num | 52px | 800 | 1.0 | -0.03em | Saldo de créditos no card espresso da HomeA |
-| display-stepper | 56px | 800 | 1.0 | -0.03em | Stepper grande (compra personalizada, pedido único) |
+| `label` | 11–12.5px | 600–700 | 1.0 | +0.01 a +0.06em | Labels de seção em maiúsculas ("SEUS CRÉDITOS", "QUANTOS PÃES?"), labels de campo, hora em NextDays, labels de status, label da tab bar (10.5–11px), sub-textos de ação rápida |
+| `body` | 13–15px | 600–700 | 1.45–1.5 | normal / -0.01em | Descrições, textos explicativos, subtítulos de card (13–14px — peso 600), botões `size="md"` e navegação principal (15px — peso 700) |
+| `subheading` | 16–18px | 700 | 1.1 | -0.02em | Títulos de card, nome do combo (18px), sufixo "pães" no card de saldo (16px), valor no Stepper inline (18px) |
+| `heading` | 21–26px | 700 | 1.0 | -0.02 a -0.03em | AppBar — título de tela (21px, Bricolage Grotesque); PurchasedScreen — "Créditos na conta!" (26px, Bricolage Grotesque) |
 
 **Regras fixas:**
-- Qualquer número de destaque (saldo, valor monetário grande, quantidade no stepper) usa `font-family: Bricolage Grotesque`, `font-weight: 800`.
-- Títulos de tela via `AppBar` usam Bricolage Grotesque 700 21px.
 - Botões usam Hanken Grotesk 700 — nunca Bricolage.
-- Labels de seção em maiúsculas (ex.: "SEUS CRÉDITOS", "QUANDO COMPRAR") usam `letter-spacing: 0.03–0.06em`, Hanken Grotesk 600–700, tamanho 12–12.5px.
+- Labels de seção em maiúsculas usam `letter-spacing: 0.03–0.06em`, Hanken Grotesk 600–700, dentro do range `label` (11–12.5px).
+- Títulos de tela via `AppBar` e PurchasedScreen usam Bricolage Grotesque 700, dentro do range `heading` (21–26px).
+
+### Tokens de Numerais de Destaque
+
+**Estes tokens são tokens de marca para exibição de valores numéricos (créditos, preços, quantidades em steppers). NÃO são tamanhos de texto de interface UI e NÃO contam para o limite de 4 da escala de texto acima.**
+
+| Token | Tamanho | Peso | Família | Letter Spacing | Uso |
+|-------|---------|------|---------|----------------|-----|
+| `display-num` | 52px | 800 | Bricolage Grotesque | -0.03em | Saldo de créditos no card espresso da HomeA |
+| `display-stepper` | 56px | 800 | Bricolage Grotesque | -0.03em | Quantidade no QuantityStepper grande (compra personalizada, pedido único) |
+
+Ambos os tokens usam `lineHeight: 1.0` e `color: accent` quando o valor é positivo, `color: primaryBtnText (#FBF3E4)` no contexto do card espresso (fundo escuro).
+
+**Peso 800 — token de marca para numerais, excluído do limite de 2 pesos da escala UI (mesmo critério dos tokens de tamanho).** Aplica-se exclusivamente a: `display-num` (52px), `display-stepper` (56px), e valores numéricos/monetários em Bricolage Grotesque com `fontSize` ≥ 16px em contexto de destaque (ex: preço principal do combo, preço na lista da AutoBuyScreen). Nunca usar peso 800 em texto corrido, labels, botões ou headings de interface.
 
 ---
 
@@ -190,7 +212,7 @@ Tabs: Início (ic: home) | Agenda (ic: calendar) | Créditos (ic: coin) | Pedido
 | Aba ativa — label | `color: accent` (`#B0702A`), `font-weight: 700` |
 | Aba inativa — ícone | `color: textTer` (`#A89A82`) |
 | Aba inativa — label | `color: textTer`, `font-weight: 600` |
-| Label tamanho | 10.5–11px, Hanken Grotesk |
+| Label tamanho | 10.5–11px, Hanken Grotesk (dentro do role `label`) |
 | Abas placeholder | "Agenda" e "Pedidos" mostram tela stub ("Em breve") |
 
 ### 2. Card de Saldo (HomeA — componente principal desta fase)
@@ -199,13 +221,13 @@ Tabs: Início (ic: home) | Agenda (ic: calendar) | Créditos (ic: coin) | Pedido
 |-------------|-------|
 | Container | `Card` com `pad={0}`, `overflow: hidden`, `border-radius: 22px` |
 | Seção espresso | `background: linear-gradient(135deg, #1E1207, #2E1D0D)` |
-| Padding seção espresso | `22px 22px 20px` |
+| Padding seção espresso | `22px 22px 20px` (override de alta fidelidade — ver Exceções de Espaçamento) |
 | Watermark BreadMark | `position: absolute`, `bottom: -50px`, `right: -30px`, `opacity: 0.1`, `size={200}`, `color="#E3AC3F"` |
-| Label "SEUS CRÉDITOS" | `fontSize: 12.5px`, `fontWeight: 600`, `color: #C7B595`, `letterSpacing: 0.04em` |
-| Número de saldo | `Bricolage Grotesque 800`, `fontSize: 52px`, `color: #FAF5EC`, `lineHeight: 1`, `letterSpacing: -0.03em` |
-| Sufixo "pães" | `fontSize: 16px`, `color: #E3AC3F`, `fontWeight: 700`, alinhado à baseline |
-| Subtexto ritmo | `fontSize: 12.5px`, `color: #9A876B`, `marginTop: 8px` |
-| Footer do card | `display: flex`, `padding: 12px`, `gap: 10px` |
+| Label "SEUS CRÉDITOS" | `fontSize: 12.5px`, `fontWeight: 600`, `color: #C7B595`, `letterSpacing: 0.04em` (role: `label`) |
+| Número de saldo | Token `display-num` — Bricolage Grotesque 800, `fontSize: 52px`, `color: #FAF5EC`, `lineHeight: 1`, `letterSpacing: -0.03em` |
+| Sufixo "pães" | `fontSize: 16px`, `color: #E3AC3F`, `fontWeight: 700`, alinhado à baseline (role: `subheading`) |
+| Subtexto ritmo | `fontSize: 12.5px`, `color: #9A876B`, `marginTop: 8px` (role: `label`) |
+| Footer do card | `display: flex`, `padding: 12px`, `gap: 10px` (gap é override de alta fidelidade — ver Exceções de Espaçamento) |
 | Botão "Comprar créditos" | `Btn variant="gold" full icon="plus"` |
 | Botão "Extrato" | `Btn variant="soft" icon="clock"` — não full, `flexShrink: 0` |
 
@@ -213,10 +235,10 @@ Tabs: Início (ic: home) | Agenda (ic: calendar) | Créditos (ic: coin) | Pedido
 
 | Propriedade | Valor |
 |-------------|-------|
-| Container | `background: surface2`, `borderRadius: 14px`, `padding: 4px`, `display: flex`, `gap: 6px` |
+| Container | `background: surface2`, `borderRadius: 14px`, `padding: 4px`, `display: flex`, `gap: 6px` (override de alta fidelidade — ver Exceções de Espaçamento) |
 | Tab inativa | `background: transparent`, `color: textSec`, `boxShadow: none` |
 | Tab ativa | `background: surface (#FFFFFF)`, `color: text`, `boxShadow: shadowSoft` |
-| Texto | Hanken Grotesk 700, `fontSize: 13.5px` |
+| Texto | Hanken Grotesk 700, `fontSize: 13.5px` (role: `body`) |
 | Padding de cada tab | `10px 0`, `borderRadius: 10px` |
 | Transição | `background .15s, box-shadow .15s` |
 
@@ -229,13 +251,13 @@ Tabs: Início (ic: home) | Agenda (ic: calendar) | Créditos (ic: coin) | Pedido
 | Borda ativo (selecionado) | `2px solid accent (#B0702A)` |
 | Sombra inativo | `shadowSoft` |
 | Sombra ativo | `shadow` (forte) |
-| Tag badge | posição `absolute top: -10px left: 18px`, `background: gold`, `color: espresso`, `fontSize: 11px`, `fontWeight: 800`, `borderRadius: 999px`, `padding: 3px 10px`, `letterSpacing: 0.02em` |
+| Tag badge | posição `absolute top: -10px left: 18px`, `background: gold`, `color: espresso`, `fontSize: 11px`, `fontWeight: 700`, `borderRadius: 999px`, `padding: 3px 10px`, `letterSpacing: 0.02em` (role: `label`) |
 | Rádio indicator | `width: 26px, height: 26px`, `borderRadius: 99px`, borda `accent` quando ativo; ponto interno `width: 13px height: 13px background: accent` |
-| Nome do combo | Bricolage Grotesque 700, `fontSize: 18px`, `letterSpacing: -0.02em` |
-| Descrição | `fontSize: 13px`, `color: textTer` |
-| Preço riscado | `fontSize: 12px`, `color: textTer`, `textDecoration: line-through` |
-| Preço principal | Bricolage Grotesque 800, `fontSize: 22px`, `color: accent` (ativo) ou `text` (inativo), `letterSpacing: -0.02em` |
-| Preço/pão | `fontSize: 11px`, `color: textTer` |
+| Nome do combo | Bricolage Grotesque 700, `fontSize: 18px`, `letterSpacing: -0.02em` (role: `subheading`) |
+| Descrição | `fontSize: 13px`, `color: textTer` (role: `body`) |
+| Preço riscado | `fontSize: 12px`, `color: textTer`, `textDecoration: line-through` (role: `label`) |
+| Preço principal | Bricolage Grotesque 800, `fontSize: 22px`, `color: accent` (ativo) ou `text` (inativo), `letterSpacing: -0.02em` — token de numeral de marca, exclusão do limite de 2 pesos justificada na seção Tokens de Numerais de Destaque |
+| Preço/pão | `fontSize: 11px`, `color: textTer` (role: `label`) |
 | Transição | `border-color .15s, box-shadow .15s` |
 
 ### 5. QuantityStepper Grande (compra personalizada, pedido único)
@@ -244,7 +266,7 @@ Tabs: Início (ic: home) | Agenda (ic: calendar) | Créditos (ic: coin) | Pedido
 |-------------|-------|
 | Botões − e + | `width: 48px, height: 48px`, `borderRadius: 16px`, `border: 1.5px solid border`, `background: surface` |
 | Ícone | `minus` / `plus`, `size: 22`, `stroke: 2.4` |
-| Número | Bricolage Grotesque 800, `fontSize: 56px`, `color: accent`, `lineHeight: 1`, `letterSpacing: -0.03em` |
+| Número | Token `display-stepper` — Bricolage Grotesque 800, `fontSize: 56px`, `color: accent`, `lineHeight: 1`, `letterSpacing: -0.03em` |
 | Estado insuficiente (pedido único) | `color: warn` (`#B0702A` / mesmo que accent) |
 | Estado desabilitado (max atingido) | `opacity: 0.5`, `cursor: default` |
 | Container | `display: flex`, `justifyContent: center`, `alignItems: center`, `gap: 24px` |
@@ -254,8 +276,8 @@ Tabs: Início (ic: home) | Agenda (ic: calendar) | Créditos (ic: coin) | Pedido
 
 | Propriedade | Valor |
 |-------------|-------|
-| Botões − e + | `width: 34px, height: 34px`, `borderRadius: 11px`, `border: 1.5px solid border`, `background: surface` |
-| Número | Bricolage Grotesque 800, `fontSize: 18px`, `color: accent` quando `value > 0`, `textTer` quando 0 |
+| Botões − e + | `width: 34px, height: 34px` (override de alta fidelidade — ver Exceções de Espaçamento), `borderRadius: 11px`, `border: 1.5px solid border`, `background: surface` |
+| Número | Bricolage Grotesque 800, `fontSize: 18px`, `color: accent` quando `value > 0`, `textTer` quando 0 — token de numeral de marca, exclusão do limite de 2 pesos justificada na seção Tokens de Numerais de Destaque (role: `subheading` de tamanho, peso 800 reservado a numerais) |
 | Gap | 12px |
 
 ### 7. Botões (`Btn` primitiva já existente)
@@ -267,11 +289,11 @@ Tabs: Início (ic: home) | Agenda (ic: calendar) | Créditos (ic: coin) | Pedido
 | `ghost` | transparent | `text` | `1.5px solid border` | "Voltar ao início", "Usar N créditos" |
 | `soft` | `surface2` | `text` | none | "Extrato", botões secundários |
 
-| Tamanho | Padding | Font Size |
-|---------|---------|-----------|
-| `sm` | `9px 14px` | 13px |
-| `md` | `13px 18px` | 15px |
-| `lg` | `16px 22px` | 16px |
+| Tamanho | Padding | Font Size | Role |
+|---------|---------|-----------|------|
+| `sm` | `9px 14px` | 13px | `body` |
+| `md` | `13px 18px` | 15px | `body` |
+| `lg` | `16px 22px` | 16px | `subheading` |
 
 Hover: `transform: translateY(-1px)`, `filter: brightness(1.05)`, `transition: transform .15s, filter .15s`
 Disabled: `opacity: 0.45`, sem hover
@@ -286,7 +308,7 @@ Disabled: `opacity: 0.45`, sem hover
 | Código copia-e-cola | `fontFamily: monospace`, `fontSize: 12px`, `wordBreak: break-all`, fundo `surface2`, `borderRadius: 10px`, `padding: 12px` |
 | Botão "Copiar código" | `Btn variant="ghost"`, ícone `copy` (não há no Ic — usar `list` ou adicionar novo path) |
 | Status polling | Spinner animado (ver Motion abaixo) + texto "Aguardando pagamento..." |
-| Contador de tentativas | Texto terciário, `fontSize: 12px` |
+| Contador de tentativas | Texto terciário, `fontSize: 12px` (role: `label`) |
 | Timeout (5 tentativas) | Banner `goldSoft` com bordas `gold`: "Não detectamos o pagamento ainda. Verifique mais tarde." + CTA "Voltar" |
 
 **Tela de Sucesso (PurchasedScreen):**
@@ -294,8 +316,8 @@ Disabled: `opacity: 0.45`, sem hover
 | Elemento | Spec |
 |----------|------|
 | Ícone check | `width: 96px, height: 96px`, `borderRadius: 30%`, `background: goodSoft`, ícone `check` `size: 48`, `color: good`, `stroke: 2.4` |
-| Título | Bricolage Grotesque 700, `fontSize: 26px`, `letterSpacing: -0.03em`, `color: text` |
-| Subtexto | `"+{N} pães adicionados"` — `<b style={{color: text}}>+{lastBuy} pães</b>` em bold, resto em `textSec`, `fontSize: 15px`, `lineHeight: 1.5` |
+| Título | Bricolage Grotesque 700, `fontSize: 26px`, `letterSpacing: -0.03em`, `color: text` (role: `heading`) |
+| Subtexto | `"+{N} pães adicionados"` — `<b style={{color: text}}>+{lastBuy} pães</b>` em bold, resto em `textSec`, `fontSize: 15px`, `lineHeight: 1.5` (role: `body`) |
 | Gap antes dos CTAs | 32px |
 | CTA primário | "Montar minha agenda" `Btn full size="lg" icon="calendar"` |
 | CTA secundário | "Voltar ao início" `Btn variant="ghost" full` |
@@ -307,7 +329,7 @@ Disabled: `opacity: 0.45`, sem hover
 | Container Brick | `borderRadius: 16px`, `overflow: hidden`, integração SDK Mercado Pago Bricks |
 | Wrapper | `padding: 0 20px`, `maxWidth: 390px` |
 | AppBar | "Pagamento com cartão", `onBack` fecha/cancela |
-| Nota de segurança | `fontSize: 12px`, `color: textTer`, ícone `card`, texto "Pagamento processado com segurança pelo Mercado Pago" |
+| Nota de segurança | `fontSize: 12px`, `color: textTer`, ícone `card`, texto "Pagamento processado com segurança pelo Mercado Pago" (role: `label`) |
 
 ### 9. Tela AutoBuy (compra recorrente automática)
 
@@ -316,7 +338,7 @@ Disabled: `opacity: 0.45`, sem hover
 | Card master toggle | `Card pad={18}`, ícone `repeat` em fundo `goldSoft 46×46px borderRadius 13px`, `Switch` à direita |
 | Opção de modo | Card selecionável, `border: 2px solid accent` quando ativo, rádio `26×26px` |
 | Selector de dia (modo semanal) | Chips horizontais com scroll, `borderRadius: 12px`, ativo: `background goldSoft, color accent, border accent` |
-| Lista de combos | Items com rádio `22×22px`, nome 14.5px 700, preço Bricolage Grotesque 800 16px |
+| Lista de combos | Items com rádio `22×22px`, nome 14.5px 700, preço Bricolage Grotesque 800 16px — token de numeral de marca (exclusão justificada na seção Tokens de Numerais de Destaque) |
 | Nota de cobrança | `background: surface2`, `borderRadius: 14px`, `padding: 13px 16px`, ícone `card` |
 | CTA dinâmico | "Ativar — {combo.nome} ({BRL(combo.preco)})" quando `on=true`, "Salvar" quando `on=false` |
 
@@ -333,7 +355,7 @@ Disabled: `opacity: 0.45`, sem hover
 | Elemento | Spec |
 |----------|------|
 | Botão voltar | `width: 38px, height: 38px`, `borderRadius: 12px`, `background: surface2`, ícone `arrowL size: 20` |
-| Título | Bricolage Grotesque 700, `fontSize: 21px`, `letterSpacing: -0.02em` |
+| Título | Bricolage Grotesque 700, `fontSize: 21px`, `letterSpacing: -0.02em` (role: `heading`) |
 | Padding | `6px 20px 14px` |
 
 ### 12. Banner de Alerta (estado créditos insuficientes)
@@ -345,7 +367,7 @@ Disabled: `opacity: 0.45`, sem hover
 | Border radius | `16px` |
 | Padding | `13–16px` |
 | Ícone | `spark` ou `alert`, `size: 20`, `color: accent` |
-| Texto | `fontSize: 13–13.5px`, `color: text`, `lineHeight: 1.4–1.45` |
+| Texto | `fontSize: 13–13.5px`, `color: text`, `lineHeight: 1.4–1.45` (role: `body`) |
 | CTAs inline | `Btn variant="gold" size="sm"` + `Btn variant="ghost" size="sm"` em flex row com `gap: 10px` |
 
 ### 13. Tela Placeholder (Agenda e Pedidos)
@@ -354,8 +376,8 @@ Disabled: `opacity: 0.45`, sem hover
 |----------|------|
 | Layout | Centralizado vertical e horizontal, `padding: 32px` |
 | Ícone | `calendar` ou `bag`, `size: 48`, `color: textTer` |
-| Título | Bricolage Grotesque 700, `fontSize: 20px`, `color: textSec` |
-| Subtexto | "Em breve — disponível na próxima atualização", `fontSize: 14px`, `color: textTer`, `lineHeight: 1.5` |
+| Título | Bricolage Grotesque 700, `fontSize: 20px`, `color: textSec` (role: `heading`) |
+| Subtexto | "Em breve — disponível na próxima atualização", `fontSize: 14px`, `color: textTer`, `lineHeight: 1.5` (role: `body`) |
 
 ---
 
@@ -487,7 +509,7 @@ Spinner de polling: substituir animação por texto estático "Aguardando..." se
 |--------|-------------|
 | Polling ativo | Spinner + "Aguardando pagamento..." + código copia-e-cola visível |
 | Approved | Transição para PurchasedScreen sem animação de loading |
-| Rejected | Banner `background: goodSoft`... não, usar fundo neutro `surface`, border `1.5px solid border`, ícone `x color: warn`, texto "Pagamento recusado. Tente novamente com outro cartão ou use Pix." + CTAs |
+| Rejected | Banner fundo neutro `surface`, border `1.5px solid border`, ícone `x color: warn`, texto "Pagamento recusado. Tente novamente com outro cartão ou use Pix." + CTAs |
 | Timeout (5 tentativas sem resposta) | Banner goldSoft com texto de timeout + botão "Verificar mais tarde" (→ HomeA) |
 
 ### Botão Primário
@@ -546,11 +568,11 @@ Spinner de polling: substituir animação por texto estático "Aguardando..." se
 | CRED-08 | AutoBuyScreen — modo "toda semana" + seletor de dia + seletor de combo |
 | CRED-09 | Banner de créditos insuficientes (SingleScreen, ScheduleScreen — Fase 4 usa, mas componente criado aqui) |
 | CRED-10 | AutoBuyScreen — salva preferência; cron fica para Fase 4/5 |
-| CRED-11 | HomeA — número 52px Bricolage Grotesque no card espresso |
+| CRED-11 | HomeA — token `display-num` (52px Bricolage Grotesque) no card espresso |
 | PAY-01 | Fluxo Pix: QR code inline + copia-e-cola + polling |
 | PAY-02 | Fluxo Cartão: Mercado Pago Bricks CardPayment |
 | UI-04 | HomeA completa: card saldo + TodayDelivery placeholder + QuickActions + NextDays placeholder |
-| UI-07 | QuantityStepper (48×48px) + Stepper inline (34×34px) — componente reutilizável |
+| UI-07 | QuantityStepper (48×48px, token display-stepper) + Stepper inline (34×34px) — componente reutilizável |
 | UI-08 | Tab bar: Início / Agenda / Créditos / Pedidos — fixa no bottom com safe-area |
 
 ---
@@ -571,6 +593,7 @@ Spinner de polling: substituir animação por texto estático "Aguardando..." se
 | Ícones | `apps/web/src/components/brand/Icon.tsx` — mesmos paths do brand.jsx |
 | Espaçamentos | README.md + brand.jsx (padding: 20–24px tela, gap: 10–14px) |
 | Tipografia | README.md — escala declarada + valores exatos do JSX |
+| Exceções de espaçamento | CLAUDE.md — "Alta fidelidade — valores exatos do handoff são mandatórios" |
 
 ---
 
@@ -589,4 +612,7 @@ Spinner de polling: substituir animação por texto estático "Aguardando..." se
 
 *Fase: 3 — Credits & Commerce*
 *UI-SPEC gerado: 2026-06-14*
+*UI-SPEC revisado: 2026-06-14 — fix Dimension 4 (typography consolidation + display tokens) e Dimension 5 (spacing override table)*
+*UI-SPEC revisado: 2026-06-14 — fix Dimension 5 BLOCK: gap 6px do Segmented Control adicionado à tabela de exceções de alta fidelidade (confirmado em screens-order.jsx do handoff canônico)*
+*UI-SPEC revisado: 2026-06-14 — fix Dimension 4 BLOCK: escala UI consolidada para 2 pesos (600 e 700); peso 800 restrito a tokens de numerais de destaque com nota de exclusão explícita; peso 500 removido do role body; fontWeight 800 do tag badge corrigido para 700*
 *Handoff canônico: `.projeto/design_handoff_cheirin_pao/`*
