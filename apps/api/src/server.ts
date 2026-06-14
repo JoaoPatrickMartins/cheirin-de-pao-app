@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import env from '@fastify/env'
 import prismaPlugin from './plugins/prisma.js'
 import authenticatePlugin from './plugins/authenticate.js'
@@ -30,6 +31,7 @@ const envSchema = {
     ADMIN_PHONE: { type: 'string' },
     ADMIN_EMAIL: { type: 'string' },
     ADMIN_CPF: { type: 'string' },
+    CORS_ORIGIN: { type: 'string' },
   },
 }
 
@@ -42,13 +44,15 @@ const start = async () => {
       dotenv: true,
     })
 
-    // CORS — restrict to Vite dev server in development; never allow '*'
+    // CORS — usa CORS_ORIGIN em produção; fallback para Vite dev server
+    // Em produção: CORS_ORIGIN=https://app.cheirindepao.com.br
     await fastify.register(cors, {
-      origin:
-        process.env.NODE_ENV === 'production'
-          ? false
-          : 'http://localhost:5173',
+      origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
     })
+
+    // Rate-limit global — protege endpoints OTP contra brute force
+    // 5 requisições por minuto por IP (proteção mínima; ajustar por rota se necessário)
+    await fastify.register(rateLimit, { max: 5, timeWindow: '1 minute' })
 
     // Prisma plugin — connects to MongoDB Atlas and decorates fastify with .prisma
     await fastify.register(prismaPlugin)
