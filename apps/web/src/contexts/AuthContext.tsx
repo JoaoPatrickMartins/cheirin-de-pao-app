@@ -5,6 +5,7 @@ export interface AuthUser {
   id: string
   role: 'CLIENT' | 'COURIER' | 'ADMIN'
   name: string
+  creditBalance: number
 }
 
 export interface AuthContextType {
@@ -13,6 +14,7 @@ export interface AuthContextType {
   isLoading: boolean
   login: (token: string, user: AuthUser) => void
   logout: () => void
+  updateCreditBalance: (balance: number) => void
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null)
@@ -31,7 +33,9 @@ export function AuthProvider() {
       const storedUser = localStorage.getItem('auth_user')
       if (storedToken && storedUser) {
         setToken(storedToken)
-        setUser(JSON.parse(storedUser) as AuthUser)
+        const parsed = JSON.parse(storedUser) as AuthUser
+        // backward compat: older sessions may not have creditBalance
+        setUser({ ...parsed, creditBalance: parsed.creditBalance ?? 0 })
       }
     } catch {
       // localStorage unavailable (iOS Safari private mode) — user stays unauthenticated
@@ -45,14 +49,16 @@ export function AuthProvider() {
       token,
       isLoading,
       login: (t: string, u: AuthUser) => {
+        // ensure creditBalance is always present (backward compat with callers that may omit it)
+        const userData: AuthUser = { ...u, creditBalance: u.creditBalance ?? 0 }
         try {
           localStorage.setItem('auth_token', t)
-          localStorage.setItem('auth_user', JSON.stringify(u))
+          localStorage.setItem('auth_user', JSON.stringify(userData))
         } catch {
           // localStorage unavailable — in-memory only; user re-authenticates on refresh
         }
         setToken(t)
-        setUser(u)
+        setUser(userData)
       },
       logout: () => {
         try {
@@ -64,6 +70,18 @@ export function AuthProvider() {
         setToken(null)
         setUser(null)
         navigate('/')
+      },
+      updateCreditBalance: (balance: number) => {
+        setUser((prev) => {
+          if (!prev) return prev
+          const updated: AuthUser = { ...prev, creditBalance: balance }
+          try {
+            localStorage.setItem('auth_user', JSON.stringify(updated))
+          } catch {
+            // localStorage unavailable — update in-memory only
+          }
+          return updated
+        })
       },
     }),
     [user, token, isLoading, navigate],

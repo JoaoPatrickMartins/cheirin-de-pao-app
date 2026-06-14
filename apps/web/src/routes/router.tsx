@@ -30,6 +30,78 @@ export const router = createBrowserRouter([
           import('../pages/client/ClientLayout').then((m) => ({
             Component: m.ClientLayout,
           })),
+        children: [
+          {
+            index: true,
+            lazy: () =>
+              import('../pages/client/HomeScreen').then((m) => ({
+                Component: m.HomeScreen,
+              })),
+          },
+          {
+            path: 'home',
+            lazy: () =>
+              import('../pages/client/HomeScreen').then((m) => ({
+                Component: m.HomeScreen,
+              })),
+          },
+          {
+            path: 'creditos',
+            lazy: () =>
+              import('../pages/client/CombosScreen').then((m) => ({
+                Component: m.CombosScreen,
+              })),
+          },
+          {
+            path: 'agenda',
+            lazy: () =>
+              import('../pages/client/PlaceholderScreen').then((m) => ({
+                Component: m.PlaceholderScreen,
+              })),
+          },
+          {
+            path: 'pedidos',
+            lazy: () =>
+              import('../pages/client/PlaceholderScreen').then((m) => ({
+                Component: m.PlaceholderScreen,
+              })),
+          },
+          {
+            path: 'creditos/pix',
+            lazy: () =>
+              import('../pages/client/PixWaitingScreen').then((m) => ({
+                Component: m.PixWaitingScreen,
+              })),
+          },
+          {
+            path: 'creditos/cartao',
+            lazy: () =>
+              import('../pages/client/CardPaymentScreen').then((m) => ({
+                Component: m.CardPaymentScreen,
+              })),
+          },
+          {
+            path: 'creditos/sucesso',
+            lazy: () =>
+              import('../pages/client/PurchasedScreen').then((m) => ({
+                Component: m.PurchasedScreen,
+              })),
+          },
+          {
+            path: 'creditos/extrato',
+            lazy: () =>
+              import('../pages/client/CreditHistoryScreen').then((m) => ({
+                Component: m.CreditHistoryScreen,
+              })),
+          },
+          {
+            path: 'creditos/recorrente',
+            lazy: () =>
+              import('../pages/client/AutoBuyScreen').then((m) => ({
+                Component: m.AutoBuyScreen,
+              })),
+          },
+        ],
       },
       {
         path: '/courier',

@@ -2,7 +2,7 @@
 // Requirements: UI-04, CRED-11 (exibe creditBalance do usuario autenticado)
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { HomeScreen } from '../HomeScreen'
 
 vi.mock('../../../hooks/useAuth', () => ({

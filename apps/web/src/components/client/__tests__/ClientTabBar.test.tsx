@@ -2,7 +2,7 @@
 // Requirements: UI-08 (4 abas com labels corretos; aba ativa com cor diferente)
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { ClientTabBar } from '../ClientTabBar'
 
 describe('ClientTabBar [UI-08]', () => {
