@@ -100,7 +100,26 @@ Plans:
   4. Cliente faz compra personalizada (avulsa) com quantidade abaixo do limite configurado pelo Admin e o preço unitário é maior que o do combo
   5. Tab bar do Cliente (Início / Agenda / Créditos / Pedidos) está presente e navega entre as seções corretamente
 
-**Plans**: TBD
+**Plans**: 6 plans
+Plans:
+**Wave 0** *(bloqueante — deve completar antes dos demais)*
+
+- [ ] 03-01-PLAN.md — Schema Prisma (creditBalance, autoRecharge, cardTokenMp, customQuantity) + prisma generate + stubs de teste Wave 0
+
+**Wave 1** *(blocked on Wave 0 completion — 03-02 e 03-04 são paralelos)*
+
+- [ ] 03-02-PLAN.md — Módulo payments API (POST /payments/pix, POST /payments/card, GET /payments/:id/status) + módulo credits API (GET /combos, GET /pricing, GET /credits/history)
+- [ ] 03-04-PLAN.md — AuthContext (creditBalance) + ClientTabBar + router sub-rotas /client + HomeA + CreditBalanceCard + CreditHistoryScreen + PlaceholderScreen
+
+**Wave 2** *(blocked on Wave 1 — 03-03 depende de 03-02; 03-05 depende de 03-04)*
+
+- [ ] 03-03-PLAN.md — Módulo webhooks API (HMAC-SHA256, idempotência, crédito atômico) + registro dos 3 módulos em server.ts
+- [ ] 03-05-PLAN.md — CombosScreen + QuantityStepper + StepperInline + ComboCard + BannerInsuficiente + PurchasedScreen + AutoBuyScreen
+
+**Wave 3** *(blocked on Wave 2 completion — 03-06 depende de 03-03 e 03-05)*
+
+- [ ] 03-06-PLAN.md — PixWaitingScreen (QR code + polling) + CardPaymentScreen (Bricks) + usePaymentPolling + initMercadoPago
+
 **UI hint**: yes
 
 ### Phase 4: Scheduling
@@ -180,7 +199,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
-| 3. Credits & Commerce | 0/TBD | Not started | - |
+| 3. Credits & Commerce | 0/6 | Not started | - |
 | 4. Scheduling | 0/TBD | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |

@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 3 context gathered
-last_updated: "2026-06-14T06:33:53.547Z"
+status: executing
+stopped_at: Phase 3 plans created — ready to execute
+last_updated: "2026-06-14T10:00:00.000Z"
 last_activity: 2026-06-14
 progress:
   total_phases: 7
   completed_phases: 2
-  total_plans: 9
+  total_plans: 15
   completed_plans: 9
   percent: 29
 ---
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-13)
 ## Current Position
 
 Phase: 3
-Plan: Not started
-Status: Ready to plan
+Plan: 03-01 (Wave 0 — next to execute)
+Status: Ready to execute
 Last activity: 2026-06-14
 
-Progress: [██████░░░░] 56%
+Progress: [██████░░░░] 29%
 
 ## Performance Metrics
 
@@ -66,10 +66,15 @@ Recent decisions affecting current work:
 - Autenticação sem senha — apenas OTP via SMS/e-mail
 - Pagamentos exclusivamente via Mercado Pago (Pix + cartão)
 - Push notifications via OneSignal
+- Fase 3: Polling Pix a cada 3s, max 5 tentativas (D-01)
+- Fase 3: Créditos somente após webhook approved do MP (D-02)
+- Fase 3: QR code gerado pelo backend (D-03)
+- Fase 3: AutoBuyScreen apenas UI+save — cron na Fase 4/5 (D-04)
+- Fase 3: CardPayment via MP Bricks frontend (D-12)
 
 ### Pending Todos
 
-None yet.
+- Configurar credenciais sandbox MP (MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET, MP_PUBLIC_KEY) nos .env locais antes da Wave 3 da Fase 3
 
 ### Blockers/Concerns
 
@@ -79,10 +84,14 @@ None yet.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Fase 4/5 | Cron job de compra automática (CRED-07/10) | Deferred | Phase 3 Context |
+| Fase 4/5 | Tokenização de cartão para cobranças futuras | Deferred | Phase 3 Context |
+| Fase 5/7 | Status de pagamento no painel Admin (PAY-03) | Deferred | Phase 3 Context |
+| Fase 5 | Estorno e reembolso de pagamentos (PAY-04) | Deferred | Phase 3 Context |
+| Fase 7 | Promoções e descontos em combos (ADMG-03) | Deferred | Phase 3 Context |
 
 ## Session Continuity
 
-Last session: 2026-06-14T06:33:53.537Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-credits-commerce/03-CONTEXT.md
+Last session: 2026-06-14T10:00:00.000Z
+Stopped at: Phase 3 plans created — ready to execute
+Resume file: .planning/phases/03-credits-commerce/03-01-PLAN.md
