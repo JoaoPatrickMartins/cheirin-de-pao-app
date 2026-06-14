@@ -64,7 +64,25 @@ Plans:
   4. Admin cadastra entregador pelo painel e entregador consegue fazer login com OTP
   5. Login de Admin funciona com OTP — sem tela de cadastro público disponível
 
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Prisma schema extension (Session + OtpCode) + db push + CpfSchema + Wave 0 test stubs
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — API auth module (register/OTP/verify/couriers) + authenticate plugin + admin bootstrap + GET /condominiums
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — AuthContext + ProtectedRoute + LoadingScreen + router rewiring + profile layout guards
+
+**Wave 4** *(blocked on Wave 3 completion — plans 04 and 05 are parallel)*
+
+- [ ] 02-04-PLAN.md — LoginScreen (2-step OTP login) + apiFetch wrapper + OtpInput + ResendTimer
+- [ ] 02-05-PLAN.md — OnboardingScreen (5-step registration) + StepDots + CondoSearch + ChannelSelector + CourierRegisterScreen
+
 **UI hint**: yes
 
 ### Phase 3: Credits & Commerce
@@ -160,7 +178,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
-| 2. Authentication | 0/TBD | Not started | - |
+| 2. Authentication | 0/5 | Not started | - |
 | 3. Credits & Commerce | 0/TBD | Not started | - |
 | 4. Scheduling | 0/TBD | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |
