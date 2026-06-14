@@ -8,6 +8,9 @@ import authenticatePlugin from './plugins/authenticate.js'
 import { healthRoute } from './modules/health/health.route.js'
 import { authRoute } from './modules/auth/auth.route.js'
 import { condominiumsRoute } from './modules/condominiums/condominiums.route.js'
+import { paymentsRoute } from './modules/payments/payments.route.js'
+import { creditsRoute } from './modules/credits/credits.route.js'
+import { webhooksRoute } from './modules/webhooks/webhooks.route.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 
 const fastify = Fastify({ logger: true })
@@ -15,9 +18,12 @@ const fastify = Fastify({ logger: true })
 // Environment variable validation schema (registered FIRST before other plugins)
 const envSchema = {
   type: 'object',
-  required: ['DATABASE_URL'],
+  required: ['DATABASE_URL', 'MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'MP_PUBLIC_KEY'],
   properties: {
     DATABASE_URL: { type: 'string' },
+    MP_ACCESS_TOKEN: { type: 'string' },
+    MP_WEBHOOK_SECRET: { type: 'string' },
+    MP_PUBLIC_KEY: { type: 'string' },
     API_PORT: { type: 'integer', default: 3001 },
     API_HOST: { type: 'string', default: '0.0.0.0' },
     // Phase 2 additions:
@@ -72,6 +78,11 @@ const start = async () => {
 
     // Condominiums route — GET /condominiums (public, no auth required)
     await fastify.register(condominiumsRoute)
+
+    // Phase 3 — Credits & Commerce
+    await fastify.register(paymentsRoute)
+    await fastify.register(creditsRoute)
+    await fastify.register(webhooksRoute)
 
     const port = Number(process.env.API_PORT ?? 3001)
     const host = process.env.API_HOST ?? '0.0.0.0'
