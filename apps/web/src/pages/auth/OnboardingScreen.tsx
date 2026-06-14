@@ -151,8 +151,8 @@ export function OnboardingScreen() {
       }
 
       if (!regRes.ok) {
-        const err = (await regRes.json().catch(() => null)) as { message?: string } | null
-        setError(err?.message ?? 'Algo deu errado. Verifique sua conexão e tente novamente.')
+        const err = (await regRes.json().catch(() => null)) as { error?: string } | null
+        setError(err?.error ?? 'Algo deu errado. Verifique sua conexão e tente novamente.')
         return
       }
 
@@ -200,8 +200,8 @@ export function OnboardingScreen() {
       })
 
       if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as { message?: string } | null
-        const msg = err?.message ?? ''
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        const msg = err?.error ?? ''
         if (msg.toLowerCase().includes('expir')) {
           setError('Código expirado. Solicite um novo.')
         } else {

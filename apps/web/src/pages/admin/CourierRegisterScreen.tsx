@@ -61,8 +61,8 @@ export function CourierRegisterScreen() {
       })
 
       if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as { message?: string } | null
-        setError(err?.message ?? 'Algo deu errado. Verifique os dados e tente novamente.')
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        setError(err?.error ?? 'Algo deu errado. Verifique os dados e tente novamente.')
         return
       }
 
