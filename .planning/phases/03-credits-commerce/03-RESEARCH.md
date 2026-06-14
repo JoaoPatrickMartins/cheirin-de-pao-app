@@ -691,22 +691,22 @@ export interface AuthUser {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Saldo no AuthContext: refetch completo vs. endpoint `/me` com creditBalance**
    - O que sabemos: `AuthContext` armazena `user` com `id`, `role`, `name`. Não tem `creditBalance`.
    - O que está indefinido: Ao aprovar o pagamento (via polling), o frontend atualiza o saldo como? (a) Invalidar e re-fetch do `/me`; (b) Retornar o novo saldo no `GET /payments/:id/status`; (c) Atualizar localmente via context.
-   - Recomendação: Opção (b) — `GET /payments/:id/status` retorna `{ status, creditBalance }` quando `approved`. Frontend atualiza AuthContext sem re-fetch completo. Isso evita um endpoint `/me` separado e mantém a lógica no fluxo de polling.
+   - RESOLVED: Opção (b) — `GET /payments/:id/status` retorna `{ status, creditBalance }` quando `approved`. Frontend atualiza AuthContext sem re-fetch completo. Isso evita um endpoint `/me` separado e mantém a lógica no fluxo de polling.
 
 2. **Card token para compra recorrente — onde salvar no banco**
    - O que sabemos: D-06 diz que Fase 3 salva o card token do Brick. O schema `User` não tem campo para isso.
    - O que está indefinido: `cardToken String?` no `User`, ou coleção separada `PaymentMethod`?
-   - Recomendação: `cardTokenMp String?` no `User` (simples para MVP; uma única fonte de token por usuário). A Fase 4/5 pode evoluir para uma coleção `PaymentMethod` se houver múltiplos cartões.
+   - RESOLVED: `cardTokenMp String?` no `User` (simples para MVP; uma única fonte de token por usuário). A Fase 4/5 pode evoluir para uma coleção `PaymentMethod` se houver múltiplos cartões.
 
 3. **Preço do combo em centavos ou float**
    - O que sabemos: `Combo.price Float` no schema. MP recebe `transaction_amount` como Float (ex: `24.90`).
    - O que está indefinido: Aritmética de float pode causar `24.900000000001` em alguns casos.
-   - Recomendação: Manter `Float` no schema (compatível com MP) mas usar `Math.round(price * 100) / 100` antes de enviar para o MP. Para display, sempre usar `Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })`.
+   - RESOLVED: Manter `Float` no schema (compatível com MP) mas usar `Math.round(price * 100) / 100` antes de enviar para o MP. Para display, sempre usar `Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })`.
 
 ---
 
