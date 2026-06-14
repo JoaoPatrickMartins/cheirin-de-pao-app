@@ -2,7 +2,10 @@
   "name": "cheirin-de-pao",
   "private": true,
   "packageManager": "npm@11.12.1",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -11,5 +14,12 @@
   },
   "devDependencies": {
     "turbo": "2.9.18"
+  },
+  "dependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/uuid": "^10.0.0",
+    "@zenvia/sdk": "^2.4.4",
+    "resend": "^6.12.4",
+    "uuid": "^14.0.0"
   }
 }
