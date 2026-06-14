@@ -29,10 +29,14 @@ const authenticatePlugin: FastifyPluginAsync = fp(async (fastify) => {
     const deviceId = request.headers['x-device-id'] as string | undefined
 
     const session = await fastify.prisma.session.findFirst({
-      where: { token: tokenHash, isRevoked: false },
+      where: {
+        token: tokenHash,
+        isRevoked: false,
+        expiresAt: { gt: new Date() }, // filtra no banco, evita I/O desnecessário e clock skew
+      },
     })
 
-    if (!session || session.expiresAt < new Date()) {
+    if (!session) {
       return reply.status(401).send({ error: 'Sessão expirada ou inválida' })
     }
 
