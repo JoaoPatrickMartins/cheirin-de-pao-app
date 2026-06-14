@@ -5,9 +5,9 @@ export async function seedAdminIfAbsent(prisma: PrismaClient): Promise<void> {
   const phone = process.env.ADMIN_PHONE ?? null
   const email = process.env.ADMIN_EMAIL ?? null
 
-  if (!name || (!phone && !email)) {
+  if (!name || (!phone && !email) || !process.env.ADMIN_CPF) {
     console.warn(
-      '[bootstrap] ADMIN_NAME e ADMIN_PHONE/ADMIN_EMAIL não configurados — admin seed ignorado',
+      '[bootstrap] ADMIN_NAME, ADMIN_PHONE/ADMIN_EMAIL e ADMIN_CPF são obrigatórios — admin seed ignorado',
     )
     return
   }
@@ -21,7 +21,7 @@ export async function seedAdminIfAbsent(prisma: PrismaClient): Promise<void> {
       phone: phone ?? undefined,
       email: email ?? undefined,
       role: 'ADMIN',
-      cpf: process.env.ADMIN_CPF ?? '00000000000',
+      cpf: process.env.ADMIN_CPF,
     },
   })
   console.log('[bootstrap] Admin user created:', name)
