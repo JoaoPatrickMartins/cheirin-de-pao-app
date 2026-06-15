@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-06-15T22:43:24.444Z"
+stopped_at: Phase 7 UI-SPEC approved
+last_updated: "2026-06-15T22:55:08.704Z"
 last_activity: 2026-06-15 -- Phase 06 execution started
 progress:
   total_phases: 7
@@ -96,7 +96,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-15T22:43:24.423Z
-Stopped at: Phase 7 context gathered
+Last session: 2026-06-15T22:55:08.687Z
+Stopped at: Phase 7 UI-SPEC approved
 Resume with: `/gsd-execute-phase` ou `/gsd-progress` numa nova conversa
 Next phase: 06-courier-app (not started — discuss → plan → execute)

@@ -230,7 +230,32 @@ Plans:
   4. Admin visualiza lista de clientes com filtro por condomínio, pode bloquear/desbloquear e ver histórico de agendamentos de cada cliente
   5. Admin visualiza receita por período (dia/semana/mês), filtrada por condomínio e separada por tipo (combos vs avulso), e gerencia pagamentos com opção de estorno
 
-**Plans**: TBD
+**Plans**: 12 plans
+Plans:
+**Wave 0** *(bloqueante — deve completar antes dos demais)*
+
+- [ ] 07-01-PLAN.md — Schema Prisma (Order.condominiumId + Supplier.isPrincipal) + prisma generate [BLOCKING] + stubs de teste Wave 0
+
+**Wave 1** *(paralelo — 07-02, 07-03, 07-04, 07-05 independentes; 07-06 depende de todos)*
+
+- [ ] 07-02-PLAN.md — API: admin-settings (cutoffTime + avulso) + admin-condominiums CRUD + admin-combos CRUD + promoções
+- [ ] 07-03-PLAN.md — API: admin-suppliers CRUD (isPrincipal) + admin-couriers (cadastro + toggle) + admin-clients (lista + detalhe + bloquear)
+- [ ] 07-04-PLAN.md — API: admin-supplier-orders (draft + create + finalize + PDF + Excel) + pdf-generator + excel-generator
+- [ ] 07-05-PLAN.md — API: admin-financial (receita por período/tipo/condomínio) + admin-payments (lista + estorno MP)
+- [ ] 07-06-PLAN.md — API wiring: cron cutoff em cron.ts + 9 módulos em server.ts + admin-orders estendido (dashboard + delivery-status + division-suggestion)
+
+**Wave 2** *(paralelo — 07-07 a 07-11 independentes; todos dependem de 07-06)*
+
+- [ ] 07-07-PLAN.md — Frontend: AdminLayout + AdminBottomNav + AdminHead + KpiCard + BarChart + ProgressBar + AdminPainel (dashboard)
+- [ ] 07-08-PLAN.md — Frontend: AdminPedido (fluxo 4 etapas) + StepBar + download PDF/Excel
+- [ ] 07-09-PLAN.md — Frontend: AdminEntregas + SegmentedControl genérico + DeliveryDivisionCard (dnd-kit)
+- [ ] 07-10-PLAN.md — Frontend: AdminClientes (lista + chips filtro) + ClientDetailView (detalhe + bloquear)
+- [ ] 07-11-PLAN.md — Frontend: AdminGestao hub + AdminCombos + AdminAvulso + AdminFornecedores + AdminEntregadores + AdminCondos + 4 formulários CRUD
+
+**Wave 3** *(depende de todos da Wave 2)*
+
+- [ ] 07-12-PLAN.md — Frontend: AdminFinanceiro + AdminPagamentos + PaymentDetailSheet + wiring AdminGestao + AdminLayout + router.tsx
+
 **UI hint**: yes
 
 ## Progress
@@ -246,4 +271,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
 | 5. Delivery Experience | 2/4 | In Progress|  |
 | 6. Courier App | 3/3 | Complete   | 2026-06-15 |
-| 7. Admin Panel | 0/TBD | Not started | - |
+| 7. Admin Panel | 0/12 | Not started | - |
