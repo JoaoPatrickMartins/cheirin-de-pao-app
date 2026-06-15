@@ -337,7 +337,7 @@ export function ScheduleScreen() {
           saldo={creditBalance}
           cobre={cobre}
           onCombos={() => navigate('/client/creditos')}
-          onAutoBuy={() => navigate('/client/creditos/compra-automatica')}
+          onAutoBuy={() => navigate('/client/creditos/recorrente')}
         />
       </div>
 
