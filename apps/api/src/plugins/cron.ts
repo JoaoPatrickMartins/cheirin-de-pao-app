@@ -52,7 +52,23 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
     { timezone: 'America/Sao_Paulo', name: 'weekly-reminder' },
   )
 
-  fastify.log.info('[cron] 2 cron jobs registrados (meia-noite diário + domingo 20h)')
+  // Cron 3 — diário 21h (America/Sao_Paulo)
+  // Envia push de véspera e persiste Notification DELIVERY_EVE para cada order do dia seguinte
+  cron.schedule(
+    '0 21 * * *',
+    async () => {
+      fastify.log.info('[cron] iniciando sendEveReminders')
+      try {
+        await schedulesService.sendEveReminders()
+        fastify.log.info('[cron] sendEveReminders concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendEveReminders — servidor mantido ativo')
+      }
+    },
+    { timezone: 'America/Sao_Paulo', name: 'eve-reminders' },
+  )
+
+  fastify.log.info('[cron] 3 cron jobs registrados (meia-noite diário + domingo 20h + diário 21h)')
 })
 
 export default cronPlugin

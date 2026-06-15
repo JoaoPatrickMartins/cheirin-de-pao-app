@@ -20,6 +20,14 @@ vi.mock('@onesignal/node-onesignal', () => {
   }
 })
 
+type OrderShape = {
+  id: string
+  userId: string
+  quantity: number
+  scheduledDate: Date
+  status: string
+}
+
 type ScheduleShape = {
   id: string
   userId: string
@@ -234,6 +242,64 @@ describe('SchedulesService', () => {
 
       // Order NÃO deve ser criado
       expect(createOrderFn).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sendEveReminders', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('05-05a: chama prisma.order.findMany com scheduledDate amanhã e status: { not: CANCELLED }', async () => {
+      const fastify = createMockFastify()
+      const orderFindMany = vi.fn().mockResolvedValue([])
+      ;(fastify.prisma as unknown as Record<string, unknown>).order = { findMany: orderFindMany }
+      ;(fastify.prisma as unknown as Record<string, unknown>).notification = {
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({}),
+      }
+      const service = new SchedulesService(fastify)
+      await service.sendEveReminders()
+      expect(orderFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { not: 'CANCELLED' },
+          }),
+        }),
+      )
+    })
+
+    it('05-05b: com 2 orders amanhã — cria 2 Notifications independente de oneSignalPlayerId', async () => {
+      const orders: OrderShape[] = [
+        { id: 'order-1', userId: 'user-1', quantity: 2, scheduledDate: new Date(), status: 'SCHEDULED' },
+        { id: 'order-2', userId: 'user-2', quantity: 1, scheduledDate: new Date(), status: 'SCHEDULED' },
+      ]
+      const fastify = createMockFastify({
+        users: {
+          'user-1': { id: 'user-1', creditBalance: 5, condominiumId: null, autoRecharge: null, oneSignalPlayerId: null },
+          'user-2': { id: 'user-2', creditBalance: 5, condominiumId: null, autoRecharge: null, oneSignalPlayerId: null },
+        },
+      })
+      ;(fastify.prisma as unknown as Record<string, unknown>).order = {
+        findMany: vi.fn().mockResolvedValue(orders),
+      }
+      ;(fastify.prisma as unknown as Record<string, unknown>).notification = {
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({}),
+      }
+      const service = new SchedulesService(fastify)
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+      await service.sendEveReminders()
+      expect(createAndTrimMock).toHaveBeenCalledTimes(2)
+      expect(createAndTrimMock).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', type: 'DELIVERY_EVE' }),
+      )
+      expect(createAndTrimMock).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-2', type: 'DELIVERY_EVE' }),
+      )
     })
   })
 

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
+import { NotificationsService } from '../notifications/notifications.service.js'
 
 // Dia da semana em UTC-3 (Brasília) → chave do WeeklyQty
 const DAY_OF_WEEK_MAP: Record<string, keyof WeeklyQty> = {
@@ -40,9 +41,11 @@ function createOsClient() {
 
 export class SchedulesService {
   private repo: SchedulesRepository
+  private notificationsService: NotificationsService
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new SchedulesRepository(fastify)
+    this.notificationsService = new NotificationsService(fastify)
   }
 
   private get prisma() {
@@ -160,6 +163,57 @@ export class SchedulesService {
       await osClient.createNotification(notification)
     } catch (err) {
       this.fastify.log.error({ err }, '[schedules] erro ao enviar push de reconfiguração')
+    }
+  }
+
+  async sendEveReminders() {
+    const now = new Date()
+    const year = now.getUTCFullYear()
+    const month = now.getUTCMonth()
+    const day = now.getUTCDate()
+    const BRAZIL_OFFSET_HOURS = 3
+
+    // Amanhã em BRT: começa às UTC+3h do dia seguinte, termina às UTC+3h-1ms do dia subsequente
+    const tomorrowStart = new Date(Date.UTC(year, month, day + 1, BRAZIL_OFFSET_HOURS, 0, 0, 0))
+    const tomorrowEnd = new Date(Date.UTC(year, month, day + 2, BRAZIL_OFFSET_HOURS - 1, 59, 59, 999))
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        scheduledDate: { gte: tomorrowStart, lte: tomorrowEnd },
+        status: { not: 'CANCELLED' },
+      },
+    })
+
+    for (const order of orders) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: order.userId },
+        select: { oneSignalPlayerId: true },
+      })
+
+      if (user?.oneSignalPlayerId) {
+        try {
+          const osClient = createOsClient()
+          const notification = new OneSignal.Notification()
+          notification.app_id = process.env.ONESIGNAL_APP_ID!
+          notification.include_subscription_ids = [user.oneSignalPlayerId]
+          notification.headings = { pt: 'Cheirin de Pão' }
+          notification.contents = { pt: `Lembrete: ${order.quantity} pães agendados para amanhã.` }
+          await osClient.createNotification(notification)
+        } catch (pushErr) {
+          // D-06: falha de push é silenciosa — Notification ainda é persistida
+          this.fastify.log.warn(
+            { userId: order.userId, err: pushErr },
+            '[schedules] falha ao enviar push de véspera — silencioso (D-06)',
+          )
+        }
+      }
+
+      await this.notificationsService.createAndTrim({
+        userId: order.userId,
+        type: 'DELIVERY_EVE',
+        title: 'Entrega amanhã',
+        body: `Lembrete: ${order.quantity} pães agendados para amanhã.`,
+      })
     }
   }
 
