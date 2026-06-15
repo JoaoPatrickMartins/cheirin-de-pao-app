@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Monorepo, Dev Container, Prisma schema, shared packages e PWA shell instalável (completed 2026-06-13)
 - [x] **Phase 2: Authentication** - OTP login, cadastro em 5 passos, sessão permanente e roteamento por perfil (completed 2026-06-14)
 - [ ] **Phase 3: Credits & Commerce** - Compra de combos, compra personalizada, saldo de créditos e pagamento via Mercado Pago
-- [ ] **Phase 4: Scheduling** - Agenda semanal, pedido único, reserva de créditos e compra automática
+- [x] **Phase 4: Scheduling** - Agenda semanal, pedido único, reserva de créditos e compra automática (completed 2026-06-15)
 - [ ] **Phase 5: Delivery Experience** - Rastreamento 3 estados, notificações push, histórico e central de notificações
 - [ ] **Phase 6: Courier App** - Lista de entregas do entregador, confirmação manual e rota com mapa
 - [ ] **Phase 7: Admin Panel** - Painel admin completo: gestão, operação, financeiro e pagamentos
@@ -154,7 +154,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-06-PLAN.md — SingleScreen + DateChips + router.tsx atualizado + useOneSignalRegister + ClientLayout wiring
+- [x] 04-06-PLAN.md — SingleScreen + DateChips + router.tsx atualizado + useOneSignalRegister + ClientLayout wiring
 
 **UI hint**: yes
 
@@ -219,7 +219,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 3/6 | In Progress|  |
-| 4. Scheduling | 5/6 | In Progress|  |
+| 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
 | 7. Admin Panel | 0/TBD | Not started | - |
