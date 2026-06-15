@@ -11,6 +11,7 @@ import { condominiumsRoute } from './modules/condominiums/condominiums.route.js'
 import { paymentsRoute } from './modules/payments/payments.route.js'
 import { creditsRoute } from './modules/credits/credits.route.js'
 import { webhooksRoute } from './modules/webhooks/webhooks.route.js'
+import { schedulesRoute } from './modules/schedules/schedules.route.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 
 const fastify = Fastify({ logger: true })
@@ -83,6 +84,9 @@ const start = async () => {
     await fastify.register(paymentsRoute)
     await fastify.register(creditsRoute)
     await fastify.register(webhooksRoute)
+
+    // Phase 4 — Scheduling
+    await fastify.register(schedulesRoute)
 
     const port = Number(process.env.API_PORT ?? 3001)
     const host = process.env.API_HOST ?? '0.0.0.0'
