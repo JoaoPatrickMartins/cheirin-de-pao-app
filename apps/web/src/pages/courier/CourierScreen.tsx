@@ -7,6 +7,7 @@ import { SegmentedControl } from '../../components/courier/SegmentedControl'
 import { CondoAccordion, CondoGroup } from '../../components/courier/CondoAccordion'
 import { ConfirmDeliveryDialog } from '../../components/courier/ConfirmDeliveryDialog'
 import { Stop } from '../../components/courier/StopRow'
+import { CourierRouteView } from './CourierRouteView'
 
 interface TodayOrdersResponse {
   condos: CondoGroup[]
@@ -228,26 +229,7 @@ export function CourierScreen() {
       {/* Aba Rota */}
       {!isLoading && data && tab === 'route' && (
         <div style={{ padding: '12px 20px 0' }}>
-          <div
-            style={{
-              background: 'var(--color-surface)',
-              borderRadius: 22,
-              padding: 24,
-              textAlign: 'center',
-              boxShadow: 'var(--shadow-soft)',
-            }}
-          >
-            <p
-              style={{
-                fontFamily: 'var(--font-body)',
-                fontSize: 15,
-                color: 'var(--color-text-sec)',
-                margin: 0,
-              }}
-            >
-              Mapa disponível em breve
-            </p>
-          </div>
+          <CourierRouteView condos={data.condos} route={data.route} />
         </div>
       )}
 
