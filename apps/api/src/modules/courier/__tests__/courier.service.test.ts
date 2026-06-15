@@ -189,8 +189,8 @@ describe('CourierService', () => {
     })
   })
 
-  // Comportamento 4 (COUR-02): confirmDelivery SCHEDULED -> DELIVERED e transicao valida
-  describe('confirmDelivery — transicao SCHEDULED -> DELIVERED valida', () => {
+  // Comportamento 4 (COUR-02): confirmDelivery OUT_FOR_DELIVERY -> DELIVERED e transicao valida
+  describe('confirmDelivery — transicao OUT_FOR_DELIVERY -> DELIVERED valida', () => {
     it('delega para AdminOrdersService.updateOrderStatus quando courierId bate', async () => {
       const { fastify, prisma } = makeFastifyMock({
         order: {
@@ -198,7 +198,7 @@ describe('CourierService', () => {
           userId: 'user-01',
           courierId: 'courier-01',
           quantity: 3,
-          status: 'SCHEDULED',
+          status: 'OUT_FOR_DELIVERY',
         },
       })
 
