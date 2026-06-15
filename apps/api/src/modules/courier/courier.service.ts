@@ -210,7 +210,8 @@ export class CourierService {
           route = {
             distanceKm: (r.distance / 1000).toFixed(1),
             durationMin: Math.round(r.duration / 60),
-            geometry: r.geometry?.coordinates ?? [],
+            // OSRM retorna [lng, lat] (GeoJSON); Leaflet Polyline espera [lat, lng]
+            geometry: (r.geometry?.coordinates ?? []).map(([lng, lat]) => [lat, lng] as [number, number]),
           }
         }
       }
