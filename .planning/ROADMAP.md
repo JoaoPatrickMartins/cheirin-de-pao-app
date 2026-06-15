@@ -140,7 +140,7 @@ Plans:
 Plans:
 **Wave 0** *(bloqueante — deve completar antes dos demais)*
 
-- [ ] 04-01-PLAN.md — Schema Prisma (oneSignalPlayerId + @@unique Schedule) + db push + node-cron/@onesignal install + stubs de teste
+- [x] 04-01-PLAN.md — Schema Prisma (oneSignalPlayerId + @@unique Schedule) + db push + node-cron/@onesignal install + stubs de teste
 
 **Wave 1** *(blocked on Wave 0 — 04-02 e 04-03 são paralelos)*
 
@@ -219,7 +219,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 3/6 | In Progress|  |
-| 4. Scheduling | 0/6 | Not started | - |
+| 4. Scheduling | 1/6 | In Progress|  |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
 | 7. Admin Panel | 0/TBD | Not started | - |
