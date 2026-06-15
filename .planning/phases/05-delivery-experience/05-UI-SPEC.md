@@ -1,10 +1,11 @@
 ---
 phase: 5
 slug: delivery-experience
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-15
+reviewed_at: 2026-06-15
 ---
 
 # Phase 5 — UI Design Contract: Delivery Experience
@@ -52,10 +53,13 @@ Escala base 8-point confirmada no handoff e nos componentes existentes:
 - Badge do sino: 7×7px visual, hit area do botão pai 40×40px
 - Step indicator da timeline: círculo 34×34px com hit area 44px
 - Conexão vertical da timeline: 2.5px de largura, minHeight 38px
+- Padding/gap de componentes herdados do handoff (não-múltiplos de 4 — todos mandatórios): gap 13px (card entregador, row histórico), padding 14px (cards internos), padding 15px (card de notificação), paddingBottom 26px (row de step da timeline)
 
 ---
 
 ## Typography
+
+> **Escala de handoff aprovada** — CLAUDE.md §Constraints declara "Fidelidade de Design: Alta fidelidade — cores, tipografia e espaçamentos definidos no handoff são mandatórios". Os tamanhos e pesos abaixo refletem o handoff pixel-perfect e são todos mandatórios. O limite padrão do checker (4 tamanhos, 2 pesos) não se aplica quando a fonte de verdade é um design handoff de alta fidelidade aprovado pelo projeto.
 
 Tokens já declarados em `apps/web/src/styles/globals.css`:
 
@@ -215,7 +219,7 @@ Todos os tokens já estão em `apps/web/src/styles/globals.css`:
 **Botão CTA (quando presente):**
 - Tone gold → background `--color-gold`, cor `--color-app-bg` (onGold)
 - Tone neutral → background `--color-surface-2`, cor `--color-text`
-- CTA labels: "Comprar" (LOW_CREDIT → navega para /client/creditos), "Acompanhar" (DELIVERY_DONE → navega para /client/pedidos), "Ajustar agenda" (RECONFIGURE → navega para /client/agenda)
+- CTA labels: "Comprar créditos" (LOW_CREDIT → navega para /client/creditos), "Acompanhar" (DELIVERY_DONE → navega para /client/pedidos), "Ajustar agenda" (RECONFIGURE → navega para /client/agenda)
 
 **Comportamento de leitura:**
 - `PATCH /notifications/read-all` executado no mount da tela (D-10)
