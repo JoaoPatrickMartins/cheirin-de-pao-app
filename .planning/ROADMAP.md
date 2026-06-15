@@ -144,8 +144,8 @@ Plans:
 
 **Wave 1** *(blocked on Wave 0 — 04-02 e 04-03 são paralelos)*
 
-- [ ] 04-02-PLAN.md — Módulo schedules (GET/PUT /schedules/me) + SchedulesService (createDailyOrders, sendReconfigureReminders, processAutoBuy) + testes
-- [ ] 04-03-PLAN.md — Módulo orders (POST /orders, reserva atômica) + módulo notifications (POST /users/push-token) + testes
+- [x] 04-02-PLAN.md — Módulo schedules (GET/PUT /schedules/me) + SchedulesService (createDailyOrders, sendReconfigureReminders, processAutoBuy) + testes
+- [x] 04-03-PLAN.md — Módulo orders (POST /orders, reserva atômica) + módulo notifications (POST /users/push-token) + testes
 
 **Wave 2** *(blocked on Wave 1 — 04-04 e 04-05 são paralelos)*
 
@@ -219,7 +219,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 3/6 | In Progress|  |
-| 4. Scheduling | 1/6 | In Progress|  |
+| 4. Scheduling | 3/6 | In Progress|  |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
 | 7. Admin Panel | 0/TBD | Not started | - |
