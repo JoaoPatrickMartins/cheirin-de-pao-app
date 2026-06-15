@@ -149,7 +149,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — 04-04 e 04-05 são paralelos)*
 
-- [ ] 04-04-PLAN.md — Plugin cron.ts (3 crons: meia-noite, auto-buy, domingo 20h) + wiring server.ts
+- [x] 04-04-PLAN.md — Plugin cron.ts (3 crons: meia-noite, auto-buy, domingo 20h) + wiring server.ts
 - [ ] 04-05-PLAN.md — ScheduleScreen + DeliveryTimeChips + BannerCobertura + useSchedule hook
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -219,7 +219,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 3/6 | In Progress|  |
-| 4. Scheduling | 3/6 | In Progress|  |
+| 4. Scheduling | 4/6 | In Progress|  |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
 | 7. Admin Panel | 0/TBD | Not started | - |

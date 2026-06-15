@@ -44,7 +44,7 @@
 - [ ] **CRED-04**: Preço unitário da compra personalizada é maior que o do combo (configurado pelo Admin) — incentiva combo
 - [ ] **CRED-05**: Admin define limite máximo da compra personalizada (ex: abaixo de 20 pães) e preço unitário
 - [ ] **CRED-06**: Créditos não expiram — permanecem no saldo até serem consumidos em entregas realizadas
-- [ ] **CRED-07**: Cliente pode ativar compra recorrente automática — modalidade "quando estiver acabando" ou "toda semana"
+- [x] **CRED-07**: Cliente pode ativar compra recorrente automática — modalidade "quando estiver acabando" ou "toda semana"
 - [ ] **CRED-08**: Compra automática "toda semana" tem seletor de dia da semana e combo a repor
 - [ ] **CRED-09**: Se créditos insuficientes e sem compra automática, sistema notifica com opção de comprar combo ou ajustar agendamento
 - [ ] **CRED-10**: Se créditos insuficientes e com compra automática, combo é comprado automaticamente e cliente recebe confirmação
@@ -54,8 +54,8 @@
 
 - [ ] **SCHED-01**: Cliente pode criar pedido único (avulso) — escolhe data e quantidade; créditos reservados imediatamente
 - [ ] **SCHED-02**: Cliente pode configurar agendamento semanal personalizado — define quantidade por dia (0 = sem entrega)
-- [ ] **SCHED-03**: Agendamento semanal repete automaticamente toda semana até o cliente alterar ou desativar
-- [ ] **SCHED-04**: Cliente pode ativar notificação de reconfiguração semanal (domingo à noite lembra de ajustar semana seguinte)
+- [x] **SCHED-03**: Agendamento semanal repete automaticamente toda semana até o cliente alterar ou desativar
+- [x] **SCHED-04**: Cliente pode ativar notificação de reconfiguração semanal (domingo à noite lembra de ajustar semana seguinte)
 - [ ] **SCHED-05**: Se créditos insuficientes para cobrir o agendamento, banner de alerta exibido com opções de ação
 - [ ] **SCHED-06**: Tela de agenda semanal exibe consumo semanal total e cobertura de créditos
 
@@ -194,7 +194,7 @@
 | CRED-04 | Phase 3 — Credits & Commerce | Pending |
 | CRED-05 | Phase 3 — Credits & Commerce | Pending |
 | CRED-06 | Phase 3 — Credits & Commerce | Pending |
-| CRED-07 | Phase 3 — Credits & Commerce | Pending |
+| CRED-07 | Phase 3 — Credits & Commerce | Complete |
 | CRED-08 | Phase 3 — Credits & Commerce | Pending |
 | CRED-09 | Phase 3 — Credits & Commerce | Pending |
 | CRED-10 | Phase 3 — Credits & Commerce | Pending |
@@ -206,8 +206,8 @@
 | UI-08 | Phase 3 — Credits & Commerce | Pending |
 | SCHED-01 | Phase 4 — Scheduling | Pending |
 | SCHED-02 | Phase 4 — Scheduling | Pending |
-| SCHED-03 | Phase 4 — Scheduling | Pending |
-| SCHED-04 | Phase 4 — Scheduling | Pending |
+| SCHED-03 | Phase 4 — Scheduling | Complete |
+| SCHED-04 | Phase 4 — Scheduling | Complete |
 | SCHED-05 | Phase 4 — Scheduling | Pending |
 | SCHED-06 | Phase 4 — Scheduling | Pending |
 | ACOMP-01 | Phase 5 — Delivery Experience | Pending |
