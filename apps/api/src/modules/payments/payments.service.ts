@@ -91,11 +91,14 @@ export class PaymentsService {
     token: string
     installments?: number
     issuerId?: string
+    paymentMethodId?: string
+    payerEmail?: string
+    payerIdentification?: { type: string; number: string }
     comboId?: string
     customQuantity?: number
     userId: string
   }) {
-    const { token, installments = 1, issuerId, comboId, customQuantity, userId } = params
+    const { token, installments = 1, issuerId, paymentMethodId, payerEmail, payerIdentification, comboId, customQuantity, userId } = params
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } })
     if (!user) throw { error: 'Usuário não encontrado', status: 404 }
@@ -108,8 +111,16 @@ export class PaymentsService {
         description,
         token,
         installments,
+        // payment_method_id é OBRIGATÓRIO pelo MP para cartão (ex.: "master", "visa").
+        // O Brick fornece em formData.payment_method_id; sem ele o MP retorna internal_error.
+        payment_method_id: paymentMethodId,
         issuer_id: issuerId ? parseInt(issuerId) : undefined,
-        payer: { email: user.email ?? `${user.id}@cheirin.app` },
+        // Prioriza o e-mail informado no checkout; cai para o do cadastro e, por fim, um sintético.
+        // identification (CPF) vem do Brick — exigido pelo MP em produção no Brasil.
+        payer: {
+          email: payerEmail ?? user.email ?? `${user.id}@cheirin.app`,
+          identification: payerIdentification,
+        },
       },
     })
 

@@ -136,6 +136,7 @@ model Combo {
   name      String
   quantity  Int
   price     Float
+  tag       String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

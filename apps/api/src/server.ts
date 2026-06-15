@@ -56,9 +56,9 @@ const start = async () => {
       origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
     })
 
-    // Rate-limit global — protege endpoints OTP contra brute force
-    // 5 requisições por minuto por IP (proteção mínima; ajustar por rota se necessário)
-    await fastify.register(rateLimit, { max: 5, timeWindow: '1 minute' })
+    // Rate-limit global — 200 req/min para uso normal da app
+    // OTP endpoints têm limite próprio mais restritivo definido em auth.route.ts
+    await fastify.register(rateLimit, { max: 200, timeWindow: '1 minute' })
 
     // Prisma plugin — connects to MongoDB Atlas and decorates fastify with .prisma
     await fastify.register(prismaPlugin)

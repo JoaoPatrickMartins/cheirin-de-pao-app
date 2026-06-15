@@ -21,12 +21,20 @@ export function CardPaymentScreen() {
   const handleSubmit = async (formData: Record<string, unknown>) => {
     setError(null)
     try {
+      // O Brick coleta dados do pagador em formData.payer (e-mail + identification/CPF) —
+      // encaminhamos para o backend. Em teste, o e-mail deve ser diferente do da conta MP.
+      const payer = formData.payer as
+        | { email?: string; identification?: { type: string; number: string } }
+        | undefined
       const res = await apiFetch('/payments/card', {
         method: 'POST',
         body: JSON.stringify({
           token: formData.token,
           installments: formData.installments,
           issuerId: formData.issuer_id,
+          paymentMethodId: formData.payment_method_id,
+          payerEmail: payer?.email,
+          payerIdentification: payer?.identification,
           comboId,
           customQuantity,
         }),
@@ -106,11 +114,11 @@ export function CardPaymentScreen() {
         </p>
       )}
 
-      <div style={{ borderRadius: 16, overflow: 'hidden', maxWidth: 390 }}>
+      <div style={{ borderRadius: 16, maxWidth: 390 }}>
         <CardPayment
           initialization={{ amount }}
           onSubmit={handleSubmit as unknown as Parameters<typeof CardPayment>[0]['onSubmit']}
-          onError={(err) => setError((err as { message?: string })?.message ?? 'Erro no pagamento.')}
+          onError={() => setError('Erro ao carregar o formulário. Recarregue a página e tente novamente.')}
           onReady={() => setIsLoading(false)}
         />
       </div>

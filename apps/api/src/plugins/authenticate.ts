@@ -21,6 +21,7 @@ const authenticatePlugin: FastifyPluginAsync = fp(async (fastify) => {
   const authenticate: preHandlerHookHandler = async (request, reply) => {
     const authHeader = request.headers.authorization
     if (!authHeader?.startsWith('Bearer ')) {
+      fastify.log.warn({ url: request.url, method: request.method }, '[auth] 401 — sem Authorization header')
       return reply.status(401).send({ error: 'Não autorizado' })
     }
 
@@ -37,11 +38,24 @@ const authenticatePlugin: FastifyPluginAsync = fp(async (fastify) => {
     })
 
     if (!session) {
+      fastify.log.warn(
+        { url: request.url, method: request.method, tokenHashPrefix: tokenHash.slice(0, 8) },
+        '[auth] 401 — sessão não encontrada (expirada, revogada ou token inválido)',
+      )
       return reply.status(401).send({ error: 'Sessão expirada ou inválida' })
     }
 
     // Pitfall 3 / D-08: device mismatch detection — revoke session if X-Device-Id differs
     if (deviceId && session.deviceId !== deviceId) {
+      fastify.log.warn(
+        {
+          url: request.url,
+          method: request.method,
+          sessionDeviceId: session.deviceId,
+          requestDeviceId: deviceId,
+        },
+        '[auth] 401 — device mismatch, sessão revogada',
+      )
       await fastify.prisma.session.update({
         where: { id: session.id },
         data: { isRevoked: true },

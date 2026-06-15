@@ -9,6 +9,27 @@ function zodMessage(err: ZodError): string {
   return err.issues.map((e: ZodIssue) => e.message).join(', ')
 }
 
+/**
+ * Erros de negócio que ESTE serviço lança têm a forma { error, status } e
+ * mensagem em português segura para exibir ao cliente. Já o SDK do Mercado Pago,
+ * em respostas não-2xx, lança o corpo JSON cru da API (com `message`/`cause`).
+ * Este guard distingue os dois para NUNCA vazar o erro interno do MP ao usuário.
+ */
+function isBusinessError(err: unknown): err is { error: string; status: number } {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    !(err instanceof Error) &&
+    'error' in err &&
+    'status' in err &&
+    typeof (err as { error: unknown }).error === 'string' &&
+    typeof (err as { status: unknown }).status === 'number' &&
+    // MP carrega `message`/`cause`; nossos erros de negócio não.
+    !('message' in err) &&
+    !('cause' in err)
+  )
+}
+
 const GetStatusParamsSchema = z.object({
   id: z.string(),
 })
@@ -35,12 +56,14 @@ export class PaymentsController {
       const result = await this.service.createPix({ ...body, userId })
       return reply.status(201).send(result)
     } catch (err) {
-      if (err && typeof err === 'object' && 'error' in err && 'status' in err) {
-        const e = err as { error: string; status: number }
-        return reply.status(e.status).send({ error: e.error })
+      // Loga o erro completo — inclui a resposta detalhada do Mercado Pago (message/cause)
+      this.fastify.log.error({ err }, 'pagamento: erro ao processar')
+      // Erros de negócio (nossos): mensagem em PT, segura para exibir
+      if (isBusinessError(err)) {
+        return reply.status(err.status).send({ error: err.error })
       }
-      this.fastify.log.error(err)
-      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+      // Erro inesperado (ex.: SDK do Mercado Pago) — não vaza detalhe interno ao cliente
+      return reply.status(500).send({ error: 'Não foi possível processar o pagamento. Tente novamente.' })
     }
   }
 
@@ -59,12 +82,14 @@ export class PaymentsController {
       const result = await this.service.createCard({ ...body, userId })
       return reply.status(201).send(result)
     } catch (err) {
-      if (err && typeof err === 'object' && 'error' in err && 'status' in err) {
-        const e = err as { error: string; status: number }
-        return reply.status(e.status).send({ error: e.error })
+      // Loga o erro completo — inclui a resposta detalhada do Mercado Pago (message/cause)
+      this.fastify.log.error({ err }, 'pagamento: erro ao processar')
+      // Erros de negócio (nossos): mensagem em PT, segura para exibir
+      if (isBusinessError(err)) {
+        return reply.status(err.status).send({ error: err.error })
       }
-      this.fastify.log.error(err)
-      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+      // Erro inesperado (ex.: SDK do Mercado Pago) — não vaza detalhe interno ao cliente
+      return reply.status(500).send({ error: 'Não foi possível processar o pagamento. Tente novamente.' })
     }
   }
 
@@ -83,12 +108,14 @@ export class PaymentsController {
       const result = await this.service.getStatus(params.id, userId)
       return reply.status(200).send(result)
     } catch (err) {
-      if (err && typeof err === 'object' && 'error' in err && 'status' in err) {
-        const e = err as { error: string; status: number }
-        return reply.status(e.status).send({ error: e.error })
+      // Loga o erro completo — inclui a resposta detalhada do Mercado Pago (message/cause)
+      this.fastify.log.error({ err }, 'pagamento: erro ao processar')
+      // Erros de negócio (nossos): mensagem em PT, segura para exibir
+      if (isBusinessError(err)) {
+        return reply.status(err.status).send({ error: err.error })
       }
-      this.fastify.log.error(err)
-      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+      // Erro inesperado (ex.: SDK do Mercado Pago) — não vaza detalhe interno ao cliente
+      return reply.status(500).send({ error: 'Não foi possível processar o pagamento. Tente novamente.' })
     }
   }
 }

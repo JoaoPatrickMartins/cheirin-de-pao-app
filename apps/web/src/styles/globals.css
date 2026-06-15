@@ -51,3 +51,42 @@
     animation-duration: 0ms !important;
   }
 }
+
+/* ============================================================
+   Mercado Pago — CardPayment Brick (campos seguros em iframes)
+   Número, Validade e CVV são iframes cross-origin. No layout
+   "split" (validade + CVV lado a lado) o MP injeta um div overlay
+   sobre o iframe. No desktop o mouse atravessa via pointer-events;
+   no mobile o tap (área maior) acerta o overlay antes do iframe.
+
+   Estratégia: ELEVAR o iframe acima de qualquer overlay
+   (position + z-index) e tratá-lo como alvo de toque imediato
+   (touch-action: manipulation), além de neutralizar os overlays.
+   Tudo escopado ao container do brick para não afetar o resto. */
+
+#cardPaymentBrick_container iframe {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+  overflow: visible !important;
+}
+
+#cardPaymentBrick_container div[role="textbox"] {
+  overflow: visible !important;
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+}
+
+/* Overlays (irmão adjacente OU filho do textbox) não interceptam toque —
+   o iframe elevado acima é o alvo real. */
+#cardPaymentBrick_container div[role="textbox"] + div,
+#cardPaymentBrick_container div[role="textbox"] > div {
+  pointer-events: none !important;
+}
+
+/* Inputs reais do brick (nome, documento, e-mail) permanecem interativos */
+#cardPaymentBrick_container input {
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+}
