@@ -154,7 +154,7 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
 - Fundo: `--color-surface-2` (#F4EBDA), border-radius 13px, padding 4px
 - Tab ativa: fundo `--color-surface` (#FFF), border-radius 10px, `shadowSoft`
 - Tab inativa: fundo transparente
-- Altura de cada tab: mínimo 44px (padding: 9px 0, conteúdo ~26px)
+- Altura de cada tab: mínimo 44px (padding: 8px 0, conteúdo ~28px)
 - Fonte: Hanken Grotesk 15px weight 700
 - Cor ativa: `--color-text`; inativa: `--color-text-sec`
 - Ícones: `list` (Lista) e `route` (Rota), size 17px
@@ -173,8 +173,8 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
 ### CondoAccordion — Header
 
 - Card border-radius 22px, shadowSoft, fundo surface
-- Badge numérico: 36×36px, border-radius 11px, fundo `--color-gold`, cor `--color-espresso`, Bricolage 16px weight 800
-- Nome do condomínio: Bricolage 16px weight 700, color `--color-text`, letter-spacing -0.02em
+- Badge numérico: 36×36px, border-radius 12px, fundo `--color-gold`, cor `--color-espresso`, Bricolage 15px weight 800
+- Nome do condomínio: Bricolage 18px weight 700, color `--color-text`, letter-spacing -0.02em
 - Subtítulo: 12px Hanken weight 700, cor `--color-text-ter`
 - Pill parcial (`X/N`): tone "gold" (fundo `goldSoft`, cor `accent`)
 - Pill concluído ("Ok"): tone "good" (fundo `goodSoft`, cor `good`) com ícone `check` size 13px
@@ -184,16 +184,16 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
 ### CondoAccordion — Conteúdo (paradas)
 
 - Separador: `borderTop: 1px solid --color-border-2`
-- Label seção: "ORDEM SUGERIDA NO PRÉDIO", 11px, weight 700, letter-spacing 0.04em, cor `textTer`, padding 6px 16px 2px
+- Label seção: "ORDEM SUGERIDA NO PRÉDIO", 12px, weight 700, letter-spacing 0.04em, cor `textTer`, padding 4px 16px 4px
 - Cada parada: `padding: 12px 16px`, `minHeight: 44px`, `cursor: pointer`
   - Número de ordem: círculo 22×22px, border-radius 99px, fundo `surface2`, cor `textSec`, Bricolage 12px weight 800
   - Checkbox: 28×28px, border-radius 9px, borda 2px
     - Não confirmado: `border-color: --color-border`, fundo transparente
     - Confirmado: `border-color: --color-good`, `background: --color-good`, ícone `check` size 16px, cor `#fff`, stroke 3
     - Transição: `all 0.15s`
-  - Apartamento: 14.5px, weight 700, cor `text`
+  - Apartamento: 15px, weight 700, cor `text`
     - Confirmado: `text-decoration: line-through`, `opacity: 0.5`
-  - Nome cliente: 12.5px, cor `textTer`
+  - Nome cliente: 12px, cor `textTer`
   - Quantidade: Bricolage 15px, weight 800, cor `--color-accent`
 
 ### ConfirmDeliveryDialog (D-02)
@@ -216,14 +216,14 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
 - Marcadores: círculo espresso com borda gold, número dourado (Bricolage), implementados como DivIcon customizado
 - Polyline: cor `#E3AC3F`, weight 4px, dashArray "2 9" (tracejado), lineCap round
 - Ponto de partida (posição atual): círculo verde `--color-good`, raio 6px
-- Tooltip de distância/tempo (posição absoluta, bottom-left do card): fundo `surface`, border-radius 10px, padding 7px 11px, shadowSoft; ícone `route` color `accent`; "~X km · N paradas" 12.5px weight 700
+- Tooltip de distância/tempo (posição absoluta, bottom-left do card): fundo `surface`, border-radius 8px, padding 8px 12px, shadowSoft; ícone `route` color `accent`; "~X km · N paradas" 12px weight 700
 
 **Lista de paradas (abaixo do mapa):**
-- Cada item: fundo `surface`, border-radius 16px, borda `border2`, padding 13px 16px, gap 13px
-- Badge: 32×32px, border-radius 10px, fundo `gold`, cor `espresso`, Bricolage 15px weight 800
-- Nome: 14.5px weight 700, cor `text`
+- Cada item: fundo `surface`, border-radius 16px, borda `border2`, padding 12px 16px, gap 12px
+- Badge: 32×32px, border-radius 8px, fundo `gold`, cor `espresso`, Bricolage 15px weight 800
+- Nome: 15px weight 700, cor `text`
 - Subtítulo: 12px, cor `textTer`
-- Hora estimada: 12.5px weight 700, cor `textSec`
+- Hora estimada: 12px weight 700, cor `textSec`
 
 ---
 
