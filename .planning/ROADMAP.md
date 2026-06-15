@@ -136,7 +136,26 @@ Plans:
   4. Tela de agenda exibe consumo semanal total, cobertura de créditos e banner de alerta quando créditos são insuficientes
   5. Cliente ativa notificação de reconfiguração semanal e recebe lembrete no domingo à noite
 
-**Plans**: TBD
+**Plans**: 6 plans
+Plans:
+**Wave 0** *(bloqueante — deve completar antes dos demais)*
+
+- [ ] 04-01-PLAN.md — Schema Prisma (oneSignalPlayerId + @@unique Schedule) + db push + node-cron/@onesignal install + stubs de teste
+
+**Wave 1** *(blocked on Wave 0 — 04-02 e 04-03 são paralelos)*
+
+- [ ] 04-02-PLAN.md — Módulo schedules (GET/PUT /schedules/me) + SchedulesService (createDailyOrders, sendReconfigureReminders, processAutoBuy) + testes
+- [ ] 04-03-PLAN.md — Módulo orders (POST /orders, reserva atômica) + módulo notifications (POST /users/push-token) + testes
+
+**Wave 2** *(blocked on Wave 1 — 04-04 e 04-05 são paralelos)*
+
+- [ ] 04-04-PLAN.md — Plugin cron.ts (3 crons: meia-noite, auto-buy, domingo 20h) + wiring server.ts
+- [ ] 04-05-PLAN.md — ScheduleScreen + DeliveryTimeChips + BannerCobertura + useSchedule hook
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-06-PLAN.md — SingleScreen + DateChips + router.tsx atualizado + useOneSignalRegister + ClientLayout wiring
+
 **UI hint**: yes
 
 ### Phase 5: Delivery Experience
@@ -200,7 +219,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation | 3/3 | Complete   | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 3/6 | In Progress|  |
-| 4. Scheduling | 0/TBD | Not started | - |
+| 4. Scheduling | 0/6 | Not started | - |
 | 5. Delivery Experience | 0/TBD | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
 | 7. Admin Panel | 0/TBD | Not started | - |
