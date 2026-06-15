@@ -144,8 +144,7 @@ describe('AdminOrdersService', () => {
       const service = new AdminOrdersService(fastify as any)
       await service.updateOrderStatus('order-01', 'DELIVERED')
 
-      expect(prisma.notification.create).toHaveBeenCalledAtLeast?.(1)
-      // Garante pelo menos uma chamada
+      // Garante pelo menos uma chamada a prisma.notification.create
       expect(prisma.notification.create.mock.calls.length).toBeGreaterThanOrEqual(1)
     })
   })
