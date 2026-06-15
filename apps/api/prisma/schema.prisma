@@ -200,6 +200,7 @@ model Order {
   scheduledDate  DateTime
   status         OrderStatus
   deliveryListId String?     @db.ObjectId
+  courierId      String?     @db.ObjectId
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 }
