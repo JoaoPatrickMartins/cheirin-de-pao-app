@@ -204,11 +204,11 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — Schema Prisma (courierId em Order) + módulo courier API (GET today + PATCH confirm) + requireCourier guard + assign-courier admin + testes
+- [x] 06-01-PLAN.md — Schema Prisma (courierId em Order) + módulo courier API (GET today + PATCH confirm) + requireCourier guard + assign-courier admin + testes
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 06-02-PLAN.md — CourierScreen + ProgressCard + SegmentedControl + CondoAccordion + StopRow + ConfirmDeliveryDialog + router.tsx
+- [x] 06-02-PLAN.md — CourierScreen + ProgressCard + SegmentedControl + CondoAccordion + StopRow + ConfirmDeliveryDialog + router.tsx
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -245,5 +245,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Credits & Commerce | 3/6 | In Progress|  |
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
 | 5. Delivery Experience | 2/4 | In Progress|  |
-| 6. Courier App | 0/TBD | Not started | - |
+| 6. Courier App | 2/3 | In Progress|  |
 | 7. Admin Panel | 0/TBD | Not started | - |
