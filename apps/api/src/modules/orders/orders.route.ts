@@ -15,4 +15,16 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
     { preHandler: [fastify.authenticate] },
     ctrl.createSingleOrder.bind(ctrl),
   )
+
+  fastify.get(
+    '/orders/today',
+    { preHandler: [fastify.authenticate] },
+    ctrl.getTodayOrder.bind(ctrl),
+  )
+
+  fastify.get(
+    '/orders/history',
+    { preHandler: [fastify.authenticate] },
+    ctrl.getOrderHistory.bind(ctrl),
+  )
 }
