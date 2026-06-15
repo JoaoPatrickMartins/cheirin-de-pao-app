@@ -112,11 +112,12 @@ model User {
   condominiumId String?   @db.ObjectId
   apartment     String?
   block         String?
-  creditBalance Int       @default(0)
-  autoRecharge  Json?
-  cardTokenMp   String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  creditBalance      Int       @default(0)
+  autoRecharge       Json?
+  cardTokenMp        String?
+  oneSignalPlayerId  String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 // 2. Condominium — condomínios cadastrados
@@ -186,6 +187,8 @@ model Schedule {
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  @@unique([userId, condominiumId])
 }
 
 // 8. Order — pedidos unitários (avulsos ou gerados pelo schedule)
