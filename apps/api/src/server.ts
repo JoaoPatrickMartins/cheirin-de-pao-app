@@ -14,6 +14,7 @@ import { webhooksRoute } from './modules/webhooks/webhooks.route.js'
 import { schedulesRoute } from './modules/schedules/schedules.route.js'
 import { ordersRoute } from './modules/orders/orders.route.js'
 import { notificationsRoute } from './modules/notifications/notifications.route.js'
+import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 
 const fastify = Fastify({ logger: true })
@@ -41,6 +42,9 @@ const envSchema = {
     ADMIN_EMAIL: { type: 'string' },
     ADMIN_CPF: { type: 'string' },
     CORS_ORIGIN: { type: 'string' },
+    // Phase 4 additions — OneSignal push notifications
+    ONESIGNAL_APP_ID: { type: 'string' },
+    ONESIGNAL_REST_API_KEY: { type: 'string' },
   },
 }
 
@@ -91,6 +95,7 @@ const start = async () => {
     await fastify.register(schedulesRoute)
     await fastify.register(ordersRoute)         // POST /orders — pedido avulso (SCHED-01)
     await fastify.register(notificationsRoute)  // POST /users/push-token (D-09)
+    await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h (SCHED-03/04)
 
     const port = Number(process.env.API_PORT ?? 3001)
     const host = process.env.API_HOST ?? '0.0.0.0'
