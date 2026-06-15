@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 3: Credits & Commerce** - Compra de combos, compra personalizada, saldo de créditos e pagamento via Mercado Pago
 - [x] **Phase 4: Scheduling** - Agenda semanal, pedido único, reserva de créditos e compra automática (completed 2026-06-15)
 - [ ] **Phase 5: Delivery Experience** - Rastreamento 3 estados, notificações push, histórico e central de notificações
-- [ ] **Phase 6: Courier App** - Lista de entregas do entregador, confirmação manual e rota com mapa
+- [x] **Phase 6: Courier App** - Lista de entregas do entregador, confirmação manual e rota com mapa (completed 2026-06-15)
 - [ ] **Phase 7: Admin Panel** - Painel admin completo: gestão, operação, financeiro e pagamentos
 
 ## Phase Details
@@ -212,7 +212,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 06-03-PLAN.md — CourierMap (react-leaflet) + CourierRouteView (aba Rota real) + substituição do placeholder
+- [x] 06-03-PLAN.md — CourierMap (react-leaflet) + CourierRouteView (aba Rota real) + substituição do placeholder
 
 **UI hint**: yes
 
@@ -245,5 +245,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Credits & Commerce | 3/6 | In Progress|  |
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
 | 5. Delivery Experience | 2/4 | In Progress|  |
-| 6. Courier App | 2/3 | In Progress|  |
+| 6. Courier App | 3/3 | Complete   | 2026-06-15 |
 | 7. Admin Panel | 0/TBD | Not started | - |
