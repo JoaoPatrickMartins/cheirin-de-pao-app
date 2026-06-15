@@ -17,17 +17,17 @@ created: 2026-06-14
 
 | Property | Value |
 |----------|-------|
-| **Framework** | vitest (frontend) + Jest/supertest (backend) |
-| **Config file** | `apps/web/vitest.config.ts` / `apps/api/jest.config.ts` |
-| **Quick run command** | `npm run test --workspace=apps/web -- --run` |
-| **Full suite command** | `npm run test --workspace=apps/web -- --run && npm run test --workspace=apps/api` |
+| **Framework** | Vitest (frontend + backend) |
+| **Config file** | `apps/web/vitest.config.ts` / `apps/api/vitest.config.ts` |
+| **Quick run command** | `npm run test --workspace=apps/api -- --run` |
+| **Full suite command** | `npm run test --workspace=apps/api -- --run && npm run test --workspace=apps/web -- --run` |
 | **Estimated runtime** | ~30 seconds |
 
 ---
 
 ## Sampling Rate
 
-- **After every task commit:** Run `npm run test --workspace=apps/web -- --run`
+- **After every task commit:** Run `npm run test --workspace=apps/api -- --run`
 - **After every plan wave:** Run full suite
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 30 seconds
@@ -51,10 +51,12 @@ created: 2026-06-14
 
 ## Wave 0 Requirements
 
-- [ ] `apps/api/src/__tests__/scheduling.test.ts` — stubs para SCHED-01, SCHED-03, SCHED-05
-- [ ] `apps/web/src/__tests__/scheduling.test.tsx` — stubs para SCHED-02, SCHED-04, SCHED-06
+- [ ] `apps/api/src/modules/schedules/__tests__/schedules.service.test.ts` — stubs para SCHED-02, SCHED-03 (criado pelo 04-01)
+- [ ] `apps/api/src/modules/orders/__tests__/orders.service.test.ts` — stubs para SCHED-01, CRED-10 (criado pelo 04-01)
+- [ ] `apps/web/src/components/client/__tests__/BannerInsuficiente.test.tsx` — stub para SCHED-05 (criado pelo 04-01)
+- [ ] `apps/web/src/hooks/__tests__/useSchedule.test.ts` — stubs para SCHED-06 (criado pelo 04-01)
 
-*Framework já instalado nas fases anteriores.*
+*Framework Vitest já instalado nas fases anteriores.*
 
 ---
 

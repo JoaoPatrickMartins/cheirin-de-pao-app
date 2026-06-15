@@ -42,8 +42,8 @@ O cliente autenticado pode configurar sua agenda semanal de pãezinhos (quantida
 ### Cron de compra automática (CRED-07/10 — deferred da Fase 3)
 - **D-10:** Fase 4 **implementa o cron de compra automática** completo (CRED-07/10). A UI (`AutoBuyScreen`) e o save de preferência já existem da Fase 3 (D-04).
 - **D-11:** Modalidade "quando estiver acabando": limiar = `saldo_atual < consumo_semanal_do_schedule`. O cron verifica diariamente (junto com o cron de criação de Orders) e dispara a compra se o limiar for atingido.
-- **D-12:** Modalidade "toda semana": cron roda no dia configurado pelo cliente (seletor no `AutoBuyScreen`) e compra o combo selecionado. Usa o **card token** salvo no `User` na Fase 3 (D-06 da Fase 3).
-- **D-13:** Se a compra automática falhar (cartão recusado, token expirado): backend envia push OneSignal "Compra automática falhou — verifique seu cartão" e **não retenta**. Próxima execução do cron tentará novamente se o limiar ainda for atingido.
+- **D-12:** Modalidade "toda semana": cron roda no dia configurado pelo cliente e compra o combo selecionado. **Pix-first MVP**: `cardTokenMp` do Brick é token one-time, inviabilizando cobrança silenciosa recorrente no cartão. Cron gera QR Pix via `paymentsService` e envia push OneSignal com link para a tela de pagamento. Cobrança silenciosa no cartão requer MP Subscriptions API (`/preapproval`) — postergado para fase futura. [Decisão revisada 2026-06-14 com base na descoberta técnica do RESEARCH.md]
+- **D-13:** Se a compra automática falhar (geração de QR Pix falhar): backend envia push OneSignal "Não conseguimos gerar sua cobrança automática — verifique seu saldo" e **não retenta**. Próxima execução do cron tentará novamente se o limiar ainda for atingido.
 
 ### Claude's Discretion
 - Estrutura interna dos módulos `schedules` e `orders` na API — seguir Clean Architecture já estabelecida (`modules/auth/`, `modules/payments/`)

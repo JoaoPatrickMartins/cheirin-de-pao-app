@@ -1041,22 +1041,19 @@ apps/web/src/
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Compra automática: Pix-first ou MP Subscriptions?**
    - O que sabemos: `cardTokenMp` atual é token one-time, não reusável sem CVV
-   - O que está incerto: o nível de expectativa do cliente para "cobrança automática" — silenciosa no cartão vs. push+Pix
-   - Recomendação: Implementar Pix-first para MVP (push + QR Pix gerado automaticamente). Registrar como decisão e documentar que cobrança silenciosa em cartão requer MP Subscriptions API (1 wave extra)
+   - **RESOLVIDO 2026-06-14:** Pix-first para MVP aprovado pelo usuário. Cron gera QR Pix + envia push. D-12 revisado no CONTEXT.md. Cobrança silenciosa no cartão (MP Subscriptions `/preapproval`) postergada.
 
 2. **`@@unique([userId, condominiumId])` no Schedule: necessário?**
    - O que sabemos: Schema atual não tem o índice. MVP tem um condomínio por usuário
-   - O que está incerto: Se Prisma aceita upsert sem `@@unique` via query com `where` composto
-   - Recomendação: Adicionar `@@unique([userId, condominiumId])` ao schema e rodar `prisma generate`
+   - **RESOLVIDO 2026-06-14:** Adicionar `@@unique([userId, condominiumId])` ao schema. 04-01 inclui esta alteração no `schema.prisma`.
 
 3. **Batching de push notifications no cron de domingo**
    - O que sabemos: OneSignal aceita até 20.000 `subscription_ids` por request
-   - O que está incerto: Número real de usuários no MVP (provavelmente < 100)
-   - Recomendação: Implementar envio em único request sem batching no MVP
+   - **RESOLVIDO 2026-06-14:** Envio em único request sem batching — MVP terá < 100 usuários. 04-02 implementa sem batching.
 
 ---
 
