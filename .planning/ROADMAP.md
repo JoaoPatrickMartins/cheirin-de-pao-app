@@ -79,7 +79,7 @@ Plans:
 
 - [x] 02-03-PLAN.md — AuthContext + ProtectedRoute + LoadingScreen + router rewiring + profile layout guards
 
-**Wave 4** *(blocked on Wave 3 completion — plans 04 and 05 are parallel)*
+**Wave 4** *(blocked on Wave 3 completion — plans 04 and 05 são paralelos)*
 
 - [x] 02-04-PLAN.md — LoginScreen (2-step OTP login) + apiFetch wrapper + OtpInput + ResendTimer
 - [x] 02-05-PLAN.md — OnboardingScreen (5-step registration) + StepDots + CondoSearch + ChannelSelector + CourierRegisterScreen
@@ -172,7 +172,18 @@ Plans:
   4. Tela de histórico exibe os pedidos dos últimos 30 dias com data, quantidade e status de cada entrega
   5. Central de notificações lista todas as notificações recebidas com cards por tipo e indicação visual de itens novos
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+**Wave 1** *(05-01 e 05-02 são paralelos)*
+
+- [ ] 05-01-PLAN.md — Módulo admin-orders (PATCH /admin/orders/:id/status, VALID_TRANSITIONS, push DELIVERED, persist Notification + trim 30)
+- [ ] 05-02-PLAN.md — Extensão orders (GET /orders/today BRT, GET /orders/history) + extensão notifications (GET /me, PATCH /read-all, GET /unread-count)
+
+**Wave 2** *(blocked on Wave 1 — 05-03 e 05-04 são paralelos)*
+
+- [ ] 05-03-PLAN.md — sendEveReminders em schedules.service + cron 21h em cron.ts + wiring adminOrdersRoute em server.ts
+- [ ] 05-04-PLAN.md — useOrderTracking hook + TrackingScreen + NotificationsScreen + HomeScreen bell/badge + router.tsx
+
 **UI hint**: yes
 
 ### Phase 6: Courier App
@@ -220,6 +231,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 3/6 | In Progress|  |
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
-| 5. Delivery Experience | 0/TBD | Not started | - |
+| 5. Delivery Experience | 0/4 | Not started | - |
 | 6. Courier App | 0/TBD | Not started | - |
 | 7. Admin Panel | 0/TBD | Not started | - |
