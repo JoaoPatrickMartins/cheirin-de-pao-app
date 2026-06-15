@@ -24,4 +24,25 @@ export class OrdersRepository {
       orderBy: { scheduledDate: 'asc' },
     })
   }
+
+  /**
+   * Busca o pedido de hoje para o usuário dentro do intervalo BRT fornecido.
+   * Exclui pedidos com status CANCELLED.
+   */
+  async findTodayByUserId(userId: string, start: Date, end: Date) {
+    return this.prisma.order.findFirst({
+      where: { userId, scheduledDate: { gte: start, lte: end }, status: { not: 'CANCELLED' } },
+    })
+  }
+
+  /**
+   * Busca o histórico de pedidos a partir de uma data de corte.
+   * Exclui pedidos com status CANCELLED; ordenados por scheduledDate desc.
+   */
+  async findHistoryByUserId(userId: string, since: Date) {
+    return this.prisma.order.findMany({
+      where: { userId, scheduledDate: { gte: since }, status: { not: 'CANCELLED' } },
+      orderBy: { scheduledDate: 'desc' },
+    })
+  }
 }

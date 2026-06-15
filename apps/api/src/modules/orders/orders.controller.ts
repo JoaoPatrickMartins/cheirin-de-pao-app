@@ -50,4 +50,41 @@ export class OrdersController {
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
+
+  /**
+   * GET /orders/today — retorna o pedido do dia atual em BRT.
+   *
+   * T-05-05: userId extraído de request.user.id (JWT) — nunca de query params.
+   * Retorna 404 se não há pedido hoje.
+   */
+  async getTodayOrder(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const order = await this.service.getTodayOrder(userId)
+      if (!order) return reply.status(404).send({ error: 'Nenhuma entrega hoje' })
+      return reply.status(200).send(order)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /orders/history?days=30 — retorna histórico dos últimos N dias.
+   *
+   * T-05-05: userId extraído de request.user.id (JWT) — nunca de query params.
+   * Query param `days` é opcional; default 30.
+   */
+  async getOrderHistory(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const query = request.query as { days?: string }
+      const days = query.days ? parseInt(query.days, 10) : 30
+      const history = await this.service.getOrderHistory(userId, days)
+      return reply.status(200).send(history)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
 }

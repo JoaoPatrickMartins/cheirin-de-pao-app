@@ -15,4 +15,22 @@ export const notificationsRoute: FastifyPluginAsync = async (fastify) => {
     { preHandler: [fastify.authenticate] },
     ctrl.savePushToken.bind(ctrl),
   )
+
+  fastify.get(
+    '/notifications/me',
+    { preHandler: [fastify.authenticate] },
+    ctrl.getNotifications.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/notifications/read-all',
+    { preHandler: [fastify.authenticate] },
+    ctrl.readAll.bind(ctrl),
+  )
+
+  fastify.get(
+    '/notifications/unread-count',
+    { preHandler: [fastify.authenticate] },
+    ctrl.getUnreadCount.bind(ctrl),
+  )
 }

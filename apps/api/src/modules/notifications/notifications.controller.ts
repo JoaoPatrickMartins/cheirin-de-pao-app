@@ -46,4 +46,52 @@ export class NotificationsController {
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
+
+  /**
+   * GET /notifications/me — retorna as últimas 30 notificações do usuário.
+   *
+   * T-05-04: userId extraído de request.user.id (JWT) — nunca de query params ou body.
+   */
+  async getNotifications(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const notifications = await this.service.getByUserId(userId)
+      return reply.status(200).send(notifications)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * PATCH /notifications/read-all — marca todas as notificações do usuário como lidas.
+   *
+   * T-05-04: userId extraído de request.user.id (JWT) — nunca de body ou query params.
+   */
+  async readAll(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      await this.service.markAllRead(userId)
+      return reply.status(200).send({ ok: true })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /notifications/unread-count — retorna { count: N } com total de notificações não lidas.
+   *
+   * T-05-04: userId extraído de request.user.id (JWT) — nunca de query params ou body.
+   */
+  async getUnreadCount(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const count = await this.service.countUnread(userId)
+      return reply.status(200).send({ count })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
 }

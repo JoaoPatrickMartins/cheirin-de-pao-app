@@ -20,8 +20,10 @@ function makePastDateStr(daysAgo = 1): string {
 function makeFastifyMock(overrides: {
   creditBalance?: number
   transactionError?: unknown
+  orderFindFirst?: unknown
+  orderFindMany?: unknown[]
 } = {}) {
-  const { creditBalance = 10, transactionError } = overrides
+  const { creditBalance = 10, transactionError, orderFindFirst = null, orderFindMany = [] } = overrides
 
   const user = { id: 'user-01', creditBalance }
 
@@ -47,13 +49,19 @@ function makeFastifyMock(overrides: {
         return fn({ user: txUser, order: txOrder, creditTransaction: txCreditTransaction })
       })
 
+  const orderMock = {
+    ...txOrder,
+    findFirst: vi.fn().mockResolvedValue(orderFindFirst),
+    findMany: vi.fn().mockResolvedValue(orderFindMany),
+  }
+
   return {
     fastify: {
-      prisma: { $transaction: transaction, user: txUser },
+      prisma: { $transaction: transaction, user: txUser, order: orderMock },
       log: { error: vi.fn() },
     } as unknown,
     txUser,
-    txOrder,
+    txOrder: orderMock,
     txCreditTransaction,
   }
 }
@@ -137,5 +145,116 @@ describe('OrdersService', () => {
     await expect(
       service.createSingleOrder('user-01', { quantity: 2, scheduledDate: pastDate }),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Data inválida' })
+  })
+
+  // ── Casos 05-03a,b,c: getTodayOrder ──────────────────────────────────────
+
+  it('05-03a: getTodayOrder chama prisma.order.findFirst com scheduledDate.gte e lte como instâncias de Date', async () => {
+    const { fastify, txOrder } = makeFastifyMock({ orderFindFirst: null })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await service.getTodayOrder('userId-abc')
+
+    expect(txOrder.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'userId-abc',
+          scheduledDate: expect.objectContaining({
+            gte: expect.any(Date),
+            lte: expect.any(Date),
+          }),
+        }),
+      }),
+    )
+
+    const call = txOrder.findFirst.mock.calls[0][0]
+    expect(call.where.scheduledDate.gte).not.toBeUndefined()
+    expect(call.where.scheduledDate.lte).not.toBeUndefined()
+    expect(call.where.scheduledDate.gte).toBeInstanceOf(Date)
+    expect(call.where.scheduledDate.lte).toBeInstanceOf(Date)
+  })
+
+  it('05-03b: getTodayOrder retorna o order encontrado sem transformação', async () => {
+    const fakeOrder = { id: 'order-today', status: 'SCHEDULED', quantity: 3 }
+    const { fastify } = makeFastifyMock({ orderFindFirst: fakeOrder })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    const result = await service.getTodayOrder('userId-abc')
+
+    expect(result).toEqual(fakeOrder)
+  })
+
+  it('05-03c: getTodayOrder retorna null quando findFirst retorna null', async () => {
+    const { fastify } = makeFastifyMock({ orderFindFirst: null })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    const result = await service.getTodayOrder('userId-abc')
+
+    expect(result).toBeNull()
+  })
+
+  // ── Casos 05-08a,b: getOrderHistory ──────────────────────────────────────
+
+  it('05-08a: getOrderHistory chama findMany com scheduledDate.gte aproximadamente 30 dias atrás', async () => {
+    const { fastify, txOrder } = makeFastifyMock({ orderFindMany: [] })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    const before = Date.now()
+    await service.getOrderHistory('userId-abc', 30)
+    const after = Date.now()
+
+    expect(txOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'userId-abc',
+          scheduledDate: expect.objectContaining({
+            gte: expect.any(Date),
+          }),
+        }),
+      }),
+    )
+
+    const call = txOrder.findMany.mock.calls[0][0]
+    const gte = call.where.scheduledDate.gte as Date
+    const expectedMs = 30 * 24 * 60 * 60 * 1000
+    const diffFromBefore = before - gte.getTime()
+    const diffFromAfter = after - gte.getTime()
+
+    // gte deve ser aproximadamente 30 dias atrás (±1s de tolerância)
+    expect(diffFromBefore).toBeGreaterThanOrEqual(expectedMs - 1000)
+    expect(diffFromAfter).toBeLessThanOrEqual(expectedMs + 1000)
+  })
+
+  it('05-08b: getOrderHistory usa 30 como default quando days não é passado', async () => {
+    const { fastify, txOrder } = makeFastifyMock({ orderFindMany: [] })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    const before = Date.now()
+    await service.getOrderHistory('userId-abc')
+    const after = Date.now()
+
+    const call = txOrder.findMany.mock.calls[0][0]
+    const gte = call.where.scheduledDate.gte as Date
+    const expectedMs = 30 * 24 * 60 * 60 * 1000
+    const diffFromBefore = before - gte.getTime()
+    const diffFromAfter = after - gte.getTime()
+
+    expect(diffFromBefore).toBeGreaterThanOrEqual(expectedMs - 1000)
+    expect(diffFromAfter).toBeLessThanOrEqual(expectedMs + 1000)
   })
 })

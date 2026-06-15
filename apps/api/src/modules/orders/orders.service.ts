@@ -24,6 +24,26 @@ function getTomorrowUTC3(): Date {
 }
 
 /**
+ * Retorna o intervalo de "hoje" em UTC-3 como par de datas UTC.
+ *
+ * Meia-noite BRT (UTC-3) equivale a 03:00 UTC.
+ * Fim do dia BRT (23:59:59.999) equivale a 02:59:59.999 UTC do dia seguinte.
+ */
+function getTodayRange(): { start: Date; end: Date } {
+  const nowUTC = Date.now()
+  const nowBrazil = nowUTC - BRAZIL_OFFSET_HOURS * 60 * 60 * 1000
+  const todayBrazil = new Date(nowBrazil)
+  const year = todayBrazil.getUTCFullYear()
+  const month = todayBrazil.getUTCMonth()
+  const day = todayBrazil.getUTCDate()
+  // Meia-noite BRT em UTC = 03:00 UTC do mesmo dia calendário
+  const start = new Date(Date.UTC(year, month, day, BRAZIL_OFFSET_HOURS, 0, 0, 0))
+  // 23:59:59.999 BRT em UTC = 02:59:59.999 UTC do dia seguinte
+  const end = new Date(Date.UTC(year, month, day + 1, BRAZIL_OFFSET_HOURS - 1, 59, 59, 999))
+  return { start, end }
+}
+
+/**
  * OrdersService — lógica de negócio de pedidos avulsos.
  *
  * Implementa reserva atômica de créditos via prisma.$transaction:
@@ -101,5 +121,44 @@ export class OrdersService {
     })
 
     return order
+  }
+
+  /**
+   * Retorna o pedido do dia atual para o usuário, considerando timezone BRT (UTC-3).
+   *
+   * T-05-05: userId vem do JWT — preHandler: [fastify.authenticate] na rota.
+   * Retorna null se não houver pedido agendado para hoje (não CANCELLED).
+   */
+  async getTodayOrder(userId: string) {
+    const { start, end } = getTodayRange()
+    return this.prisma.order.findFirst({
+      where: {
+        userId,
+        scheduledDate: { gte: start, lte: end },
+        status: { not: 'CANCELLED' },
+      },
+    })
+  }
+
+  /**
+   * Retorna o histórico de pedidos dos últimos N dias para o usuário.
+   *
+   * T-05-05: userId vem do JWT — preHandler: [fastify.authenticate] na rota.
+   * Exclui pedidos CANCELLED; ordenados por scheduledDate desc.
+   *
+   * @param userId  ID do usuário autenticado
+   * @param days    Número de dias para trás (default: 30)
+   */
+  async getOrderHistory(userId: string, days: number = 30) {
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+    return this.prisma.order.findMany({
+      where: {
+        userId,
+        scheduledDate: { gte: since },
+        status: { not: 'CANCELLED' },
+      },
+      orderBy: { scheduledDate: 'desc' },
+    })
   }
 }
