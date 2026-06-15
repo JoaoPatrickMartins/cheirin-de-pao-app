@@ -29,7 +29,7 @@ Admin tem controle total da operação diária e da gestão do sistema. Entrega 
 ### Estorno e Pagamentos (PAY-03 + PAY-04)
 - **D-04:** Estorno via Mercado Pago é **somente total** no MVP — uma chamada à API do MP com o `payment_id`. Sem estorno parcial.
 - **D-05:** Ao confirmar estorno: **créditos removidos automaticamente** do saldo do cliente — sistema debita os créditos daquele pagamento do `creditBalance`. Se o cliente já consumiu parte dos créditos, debita apenas o restante disponível. Consistência: crédito só existe se pago.
-- **D-06:** Tela de pagamentos (PAY-03): **lista somente leitura** com status (pago, estornado, pendente) + ao tocar num pagamento abre **tela de detalhe** com informações completas e botão "Estornar" (disponível apenas para status `APPROVED`).
+- **D-06:** Tela de pagamentos (PAY-03): **lista somente leitura** com status (pago, estornado, pendente) + ao tocar num pagamento abre **tela de detalhe** com informações completas e botão "Estornar" (disponível apenas para `Payment.status === 'PAID'` — enum `PaymentStatus = PENDING | PAID | FAILED | REFUNDED`).
 
 ### Geração de PDF e Excel (ADMO-08)
 - **D-07:** Backend gera ambos os formatos: **PDF via pdfmake** + **Excel via exceljs**. API retorna arquivo para download (endpoint dedicado por formato). Consistente em qualquer dispositivo, sem dependência do browser.

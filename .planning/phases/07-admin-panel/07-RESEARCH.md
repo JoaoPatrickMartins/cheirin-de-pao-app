@@ -730,22 +730,13 @@ CONTEXT.md não decidiu explicitamente — Claude's Discretion. **Recomendação
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Cron de corte — bloqueio ativo ou passivo?**
-   - O que sabemos: `cutoffTime` é lido pelo cron a cada hora cheia
-   - O que está indefinido: ao atingir o horário, o sistema seta um flag no Setting (`isCutoffActive: 'true'`), ou os endpoints de pedido verificam `cutoffTime` a cada request?
-   - Recomendação: verificação on-demand nos endpoints de agendamento (mais simples, sem estado extra). O cron apenas envia a notificação push (ADMO-02).
+1. **Cron de corte — bloqueio ativo ou passivo?** **RESOLVED** — verificação on-demand (GET endpoint): os endpoints de agendamento verificam `cutoffTime` vs hora atual BRT a cada request. O cron `'0 * * * *'` executa apenas para enviar push notifications aos clientes sem agendamento (ADMO-02); não seta nenhum flag de bloqueio ativo. Endpoint `GET /settings/cutoff-status` (público) retorna `{ isCutoff: boolean, cutoffTime: string }` para o frontend do cliente (ADMO-03).
 
-2. **Order.condominiumId em Orders existentes**
-   - O que sabemos: Orders criadas antes dessa fase não terão o campo
-   - O que está indefinido: o planner deve incluir um script de backfill (buscar User.condominiumId para cada Order existente) ou aceitar `null` e tratar no admin service?
-   - Recomendação: aceitar `null` no MVP — admin service filtra/agrupa apenas orders com `condominiumId != null`. Backfill pode ser feito em Wave 0 via script simples.
+2. **Order.condominiumId em Orders existentes** **RESOLVED** — aceitar `null` em documentos existentes no MVP; backfill não é necessário. O admin service filtra/agrupa apenas orders com `condominiumId != null`. MongoDB é schemaless — documentos antigos simplesmente não terão o campo.
 
-3. **Sugestão de divisão de entregadores — quando gerar?**
-   - O que sabemos: algoritmo híbrido balanceia pães entre entregadores ativos
-   - O que está indefinido: a sugestão é gerada on-demand no GET `/admin/orders/division-suggestion`, ou pré-computada quando o pedido ao fornecedor é confirmado?
-   - Recomendação: on-demand no GET, calculado em memória no service (dados pequenos no MVP).
+3. **Sugestão de divisão de entregadores — quando gerar?** **RESOLVED** — on-demand no `GET /admin/orders/division-suggestion`, calculado em memória no service. Dados são pequenos no MVP; sem pré-computação ou cache necessário.
 
 ---
 
