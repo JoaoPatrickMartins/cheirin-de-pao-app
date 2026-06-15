@@ -30,7 +30,7 @@ O entregador ainda não tem app nesta fase (Fase 6) — a transição SCHEDULED 
 - **D-08:** Histórico exibe apenas **dias com pedido** (sem dias vazios). Período: últimos 30 dias. Endpoint: `GET /orders/history?days=30`.
 
 ### Central de Notificações (ACOMP-05)
-- **D-09:** Central acessível via **ícone de sino na HomeScreen** com badge vermelho quando há itens novos. Toque abre `NotificationsScreen` dedicada.
+- **D-09:** Central acessível via **ícone de sino na HomeScreen** com badge dourado (`--color-gold`) quando há itens novos — confirmado pelo design handoff (D-09 original dizia "vermelho" por engano; handoff especifica gold). Toque abre `NotificationsScreen` dedicada.
 - **D-10:** Limite de **30 notificações** armazenadas por usuário. Todas marcadas como lidas (`read: true`) ao abrir a tela.
 
 ### Admin — Acionamento Manual

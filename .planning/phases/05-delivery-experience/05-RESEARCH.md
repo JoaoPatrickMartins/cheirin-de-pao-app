@@ -524,17 +524,17 @@ useEffect(() => {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Badge count: fetch na HomeScreen ou estado global?**
    - O que sabemos: a HomeScreen precisa mostrar o badge. A NotificationsScreen precisa zerá-lo.
-   - O que está incerto: se usar fetch no mount da HomeScreen, o badge pode ficar stale entre navegações sem refetch.
-   - Recomendação: fetch simples `GET /notifications/unread-count` no mount da HomeScreen + estado local. Ao voltar da NotificationsScreen (via React Router), a HomeScreen é re-montada automaticamente e refaz o fetch. Sem necessidade de context global.
+   - O que estava incerto: se usar fetch no mount da HomeScreen, o badge pode ficar stale entre navegações sem refetch.
+   - RESOLVED: fetch simples `GET /notifications/unread-count` no mount da HomeScreen + estado local. Ao voltar da NotificationsScreen (via React Router), a HomeScreen é re-montada automaticamente e refaz o fetch. Sem necessidade de context global. Implementado no plano 05-04.
 
 2. **O cron de véspera deve checar se o usuário tem oneSignalPlayerId mas também deve persistir Notification mesmo sem playerId?**
    - O que sabemos: D-06 diz "silenciosamente ignorados" para o push. D-10 diz que notificações são armazenadas no banco.
-   - O que está incerto: se um usuário sem playerId (push desativado) deve ter a Notification persistida para aparecer na central in-app.
-   - Recomendação: sim — persistir a `Notification` independentemente do playerId. O push é best-effort; a central in-app é confiável.
+   - O que estava incerto: se um usuário sem playerId (push desativado) deve ter a Notification persistida para aparecer na central in-app.
+   - RESOLVED: sim — persistir a `Notification` independentemente do playerId. O push é best-effort; a central in-app é confiável. Implementado no plano 05-03 (sendEveReminders chama createAndTrim fora do try/catch de push).
 
 ---
 
