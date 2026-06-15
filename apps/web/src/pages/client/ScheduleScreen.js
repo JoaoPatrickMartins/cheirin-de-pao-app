@@ -187,7 +187,7 @@ export function ScheduleScreen() {
                                         background: notifyReconfigure ? 'var(--color-espresso)' : 'var(--color-surface)',
                                         transition: 'left .2s',
                                         boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                                    } }) })] }), _jsx(BannerCobertura, { semana: consumoSemanal, saldo: creditBalance, cobre: cobre, onCombos: () => navigate('/client/creditos'), onAutoBuy: () => navigate('/client/creditos/compra-automatica') })] }), _jsxs("div", { style: {
+                                    } }) })] }), _jsx(BannerCobertura, { semana: consumoSemanal, saldo: creditBalance, cobre: cobre, onCombos: () => navigate('/client/creditos'), onAutoBuy: () => navigate('/client/creditos/recorrente') })] }), _jsxs("div", { style: {
                     position: 'sticky',
                     bottom: 0,
                     padding: '14px 20px',

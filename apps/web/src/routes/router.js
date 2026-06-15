@@ -60,8 +60,14 @@ export const router = createBrowserRouter([
                     },
                     {
                         path: 'pedidos',
-                        lazy: () => import('../pages/client/PlaceholderScreen').then((m) => ({
-                            Component: m.PlaceholderScreen,
+                        lazy: () => import('../pages/client/TrackingScreen').then((m) => ({
+                            Component: m.TrackingScreen,
+                        })),
+                    },
+                    {
+                        path: 'notificacoes',
+                        lazy: () => import('../pages/client/NotificationsScreen').then((m) => ({
+                            Component: m.NotificationsScreen,
                         })),
                     },
                     {
@@ -101,6 +107,14 @@ export const router = createBrowserRouter([
                 lazy: () => import('../pages/courier/CourierLayout').then((m) => ({
                     Component: m.CourierLayout,
                 })),
+                children: [
+                    {
+                        index: true,
+                        lazy: () => import('../pages/courier/CourierScreen').then((m) => ({
+                            Component: m.CourierScreen,
+                        })),
+                    },
+                ],
             },
             {
                 path: '/admin',
