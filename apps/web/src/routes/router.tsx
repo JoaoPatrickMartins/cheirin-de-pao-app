@@ -69,8 +69,15 @@ export const router = createBrowserRouter([
           {
             path: 'pedidos',
             lazy: () =>
-              import('../pages/client/PlaceholderScreen').then((m) => ({
-                Component: m.PlaceholderScreen,
+              import('../pages/client/TrackingScreen').then((m) => ({
+                Component: m.TrackingScreen,
+              })),
+          },
+          {
+            path: 'notificacoes',
+            lazy: () =>
+              import('../pages/client/NotificationsScreen').then((m) => ({
+                Component: m.NotificationsScreen,
               })),
           },
           {

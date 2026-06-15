@@ -2,6 +2,8 @@ import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
 import { Icon } from '../../components/brand/Icon'
+import { useOrderTracking } from '../../hooks/useOrderTracking'
+import { useNotifBadge } from '../../hooks/useNotifBadge'
 
 function getGreeting(): string {
   const hours = new Date().getHours()
@@ -19,6 +21,8 @@ interface QuickAction {
 export function HomeScreen() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { order } = useOrderTracking()
+  const { unreadCount } = useNotifBadge()
 
   const firstName = user?.name?.split(' ')[0] ?? 'você'
   const greeting = getGreeting()
@@ -39,33 +43,73 @@ export function HomeScreen() {
         gap: 14,
       }}
     >
-      {/* Greeting */}
-      <div style={{ paddingTop: 8 }}>
-        <p
+      {/* Greeting + Bell */}
+      <div
+        style={{
+          paddingTop: 8,
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div>
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--color-text-ter)',
+              margin: '0 0 4px',
+              letterSpacing: '0.01em',
+            }}
+          >
+            Condomínio
+          </p>
+          <h1
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 22,
+              color: 'var(--color-text)',
+              letterSpacing: '-0.02em',
+              margin: 0,
+              lineHeight: 1.15,
+            }}
+          >
+            {greeting}, {firstName}
+          </h1>
+        </div>
+        <button
+          onClick={() => navigate('/client/notificacoes')}
+          aria-label={unreadCount > 0 ? `Notificações (${unreadCount} não lidas)` : 'Notificações'}
           style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: 13,
-            fontWeight: 600,
-            color: 'var(--color-text-ter)',
-            margin: '0 0 4px',
-            letterSpacing: '0.01em',
+            position: 'relative',
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border-2)',
+            display: 'grid',
+            placeItems: 'center',
+            cursor: 'pointer',
+            flexShrink: 0,
           }}
         >
-          Condomínio
-        </p>
-        <h1
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 700,
-            fontSize: 22,
-            color: 'var(--color-text)',
-            letterSpacing: '-0.02em',
-            margin: 0,
-            lineHeight: 1.15,
-          }}
-        >
-          {greeting}, {firstName}
-        </h1>
+          <Icon name="bell" size={20} color="var(--color-accent)" />
+          {unreadCount > 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 9,
+                right: 9,
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: 'var(--color-gold)',
+              }}
+            />
+          )}
+        </button>
       </div>
 
       {/* Credit Balance Card */}
@@ -74,38 +118,129 @@ export function HomeScreen() {
         isLoading={false}
       />
 
-      {/* Today Delivery Placeholder */}
+      {/* TodayDelivery — funcional */}
       <div
+        onClick={() => navigate('/client/pedidos')}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === 'Enter' && navigate('/client/pedidos')}
+        aria-label="Ver entrega de hoje"
         style={{
-          background: 'var(--color-surface)',
+          background: order ? 'var(--color-espresso)' : 'var(--color-surface)',
           borderRadius: 'var(--radius-card)',
           padding: '16px',
+          cursor: 'pointer',
           boxShadow: 'var(--shadow-soft)',
+          position: 'relative',
+          overflow: 'hidden',
+          opacity: order?.status === 'DELIVERED' ? 0.85 : 1,
         }}
       >
-        <p
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: 'var(--color-text-ter)',
-            letterSpacing: '0.04em',
-            margin: '0 0 8px',
-            textTransform: 'uppercase' as const,
-          }}
-        >
-          ENTREGA DE HOJE
-        </p>
-        <p
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: 14,
-            color: 'var(--color-text-sec)',
-            margin: 0,
-          }}
-        >
-          Nenhuma entrega agendada
-        </p>
+        {!order && (
+          <>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: 'var(--color-text-ter)',
+                letterSpacing: '0.04em',
+                margin: '0 0 8px',
+                textTransform: 'uppercase' as const,
+              }}
+            >
+              ENTREGA DE HOJE
+            </p>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 14,
+                color: 'var(--color-text-sec)',
+                margin: 0,
+              }}
+            >
+              Nenhuma entrega agendada
+            </p>
+          </>
+        )}
+        {order && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Icon
+                name={
+                  order.status === 'SCHEDULED'
+                    ? 'calendar'
+                    : order.status === 'OUT_FOR_DELIVERY'
+                      ? 'truck'
+                      : 'check'
+                }
+                size={24}
+                color="#E3AC3F"
+              />
+              <div>
+                <p
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    color: '#E3AC3F',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase' as const,
+                    margin: '0 0 2px',
+                  }}
+                >
+                  {order.status === 'SCHEDULED'
+                    ? 'AGENDADO'
+                    : order.status === 'OUT_FOR_DELIVERY'
+                      ? 'SAINDO DO FORNO'
+                      : 'ENTREGUE'}
+                </p>
+                <p
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 700,
+                    fontSize: 16,
+                    color: '#FAF5EC',
+                    margin: 0,
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  {order.quantity === 1 ? '1 pãozinho' : `${order.quantity} pãezinhos`}
+                  {order.status === 'SCHEDULED' ? ' · Hoje' : ''}
+                </p>
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '3px 8px',
+                borderRadius: 99,
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 11.5,
+                background: order.status === 'OUT_FOR_DELIVERY'
+                  ? 'var(--color-good-soft)'
+                  : 'var(--color-surface-2)',
+                color: order.status === 'OUT_FOR_DELIVERY'
+                  ? 'var(--color-good)'
+                  : 'var(--color-text-sec)',
+              }}
+            >
+              {order.status === 'OUT_FOR_DELIVERY' && (
+                <div
+                  style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-good)', flexShrink: 0 }}
+                />
+              )}
+              {order.status === 'SCHEDULED'
+                ? 'Agendado'
+                : order.status === 'OUT_FOR_DELIVERY'
+                  ? 'A caminho'
+                  : 'Entregue hoje'}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Quick Actions */}
