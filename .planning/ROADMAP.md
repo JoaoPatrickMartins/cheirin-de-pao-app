@@ -200,7 +200,20 @@ Plans:
   4. Card de progresso exibe paradas feitas/total e total de pães entregues no dia
   5. Dentro de cada condomínio, o sistema exibe a ordem sugerida de apartamentos para otimizar o percurso
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 06-01-PLAN.md — Schema Prisma (courierId em Order) + módulo courier API (GET today + PATCH confirm) + requireCourier guard + assign-courier admin + testes
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 06-02-PLAN.md — CourierScreen + ProgressCard + SegmentedControl + CondoAccordion + StopRow + ConfirmDeliveryDialog + router.tsx
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 06-03-PLAN.md — CourierMap (react-leaflet) + CourierRouteView (aba Rota real) + substituição do placeholder
+
 **UI hint**: yes
 
 ### Phase 7: Admin Panel
