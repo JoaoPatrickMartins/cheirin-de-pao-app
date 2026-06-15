@@ -12,6 +12,8 @@ import { paymentsRoute } from './modules/payments/payments.route.js'
 import { creditsRoute } from './modules/credits/credits.route.js'
 import { webhooksRoute } from './modules/webhooks/webhooks.route.js'
 import { schedulesRoute } from './modules/schedules/schedules.route.js'
+import { ordersRoute } from './modules/orders/orders.route.js'
+import { notificationsRoute } from './modules/notifications/notifications.route.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 
 const fastify = Fastify({ logger: true })
@@ -87,6 +89,8 @@ const start = async () => {
 
     // Phase 4 — Scheduling
     await fastify.register(schedulesRoute)
+    await fastify.register(ordersRoute)         // POST /orders — pedido avulso (SCHED-01)
+    await fastify.register(notificationsRoute)  // POST /users/push-token (D-09)
 
     const port = Number(process.env.API_PORT ?? 3001)
     const host = process.env.API_HOST ?? '0.0.0.0'
