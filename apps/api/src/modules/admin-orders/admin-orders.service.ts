@@ -117,6 +117,60 @@ export class AdminOrdersService {
   }
 
   /**
+   * Atribui um entregador a orders em batch.
+   *
+   * D-11/D-13: Atribuicao em batch via orderIds ou por condominiumId+date.
+   * T-06-04: Role check ADMIN fica no controller.
+   *
+   * @param courierId ID do entregador a ser atribuido
+   * @param opts orderIds (lista explicita) OU condominiumId+date (query em 2 etapas)
+   */
+  async assignCourier(
+    courierId: string,
+    opts: {
+      orderIds?: string[]
+      condominiumId?: string
+      date?: string
+    },
+  ): Promise<{ count: number }> {
+    if (opts.orderIds && opts.orderIds.length > 0) {
+      // Atribuicao direta por lista de IDs
+      const result = await this.prisma.order.updateMany({
+        where: { id: { in: opts.orderIds } },
+        data: { courierId },
+      })
+      return { count: result.count }
+    }
+
+    if (opts.condominiumId && opts.date) {
+      // Atribuicao por condominiumId + date (query em 2 etapas)
+      const date = new Date(opts.date)
+      const startOfDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0))
+      const endOfDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999))
+
+      // Etapa 1: buscar orders do condominio na data
+      const orders = await this.prisma.order.findMany({
+        where: {
+          condominiumId: opts.condominiumId,
+          scheduledDate: { gte: startOfDay, lte: endOfDay },
+        },
+        select: { id: true },
+      })
+
+      if (orders.length === 0) return { count: 0 }
+
+      // Etapa 2: atualizar courierId nas orders encontradas
+      const result = await this.prisma.order.updateMany({
+        where: { id: { in: orders.map((o: { id: string }) => o.id) } },
+        data: { courierId },
+      })
+      return { count: result.count }
+    }
+
+    throw { statusCode: 400, message: 'Informe orderIds ou condominiumId+date para atribuicao' }
+  }
+
+  /**
    * Cria uma Notification e aplica trim de 30 por usuário.
    *
    * T-05-03: Máximo 30 notificações por userId — deleteMany com ids da fatia [30:].

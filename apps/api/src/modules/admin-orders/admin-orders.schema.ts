@@ -19,3 +19,17 @@ export const UpdateOrderStatusSchema = z.object({
 })
 
 export type UpdateOrderStatusBody = z.infer<typeof UpdateOrderStatusSchema>
+
+/**
+ * Schema de validacao para atribuicao de entregador a orders em batch.
+ * D-11/D-13: Admin atribui courierId a uma lista de orderIds ou por condominiumId+date.
+ * T-06-04: courierId e orderIds validados pelo Zod antes de chegar ao service.
+ */
+export const AssignCourierSchema = z.object({
+  courierId: z.string().min(1, 'courierId e obrigatorio'),
+  orderIds: z.array(z.string().min(1)).min(1).optional(),
+  condominiumId: z.string().optional(),
+  date: z.string().optional(),
+})
+
+export type AssignCourierBody = z.infer<typeof AssignCourierSchema>

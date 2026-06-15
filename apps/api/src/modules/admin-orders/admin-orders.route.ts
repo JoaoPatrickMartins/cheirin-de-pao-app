@@ -18,4 +18,12 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
     { preHandler: [fastify.authenticate] },
     ctrl.updateOrderStatus.bind(ctrl),
   )
+
+  // D-13: endpoint de atribuicao de entregador em batch
+  // Role check ADMIN fica no controller (per D-11)
+  fastify.patch(
+    '/admin/orders/assign-courier',
+    { preHandler: [fastify.authenticate] },
+    ctrl.assignCourier.bind(ctrl),
+  )
 }
