@@ -22,8 +22,8 @@ created: 2026-06-15
 | Preset | not applicable |
 | Component library | nenhuma — primitivas próprias (Card, Pill, Icon, BreadMark) |
 | Icon library | Set próprio em `apps/web/src/components/brand/Icon.tsx` (paths SVG 24×24, `currentColor`) |
-| Font — display | Bricolage Grotesque Variable (`--font-display`), pesos 700–800 |
-| Font — body/UI | Hanken Grotesk (`--font-body`), pesos 400–700 |
+| Font — display | Bricolage Grotesque Variable (`--font-display`), pesos 700 e 800 |
+| Font — body/UI | Hanken Grotesk (`--font-body`), peso 700 |
 
 Nota: shadcn não está inicializado. Stack é React + Vite + Tailwind CSS. Design system é o conjunto de tokens CSS declarado em `globals.css` + primitivas em `brand/`. Não inicializar shadcn nesta fase — padrão já estabelecido nas fases anteriores.
 
@@ -46,8 +46,8 @@ Escala 4-point declarada em `globals.css` via inline style (projecto usa `style=
 Exceções:
 - **Padding lateral da tela**: 20px (fiel ao handoff — `padding: '0 20px'`)
 - **Hit target mínimo**: 44px em todos os elementos tocáveis (paradas, botões do accordion, segmented tabs) — requisito UI-10
-- **Card de progresso interno**: padding 16px × 18px (horizontal maior, fiel ao handoff)
-- **Linha de parada (touch area)**: mínimo 44px de altura via `padding: '10px 16px'` + conteúdo de ~24px
+- **Card de progresso interno**: padding 16px × 20px (múltiplos de 4; aproximação ao handoff 16×18)
+- **Linha de parada (touch area)**: mínimo 44px de altura via `padding: '12px 16px'` (12 = 4×3) + `minHeight: 44px`
 
 ---
 
@@ -55,21 +55,19 @@ Exceções:
 
 Fonte: `--font-display` (Bricolage Grotesque) para números de destaque e títulos; `--font-body` (Hanken Grotesk) para UI e corpo. Tokens já definidos em `globals.css`.
 
+Escala consolidada: **4 tamanhos máximo** + **2 pesos** (700 para toda UI; 800 exclusivo para display Bricolage).
+
 | Role | Size | Fonte | Weight | Letter-spacing | Line Height | Uso nesta fase |
 |------|------|-------|--------|---------------|-------------|---------------|
-| Label | 11.5px (--text-sm ~) | body | 700 | +0.04em a +0.06em | 1.2 | "PROGRESSO", "ORDEM SUGERIDA NO PRÉDIO", "Total de pães" |
-| Body | 12.5px | body | 600–700 | 0 | 1.4 | Subtítulo condomínio (bairro · pães · paradas), nome do cliente, hora estimada |
-| Base | 14.5–15px | body | 700 | -0.01em | 1.4 | Apartamento na lista de paradas, nome do condomínio na aba Rota |
-| Heading | 16–18px | display | 700 | -0.02em | 1.2 | Nome do condomínio no accordion header, saudação |
-| Display | 26px | display | 800 | -0.02em | 1.0 | Contador progresso (`X/N paradas`) e total de pães no card espresso |
+| Label | 12px | body | 700 | +0.04em a +0.06em | 1.2 | "PROGRESSO", "ORDEM SUGERIDA NO PRÉDIO", subtítulo condomínio, nome do cliente, hora estimada, badge de ordem |
+| Base | 15px | body | 700 | -0.01em | 1.4 | Apartamento na lista de paradas, nome do condomínio na aba Rota, segmented control, quantidade de pães |
+| Heading | 18px | display | 700 | -0.02em | 1.2 | Nome do condomínio no accordion header, saudação, dialog title |
+| Display | 26px | display | 800 | -0.02em | 1.0 | Contador progresso (`X/N paradas`) e total de pães no card espresso (inline style) |
 
 Mapeamento aos tokens CSS existentes:
-- `--text-sm: 12.5px` → subtítulos e labels secundários
+- `--text-sm: 12.5px` → usar como 12px (inline `fontSize: 12`) para labels
 - `--text-base: 15px` → texto de UI padrão
-- `--text-xl: 21px` → não usado diretamente nesta fase
-- `--text-3xl: 32px` → não usado nesta fase (display é 26px, inline style)
-
-Nota: 26px é intermediário entre `--text-xl` (21px) e `--text-3xl` (32px). Usar `fontSize: 26` via inline style no card de progresso, alinhado ao padrão do handoff.
+- Display 26px → `fontSize: 26` via inline style no card de progresso (fora da escala de tipo)
 
 ---
 
@@ -157,18 +155,18 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
 - Tab ativa: fundo `--color-surface` (#FFF), border-radius 10px, `shadowSoft`
 - Tab inativa: fundo transparente
 - Altura de cada tab: mínimo 44px (padding: 9px 0, conteúdo ~26px)
-- Fonte: Hanken Grotesk 13.5px weight 700
+- Fonte: Hanken Grotesk 15px weight 700
 - Cor ativa: `--color-text`; inativa: `--color-text-sec`
 - Ícones: `list` (Lista) e `route` (Rota), size 17px
 
 ### ProgressCard
 
 - Fundo: `--color-espresso` (#1E1207), border-radius herdado do Card (22px)
-- Layout: flex row com gap 14px, padding 16px 18px
+- Layout: flex row com gap 16px, padding 16px 20px
 - BreadMark decorativo: position absolute, bottom -40px, right -16px, opacity 0.12, size 130px, cor gold
-- "PROGRESSO": 11.5px, Hanken, weight 700, cor `#E3AC3F`, letter-spacing 0.06em
+- "PROGRESSO": 12px, Hanken, weight 700, cor `#E3AC3F`, letter-spacing 0.06em
 - Contador: 26px, Bricolage, weight 800, cor `#FAF5EC`
-- "Total de pães" label: 11.5px, Hanken, weight 600, cor `#C7B595` (textSec dark)
+- "Total de pães" label: 12px, Hanken, weight 700, cor `#C7B595` (textSec dark)
 - Total de pães: 26px, Bricolage, weight 800, cor `#E3AC3F`
 - Barra de progresso: height 6px, fundo `--color-surface-2`, fill `--color-gold`, `transition: width 0.3s ease`
 
@@ -177,7 +175,7 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
 - Card border-radius 22px, shadowSoft, fundo surface
 - Badge numérico: 36×36px, border-radius 11px, fundo `--color-gold`, cor `--color-espresso`, Bricolage 16px weight 800
 - Nome do condomínio: Bricolage 16px weight 700, color `--color-text`, letter-spacing -0.02em
-- Subtítulo: 12.5px Hanken weight 600, cor `--color-text-ter`
+- Subtítulo: 12px Hanken weight 700, cor `--color-text-ter`
 - Pill parcial (`X/N`): tone "gold" (fundo `goldSoft`, cor `accent`)
 - Pill concluído ("Ok"): tone "good" (fundo `goodSoft`, cor `good`) com ícone `check` size 13px
 - Chevron: Icon `chevD` size 18px, cor `textTer`, `transform: rotate(180deg)` quando aberto, `transition 0.2s`
@@ -187,7 +185,7 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
 
 - Separador: `borderTop: 1px solid --color-border-2`
 - Label seção: "ORDEM SUGERIDA NO PRÉDIO", 11px, weight 700, letter-spacing 0.04em, cor `textTer`, padding 6px 16px 2px
-- Cada parada: `padding: 10px 16px`, `cursor: pointer`, touch area mínimo 44px
+- Cada parada: `padding: 12px 16px`, `minHeight: 44px`, `cursor: pointer`
   - Número de ordem: círculo 22×22px, border-radius 99px, fundo `surface2`, cor `textSec`, Bricolage 12px weight 800
   - Checkbox: 28×28px, border-radius 9px, borda 2px
     - Não confirmado: `border-color: --color-border`, fundo transparente
@@ -196,14 +194,14 @@ Componentes a criar nesta fase (todos em `apps/web/src/`):
   - Apartamento: 14.5px, weight 700, cor `text`
     - Confirmado: `text-decoration: line-through`, `opacity: 0.5`
   - Nome cliente: 12.5px, cor `textTer`
-  - Quantidade: Bricolage 17px, weight 800, cor `--color-accent`
+  - Quantidade: Bricolage 15px, weight 800, cor `--color-accent`
 
 ### ConfirmDeliveryDialog (D-02)
 
 - Modal (não bottom sheet): backdrop `rgba(0,0,0,0.4)`, zIndex 100
 - Card centralizado: fundo `surface`, border-radius 22px, padding 24px, largura máx. 320px, margin 20px
 - Título: "Confirmar entrega?" — Bricolage 18px weight 700
-- Corpo: "{Número de pães} pães para {Nome do cliente}" + "Apartamento {número}" — 15px, cor `textSec`
+- Corpo: "{Número de pães} pães para {Nome do cliente}" + "Apartamento {número}" — 15px (Base), cor `textSec`
 - Dois botões (full width, gap 8px, stacked vertical):
   1. "Cancelar" — variant ghost (borda `border`, fundo transparente)
   2. "Confirmar entrega" — variant primary (fundo `espresso`, cor `primaryBtnText`)
