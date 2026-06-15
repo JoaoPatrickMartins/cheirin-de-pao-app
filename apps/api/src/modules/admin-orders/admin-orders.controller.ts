@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { UpdateOrderStatusSchema } from './admin-orders.schema.js'
+import { UpdateOrderStatusSchema, AssignCourierSchema } from './admin-orders.schema.js'
 import { AdminOrdersService } from './admin-orders.service.js'
 
 type ZodIssue = { message: string }
@@ -23,6 +23,46 @@ export class AdminOrdersController {
 
   constructor(private fastify: FastifyInstance) {
     this.service = new AdminOrdersService(fastify)
+  }
+
+  /**
+   * PATCH /admin/orders/assign-courier
+   *
+   * Atribui entregador a orders em batch.
+   * Apenas ADMIN pode acessar (T-06-04).
+   * D-13: courierId e orderIds validados via AssignCourierSchema.
+   */
+  async assignCourier(request: FastifyRequest, reply: FastifyReply) {
+    // 1. Role check inline — T-06-04
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    // 2. Validacao Zod do body
+    let body: ReturnType<typeof AssignCourierSchema.parse>
+    try {
+      body = AssignCourierSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados invalidos.' })
+    }
+
+    // 3. Chamar service
+    try {
+      const result = await this.service.assignCourier(body.courierId, {
+        orderIds: body.orderIds,
+        condominiumId: body.condominiumId,
+        date: body.date,
+      })
+      return reply.status(200).send({ ok: true, count: result.count })
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
   }
 
   /**

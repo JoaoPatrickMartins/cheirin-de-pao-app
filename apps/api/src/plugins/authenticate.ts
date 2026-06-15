@@ -8,6 +8,7 @@ declare module 'fastify' {
   }
   interface FastifyInstance {
     authenticate: preHandlerHookHandler
+    requireCourier: preHandlerHookHandler
   }
 }
 
@@ -83,6 +84,16 @@ const authenticatePlugin: FastifyPluginAsync = fp(async (fastify) => {
   }
 
   fastify.decorate('authenticate', authenticate)
+
+  // requireCourier preHandler — D-14: guard para rotas /courier/*
+  // Deve ser usado APÓS fastify.authenticate (que popula request.user)
+  const requireCourier: preHandlerHookHandler = async (request, reply) => {
+    if (request.user?.role !== 'COURIER') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas entregadores' })
+    }
+  }
+
+  fastify.decorate('requireCourier', requireCourier)
 })
 
 export default authenticatePlugin
