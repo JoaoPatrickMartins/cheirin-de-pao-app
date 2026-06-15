@@ -3,9 +3,12 @@ import { useAuth } from '../../hooks/useAuth'
 import { LoadingScreen } from '../auth/LoadingScreen'
 import { Navigate } from 'react-router'
 import { ClientTabBar } from '../../components/client/ClientTabBar'
+import { useOneSignalRegister } from '../../hooks/useOneSignalRegister'
 
 export function ClientLayout() {
   const { user, isLoading } = useAuth()
+  // Registra o player_id do OneSignal no backend — executado apenas quando autenticado (JWT disponível)
+  useOneSignalRegister()
 
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'CLIENT') return <Navigate to="/" replace />

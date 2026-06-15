@@ -55,8 +55,15 @@ export const router = createBrowserRouter([
           {
             path: 'agenda',
             lazy: () =>
-              import('../pages/client/PlaceholderScreen').then((m) => ({
-                Component: m.PlaceholderScreen,
+              import('../pages/client/ScheduleScreen').then((m) => ({
+                Component: m.ScheduleScreen,
+              })),
+          },
+          {
+            path: 'agenda/pedido-unico',
+            lazy: () =>
+              import('../pages/client/SingleScreen').then((m) => ({
+                Component: m.SingleScreen,
               })),
           },
           {
