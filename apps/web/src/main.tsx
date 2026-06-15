@@ -1,3 +1,4 @@
+import 'leaflet/dist/leaflet.css'
 import '@fontsource-variable/bricolage-grotesque'
 import '@fontsource/hanken-grotesk/400.css'
 import '@fontsource/hanken-grotesk/500.css'
