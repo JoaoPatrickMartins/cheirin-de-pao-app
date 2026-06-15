@@ -73,31 +73,30 @@ export class CourierService {
     const { start, end } = getTodayRange()
     const orders = await this.repository.findTodayByCourierId(courierId, start, end)
 
-    // Enrich: busca dados de usuario e condominio para cada order
+    // Enrich: busca dados de usuario (com condominiumId, apartment, block) e condominio
     const enriched = await Promise.all(
       orders.map(async (order: Record<string, unknown>) => {
-        const [user, condominium] = await Promise.all([
-          this.prisma.user.findUnique({
-            where: { id: order.userId as string },
-            select: { id: true, name: true },
-          }),
-          order.condominiumId
-            ? this.prisma.condominium.findUnique({
-                where: { id: order.condominiumId as string },
-                select: { id: true, name: true, address: true },
-              })
-            : null,
-        ])
+        const user = await this.prisma.user.findUnique({
+          where: { id: order.userId as string },
+          select: { id: true, name: true, condominiumId: true, apartment: true, block: true },
+        })
 
-        const sortKey = parseInt(order.apartment as string ?? '9999', 10)
+        const condominium = user?.condominiumId
+          ? await this.prisma.condominium.findUnique({
+              where: { id: user.condominiumId },
+              select: { id: true, name: true, address: true },
+            })
+          : null
+
+        const sortKey = parseInt(user?.apartment ?? '9999', 10)
         return {
           orderId: order.id as string,
           userId: order.userId as string,
-          condominiumId: (order.condominiumId as string | null) ?? 'unknown',
+          condominiumId: user?.condominiumId ?? 'unknown',
           condominiumName: condominium?.name ?? 'Condominio desconhecido',
           address: condominium?.address ?? '',
-          apartment: (order.apartment as string | null) ?? '',
-          block: (order.block as string | null) ?? null,
+          apartment: user?.apartment ?? '',
+          block: user?.block ?? null,
           clientName: user?.name ?? 'Cliente',
           quantity: order.quantity as number,
           status: order.status as string,

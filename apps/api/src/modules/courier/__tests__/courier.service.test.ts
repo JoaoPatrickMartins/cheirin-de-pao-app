@@ -309,12 +309,12 @@ describe('CourierService', () => {
         }),
       } as Response)
 
-      // Mock user findUnique para retornar usuario para cada chamada
+      // Mock user findUnique com condominiumId e apartment corretos por usuario
       const prismaRef = (fastify as { prisma: typeof makeFastifyMock extends (...args: any[]) => { prisma: infer P } ? P : never }).prisma
       prismaRef.user.findUnique
-        .mockResolvedValueOnce({ id: 'user-01', name: 'Cliente 101' })
-        .mockResolvedValueOnce({ id: 'user-02', name: 'Cliente 9' })
-        .mockResolvedValueOnce({ id: 'user-03', name: 'Cliente 10' })
+        .mockResolvedValueOnce({ id: 'user-01', name: 'Cliente 101', condominiumId: 'condo-01', apartment: '101', block: null })
+        .mockResolvedValueOnce({ id: 'user-02', name: 'Cliente 9', condominiumId: 'condo-01', apartment: '9', block: null })
+        .mockResolvedValueOnce({ id: 'user-03', name: 'Cliente 10', condominiumId: 'condo-01', apartment: '10', block: null })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new CourierService(fastify as any)
