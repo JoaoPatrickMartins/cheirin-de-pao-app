@@ -176,8 +176,8 @@ Plans:
 Plans:
 **Wave 1** *(05-01 e 05-02 são paralelos)*
 
-- [ ] 05-01-PLAN.md — Módulo admin-orders (PATCH /admin/orders/:id/status, VALID_TRANSITIONS, push DELIVERED, persist Notification + trim 30)
-- [ ] 05-02-PLAN.md — Extensão orders (GET /orders/today BRT, GET /orders/history) + extensão notifications (GET /me, PATCH /read-all, GET /unread-count)
+- [x] 05-01-PLAN.md — Módulo admin-orders (PATCH /admin/orders/:id/status, VALID_TRANSITIONS, push DELIVERED, persist Notification + trim 30)
+- [x] 05-02-PLAN.md — Extensão orders (GET /orders/today BRT, GET /orders/history) + extensão notifications (GET /me, PATCH /read-all, GET /unread-count)
 
 **Wave 2** *(blocked on Wave 1 — 05-03 e 05-04 são paralelos)*
 
@@ -231,6 +231,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Authentication | 6/6 | Complete   | 2026-06-14 |
 | 3. Credits & Commerce | 3/6 | In Progress|  |
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
-| 5. Delivery Experience | 0/4 | Not started | - |
+| 5. Delivery Experience | 2/4 | In Progress|  |
 | 6. Courier App | 0/TBD | Not started | - |
 | 7. Admin Panel | 0/TBD | Not started | - |
