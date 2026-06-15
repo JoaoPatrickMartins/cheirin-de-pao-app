@@ -53,11 +53,11 @@
 ### Agendamentos (SCHED)
 
 - [ ] **SCHED-01**: Cliente pode criar pedido único (avulso) — escolhe data e quantidade; créditos reservados imediatamente
-- [ ] **SCHED-02**: Cliente pode configurar agendamento semanal personalizado — define quantidade por dia (0 = sem entrega)
+- [x] **SCHED-02**: Cliente pode configurar agendamento semanal personalizado — define quantidade por dia (0 = sem entrega)
 - [x] **SCHED-03**: Agendamento semanal repete automaticamente toda semana até o cliente alterar ou desativar
 - [x] **SCHED-04**: Cliente pode ativar notificação de reconfiguração semanal (domingo à noite lembra de ajustar semana seguinte)
-- [ ] **SCHED-05**: Se créditos insuficientes para cobrir o agendamento, banner de alerta exibido com opções de ação
-- [ ] **SCHED-06**: Tela de agenda semanal exibe consumo semanal total e cobertura de créditos
+- [x] **SCHED-05**: Se créditos insuficientes para cobrir o agendamento, banner de alerta exibido com opções de ação
+- [x] **SCHED-06**: Tela de agenda semanal exibe consumo semanal total e cobertura de créditos
 
 ### Acompanhamento de Entrega e Histórico (ACOMP)
 
@@ -205,11 +205,11 @@
 | UI-07 | Phase 3 — Credits & Commerce | Pending |
 | UI-08 | Phase 3 — Credits & Commerce | Pending |
 | SCHED-01 | Phase 4 — Scheduling | Pending |
-| SCHED-02 | Phase 4 — Scheduling | Pending |
+| SCHED-02 | Phase 4 — Scheduling | Complete |
 | SCHED-03 | Phase 4 — Scheduling | Complete |
 | SCHED-04 | Phase 4 — Scheduling | Complete |
-| SCHED-05 | Phase 4 — Scheduling | Pending |
-| SCHED-06 | Phase 4 — Scheduling | Pending |
+| SCHED-05 | Phase 4 — Scheduling | Complete |
+| SCHED-06 | Phase 4 — Scheduling | Complete |
 | ACOMP-01 | Phase 5 — Delivery Experience | Pending |
 | ACOMP-02 | Phase 5 — Delivery Experience | Pending |
 | ACOMP-03 | Phase 5 — Delivery Experience | Pending |
