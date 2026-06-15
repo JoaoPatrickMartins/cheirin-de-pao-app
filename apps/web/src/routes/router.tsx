@@ -123,6 +123,15 @@ export const router = createBrowserRouter([
           import('../pages/courier/CourierLayout').then((m) => ({
             Component: m.CourierLayout,
           })),
+        children: [
+          {
+            index: true,
+            lazy: () =>
+              import('../pages/courier/CourierScreen').then((m) => ({
+                Component: m.CourierScreen,
+              })),
+          },
+        ],
       },
       {
         path: '/admin',
