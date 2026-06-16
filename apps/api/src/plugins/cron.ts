@@ -2,6 +2,7 @@ import fp from 'fastify-plugin'
 import { FastifyPluginAsync } from 'fastify'
 import cron from 'node-cron'
 import { SchedulesService } from '../modules/schedules/schedules.service.js'
+import { AdminSettingsService } from '../modules/admin-settings/admin-settings.service.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -68,7 +69,25 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
     { timezone: 'America/Sao_Paulo', name: 'eve-reminders' },
   )
 
-  fastify.log.info('[cron] 3 cron jobs registrados (meia-noite diário + domingo 20h + diário 21h)')
+  // Cron 4 — a cada hora cheia (America/Sao_Paulo)
+  // Verifica se a hora atual BRT corresponde ao horário de corte configurado.
+  // Se sim, notifica clientes sem pedido para amanhã via OneSignal (best-effort).
+  const adminSettingsService = new AdminSettingsService(fastify)
+  cron.schedule(
+    '0 * * * *',
+    async () => {
+      fastify.log.info('[cron] iniciando processCutoff')
+      try {
+        await adminSettingsService.processCutoff()
+        fastify.log.info('[cron] processCutoff concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em processCutoff — servidor mantido ativo')
+      }
+    },
+    { timezone: 'America/Sao_Paulo', name: 'cutoff-check' },
+  )
+
+  fastify.log.info('[cron] 4 cron jobs registrados (meia-noite diário + domingo 20h + diário 21h + horária cutoff-check)')
 })
 
 export default cronPlugin

@@ -15,6 +15,12 @@ import { schedulesRoute } from './modules/schedules/schedules.route.js'
 import { ordersRoute } from './modules/orders/orders.route.js'
 import { notificationsRoute } from './modules/notifications/notifications.route.js'
 import { adminOrdersRoute } from './modules/admin-orders/admin-orders.route.js'
+import { adminSettingsRoute } from './modules/admin-settings/admin-settings.route.js'
+import { adminCondominiumsRoute } from './modules/admin-condominiums/admin-condominiums.route.js'
+import { adminCombosRoute } from './modules/admin-combos/admin-combos.route.js'
+import { adminSuppliersRoute } from './modules/admin-suppliers/admin-suppliers.route.js'
+import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.route.js'
+import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
 import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-supplier-orders.route.js'
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
 import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
@@ -100,7 +106,13 @@ const start = async () => {
     await fastify.register(schedulesRoute)
     await fastify.register(ordersRoute)         // POST /orders — pedido avulso (SCHED-01)
     await fastify.register(notificationsRoute)  // POST /users/push-token (D-09)
-    await fastify.register(adminOrdersRoute)    // PATCH /admin/orders/:id/status (ACOMP-01)
+    await fastify.register(adminOrdersRoute)    // PATCH /admin/orders/:id/status (ACOMP-01) + GET /admin/dashboard (07-06)
+    await fastify.register(adminSettingsRoute)       // Phase 7 — GET/PATCH /admin/settings/cutoff + /avulso (07-02)
+    await fastify.register(adminCondominiumsRoute)   // Phase 7 — CRUD /admin/condominiums (07-02)
+    await fastify.register(adminCombosRoute)         // Phase 7 — CRUD /admin/combos + /promotion (07-02)
+    await fastify.register(adminSuppliersRoute)      // Phase 7 — CRUD /admin/suppliers (07-03)
+    await fastify.register(adminCouriersRoute)       // Phase 7 — CRUD /admin/couriers (07-03)
+    await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)
     await fastify.register(adminSupplierOrdersRoute)  // Phase 7 — GET/POST /admin/supplier-orders + PDF/Excel (ADMO-05..09)
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
     await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
