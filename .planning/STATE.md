@@ -95,6 +95,12 @@ None yet.
 | Fase 5 | Estorno e reembolso de pagamentos (PAY-04) | Deferred | Phase 3 Context |
 | Fase 7 | Promoções e descontos em combos (ADMG-03) | Deferred | Phase 3 Context |
 
+## Quick Tasks Completed
+
+| Task | Date | Commit |
+|------|------|--------|
+| openapi-schemas-routes — schemas OpenAPI detalhados em 20 route files | 2026-06-16 | 34e95d3 |
+
 ## Session Continuity
 
 Last session: 2026-06-16T00:52:46.007Z
