@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
 import { Icon } from '../../components/brand/Icon'
 import { useOrderTracking } from '../../hooks/useOrderTracking'
 import { useNotifBadge } from '../../hooks/useNotifBadge'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
 function getGreeting(): string {
   const hours = new Date().getHours()
@@ -23,6 +26,20 @@ export function HomeScreen() {
   const navigate = useNavigate()
   const { order } = useOrderTracking()
   const { unreadCount } = useNotifBadge()
+  const [isCutoff, setIsCutoff] = useState(false)
+
+  useEffect(() => {
+    // Verificar status de corte ao montar — endpoint público, sem token
+    fetch(`${API_BASE_URL}/settings/cutoff-status`)
+      .then((res) => res.json())
+      .then((data: { isCutoff?: boolean }) => {
+        setIsCutoff(data.isCutoff === true)
+      })
+      .catch(() => {
+        // Falha silenciosa — não exibe banner em caso de erro de rede
+        setIsCutoff(false)
+      })
+  }, [])
 
   const firstName = user?.name?.split(' ')[0] ?? 'você'
   const greeting = getGreeting()
@@ -43,6 +60,34 @@ export function HomeScreen() {
         gap: 14,
       }}
     >
+      {/* Banner de corte — exibido quando o prazo de agendamento foi encerrado */}
+      {isCutoff && (
+        <div
+          style={{
+            background: 'var(--color-surface-2)',
+            border: '1.5px solid var(--color-accent)',
+            borderRadius: 10,
+            margin: '12px 16px 0',
+            padding: '12px 16px',
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+          }}
+        >
+          <Icon name="clock" size={18} color="var(--color-gold)" />
+          <span
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 13.5,
+              fontWeight: 600,
+              color: 'var(--color-text)',
+            }}
+          >
+            Prazo de agendamento encerrado para amanhã
+          </span>
+        </div>
+      )}
+
       {/* Greeting + Bell */}
       <div
         style={{

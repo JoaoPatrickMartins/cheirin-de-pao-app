@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
+import { NotificationType } from '@prisma/client'
 
 /**
  * Mapa de transições de estado válidas para pedidos.
@@ -415,7 +416,7 @@ export class AdminOrdersService {
    */
   async createAndTrim(data: {
     userId: string
-    type: string
+    type: NotificationType
     title: string
     body: string
     actionRoute?: string

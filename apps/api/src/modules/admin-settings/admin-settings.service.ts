@@ -81,6 +81,29 @@ export class AdminSettingsService {
   }
 
   /**
+   * Retorna o status atual de corte para clientes.
+   *
+   * Endpoint público (sem autenticação) — usado pelo HomeScreen do cliente
+   * para exibir banner de aviso quando o prazo de agendamento foi encerrado.
+   *
+   * Lógica: hora atual BRT (HH:MM) >= cutoffTime → isCutoff: true
+   */
+  async getCutoffStatus(): Promise<{ isCutoff: boolean; cutoffTime: string }> {
+    const cutoffTime = await this.getCutoffTime()
+
+    // Hora atual no fuso de Brasília — formato HH:MM (24h)
+    const nowHHMM = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date())
+
+    const isCutoff = nowHHMM >= cutoffTime
+    return { isCutoff, cutoffTime }
+  }
+
+  /**
    * Verifica se o horário atual (BRT) corresponde ao horário de corte.
    * Se sim, notifica via OneSignal todos os clientes sem Order para amanhã.
    *

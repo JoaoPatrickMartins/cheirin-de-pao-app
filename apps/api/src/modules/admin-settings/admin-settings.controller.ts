@@ -24,6 +24,21 @@ export class AdminSettingsController {
   }
 
   /**
+   * GET /settings/cutoff-status
+   * Endpoint público — retorna { isCutoff: boolean, cutoffTime: string }.
+   * Sem role check — qualquer cliente pode verificar o status de corte.
+   */
+  async cutoffStatus(_request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const data = await this.service.getCutoffStatus()
+      return reply.status(200).send(data)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * GET /admin/settings/cutoff
    * Retorna o horário de corte configurado.
    */
