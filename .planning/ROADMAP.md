@@ -254,7 +254,7 @@ Plans:
 
 **Wave 3** *(depende de todos da Wave 2)*
 
-- [ ] 07-12-PLAN.md — Frontend: AdminFinanceiro + AdminPagamentos + PaymentDetailSheet + wiring AdminGestao + AdminLayout + router.tsx
+- [x] 07-12-PLAN.md — Frontend: AdminFinanceiro + AdminPagamentos + PaymentDetailSheet + wiring AdminGestao + AdminLayout + router.tsx
 
 **UI hint**: yes
 
@@ -271,4 +271,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
 | 5. Delivery Experience | 2/4 | In Progress|  |
 | 6. Courier App | 3/3 | Complete   | 2026-06-15 |
-| 7. Admin Panel | 11/12 | In Progress|  |
+| 7. Admin Panel | 12/12 | Complete   | 2026-06-15 |
