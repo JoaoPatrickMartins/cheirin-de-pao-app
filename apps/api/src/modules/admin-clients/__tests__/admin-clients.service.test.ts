@@ -1,53 +1,90 @@
-// AdminClientsService unit tests — Fase 7 / Plano 07-01 (Wave 0 stub)
-// Requirements: ADMG-08 (lista de clientes), ADMG-09 (filtro por condomínio), ADMG-10 (bloquear/desbloquear)
-// Estado: "red" — mock temporário do service para CI verde enquanto implementação não existe (Wave 1)
+// AdminClientsService unit tests — Fase 7 / Plano 07-03 (Task 2 TDD)
+// Requirements: ADMG-08 (lista de clientes), ADMG-09 (filtro por condomínio),
+//               ADMG-10 (bloquear/desbloquear), T-07-03-04 (role check CLIENT no toggle)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// Mock temporário do service — permite que o teste passe com valores stub
-// enquanto o service real não existe (substituir por import real na Wave 1)
-vi.mock('../admin-clients.service.js', () => ({
-  AdminClientsService: class {
-    async blockClient(_userId: string) {
-      return { id: _userId, isBlocked: true }
-    }
-    async unblockClient(_userId: string) {
-      return { id: _userId, isBlocked: false }
-    }
-    async list(_params?: { condominiumId?: string }) {
-      return []
-    }
-  },
-}))
-
 import { AdminClientsService } from '../admin-clients.service.js'
 
 // ── makeFastifyMock ───────────────────────────────────────────────────────────
 function makeFastifyMock(overrides: {
-  user?: {
+  client?: {
     id?: string
     name?: string
     email?: string
     isBlocked?: boolean
     role?: string
     condominiumId?: string
+    apartment?: string
+    block?: string
+    creditBalance?: number
+    createdAt?: Date
+  } | null
+  clientList?: Array<{
+    id: string
+    name: string
+    condominiumId: string | null
+    apartment: string | null
+    block: string | null
+    creditBalance: number
+    isBlocked: boolean
+    createdAt: Date
+    role: string
+  }>
+  schedule?: {
+    id: string
+    userId: string
+    condominiumId: string
+    weeklyQty: unknown
+    isActive: boolean
+  } | null
+  orders?: Array<{
+    id: string
+    userId: string
+    scheduledDate: Date
+    status: string
+    quantity: number
+  }>
+  lastTransaction?: {
+    id: string
+    userId: string
+    type: string
+    createdAt: Date
   } | null
 } = {}) {
+  const defaultClient = {
+    id: 'user-01',
+    name: 'João Cliente',
+    email: 'joao@email.com',
+    isBlocked: false,
+    role: 'CLIENT',
+    condominiumId: 'condo-01',
+    apartment: '101',
+    block: 'A',
+    creditBalance: 10,
+    createdAt: new Date('2024-01-01'),
+  }
+
   const {
-    user = {
-      id: 'user-01',
-      name: 'João Cliente',
-      email: 'joao@email.com',
-      isBlocked: false,
-      role: 'CLIENT',
-      condominiumId: 'condo-01',
-    },
+    client = defaultClient,
+    clientList = client ? [{ ...defaultClient, ...client }] : [],
+    schedule = { id: 'schedule-01', userId: 'user-01', condominiumId: 'condo-01', weeklyQty: {}, isActive: true },
+    orders = [],
+    lastTransaction = { id: 'tx-01', userId: 'user-01', type: 'PURCHASE', createdAt: new Date('2024-06-01') },
   } = overrides
 
   const prisma = {
     user: {
-      findUnique: vi.fn().mockResolvedValue(user),
-      findMany: vi.fn().mockResolvedValue(user ? [user] : []),
-      update: vi.fn().mockResolvedValue({ ...user, isBlocked: true }),
+      findMany: vi.fn().mockResolvedValue(clientList),
+      findUnique: vi.fn().mockResolvedValue(client),
+      update: vi.fn().mockResolvedValue({ ...client, isBlocked: !(client?.isBlocked ?? false) }),
+    },
+    schedule: {
+      findFirst: vi.fn().mockResolvedValue(schedule),
+    },
+    order: {
+      findMany: vi.fn().mockResolvedValue(orders),
+    },
+    creditTransaction: {
+      findFirst: vi.fn().mockResolvedValue(lastTransaction),
     },
   }
 
@@ -66,10 +103,168 @@ describe('AdminClientsService', () => {
     vi.clearAllMocks()
   })
 
-  describe('blockClient', () => {
+  describe('list', () => {
+    it('retorna clientes com role=CLIENT sem filtro', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await service.list()
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ role: 'CLIENT' }),
+        }),
+      )
+    })
+
+    it('filtra por condominiumId quando passado', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await service.list('condo-01')
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ role: 'CLIENT', condominiumId: 'condo-01' }),
+        }),
+      )
+    })
+
+    it('busca último CreditTransaction tipo PURCHASE para cada cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.list()
+
+      expect(prisma.creditTransaction.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-01', type: 'PURCHASE' },
+          orderBy: { createdAt: 'desc' },
+        }),
+      )
+      // Verifica que lastPurchaseAt está no retorno
+      expect(result[0]).toHaveProperty('lastPurchaseAt')
+    })
+
+    it('lastPurchaseAt é null quando não há transação', async () => {
+      const { fastify } = makeFastifyMock({ lastTransaction: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.list()
+
+      expect(result[0].lastPurchaseAt).toBeNull()
+    })
+  })
+
+  describe('getDetail', () => {
+    it('retorna cliente com Schedule ativo e Orders dos últimos 30 dias', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.getDetail('user-01')
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'user-01' } })
+      expect(prisma.schedule.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-01', isActive: true },
+        }),
+      )
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: 'user-01' }),
+        }),
+      )
+      expect(result).toHaveProperty('client')
+      expect(result).toHaveProperty('schedule')
+      expect(result).toHaveProperty('recentOrders')
+    })
+
+    it('lança { statusCode: 404 } quando cliente não existe', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.getDetail('id-inexistente')).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+
+    it('lança { statusCode: 404 } quando user existe mas não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({
+        client: { id: 'admin-01', name: 'Admin User', role: 'ADMIN', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.getDetail('admin-01')).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+  })
+
+  describe('blockToggle', () => {
+    it('altera User.isBlocked para true (bloquear)', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: {
+          id: 'user-01',
+          name: 'João Cliente',
+          email: 'joao@email.com',
+          isBlocked: false,
+          role: 'CLIENT',
+          condominiumId: 'condo-01',
+        },
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      const result = await service.blockToggle('user-01')
+
+      expect(result).toBeDefined()
+      expect(result.isBlocked).toBe(true)
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-01' },
+          data: { isBlocked: true },
+        }),
+      )
+    })
+
+    it('lança { statusCode: 404 } quando cliente não existe', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.blockToggle('id-inexistente')).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+
+    it('T-07-03-04: lança { statusCode: 404 } quando user não é CLIENT (ex: ADMIN)', async () => {
+      const { fastify } = makeFastifyMock({
+        client: { id: 'admin-01', name: 'Admin User', role: 'ADMIN', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      // T-07-03-04: blockToggle não pode ser usado para bloquear outros ADMINs ou COURIERs
+      await expect(service.blockToggle('admin-01')).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+
+    // Compatibilidade retroativa com teste Wave 0 (blockClient)
     it('blockClient altera User.isBlocked para true', async () => {
       const { fastify } = makeFastifyMock({
-        user: {
+        client: {
           id: 'user-01',
           name: 'João Cliente',
           email: 'joao@email.com',
