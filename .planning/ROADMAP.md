@@ -246,11 +246,11 @@ Plans:
 
 **Wave 2** *(paralelo — 07-07 a 07-11 independentes; todos dependem de 07-06)*
 
-- [ ] 07-07-PLAN.md — Frontend: AdminLayout + AdminBottomNav + AdminHead + KpiCard + BarChart + ProgressBar + AdminPainel (dashboard)
-- [ ] 07-08-PLAN.md — Frontend: AdminPedido (fluxo 4 etapas) + StepBar + download PDF/Excel
-- [ ] 07-09-PLAN.md — Frontend: AdminEntregas + SegmentedControl genérico + DeliveryDivisionCard (dnd-kit)
-- [ ] 07-10-PLAN.md — Frontend: AdminClientes (lista + chips filtro) + ClientDetailView (detalhe + bloquear)
-- [ ] 07-11-PLAN.md — Frontend: AdminGestao hub + AdminCombos + AdminAvulso + AdminFornecedores + AdminEntregadores + AdminCondos + 4 formulários CRUD
+- [x] 07-07-PLAN.md — Frontend: AdminLayout + AdminBottomNav + AdminHead + KpiCard + BarChart + ProgressBar + AdminPainel (dashboard)
+- [x] 07-08-PLAN.md — Frontend: AdminPedido (fluxo 4 etapas) + StepBar + download PDF/Excel
+- [x] 07-09-PLAN.md — Frontend: AdminEntregas + SegmentedControl genérico + DeliveryDivisionCard (dnd-kit)
+- [x] 07-10-PLAN.md — Frontend: AdminClientes (lista + chips filtro) + ClientDetailView (detalhe + bloquear)
+- [x] 07-11-PLAN.md — Frontend: AdminGestao hub + AdminCombos + AdminAvulso + AdminFornecedores + AdminEntregadores + AdminCondos + 4 formulários CRUD
 
 **Wave 3** *(depende de todos da Wave 2)*
 
@@ -271,4 +271,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
 | 5. Delivery Experience | 2/4 | In Progress|  |
 | 6. Courier App | 3/3 | Complete   | 2026-06-15 |
-| 7. Admin Panel | 6/12 | In Progress|  |
+| 7. Admin Panel | 11/12 | In Progress|  |
