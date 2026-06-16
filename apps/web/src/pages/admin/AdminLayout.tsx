@@ -6,6 +6,7 @@ import { AdminBottomNav } from '../../components/admin/AdminBottomNav'
 import { AdminPainel } from './tabs/AdminPainel'
 import { AdminPedido } from './tabs/AdminPedido'
 import { AdminEntregas } from './tabs/AdminEntregas'
+import { AdminClientes } from './tabs/AdminClientes'
 
 type AdminTab = 'painel' | 'pedido' | 'entregas' | 'clientes' | 'gestao'
 
@@ -29,7 +30,7 @@ export function AdminLayout() {
       {tab === 'painel' && <AdminPainel onNavigate={setTab} />}
       {tab === 'pedido' && <AdminPedido />}
       {tab === 'entregas' && <AdminEntregas />}
-      {tab === 'clientes' && <div />}
+      {tab === 'clientes' && <AdminClientes />}
       {tab === 'gestao' && <div />}
       <AdminBottomNav activeTab={tab} onTabChange={setTab} />
     </div>
