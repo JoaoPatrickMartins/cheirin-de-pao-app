@@ -1,10 +1,12 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../../hooks/useAuth';
 import { CreditBalanceCard } from '../../components/client/CreditBalanceCard';
 import { Icon } from '../../components/brand/Icon';
 import { useOrderTracking } from '../../hooks/useOrderTracking';
 import { useNotifBadge } from '../../hooks/useNotifBadge';
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 function getGreeting() {
     const hours = new Date().getHours();
     if (hours < 12)
@@ -18,6 +20,19 @@ export function HomeScreen() {
     const navigate = useNavigate();
     const { order } = useOrderTracking();
     const { unreadCount } = useNotifBadge();
+    const [isCutoff, setIsCutoff] = useState(false);
+    useEffect(() => {
+        // Verificar status de corte ao montar — endpoint público, sem token
+        fetch(`${API_BASE_URL}/settings/cutoff-status`)
+            .then((res) => res.json())
+            .then((data) => {
+            setIsCutoff(data.isCutoff === true);
+        })
+            .catch(() => {
+            // Falha silenciosa — não exibe banner em caso de erro de rede
+            setIsCutoff(false);
+        });
+    }, []);
     const firstName = user?.name?.split(' ')[0] ?? 'você';
     const greeting = getGreeting();
     const quickActions = [
@@ -31,7 +46,21 @@ export function HomeScreen() {
             display: 'flex',
             flexDirection: 'column',
             gap: 14,
-        }, children: [_jsxs("div", { style: {
+        }, children: [isCutoff && (_jsxs("div", { style: {
+                    background: 'var(--color-surface-2)',
+                    border: '1.5px solid var(--color-accent)',
+                    borderRadius: 10,
+                    margin: '12px 16px 0',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'center',
+                }, children: [_jsx(Icon, { name: "clock", size: 18, color: "var(--color-gold)" }), _jsx("span", { style: {
+                            fontFamily: 'var(--font-body)',
+                            fontSize: 13.5,
+                            fontWeight: 600,
+                            color: 'var(--color-text)',
+                        }, children: "Prazo de agendamento encerrado para amanh\u00E3" })] })), _jsxs("div", { style: {
                     paddingTop: 8,
                     display: 'flex',
                     alignItems: 'flex-start',

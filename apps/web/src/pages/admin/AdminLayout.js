@@ -8,6 +8,7 @@ import { AdminPainel } from './tabs/AdminPainel';
 import { AdminPedido } from './tabs/AdminPedido';
 import { AdminEntregas } from './tabs/AdminEntregas';
 import { AdminClientes } from './tabs/AdminClientes';
+import { AdminGestao } from './tabs/AdminGestao';
 export function AdminLayout() {
     const { user, isLoading } = useAuth();
     const [tab, setTab] = useState('painel');
@@ -21,5 +22,5 @@ export function AdminLayout() {
             display: 'flex',
             flexDirection: 'column',
             paddingBottom: 'calc(56px + env(safe-area-inset-bottom))',
-        }, children: [tab === 'painel' && _jsx(AdminPainel, { onNavigate: setTab }), tab === 'pedido' && _jsx(AdminPedido, {}), tab === 'entregas' && _jsx(AdminEntregas, {}), tab === 'clientes' && _jsx(AdminClientes, {}), tab === 'gestao' && _jsx("div", {}), _jsx(AdminBottomNav, { activeTab: tab, onTabChange: setTab })] }));
+        }, children: [tab === 'painel' && _jsx(AdminPainel, { onNavigate: setTab }), tab === 'pedido' && _jsx(AdminPedido, {}), tab === 'entregas' && _jsx(AdminEntregas, {}), tab === 'clientes' && _jsx(AdminClientes, {}), tab === 'gestao' && _jsx(AdminGestao, {}), _jsx(AdminBottomNav, { activeTab: tab, onTabChange: setTab })] }));
 }
