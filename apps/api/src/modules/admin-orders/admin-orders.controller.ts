@@ -26,6 +26,70 @@ export class AdminOrdersController {
   }
 
   /**
+   * GET /admin/dashboard
+   *
+   * Retorna KPIs do painel admin: breadsTodayCount, revenueToday, clientsCount,
+   * condominiumsCount, cutoffTime, revenueByType.
+   * Apenas ADMIN pode acessar (T-07-06-01).
+   */
+  async dashboard(request: FastifyRequest, reply: FastifyReply) {
+    // T-07-06-01: Role check inline
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    try {
+      const data = await this.service.getDashboard()
+      return reply.status(200).send(data)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/orders/delivery-status
+   *
+   * Retorna entregas do dia agrupadas por condomínio.
+   * Inclui orderIds para o frontend chamar assign-courier em batch.
+   * Apenas ADMIN pode acessar (T-07-06-01).
+   */
+  async deliveryStatus(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    try {
+      const data = await this.service.getDeliveryStatus()
+      return reply.status(200).send(data)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/orders/division-suggestion
+   *
+   * Retorna sugestão de divisão de entregas entre entregadores ativos.
+   * Algoritmo greedy (D-10): balanceia pães totais entre entregadores.
+   * Apenas ADMIN pode acessar (T-07-06-01).
+   */
+  async divisionSuggestion(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    try {
+      const data = await this.service.getDivisionSuggestion()
+      return reply.status(200).send(data)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * PATCH /admin/orders/assign-courier
    *
    * Atribui entregador a orders em batch.
