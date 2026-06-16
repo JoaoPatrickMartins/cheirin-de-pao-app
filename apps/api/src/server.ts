@@ -15,6 +15,8 @@ import { schedulesRoute } from './modules/schedules/schedules.route.js'
 import { ordersRoute } from './modules/orders/orders.route.js'
 import { notificationsRoute } from './modules/notifications/notifications.route.js'
 import { adminOrdersRoute } from './modules/admin-orders/admin-orders.route.js'
+import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
+import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
 import { courierRoute } from './modules/courier/courier.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
@@ -98,6 +100,8 @@ const start = async () => {
     await fastify.register(ordersRoute)         // POST /orders — pedido avulso (SCHED-01)
     await fastify.register(notificationsRoute)  // POST /users/push-token (D-09)
     await fastify.register(adminOrdersRoute)    // PATCH /admin/orders/:id/status (ACOMP-01)
+    await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
+    await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
     await fastify.register(courierRoute)        // GET /courier/orders/today + PATCH /courier/orders/:id/confirm (COUR-01/02)
     await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h + 21h (SCHED-03/04)
 
