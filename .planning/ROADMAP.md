@@ -234,15 +234,15 @@ Plans:
 Plans:
 **Wave 0** *(bloqueante — deve completar antes dos demais)*
 
-- [ ] 07-01-PLAN.md — Schema Prisma (Order.condominiumId + Supplier.isPrincipal) + prisma generate [BLOCKING] + stubs de teste Wave 0
+- [x] 07-01-PLAN.md — Schema Prisma (Order.condominiumId + Supplier.isPrincipal) + prisma generate [BLOCKING] + stubs de teste Wave 0
 
 **Wave 1** *(paralelo — 07-02, 07-03, 07-04, 07-05 independentes; 07-06 depende de todos)*
 
-- [ ] 07-02-PLAN.md — API: admin-settings (cutoffTime + avulso) + admin-condominiums CRUD + admin-combos CRUD + promoções
-- [ ] 07-03-PLAN.md — API: admin-suppliers CRUD (isPrincipal) + admin-couriers (cadastro + toggle) + admin-clients (lista + detalhe + bloquear)
-- [ ] 07-04-PLAN.md — API: admin-supplier-orders (draft + create + finalize + PDF + Excel) + pdf-generator + excel-generator
-- [ ] 07-05-PLAN.md — API: admin-financial (receita por período/tipo/condomínio) + admin-payments (lista + estorno MP)
-- [ ] 07-06-PLAN.md — API wiring: cron cutoff em cron.ts + 9 módulos em server.ts + admin-orders estendido (dashboard + delivery-status + division-suggestion)
+- [x] 07-02-PLAN.md — API: admin-settings (cutoffTime + avulso) + admin-condominiums CRUD + admin-combos CRUD + promoções
+- [x] 07-03-PLAN.md — API: admin-suppliers CRUD (isPrincipal) + admin-couriers (cadastro + toggle) + admin-clients (lista + detalhe + bloquear)
+- [x] 07-04-PLAN.md — API: admin-supplier-orders (draft + create + finalize + PDF + Excel) + pdf-generator + excel-generator
+- [x] 07-05-PLAN.md — API: admin-financial (receita por período/tipo/condomínio) + admin-payments (lista + estorno MP)
+- [x] 07-06-PLAN.md — API wiring: cron cutoff em cron.ts + 9 módulos em server.ts + admin-orders estendido (dashboard + delivery-status + division-suggestion)
 
 **Wave 2** *(paralelo — 07-07 a 07-11 independentes; todos dependem de 07-06)*
 
@@ -271,4 +271,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
 | 5. Delivery Experience | 2/4 | In Progress|  |
 | 6. Courier App | 3/3 | Complete   | 2026-06-15 |
-| 7. Admin Panel | 0/12 | Not started | - |
+| 7. Admin Panel | 6/12 | In Progress|  |

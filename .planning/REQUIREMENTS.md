@@ -84,17 +84,17 @@
 
 ### Admin — Operação (ADMO)
 
-- [ ] **ADMO-01**: Admin configura horário de corte diário — bloqueia novos pedidos para o dia seguinte após o horário
-- [ ] **ADMO-02**: Clientes que não agendaram recebem notificação ao atingir o horário de corte
-- [ ] **ADMO-03**: App exibe aviso ao cliente quando o prazo para o dia seguinte encerrou
-- [ ] **ADMO-04**: Admin visualiza lista completa de entregas do dia por condomínio, bloco e apartamento após o corte
+- [x] **ADMO-01**: Admin configura horário de corte diário — bloqueia novos pedidos para o dia seguinte após o horário
+- [x] **ADMO-02**: Clientes que não agendaram recebem notificação ao atingir o horário de corte
+- [x] **ADMO-03**: App exibe aviso ao cliente quando o prazo para o dia seguinte encerrou
+- [x] **ADMO-04**: Admin visualiza lista completa de entregas do dia por condomínio, bloco e apartamento após o corte
 - [ ] **ADMO-05**: Admin gera pedido de compra ao fornecedor (calcula total de pães dos agendamentos)
 - [ ] **ADMO-06**: Admin pode ajustar quantidades antes de finalizar o pedido (margem de segurança, arredondamento)
 - [ ] **ADMO-07**: Admin escolhe fornecedor principal e pode dividir o pedido entre múltiplos fornecedores
 - [ ] **ADMO-08**: Relatório de pedido ao fornecedor disponível para download em PDF e Excel
 - [ ] **ADMO-09**: Pedido salvo no histórico para consulta futura
-- [ ] **ADMO-10**: Dashboard de entregas — totais por dia, por condomínio e por entregador
-- [ ] **ADMO-11**: Sistema sugere divisão automática de entregas entre entregadores; Admin aprova antes de iniciar
+- [x] **ADMO-10**: Dashboard de entregas — totais por dia, por condomínio e por entregador
+- [x] **ADMO-11**: Sistema sugere divisão automática de entregas entre entregadores; Admin aprova antes de iniciar
 
 ### Admin — Gestão (ADMG)
 
@@ -127,7 +127,7 @@
 - [ ] **UI-06**: OTP com 4 inputs — avanço automático de foco entre dígitos
 - [ ] **UI-07**: Stepper de quantidade com min/max respeitados (agenda semanal, pedido único, compra personalizada)
 - [ ] **UI-08**: Tab bar do Cliente: Início / Agenda / Créditos / Pedidos
-- [ ] **UI-09**: Navegação inferior do Admin com 5 itens: Painel / Pedido / Entregas / Clientes / Gestão
+- [x] **UI-09**: Navegação inferior do Admin com 5 itens: Painel / Pedido / Entregas / Clientes / Gestão
 - [ ] **UI-10**: Hit targets mínimos de 44px em todos os elementos interativos
 
 ---
@@ -222,17 +222,17 @@
 | COUR-03 | Phase 6 — Courier App | Pending |
 | COUR-04 | Phase 6 — Courier App | Pending |
 | COUR-05 | Phase 6 — Courier App | Pending |
-| ADMO-01 | Phase 7 — Admin Panel | Pending |
-| ADMO-02 | Phase 7 — Admin Panel | Pending |
-| ADMO-03 | Phase 7 — Admin Panel | Pending |
-| ADMO-04 | Phase 7 — Admin Panel | Pending |
+| ADMO-01 | Phase 7 — Admin Panel | Complete |
+| ADMO-02 | Phase 7 — Admin Panel | Complete |
+| ADMO-03 | Phase 7 — Admin Panel | Complete |
+| ADMO-04 | Phase 7 — Admin Panel | Complete |
 | ADMO-05 | Phase 7 — Admin Panel | Pending |
 | ADMO-06 | Phase 7 — Admin Panel | Pending |
 | ADMO-07 | Phase 7 — Admin Panel | Pending |
 | ADMO-08 | Phase 7 — Admin Panel | Pending |
 | ADMO-09 | Phase 7 — Admin Panel | Pending |
-| ADMO-10 | Phase 7 — Admin Panel | Pending |
-| ADMO-11 | Phase 7 — Admin Panel | Pending |
+| ADMO-10 | Phase 7 — Admin Panel | Complete |
+| ADMO-11 | Phase 7 — Admin Panel | Complete |
 | ADMG-01 | Phase 7 — Admin Panel | Pending |
 | ADMG-02 | Phase 7 — Admin Panel | Pending |
 | ADMG-03 | Phase 7 — Admin Panel | Pending |
@@ -248,7 +248,7 @@
 | ADMF-02 | Phase 7 — Admin Panel | Pending |
 | ADMF-03 | Phase 7 — Admin Panel | Pending |
 | ADMF-04 | Phase 7 — Admin Panel | Pending |
-| UI-09 | Phase 7 — Admin Panel | Pending |
+| UI-09 | Phase 7 — Admin Panel | Complete |
 
 **Coverage:**
 - v1 requirements: 87 total
