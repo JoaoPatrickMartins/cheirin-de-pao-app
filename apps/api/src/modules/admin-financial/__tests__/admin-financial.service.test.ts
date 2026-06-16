@@ -1,47 +1,36 @@
-// AdminFinancialService unit tests — Fase 7 / Plano 07-01 (Wave 0 stub)
-// Requirements: ADMF-01 (receita por período), ADMF-03 (receita por tipo), ADMF-04 (lista de pagamentos)
-// Estado: "red" — mock temporário do service para CI verde enquanto implementação não existe (Wave 1)
+// AdminFinancialService unit tests — Fase 7 / Plano 07-05 (Wave 1 — implementação real)
+// Requirements: ADMF-01 (receita por período), ADMF-02 (por condomínio), ADMF-03 (por tipo)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// Mock temporário do service — permite que o teste passe com valores stub
-// enquanto o service real não existe (substituir por import real na Wave 1)
-vi.mock('../admin-financial.service.js', () => ({
-  AdminFinancialService: class {
-    async getRevenue(_params: { from: string; to: string }) {
-      return { total: 1500.0, period: _params }
-    }
-    async list() {
-      return []
-    }
-  },
-}))
 
 import { AdminFinancialService } from '../admin-financial.service.js'
 
 // ── makeFastifyMock ───────────────────────────────────────────────────────────
 function makeFastifyMock(overrides: {
-  payments?: Array<{ id: string; amount: number; status: string }> | null
+  aggregateTotal?: number
+  aggregateCombos?: number
+  aggregateAvulso?: number
+  runCommandRaw?: unknown
 } = {}) {
   const {
-    payments = [
-      { id: 'pay-01', amount: 500, status: 'PAID' },
-      { id: 'pay-02', amount: 1000, status: 'PAID' },
-      { id: 'pay-03', amount: 200, status: 'PENDING' }, // não deve ser somado
-    ],
+    aggregateTotal = 1500.0,
+    aggregateCombos = 1000.0,
+    aggregateAvulso = 500.0,
+    runCommandRaw = { cursor: { firstBatch: [{ _id: 'condo-01', total: 1500 }] } },
   } = overrides
 
   const prisma = {
     payment: {
-      findMany: vi.fn().mockResolvedValue((payments ?? []).filter((p) => p.status === 'PAID')),
-      // aggregate mock — retorna soma dos pagamentos PAID
-      aggregate: vi.fn().mockResolvedValue({
-        _sum: {
-          amount: (payments ?? [])
-            .filter((p) => p.status === 'PAID')
-            .reduce((sum, p) => sum + p.amount, 0),
-        },
-      }),
+      aggregate: vi.fn()
+        .mockResolvedValueOnce({ _sum: { amount: aggregateTotal } })   // total geral
+        .mockResolvedValueOnce({ _sum: { amount: aggregateCombos } })  // combos
+        .mockResolvedValueOnce({ _sum: { amount: aggregateAvulso } }), // avulso
     },
+    condominium: {
+      findMany: vi.fn().mockResolvedValue([
+        { id: 'condo-01', name: 'Residencial das Flores' },
+      ]),
+    },
+    $runCommandRaw: vi.fn().mockResolvedValue(runCommandRaw),
   }
 
   return {
@@ -60,18 +49,75 @@ describe('AdminFinancialService', () => {
   })
 
   describe('getRevenue', () => {
-    it('getRevenue retorna soma de Payment.amount WHERE status=PAID', async () => {
+    it('getRevenue retorna soma de Payment.amount WHERE status=PAID para period=day', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminFinancialService(fastify as any)
+      const result = await service.getRevenue('day')
+
+      expect(result).toBeDefined()
+      expect(result.total).toBe(1500.0)
+      // aggregate deve ter sido chamado com status=PAID
+      expect(prisma.payment.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _sum: { amount: true },
+          where: expect.objectContaining({ status: 'PAID' }),
+        }),
+      )
+    })
+
+    it('getRevenue retorna byType com combos e avulso separados', async () => {
       const { fastify } = makeFastifyMock()
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminFinancialService(fastify as any)
-      const result = await service.getRevenue({
-        from: '2026-06-01T00:00:00.000Z',
-        to: '2026-06-30T23:59:59.999Z',
+      const result = await service.getRevenue('week')
+
+      expect(result.byType).toBeDefined()
+      expect(result.byType.combos).toBe(1000.0)
+      expect(result.byType.avulso).toBe(500.0)
+    })
+
+    it('getRevenue retorna byCondominium com dados do $runCommandRaw', async () => {
+      const { fastify } = makeFastifyMock()
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminFinancialService(fastify as any)
+      const result = await service.getRevenue('month')
+
+      expect(result.byCondominium).toBeDefined()
+      expect(Array.isArray(result.byCondominium)).toBe(true)
+      expect(result.byCondominium.length).toBeGreaterThanOrEqual(1)
+      expect(result.byCondominium[0]).toHaveProperty('condominiumId')
+      expect(result.byCondominium[0]).toHaveProperty('total')
+    })
+
+    it('getRevenue aceita condominiumId opcional para filtrar', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminFinancialService(fastify as any)
+      await service.getRevenue('day', 'condo-01')
+
+      // $runCommandRaw deve ter sido chamado
+      expect(prisma.$runCommandRaw).toHaveBeenCalled()
+    })
+
+    it('getRevenue retorna total=0 quando nao ha pagamentos PAID', async () => {
+      const { fastify } = makeFastifyMock({
+        aggregateTotal: 0,
+        aggregateCombos: 0,
+        aggregateAvulso: 0,
+        runCommandRaw: { cursor: { firstBatch: [] } },
       })
 
-      expect(result).toBeDefined()
-      expect(result.total).toBeDefined()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminFinancialService(fastify as any)
+      const result = await service.getRevenue('day')
+
+      expect(result.total).toBe(0)
+      expect(result.byCondominium).toEqual([])
     })
   })
 })
