@@ -14,7 +14,7 @@ import { z } from 'zod'
  */
 export const UpdateOrderStatusSchema = z.object({
   status: z.enum(['OUT_FOR_DELIVERY', 'DELIVERED'], {
-    errorMap: () => ({ message: 'Status inválido. Use OUT_FOR_DELIVERY ou DELIVERED.' }),
+    message: 'Status inválido. Use OUT_FOR_DELIVERY ou DELIVERED.',
   }),
 })
 

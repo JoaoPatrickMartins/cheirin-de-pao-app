@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { NotificationType } from '@prisma/client'
 
 /**
  * NotificationsService — gerencia notificações in-app e push token do OneSignal.
@@ -67,7 +68,7 @@ export class NotificationsService {
    */
   async createAndTrim(data: {
     userId: string
-    type: string
+    type: NotificationType
     title: string
     body: string
     actionRoute?: string

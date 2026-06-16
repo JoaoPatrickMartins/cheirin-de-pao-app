@@ -80,12 +80,11 @@ describe('AdminSupplierOrdersService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSupplierOrdersService(fastify as any)
       const result = await service.create({
-        date: new Date().toISOString(),
-        items: [{ supplierId: 'sup-01', quantity: 100, unitPrice: 0.5 }],
+        items: [{ supplierId: 'sup-01', quantity: 100 }],
       })
 
       expect(result).toBeDefined()
-      expect(result.items).toBeDefined()
+      expect(result.id).toBeDefined()
     })
   })
 })

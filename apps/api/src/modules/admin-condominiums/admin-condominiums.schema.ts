@@ -15,7 +15,7 @@ export const CreateCondominiumSchema = z.object({
     zip: z.string().min(1, 'CEP é obrigatório'),
   }),
   type: z.enum(['SINGLE_ENTRANCE', 'BLOCKS'], {
-    errorMap: () => ({ message: 'Tipo inválido. Use SINGLE_ENTRANCE ou BLOCKS.' }),
+    message: 'Tipo inválido. Use SINGLE_ENTRANCE ou BLOCKS.',
   }),
 })
 

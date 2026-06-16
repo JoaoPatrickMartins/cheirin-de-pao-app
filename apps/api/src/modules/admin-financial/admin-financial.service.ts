@@ -144,7 +144,7 @@ export class AdminFinancialService {
 
     const rawResult = await this.prisma.$runCommandRaw({
       aggregate: 'Payment',
-      pipeline,
+      pipeline: pipeline as unknown as import('@prisma/client/runtime/library').InputJsonValue,
       cursor: {},
     }) as { cursor?: { firstBatch?: Array<{ _id: string; total: number }> } }
 

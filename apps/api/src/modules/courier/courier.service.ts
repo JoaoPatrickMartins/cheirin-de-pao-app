@@ -94,7 +94,9 @@ export class CourierService {
           userId: order.userId as string,
           condominiumId: user?.condominiumId ?? 'unknown',
           condominiumName: condominium?.name ?? 'Condominio desconhecido',
-          address: condominium?.address ?? '',
+          address: condominium?.address
+            ? `${(condominium.address as { street: string; number: string }).street}, ${(condominium.address as { street: string; number: string }).number}`
+            : '',
           apartment: user?.apartment ?? '',
           block: user?.block ?? null,
           clientName: user?.name ?? 'Cliente',
