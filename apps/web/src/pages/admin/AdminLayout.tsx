@@ -4,6 +4,7 @@ import { LoadingScreen } from '../auth/LoadingScreen'
 import { Navigate } from 'react-router'
 import { AdminBottomNav } from '../../components/admin/AdminBottomNav'
 import { AdminPainel } from './tabs/AdminPainel'
+import { AdminPedido } from './tabs/AdminPedido'
 
 type AdminTab = 'painel' | 'pedido' | 'entregas' | 'clientes' | 'gestao'
 
@@ -25,7 +26,7 @@ export function AdminLayout() {
       }}
     >
       {tab === 'painel' && <AdminPainel onNavigate={setTab} />}
-      {tab === 'pedido' && <div />}
+      {tab === 'pedido' && <AdminPedido />}
       {tab === 'entregas' && <div />}
       {tab === 'clientes' && <div />}
       {tab === 'gestao' && <div />}
