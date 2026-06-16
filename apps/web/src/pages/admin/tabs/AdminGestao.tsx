@@ -6,6 +6,8 @@ import { AdminAvulso } from '../gestao/AdminAvulso'
 import { AdminFornecedores } from '../gestao/AdminFornecedores'
 import { AdminEntregadores } from '../gestao/AdminEntregadores'
 import { AdminCondos } from '../gestao/AdminCondos'
+import { AdminPagamentos } from '../gestao/AdminPagamentos'
+import { AdminFinanceiro } from '../gestao/AdminFinanceiro'
 
 // ------------------------------------------------------------------ tipos
 type AdminGestaoSub =
@@ -46,8 +48,8 @@ export function AdminGestao() {
   if (sub === 'fornecedores') return <AdminFornecedores onBack={onBack} />
   if (sub === 'entregadores') return <AdminEntregadores onBack={onBack} />
   if (sub === 'condos') return <AdminCondos onBack={onBack} />
-  if (sub === 'pagamentos') return <PaginaEmBreve titulo="Pagamentos" onBack={onBack} />
-  if (sub === 'financeiro') return <PaginaEmBreve titulo="Financeiro" onBack={onBack} />
+  if (sub === 'pagamentos') return <AdminPagamentos onBack={onBack} />
+  if (sub === 'financeiro') return <AdminFinanceiro onBack={onBack} />
 
   // Hub principal
   return (
@@ -153,86 +155,3 @@ function HubCard({ icon, titulo, descricao, onClick }: HubCardProps) {
   )
 }
 
-// ------------------------------------------------------------------ placeholder para plano 07-12
-interface PaginaEmBreveProps {
-  titulo: string
-  onBack: () => void
-}
-
-function PaginaEmBreve({ titulo, onBack }: PaginaEmBreveProps) {
-  return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-      <AppBarSimples titulo={titulo} onBack={onBack} />
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 32,
-        }}
-      >
-        <p
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: 14,
-            color: 'var(--color-text-ter)',
-            textAlign: 'center',
-          }}
-        >
-          Em breve — plano 07-12
-        </p>
-      </div>
-    </div>
-  )
-}
-
-interface AppBarSimplesProps {
-  titulo: string
-  onBack: () => void
-}
-
-function AppBarSimples({ titulo, onBack }: AppBarSimplesProps) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '12px 20px 14px',
-      }}
-    >
-      <button
-        type="button"
-        aria-label="Voltar"
-        onClick={onBack}
-        style={{
-          background: 'var(--color-surface-2)',
-          border: 'none',
-          width: 36,
-          height: 36,
-          borderRadius: 11,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          flexShrink: 0,
-        }}
-      >
-        <Icon name="arrowL" size={18} color="var(--color-text)" />
-      </button>
-      <h2
-        style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 20,
-          fontWeight: 700,
-          letterSpacing: '-0.02em',
-          color: 'var(--color-text)',
-          margin: 0,
-        }}
-      >
-        {titulo}
-      </h2>
-    </div>
-  )
-}
