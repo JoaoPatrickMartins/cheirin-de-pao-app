@@ -1,34 +1,7 @@
-// AdminBottomNav unit tests — Fase 7 / Plano 07-01 (Wave 0 stub)
+// AdminBottomNav unit tests — Fase 7 / Plano 07-07 (Wave 2 — implementação real)
 // Requirements: UI-09 (navegação inferior Admin com 5 itens)
-// Estado: "red" — mock temporário do componente para CI verde enquanto implementação não existe (Wave 1)
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
-
-// Mock temporário do componente — permite que o teste passe com valores stub
-// enquanto o componente real não existe (substituir por import real na Wave 1)
-vi.mock('../AdminBottomNav.js', () => ({
-  AdminBottomNav: ({
-    activeTab,
-    onTabChange,
-  }: {
-    activeTab: string
-    onTabChange: (tab: string) => void
-  }) => (
-    <nav role="navigation" aria-label="Admin navigation">
-      {['painel', 'pedido', 'entregas', 'clientes', 'gestao'].map((tab) => (
-        <button
-          key={tab}
-          role="button"
-          aria-current={activeTab === tab ? 'page' : undefined}
-          onClick={() => onTabChange(tab)}
-        >
-          {tab}
-        </button>
-      ))}
-    </nav>
-  ),
-}))
-
 import { AdminBottomNav } from '../AdminBottomNav.js'
 
 // ── Testes ────────────────────────────────────────────────────────────────────
@@ -43,7 +16,29 @@ describe('AdminBottomNav', () => {
     expect(buttons).toHaveLength(5)
 
     // A aba ativa deve estar marcada com aria-current="page"
-    const activeButton = screen.getByRole('button', { name: 'painel' })
+    const activeButton = screen.getByRole('button', { name: 'Painel' })
     expect(activeButton).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('renderiza com aria-label de navegação administrativa', () => {
+    const onTabChange = vi.fn()
+
+    render(<AdminBottomNav activeTab="pedido" onTabChange={onTabChange} />)
+
+    const nav = screen.getByRole('navigation', { name: 'Navegação administrativa' })
+    expect(nav).toBeDefined()
+  })
+
+  it('marca a aba correta como ativa quando activeTab é gestao', () => {
+    const onTabChange = vi.fn()
+
+    render(<AdminBottomNav activeTab="gestao" onTabChange={onTabChange} />)
+
+    const gestaoButton = screen.getByRole('button', { name: 'Gestão' })
+    expect(gestaoButton).toHaveAttribute('aria-current', 'page')
+
+    // As outras abas não devem ter aria-current
+    const painelButton = screen.getByRole('button', { name: 'Painel' })
+    expect(painelButton).not.toHaveAttribute('aria-current', 'page')
   })
 })
