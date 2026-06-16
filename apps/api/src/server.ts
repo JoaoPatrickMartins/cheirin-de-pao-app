@@ -3,6 +3,8 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import env from '@fastify/env'
+import swagger from '@fastify/swagger'
+import swaggerUi from '@fastify/swagger-ui'
 import prismaPlugin from './plugins/prisma.js'
 import authenticatePlugin from './plugins/authenticate.js'
 import { healthRoute } from './modules/health/health.route.js'
@@ -72,6 +74,71 @@ const start = async () => {
     // Em produção: CORS_ORIGIN=https://app.cheirindepao.com.br
     await fastify.register(cors, {
       origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+    })
+
+    // OpenAPI / Swagger — registrar ANTES das rotas
+    await fastify.register(swagger, {
+      openapi: {
+        openapi: '3.0.3',
+        info: {
+          title: 'Cheirin de Pão — API',
+          description: [
+            'API REST do PWA Cheirin de Pão.',
+            '',
+            '## Autenticação',
+            'A maioria das rotas exige um **Bearer JWT** no header `Authorization`.',
+            'Obtenha o token via `POST /auth/otp/verify`.',
+            '',
+            '## Roles',
+            '- **CLIENT** — cliente que compra e agenda pãezinhos',
+            '- **COURIER** — entregador que confirma entregas',
+            '- **ADMIN** — operador com acesso total',
+            '',
+            '## Rate Limit',
+            'Global: 200 req/min · Endpoints OTP: 5 req/min por IP',
+          ].join('\n'),
+          version: '1.0.0',
+        },
+        components: {
+          securitySchemes: {
+            bearerAuth: {
+              type: 'http',
+              scheme: 'bearer',
+              bearerFormat: 'JWT',
+              description: 'Token JWT obtido via POST /auth/otp/verify',
+            },
+          },
+        },
+        tags: [
+          { name: 'health', description: 'Status da API' },
+          { name: 'auth', description: 'Autenticação e cadastro' },
+          { name: 'condominiums', description: 'Condomínios disponíveis' },
+          { name: 'payments', description: 'Pagamentos Pix e cartão (Mercado Pago)' },
+          { name: 'credits', description: 'Saldo e histórico de créditos' },
+          { name: 'webhooks', description: 'Webhooks externos (Mercado Pago)' },
+          { name: 'schedules', description: 'Agenda semanal recorrente' },
+          { name: 'orders', description: 'Pedidos avulsos e rastreamento' },
+          { name: 'notifications', description: 'Notificações push e in-app' },
+          { name: 'settings', description: 'Configurações públicas (cutoff)' },
+          { name: 'courier', description: 'App do entregador' },
+          { name: 'admin — dashboard', description: 'Painel admin: KPIs e operação' },
+          { name: 'admin — settings', description: 'Configurações operacionais (cutoff, avulso)' },
+          { name: 'admin — condominiums', description: 'CRUD de condomínios' },
+          { name: 'admin — combos', description: 'CRUD de combos e promoções' },
+          { name: 'admin — suppliers', description: 'CRUD de fornecedores' },
+          { name: 'admin — couriers', description: 'Gestão de entregadores' },
+          { name: 'admin — clients', description: 'Gestão de clientes' },
+          { name: 'admin — supplier-orders', description: 'Pedido ao fornecedor, PDF e Excel' },
+          { name: 'admin — financial', description: 'Relatório financeiro por período' },
+          { name: 'admin — payments', description: 'Lista de pagamentos e estornos' },
+        ],
+      },
+    })
+
+    await fastify.register(swaggerUi, {
+      routePrefix: '/docs',
+      uiConfig: { docExpansion: 'list', deepLinking: true },
+      staticCSP: true,
     })
 
     // Rate-limit global — 200 req/min para uso normal da app
