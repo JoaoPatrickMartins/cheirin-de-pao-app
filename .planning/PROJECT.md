@@ -1,5 +1,18 @@
 # Cheirin de Pão
 
+## Current Milestone: v1.1 Experiência Completa do Cliente
+
+**Goal:** Fechar o loop de valor do cliente — pagamento funcional, rastreamento de entregas, configurações de conta, cartões salvos e agendamentos múltiplos — com melhorias operacionais para Admin e Entregador.
+
+**Target features:**
+- Conclusão das Fases 3 e 5 pendentes do v1.0 (pagamentos/webhooks MP + rastreamento/notificações)
+- Admin: adição manual de créditos a clientes com notificação push no estilo Cheirin de Pão
+- Cliente: tela de configurações completa (dados pessoais, condomínio, cartões salvos, logout)
+- Cliente/Compra: fluxo com cartão salvo (escolher salvo, cadastrar novo, ou compra única)
+- Admin/Condomínios: gestão de horários de entrega por condomínio (padrão 06:30 e 15:30)
+- Cliente/Agenda: suporte a múltiplos horários de entrega no mesmo dia (qty por slot por dia)
+- Entregador + Admin: botão de logout
+
 ## What This Is
 
 PWA (Progressive Web App) de entrega recorrente de pãezinhos em condomínios, baseado em sistema de créditos. O cliente compra combos de pãezinhos que viram créditos, monta uma agenda semanal personalizada e os pãezinhos chegam na porta toda manhã. Três perfis: Cliente (compra, agenda, acompanha), Entregador (rota e confirmação de entrega) e Admin (operação completa — pedido ao fornecedor, financeiro, gestão).
@@ -148,4 +161,4 @@ Este documento evolui a cada transição de fase e a cada milestone.
 4. Atualizar Context com o estado atual
 
 ---
-*Last updated: 2026-06-14 — Phase 1 Foundation complete*
+*Last updated: 2026-06-18 — Milestone v1.1 Experiência Completa do Cliente iniciado*
