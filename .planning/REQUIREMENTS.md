@@ -146,6 +146,60 @@
 
 ---
 
+## v1.1 Requirements
+
+Requisitos do milestone v1.1 — Experiência Completa do Cliente.
+Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobrem requisitos já definidos acima (CRED-01..11, PAY-01, PAY-02, ACOMP-01..05).
+
+### Crédito Manual Admin (CREDM)
+
+- [ ] **CREDM-01**: Admin pode adicionar créditos manualmente a um cliente selecionando quantidade e motivo (acerto, bonificação, compensação ou promoção)
+- [ ] **CREDM-02**: Operação registra CreditTransaction com type=ADMIN_GRANT, quantidade, adminId e motivo para auditoria completa
+- [ ] **CREDM-03**: Cliente recebe notificação push + in-app com mensagem no estilo Cheirin de Pão ao receber créditos manuais
+
+### Configurações do Cliente (CONF)
+
+- [ ] **CONF-01**: Cliente acessa tela de configurações pelo botão de engrenagem no tab bar
+- [ ] **CONF-02**: Cliente pode visualizar e editar nome completo e data de nascimento
+- [ ] **CONF-03**: CPF é exibido mas não pode ser alterado (imutável por compliance)
+- [ ] **CONF-04**: Cliente pode editar telefone ou e-mail com re-verificação OTP enviado ao novo contato antes de salvar
+- [ ] **CONF-05**: Cliente pode visualizar e editar condomínio e número do apartamento
+- [ ] **CONF-06**: Mudança de condomínio desativa a agenda semanal ativa e notifica o cliente para reconfigurar
+- [ ] **CONF-07**: Cliente pode fazer logout pelo menu de configurações
+
+### Cartões Salvos (CARD)
+
+- [ ] **CARD-01**: No fluxo de compra com cartão, cliente vê lista dos seus cartões salvos e pode selecionar um para pagar
+- [ ] **CARD-02**: Cliente pode cadastrar novo cartão no fluxo de compra (opcionalmente salvar para uso futuro)
+- [ ] **CARD-03**: Opção de compra única sem salvar cartão é apresentada com menor destaque visual para incentivar cadastro
+- [ ] **CARD-04**: CVV é solicitado apenas uma vez ao cadastrar o cartão; compras subsequentes com cartão salvo usam o token diretamente sem re-digitar nenhum dado
+- [ ] **CARD-05**: Cliente pode ter até 3 cartões salvos; pode definir um como padrão e remover nas configurações
+- [ ] **CARD-06**: Fluxo de cartão salvo aplica tanto para compra de combo quanto para compra personalizada
+
+### Horários de Entrega por Condomínio (SLOT)
+
+- [ ] **SLOT-01**: Cada condomínio tem exatamente 2 slots fixos (manhã e tarde) — Admin pode editar o horário de cada slot individualmente (ex: 06:30 → 07:00)
+- [ ] **SLOT-02**: Ao criar condomínio, slots criados automaticamente com horários padrão: manhã 06:30 e tarde 15:30
+- [ ] **SLOT-03**: Script de migração popula slots padrão (manhã 06:30 e tarde 15:30) nos condomínios existentes durante o deploy
+- [ ] **SLOT-04**: Os horários disponíveis na agenda do cliente são carregados dinamicamente dos slots ativos do seu condomínio
+- [ ] **SLOT-05**: Admin pode ativar/desativar cada slot individualmente por condomínio ou em múltiplos condomínios de uma vez pelo painel
+- [ ] **SLOT-06**: Cada slot tem seu próprio horário de corte configurável pelo admin (ex: slot manhã → corte 22h do dia anterior; slot tarde → corte 10h do mesmo dia)
+- [ ] **SLOT-07**: O sistema passa a ter 2 horários de corte (um por slot) — bloqueio de novos pedidos e notificações de corte são disparados separadamente para cada slot
+
+### Agenda com Múltiplos Horários (MSCHED)
+
+- [ ] **MSCHED-01**: Se o condomínio tem os 2 slots ativos, cliente pode configurar quantidade de pães por horário (manhã e tarde) para cada dia da semana
+- [ ] **MSCHED-02**: O cron de meia-noite gera um Order separado por slot de entrega agendado (podendo gerar 2 orders por dia para um mesmo cliente)
+- [ ] **MSCHED-03**: Tela de agenda exibe seção por horário (manhã / tarde) com stepper de quantidade por dia da semana em cada seção
+- [ ] **MSCHED-04**: Agendamentos no formato legado (campo único deliveryTime + weeklyQty) continuam funcionando sem migração forçada de dados
+
+### Logout Entregador e Admin (LGOUT)
+
+- [ ] **LGOUT-01**: Entregador tem botão de logout acessível no app
+- [ ] **LGOUT-02**: Admin tem botão de logout acessível no painel
+
+---
+
 ## Out of Scope
 
 | Feature | Reason |
@@ -251,11 +305,10 @@
 | UI-09 | Phase 7 — Admin Panel | Complete |
 
 **Coverage:**
-- v1 requirements: 87 total
-- Mapped to phases: 87
-- Unmapped: 0 ✓
+- v1.0 requirements: 87 total — Mapped to phases: 87 — Unmapped: 0 ✓
+- v1.1 requirements: 22 new — Mapped to phases: 0 (pending roadmap) ⚠
 
-**Phase Distribution:**
+**Phase Distribution (v1.0):**
 | Phase | Requirements | Count |
 |-------|-------------|-------|
 | Phase 1 — Foundation | INFRA-01..07, PWA-01..05, UI-01, UI-02, UI-03, UI-05, UI-10 | 17 |
@@ -266,6 +319,14 @@
 | Phase 6 — Courier App | COUR-01..05 | 5 |
 | Phase 7 — Admin Panel | ADMO-01..11, ADMG-01..11, ADMF-01..04, UI-09 | 27 |
 
+**Phase Distribution (v1.1) — pendente roadmap:**
+| Phase | Requirements | Count |
+|-------|-------------|-------|
+| Phase 8 — Pagamentos (conclusão) | CRED-01..11, PAY-01..02 | ~13 |
+| Phase 9 — Rastreamento (conclusão) | ACOMP-01..05 | ~5 |
+| Phase 10+ — Features v1.1 | CREDM-01..03, CONF-01..07, CARD-01..06, SLOT-01..07, MSCHED-01..04, LGOUT-01..02 | 22 |
+
 ---
 *Requirements defined: 2026-06-13*
+*Last updated: 2026-06-18 — v1.1 Experiência Completa do Cliente*
 *Last updated: 2026-06-13 — traceability completa após criação do roadmap*
