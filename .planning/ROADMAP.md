@@ -2,7 +2,9 @@
 
 ## Overview
 
-Construção do PWA Cheirin de Pão em 7 fases verticais. Cada fase entrega um bloco funcional completo que o usuário pode testar manualmente ao final. A progressão vai da fundação técnica ao núcleo de negócio (créditos + agendamento) e termina no painel admin completo. Cada fase desbloqueia a próxima — não há código morto esperando integração.
+Construção do PWA Cheirin de Pão em fases verticais. Cada fase entrega um bloco funcional completo que o usuário pode testar manualmente ao final. A progressão vai da fundação técnica ao núcleo de negócio (créditos + agendamento) e termina no painel admin completo. Cada fase desbloqueia a próxima — não há código morto esperando integração.
+
+O milestone v1.1 (Fases 8–14) completa o loop de valor do cliente: fecha os pagamentos e rastreamento pendentes do v1.0, e adiciona crédito manual admin, configurações de conta, cartões salvos, horários configuráveis por condomínio e agenda multi-slot.
 
 ## Phases
 
@@ -13,13 +15,25 @@ Construção do PWA Cheirin de Pão em 7 fases verticais. Cada fase entrega um b
 
 Decimal phases appear between their surrounding integers in numeric order.
 
+### Milestone v1.0
+
 - [x] **Phase 1: Foundation** - Monorepo, Dev Container, Prisma schema, shared packages e PWA shell instalável (completed 2026-06-13)
 - [x] **Phase 2: Authentication** - OTP login, cadastro em 5 passos, sessão permanente e roteamento por perfil (completed 2026-06-14)
 - [ ] **Phase 3: Credits & Commerce** - Compra de combos, compra personalizada, saldo de créditos e pagamento via Mercado Pago
 - [x] **Phase 4: Scheduling** - Agenda semanal, pedido único, reserva de créditos e compra automática (completed 2026-06-15)
 - [ ] **Phase 5: Delivery Experience** - Rastreamento 3 estados, notificações push, histórico e central de notificações
 - [x] **Phase 6: Courier App** - Lista de entregas do entregador, confirmação manual e rota com mapa (completed 2026-06-15)
-- [ ] **Phase 7: Admin Panel** - Painel admin completo: gestão, operação, financeiro e pagamentos
+- [x] **Phase 7: Admin Panel** - Painel admin completo: gestão, operação, financeiro e pagamentos (completed 2026-06-15)
+
+### Milestone v1.1 — Experiência Completa do Cliente
+
+- [ ] **Phase 8: Finalização Pagamentos** - Webhooks MP, telas de compra (CombosScreen, PixWaiting, CardPayment) e Home Carteira completa
+- [ ] **Phase 9: Finalização Rastreamento** - Cron de véspera, TrackingScreen, NotificationsScreen e badge na Home
+- [ ] **Phase 10: Schema v1.1 + Crédito Manual Admin + Logout** - Schema unificado v1.1, crédito manual admin com push, botão de logout para entregador e admin
+- [ ] **Phase 11: Configurações e Perfil do Cliente** - Tela de configurações completa: dados pessoais, contato com OTP, condomínio e logout do cliente
+- [ ] **Phase 12: Cartões Salvos** - Fluxo de compra com cartão salvo via MP Customer API, CRUD de cartões nas configurações
+- [ ] **Phase 13: Horários por Condomínio** - Admin configura 2 slots (manhã/tarde) por condomínio com horários e cortes individuais
+- [ ] **Phase 14: Agenda Multi-Slot** - Cliente agenda quantidade por horário por dia; cron e app entregador ajustados
 
 ## Phase Details
 
@@ -70,16 +84,16 @@ Plans:
 
 - [x] 02-01-PLAN.md — Prisma schema extension (Session + OtpCode) + db push + CpfSchema + Wave 0 test stubs
 
-**Wave 2** *(blocked on Wave 1 completion — 02-02 and 02-02b are sequential: 02-02b depends on 02-02)*
+**Wave 2** *(blocked on Wave 1 completion — 02-02 e 02-02b são sequenciais: 02-02b depende de 02-02)*
 
 - [x] 02-02-PLAN.md — Auth business logic core: schemas, repository, service, OTP service, unit tests
 - [x] 02-02b-PLAN.md — Auth wiring: routes, controller, authenticate plugin (preHandler only), admin bootstrap, GET /condominiums, server.ts
 
-**Wave 3** *(blocked on Wave 2 completion — depends on 02-02b)*
+**Wave 3** *(blocked on Wave 2 completion — depende de 02-02b)*
 
 - [x] 02-03-PLAN.md — AuthContext + ProtectedRoute + LoadingScreen + router rewiring + profile layout guards
 
-**Wave 4** *(blocked on Wave 3 completion — plans 04 and 05 são paralelos)*
+**Wave 4** *(blocked on Wave 3 completion — plans 04 e 05 são paralelos)*
 
 - [x] 02-04-PLAN.md — LoginScreen (2-step OTP login) + apiFetch wrapper + OtpInput + ResendTimer
 - [x] 02-05-PLAN.md — OnboardingScreen (5-step registration) + StepDots + CondoSearch + ChannelSelector + CourierRegisterScreen
@@ -258,17 +272,136 @@ Plans:
 
 **UI hint**: yes
 
+---
+
+### Phase 8: Finalização Pagamentos
+
+**Goal**: Cliente consegue comprar combos e fazer compra personalizada, pagar com Pix ou cartão, e ver o saldo atualizado na Home Carteira com navegação completa por tab bar
+**Depends on**: Phase 7 (planos 03-03, 03-05, 03-06 pendentes da Phase 3)
+**Requirements**: CRED-01, CRED-02, CRED-03, CRED-04, CRED-05, CRED-06, CRED-08, CRED-09, CRED-10, CRED-11, PAY-01, PAY-02, UI-04, UI-07, UI-08
+**Success Criteria** (what must be TRUE):
+
+  1. Home do Cliente (variação A "Carteira") exibe saldo de créditos em card espresso grande com tab bar (Início / Agenda / Créditos / Pedidos) funcional
+  2. Cliente abre a tela de Créditos, vê os combos disponíveis configurados pelo Admin, escolhe um, paga via Pix e os créditos aparecem no saldo após confirmação via webhook
+  3. Cliente paga via cartão de crédito/débito pelo MP Bricks e os créditos são creditados ao receber o webhook de aprovação
+  4. Cliente faz compra personalizada com quantidade abaixo do limite do Admin — o preço unitário exibido é maior que o do combo
+  5. Quando créditos estão insuficientes sem compra automática, o banner de alerta aparece com opções de comprar combo ou ajustar agendamento
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 9: Finalização Rastreamento
+
+**Goal**: Cliente acompanha o status da entrega em tempo real na Home, recebe notificações push na véspera e ao ser entregue, e acessa histórico e central de notificações
+**Depends on**: Phase 8
+**Requirements**: ACOMP-01, ACOMP-02, ACOMP-03, ACOMP-04, ACOMP-05
+**Success Criteria** (what must be TRUE):
+
+  1. Home do Cliente exibe status da entrega de hoje (Agendado → Saiu para entrega → Entregue) e o ícone de sino mostra badge com contagem de notificações não lidas
+  2. Cliente recebe notificação push na véspera lembrando a entrega do dia seguinte (disparada pelo cron das 21h BRT)
+  3. Ao tocar no sino, a tela de notificações lista todas as notificações com cards por tipo e marca as não lidas visualmente
+  4. Tela de histórico exibe os pedidos dos últimos 30 dias com data, quantidade e status de cada entrega
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 10: Schema v1.1 + Crédito Manual Admin + Logout
+
+**Goal**: Admin consegue adicionar créditos manualmente a um cliente com registro de auditoria e notificação push; entregador e admin conseguem fazer logout
+**Depends on**: Phase 9
+**Requirements**: CREDM-01, CREDM-02, CREDM-03, LGOUT-01, LGOUT-02
+**Success Criteria** (what must be TRUE):
+
+  1. Schema v1.1 aplicado — campos `mpCustomerId`, `deliverySlots`, `days`, `ADMIN_GRANT` e model `SavedCard` presentes sem quebrar documentos existentes
+  2. Admin abre o detalhe de um cliente, insere quantidade e seleciona um motivo (acerto, bonificação, compensação ou promoção) e confirma — os créditos são adicionados ao saldo
+  3. A operação é registrada em `CreditTransaction` com `type=ADMIN_GRANT`, quantidade, adminId e motivo visíveis no histórico de auditoria
+  4. Cliente recebe notificação push e notificação in-app informando o recebimento dos créditos manuais
+  5. Entregador e Admin conseguem fazer logout e são redirecionados para a tela de login
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 11: Configurações e Perfil do Cliente
+
+**Goal**: Cliente acessa uma tela de configurações completa onde pode editar dados pessoais, contato (com re-verificação OTP), condomínio e fazer logout
+**Depends on**: Phase 10
+**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06, CONF-07
+**Success Criteria** (what must be TRUE):
+
+  1. Cliente toca na engrenagem do tab bar e acessa a tela de configurações com seções de dados pessoais, contato, condomínio e logout
+  2. Cliente edita nome completo e data de nascimento — CPF é exibido mas bloqueado para edição
+  3. Cliente altera telefone ou e-mail, recebe OTP no novo contato para confirmar, e o dado é atualizado apenas após validação
+  4. Ao mudar de condomínio, o sistema desativa a agenda semanal ativa e exibe aviso para o cliente reconfigurar
+  5. Cliente toca em "Sair" e a sessão é encerrada com redirecionamento para a tela de login
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 12: Cartões Salvos
+
+**Goal**: Cliente pode pagar com cartão salvo no fluxo de compra (sem redigitar dados), cadastrar novo cartão com opção de salvar, e gerenciar seus cartões nas configurações
+**Depends on**: Phase 11
+**Requirements**: CARD-01, CARD-02, CARD-03, CARD-04, CARD-05, CARD-06
+**Success Criteria** (what must be TRUE):
+
+  1. No fluxo de compra com cartão, cliente vê seus cartões salvos (bandeira + 4 últimos dígitos + vencimento) e seleciona um para pagar — CVV é recapturado via Brick
+  2. Cliente cadastra novo cartão no fluxo de compra marcando a opção "salvar para uso futuro" — o cartão aparece nas compras seguintes
+  3. Compra única sem salvar cartão está disponível com menor destaque visual na mesma tela
+  4. Nas configurações, cliente vê seus cartões salvos (até 3), pode definir um como padrão e remover cartões existentes
+  5. Fluxo de cartão salvo funciona tanto para compra de combo quanto para compra personalizada
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 13: Horários por Condomínio
+
+**Goal**: Admin configura 2 slots de entrega (manhã e tarde) por condomínio com horários e horários de corte individuais; novos condomínios ganham slots padrão automaticamente
+**Depends on**: Phase 12
+**Requirements**: SLOT-01, SLOT-02, SLOT-03, SLOT-04, SLOT-05, SLOT-06, SLOT-07
+**Success Criteria** (what must be TRUE):
+
+  1. Admin acessa as configurações de um condomínio e vê os 2 slots (manhã 06:30 e tarde 15:30) com opção de editar horário, ativar/desativar e configurar horário de corte de cada um
+  2. Ao criar um novo condomínio, os 2 slots padrão são criados automaticamente sem ação adicional do admin
+  3. Condomínios existentes recebem os slots padrão via script de migração no deploy — dados legados não são quebrados
+  4. Na tela de agenda, os horários disponíveis para o cliente são carregados dos slots ativos do seu condomínio (não mais fixos no frontend)
+  5. O cron de meia-noite e as notificações de corte disparam separadamente para cada slot ativo, respeitando o horário de corte individual de cada um
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 14: Agenda Multi-Slot
+
+**Goal**: Cliente configura quantidade de pães por horário de entrega (manhã e tarde) para cada dia da semana; o cron gera orders separados por slot; agendamentos legados continuam funcionando
+**Depends on**: Phase 13
+**Requirements**: MSCHED-01, MSCHED-02, MSCHED-03, MSCHED-04
+**Success Criteria** (what must be TRUE):
+
+  1. Na tela de agenda, o cliente vê uma seção por horário (manhã / tarde) — cada seção tem stepper de quantidade por dia da semana
+  2. O cron de meia-noite gera um Order separado por slot agendado — um cliente com 2 slots ativos num mesmo dia gera 2 orders naquele dia
+  3. Agendamentos antigos com `weeklyQty` e `deliveryTime` único continuam funcionando sem migração forçada de dados
+  4. O consumo semanal total exibido na tela de agenda soma a quantidade de todos os slots de todos os dias
+
+**Plans**: TBD
+**UI hint**: yes
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 3/3 | Complete   | 2026-06-13 |
-| 2. Authentication | 6/6 | Complete   | 2026-06-14 |
-| 3. Credits & Commerce | 3/6 | In Progress|  |
-| 4. Scheduling | 6/6 | Complete   | 2026-06-15 |
-| 5. Delivery Experience | 2/4 | In Progress|  |
-| 6. Courier App | 3/3 | Complete   | 2026-06-15 |
-| 7. Admin Panel | 12/12 | Complete   | 2026-06-15 |
+| 1. Foundation | 3/3 | Complete | 2026-06-13 |
+| 2. Authentication | 6/6 | Complete | 2026-06-14 |
+| 3. Credits & Commerce | 3/6 | In Progress | |
+| 4. Scheduling | 6/6 | Complete | 2026-06-15 |
+| 5. Delivery Experience | 2/4 | In Progress | |
+| 6. Courier App | 3/3 | Complete | 2026-06-15 |
+| 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
+| 8. Finalização Pagamentos | 0/TBD | Not started | |
+| 9. Finalização Rastreamento | 0/TBD | Not started | |
+| 10. Schema v1.1 + Crédito Manual + Logout | 0/TBD | Not started | |
+| 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
+| 12. Cartões Salvos | 0/TBD | Not started | |
+| 13. Horários por Condomínio | 0/TBD | Not started | |
+| 14. Agenda Multi-Slot | 0/TBD | Not started | |

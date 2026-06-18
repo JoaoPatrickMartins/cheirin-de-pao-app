@@ -209,6 +209,10 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | Entregadores externos | MVP usa apenas os próprios donos — suporte externo será adicionado depois |
 | App nativo (loja) | PWA com distribuição por link — sem necessidade de loja no MVP |
 | MongoDB local em dev | Usa Atlas remoto tanto em dev quanto em produção — por consistência |
+| Histórico de créditos manuais visível ao cliente | Defer → v2 (extrato de ADMIN_GRANT) |
+| Cartão padrão com 1 toque (autocharge) | Defer → v2 (CVV obrigatório via Brick a cada transação) |
+| Toggles granulares de notificações push | Defer → v2 |
+| Cobrança automática com cartão salvo | MP/PCI DSS — CVV não pode ser armazenado; auto-buy usa apenas Pix |
 
 ---
 
@@ -242,35 +246,35 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | AUTH-07 | Phase 2 — Authentication | Pending |
 | AUTH-08 | Phase 2 — Authentication | Pending |
 | UI-06 | Phase 2 — Authentication | Pending |
-| CRED-01 | Phase 3 — Credits & Commerce | Pending |
-| CRED-02 | Phase 3 — Credits & Commerce | Pending |
-| CRED-03 | Phase 3 — Credits & Commerce | Pending |
-| CRED-04 | Phase 3 — Credits & Commerce | Pending |
-| CRED-05 | Phase 3 — Credits & Commerce | Pending |
-| CRED-06 | Phase 3 — Credits & Commerce | Pending |
+| CRED-01 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-02 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-03 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-04 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-05 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-06 | Phase 8 — Finalização Pagamentos | Pending |
 | CRED-07 | Phase 3 — Credits & Commerce | Complete |
-| CRED-08 | Phase 3 — Credits & Commerce | Pending |
-| CRED-09 | Phase 3 — Credits & Commerce | Pending |
-| CRED-10 | Phase 3 — Credits & Commerce | Pending |
-| CRED-11 | Phase 3 — Credits & Commerce | Pending |
-| PAY-01 | Phase 3 — Credits & Commerce | Pending |
-| PAY-02 | Phase 3 — Credits & Commerce | Pending |
-| UI-04 | Phase 3 — Credits & Commerce | Pending |
-| UI-07 | Phase 3 — Credits & Commerce | Pending |
-| UI-08 | Phase 3 — Credits & Commerce | Pending |
+| CRED-08 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-09 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-10 | Phase 8 — Finalização Pagamentos | Pending |
+| CRED-11 | Phase 8 — Finalização Pagamentos | Pending |
+| PAY-01 | Phase 8 — Finalização Pagamentos | Pending |
+| PAY-02 | Phase 8 — Finalização Pagamentos | Pending |
+| UI-04 | Phase 8 — Finalização Pagamentos | Pending |
+| UI-07 | Phase 8 — Finalização Pagamentos | Pending |
+| UI-08 | Phase 8 — Finalização Pagamentos | Pending |
 | SCHED-01 | Phase 4 — Scheduling | Complete |
 | SCHED-02 | Phase 4 — Scheduling | Complete |
 | SCHED-03 | Phase 4 — Scheduling | Complete |
 | SCHED-04 | Phase 4 — Scheduling | Complete |
 | SCHED-05 | Phase 4 — Scheduling | Complete |
 | SCHED-06 | Phase 4 — Scheduling | Complete |
-| ACOMP-01 | Phase 5 — Delivery Experience | Pending |
-| ACOMP-02 | Phase 5 — Delivery Experience | Pending |
-| ACOMP-03 | Phase 5 — Delivery Experience | Pending |
-| ACOMP-04 | Phase 5 — Delivery Experience | Pending |
-| ACOMP-05 | Phase 5 — Delivery Experience | Pending |
-| PAY-03 | Phase 5 — Delivery Experience | Pending |
-| PAY-04 | Phase 5 — Delivery Experience | Pending |
+| ACOMP-01 | Phase 9 — Finalização Rastreamento | Pending |
+| ACOMP-02 | Phase 9 — Finalização Rastreamento | Pending |
+| ACOMP-03 | Phase 9 — Finalização Rastreamento | Pending |
+| ACOMP-04 | Phase 9 — Finalização Rastreamento | Pending |
+| ACOMP-05 | Phase 9 — Finalização Rastreamento | Pending |
+| PAY-03 | Phase 7 — Admin Panel | Pending |
+| PAY-04 | Phase 7 — Admin Panel | Pending |
 | COUR-01 | Phase 6 — Courier App | Pending |
 | COUR-02 | Phase 6 — Courier App | Pending |
 | COUR-03 | Phase 6 — Courier App | Pending |
@@ -303,30 +307,64 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | ADMF-03 | Phase 7 — Admin Panel | Pending |
 | ADMF-04 | Phase 7 — Admin Panel | Pending |
 | UI-09 | Phase 7 — Admin Panel | Complete |
+| CREDM-01 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
+| CREDM-02 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
+| CREDM-03 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
+| LGOUT-01 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
+| LGOUT-02 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
+| CONF-01 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CONF-02 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CONF-03 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CONF-04 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CONF-05 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CONF-06 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CONF-07 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CARD-01 | Phase 12 — Cartões Salvos | Pending |
+| CARD-02 | Phase 12 — Cartões Salvos | Pending |
+| CARD-03 | Phase 12 — Cartões Salvos | Pending |
+| CARD-04 | Phase 12 — Cartões Salvos | Pending |
+| CARD-05 | Phase 12 — Cartões Salvos | Pending |
+| CARD-06 | Phase 12 — Cartões Salvos | Pending |
+| SLOT-01 | Phase 13 — Horários por Condomínio | Pending |
+| SLOT-02 | Phase 13 — Horários por Condomínio | Pending |
+| SLOT-03 | Phase 13 — Horários por Condomínio | Pending |
+| SLOT-04 | Phase 13 — Horários por Condomínio | Pending |
+| SLOT-05 | Phase 13 — Horários por Condomínio | Pending |
+| SLOT-06 | Phase 13 — Horários por Condomínio | Pending |
+| SLOT-07 | Phase 13 — Horários por Condomínio | Pending |
+| MSCHED-01 | Phase 14 — Agenda Multi-Slot | Pending |
+| MSCHED-02 | Phase 14 — Agenda Multi-Slot | Pending |
+| MSCHED-03 | Phase 14 — Agenda Multi-Slot | Pending |
+| MSCHED-04 | Phase 14 — Agenda Multi-Slot | Pending |
 
 **Coverage:**
 - v1.0 requirements: 87 total — Mapped to phases: 87 — Unmapped: 0 ✓
-- v1.1 requirements: 22 new — Mapped to phases: 0 (pending roadmap) ⚠
+- v1.1 new requirements: 29 total (CREDM-01..03, CONF-01..07, CARD-01..06, SLOT-01..07, MSCHED-01..04, LGOUT-01..02) — Mapped to phases: 29 ✓
+- v1.1 carry-forward (pendentes do v1.0): CRED-01..11 (exceto 07), PAY-01..02, ACOMP-01..05 (20 req) — Remapeados para Phases 8 e 9 ✓
+- Total v1.1 mapeado: 49 requisitos em 7 fases (8–14) ✓
 
 **Phase Distribution (v1.0):**
 | Phase | Requirements | Count |
 |-------|-------------|-------|
 | Phase 1 — Foundation | INFRA-01..07, PWA-01..05, UI-01, UI-02, UI-03, UI-05, UI-10 | 17 |
 | Phase 2 — Authentication | AUTH-01..08, UI-06 | 9 |
-| Phase 3 — Credits & Commerce | CRED-01..11, PAY-01..02, UI-04, UI-07, UI-08 | 16 |
+| Phase 3 — Credits & Commerce | CRED-07 (completo) | 1 (carry-forward para Phase 8) |
 | Phase 4 — Scheduling | SCHED-01..06 | 6 |
-| Phase 5 — Delivery Experience | ACOMP-01..05, PAY-03..04 | 7 |
+| Phase 5 — Delivery Experience | PAY-03..04 (carry-forward Phase 7) | (carry-forward para Phase 7) |
 | Phase 6 — Courier App | COUR-01..05 | 5 |
-| Phase 7 — Admin Panel | ADMO-01..11, ADMG-01..11, ADMF-01..04, UI-09 | 27 |
+| Phase 7 — Admin Panel | ADMO-01..11, ADMG-01..11, ADMF-01..04, PAY-03..04, UI-09 | 29 |
 
-**Phase Distribution (v1.1) — pendente roadmap:**
+**Phase Distribution (v1.1):**
 | Phase | Requirements | Count |
 |-------|-------------|-------|
-| Phase 8 — Pagamentos (conclusão) | CRED-01..11, PAY-01..02 | ~13 |
-| Phase 9 — Rastreamento (conclusão) | ACOMP-01..05 | ~5 |
-| Phase 10+ — Features v1.1 | CREDM-01..03, CONF-01..07, CARD-01..06, SLOT-01..07, MSCHED-01..04, LGOUT-01..02 | 22 |
+| Phase 8 — Finalização Pagamentos | CRED-01..06, CRED-08..11, PAY-01..02, UI-04, UI-07, UI-08 | 15 |
+| Phase 9 — Finalização Rastreamento | ACOMP-01..05 | 5 |
+| Phase 10 — Schema v1.1 + CREDM + Logout | CREDM-01..03, LGOUT-01..02 | 5 |
+| Phase 11 — Configurações e Perfil | CONF-01..07 | 7 |
+| Phase 12 — Cartões Salvos | CARD-01..06 | 6 |
+| Phase 13 — Horários por Condomínio | SLOT-01..07 | 7 |
+| Phase 14 — Agenda Multi-Slot | MSCHED-01..04 | 4 |
 
 ---
 *Requirements defined: 2026-06-13*
-*Last updated: 2026-06-18 — v1.1 Experiência Completa do Cliente*
-*Last updated: 2026-06-13 — traceability completa após criação do roadmap*
+*Last updated: 2026-06-18 — v1.1 traceability completa (Fases 8–14 mapeadas)*

@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Experiência Completa do Cliente
 status: planning
-last_updated: "2026-06-18T22:36:32.645Z"
+last_updated: "2026-06-18T00:00:00.000Z"
 last_activity: 2026-06-18
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,27 +17,51 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-13)
+See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele precise fazer nada — o sistema cuida dos créditos, dos agendamentos e das notificações automaticamente.
-**Current focus:** Phase 07 — admin-panel
+**Current focus:** Phase 08 — finalização-pagamentos (v1.1, início)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 8 — Finalização Pagamentos (não iniciada)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-18 — Milestone v1.1 started
+Status: Roadmap v1.1 criado — pronto para planejamento da Phase 8
+Last activity: 2026-06-18 — Roadmap v1.1 criado (Fases 8–14)
+
+## v1.0 Status Summary
+
+| Phase | Status | Planos pendentes |
+|-------|--------|-----------------|
+| 1. Foundation | Complete (2026-06-13) | — |
+| 2. Authentication | Complete (2026-06-14) | — |
+| 3. Credits & Commerce | PARCIAL | 03-03, 03-05, 03-06 |
+| 4. Scheduling | Complete (2026-06-15) | — |
+| 5. Delivery Experience | PARCIAL | 05-03, 05-04 |
+| 6. Courier App | Complete (2026-06-15) | — |
+| 7. Admin Panel | Complete (2026-06-15) | — |
+
+## v1.1 Phases
+
+| Phase | Goal | Requirements | Status |
+|-------|------|--------------|--------|
+| 8. Finalização Pagamentos | Webhooks MP + telas compra + Home Carteira | CRED-01..11 (exceto 07), PAY-01..02, UI-04, UI-07, UI-08 | Not started |
+| 9. Finalização Rastreamento | Cron 21h + TrackingScreen + NotificationsScreen + badge | ACOMP-01..05 | Not started |
+| 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Not started |
+| 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Not started |
+| 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Not started |
+| 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Not started |
+| 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 15
+- Total plans completed: 15 (v1.0)
 - Average duration: -
-- Total execution time: 0 hours
+- Total execution time: 0 hours (v1.1)
 
-**By Phase:**
+**By Phase (v1.0):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
@@ -51,10 +75,6 @@ Last activity: 2026-06-18 — Milestone v1.1 started
 - Trend: -
 
 *Updated after each plan completion*
-| Phase 04-scheduling P06 | 20min | 2 tasks | 5 files |
-| Phase 05 P01-P02 | - | - | - |
-| Phase 05 P03-P04 | - | 4 tasks | 13 files |
-| Phase 07-admin-panel P06 | 15min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -73,24 +93,38 @@ Recent decisions affecting current work:
 - Fase 3: QR code gerado pelo backend (D-03)
 - Fase 3: AutoBuyScreen apenas UI+save — cron na Fase 4/5 (D-04)
 - Fase 3: CardPayment via MP Bricks frontend (D-12)
+- v1.1: SavedCard como collection separada — `User.mpCustomerId` + model `SavedCard` com `mpCardId` (D-13)
+- v1.1: Schedule mantém `weeklyQty`/`deliveryTime` como nullable — campo `days Json?` adicionado para multi-slot sem migração forçada (D-14)
+- v1.1: `Condominium.deliverySlots String[]` embedded — array simples de strings HH:MM (D-15)
+- v1.1: CVV obrigatório via Brick a cada transação com cartão salvo — `processAutoBuy` apenas via Pix (D-16)
+- v1.1: `@@unique([userId, condominiumId])` em Schedule mantido — horário por dia dentro do campo `days` (Cenário A, sem risco de migração de índice) (D-17)
+- v1.1: OTP de mudança de contato precisa de `purpose: 'CONTACT_CHANGE'` para não conflitar com `findActiveOtp` de login (D-18)
 
 ### Pending Todos
 
-- Configurar credenciais sandbox MP (MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET, MP_PUBLIC_KEY) nos .env locais antes da Wave 3 da Fase 3
+- Configurar credenciais sandbox MP (MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET, MP_PUBLIC_KEY) nos .env locais antes da Wave 2 da Phase 8
+- Executar script de backfill de `deliverySlots` nos condomínios existentes antes de iniciar Phase 13
+- Verificar se `CourierScreen` precisa filtrar por slot em `GET /courier/orders/today` após Phase 14
 
 ### Blockers/Concerns
 
-None yet.
+- Phase 8 depende dos planos 03-03/03-05/03-06 pendentes — são as primeiras tarefas a planejar
+- Phase 10 contém o schema v1.1 unificado — BLOQUEANTE para Phases 11, 12, 13 e 14
+- Phase 13 depende de script de migração ser executado no Atlas antes do deploy — documentar no plano
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Fase 4/5 | Cron job de compra automática (CRED-07/10) | Deferred | Phase 3 Context |
-| Fase 4/5 | Tokenização de cartão para cobranças futuras | Deferred | Phase 3 Context |
-| Fase 5/7 | Status de pagamento no painel Admin (PAY-03) | Deferred | Phase 3 Context |
-| Fase 5 | Estorno e reembolso de pagamentos (PAY-04) | Deferred | Phase 3 Context |
-| Fase 7 | Promoções e descontos em combos (ADMG-03) | Deferred | Phase 3 Context |
+| Fase 4/5 | Cron job de compra automática (CRED-07/10) | Em produção (Phase 4) | Phase 3 Context |
+| Fase 4/5 | Tokenização de cartão para cobranças futuras | Endereçado em Phase 12 (v1.1) | Phase 3 Context |
+| Fase 5/7 | Status de pagamento no painel Admin (PAY-03) | Completo (Phase 7) | Phase 3 Context |
+| Fase 5 | Estorno e reembolso de pagamentos (PAY-04) | Completo (Phase 7) | Phase 3 Context |
+| Fase 7 | Promoções e descontos em combos (ADMG-03) | Completo (Phase 7) | Phase 3 Context |
+| v1.1 | Histórico de créditos manuais visível ao cliente | Defer → v2 | Research v1.1 |
+| v1.1 | Cartão padrão com 1 toque | Defer → v2 | Research v1.1 |
+| v1.1 | Toggles granulares de notificações push | Defer → v2 | Research v1.1 |
+| v1.1 | Badge de contagem de clientes por slot | Defer → v2 | Research v1.1 |
 
 ## Quick Tasks Completed
 
@@ -100,7 +134,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-16T00:52:46.007Z
-Stopped at: Phase 7 UI-SPEC approved
-Resume with: `/gsd-execute-phase` ou `/gsd-progress` numa nova conversa
-Next phase: 06-courier-app (not started — discuss → plan → execute)
+Last session: 2026-06-18
+Stopped at: Roadmap v1.1 criado (Fases 8–14)
+Resume with: `/gsd:plan-phase 8` para iniciar planejamento da Phase 8
+Next phase: 08-finalizacao-pagamentos (não iniciada — planejar antes de executar)
