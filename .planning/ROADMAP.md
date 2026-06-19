@@ -360,13 +360,34 @@ Plans:
 **Requirements**: CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06, CONF-07
 **Success Criteria** (what must be TRUE):
 
-  1. Cliente toca na engrenagem do tab bar e acessa a tela de configurações com seções de dados pessoais, contato, condomínio e logout
+  1. Cliente toca no tab Perfil e acessa a tela de configurações com seções de dados pessoais, contato, condomínio e logout
   2. Cliente edita nome completo e data de nascimento — CPF é exibido mas bloqueado para edição
   3. Cliente altera telefone ou e-mail, recebe OTP no novo contato para confirmar, e o dado é atualizado apenas após validação
   4. Ao mudar de condomínio, o sistema desativa a agenda semanal ativa e exibe aviso para o cliente reconfigurar
   5. Cliente toca em "Sair" e a sessão é encerrada com redirecionamento para a tela de login
 
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+**Wave 1** *(bloqueante — schema + stubs de teste)*
+
+- [ ] 11-01-PLAN.md — Schema Prisma (OtpCode.purpose String?) + auth.repository.ts fix (findActiveOtp backward-compat) + stubs de teste Wave 0
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 11-02-PLAN.md — Módulo backend client-profile (schema Zod + repository + service + controller + route) + db push + wiring server.ts
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 11-03-PLAN.md — AuthContext enriquecido (updateUser + campos de perfil) + ClientTabBar 5º tab Perfil + router.tsx rotas perfil + LoginScreen fetch pós-login
+
+**Wave 4** *(blocked on Wave 2 + Wave 3)*
+
+- [ ] 11-04-PLAN.md — SettingsScreen (4 seções + dialog condomínio + toast) + ContactEditScreen (wizard 2 steps + OTP)
+
+**Wave 5** *(blocked on Wave 3 + Wave 4 — tem checkpoint humano)*
+
+- [ ] 11-05-PLAN.md — ScheduleScreen banner contextual (condominiumJustChanged) + checkpoint humano de verificação CONF-01 a CONF-07
+
 **UI hint**: yes
 
 ### Phase 12: Cartões Salvos
@@ -433,7 +454,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
-| 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
+| 11. Configurações e Perfil do Cliente | 0/5 | Not started | |
 | 12. Cartões Salvos | 0/TBD | Not started | |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |
