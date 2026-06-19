@@ -15,6 +15,7 @@ vi.mock('@onesignal/node-onesignal', () => {
       include_subscription_ids: [],
       headings: {},
       contents: {},
+      additionalData: {},
     })),
     _createNotificationMock: createNotificationMock,
   }
@@ -376,6 +377,190 @@ describe('SchedulesService', () => {
       // Log de info deve ter sido chamado indicando 0 playerIds
       expect(fastify.log.info).toHaveBeenCalledWith(
         expect.stringContaining('nenhum player_id encontrado'),
+      )
+    })
+  })
+
+  describe('sendLowCreditNotifications [CRED-09]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('envia push quando creditBalance < consumoSemanal e sem auto-recharge', async () => {
+      // weeklyQty total = 2+1+2+0+0+0+0 = 5
+      const schedule: ScheduleShape = {
+        id: 'sched-1',
+        userId: 'user-1',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 2, ter: 1, qua: 2, qui: 0, sex: 0, sab: 0, dom: 0 },
+        deliveryTime: '07:00',
+        notifyReconfigure: false,
+      }
+
+      const user: UserShape = {
+        id: 'user-1',
+        creditBalance: 2, // < consumoSemanal (5)
+        condominiumId: 'condo-1',
+        autoRecharge: null, // sem auto-recharge
+        oneSignalPlayerId: 'osp-id',
+      }
+
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-1': user },
+      })
+
+      // Override schedule.findMany para retornar o schedule do CRED-09
+      ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      // Mock notificationsService.createAndTrim
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendLowCreditNotifications()
+
+      // Verificar que OneSignal.DefaultApi foi invocado (push disparado)
+      const OneSignal = await import('@onesignal/node-onesignal')
+      expect(OneSignal.DefaultApi).toHaveBeenCalled()
+
+      // Verificar que createAndTrim foi chamado com type LOW_CREDIT
+      expect(createAndTrimMock).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', type: 'LOW_CREDIT' }),
+      )
+
+      // Verificar que createNotification foi chamada (deep link D-11 via additionalData.screen)
+      // O DefaultApi mock retorna { createNotification: createNotificationMock }
+      // A instância do mock captura o additionalData atribuído
+      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> }
+      expect(mockInstance?.createNotification).toHaveBeenCalled()
+    })
+
+    it('NAO envia push quando autoRecharge.active=true', async () => {
+      const schedule: ScheduleShape = {
+        id: 'sched-2',
+        userId: 'user-2',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 2, ter: 1, qua: 2, qui: 0, sex: 0, sab: 0, dom: 0 },
+        deliveryTime: '07:00',
+        notifyReconfigure: false,
+      }
+
+      const user: UserShape = {
+        id: 'user-2',
+        creditBalance: 2, // < consumoSemanal (5) — mas auto-recharge ativo
+        condominiumId: 'condo-1',
+        autoRecharge: { active: true, mode: 'acabar' }, // auto-recharge ativo
+        oneSignalPlayerId: 'osp-id-2',
+      }
+
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-2': user },
+      })
+
+      ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendLowCreditNotifications()
+
+      // Não deve enviar push nem criar Notification (auto-recharge cuida disso — D-10)
+      const OneSignal = await import('@onesignal/node-onesignal')
+      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
+      if (mockInstance) {
+        expect(mockInstance.createNotification).not.toHaveBeenCalled()
+      }
+      expect(createAndTrimMock).not.toHaveBeenCalled()
+    })
+
+    it('NAO envia push quando creditBalance >= consumoSemanal', async () => {
+      const schedule: ScheduleShape = {
+        id: 'sched-3',
+        userId: 'user-3',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 0, dom: 0 }, // consumo = 5
+        deliveryTime: '07:00',
+        notifyReconfigure: false,
+      }
+
+      const user: UserShape = {
+        id: 'user-3',
+        creditBalance: 10, // >= consumoSemanal (5) — saldo suficiente
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: 'osp-id-3',
+      }
+
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-3': user },
+      })
+
+      ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendLowCreditNotifications()
+
+      // Saldo suficiente — não deve notificar
+      const OneSignal = await import('@onesignal/node-onesignal')
+      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
+      if (mockInstance) {
+        expect(mockInstance.createNotification).not.toHaveBeenCalled()
+      }
+      expect(createAndTrimMock).not.toHaveBeenCalled()
+    })
+
+    it('NAO envia push quando oneSignalPlayerId = null, mas persiste Notification', async () => {
+      const schedule: ScheduleShape = {
+        id: 'sched-4',
+        userId: 'user-4',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 2, ter: 1, qua: 2, qui: 0, sex: 0, sab: 0, dom: 0 }, // consumo = 5
+        deliveryTime: '07:00',
+        notifyReconfigure: false,
+      }
+
+      const user: UserShape = {
+        id: 'user-4',
+        creditBalance: 2, // < consumoSemanal (5)
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: null, // sem token push — não deve enviar push
+      }
+
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-4': user },
+      })
+
+      ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendLowCreditNotifications()
+
+      // Push não enviado (sem oneSignalPlayerId), mas Notification persistida
+      const OneSignal = await import('@onesignal/node-onesignal')
+      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
+      if (mockInstance) {
+        expect(mockInstance.createNotification).not.toHaveBeenCalled()
+      }
+      // Notification LOW_CREDIT DEVE ser persistida mesmo sem push
+      expect(createAndTrimMock).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-4', type: 'LOW_CREDIT' }),
       )
     })
   })

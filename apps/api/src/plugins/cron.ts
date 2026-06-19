@@ -19,7 +19,7 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   cron.schedule(
     '0 0 * * *',
     async () => {
-      fastify.log.info('[cron] iniciando createDailyOrders + processAutoBuy')
+      fastify.log.info('[cron] iniciando createDailyOrders + processAutoBuy + sendLowCreditNotifications')
       try {
         await schedulesService.createDailyOrders()
         fastify.log.info('[cron] createDailyOrders concluído')
@@ -32,6 +32,13 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.info('[cron] processAutoBuy concluído')
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em processAutoBuy — servidor mantido ativo')
+      }
+
+      try {
+        await schedulesService.sendLowCreditNotifications()
+        fastify.log.info('[cron] sendLowCreditNotifications concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendLowCreditNotifications — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-orders' },
