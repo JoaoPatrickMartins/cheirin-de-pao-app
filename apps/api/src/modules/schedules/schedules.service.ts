@@ -196,8 +196,9 @@ export class SchedulesService {
           const notification = new OneSignal.Notification()
           notification.app_id = process.env.ONESIGNAL_APP_ID!
           notification.include_subscription_ids = [user.oneSignalPlayerId]
-          notification.headings = { pt: 'Cheirin de Pão' }
+          notification.headings = { pt: 'Entrega amanhã 🍞' }
           notification.contents = { pt: `Lembrete: ${order.quantity} pães agendados para amanhã.` }
+          notification.data = { screen: 'pedidos' }
           await osClient.createNotification(notification)
         } catch (pushErr) {
           // D-06: falha de push é silenciosa — Notification ainda é persistida
@@ -211,8 +212,9 @@ export class SchedulesService {
       await this.notificationsService.createAndTrim({
         userId: order.userId,
         type: 'DELIVERY_EVE',
-        title: 'Entrega amanhã',
+        title: 'Entrega amanhã 🍞',
         body: `Lembrete: ${order.quantity} pães agendados para amanhã.`,
+        actionRoute: '/client/pedidos',
       })
     }
   }

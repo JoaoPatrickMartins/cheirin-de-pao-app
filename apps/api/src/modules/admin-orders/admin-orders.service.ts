@@ -94,10 +94,11 @@ export class AdminOrdersService {
         const notification = new OneSignal.Notification()
         notification.app_id = process.env.ONESIGNAL_APP_ID!
         notification.include_subscription_ids = [user.oneSignalPlayerId]
-        notification.headings = { pt: 'Cheirin de Pão' }
+        notification.headings = { pt: 'Entrega realizada! 🎉' }
         notification.contents = {
           pt: `Seus ${order.quantity} pães foram entregues. Bom apetite!`,
         }
+        notification.data = { screen: 'pedidos' }
         await osClient.createNotification(notification)
       } catch (pushErr) {
         this.fastify.log.warn(
