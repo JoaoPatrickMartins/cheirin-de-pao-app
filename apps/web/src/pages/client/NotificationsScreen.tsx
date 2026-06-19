@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../../components/brand/Icon'
+import { useNotif } from '../../contexts/NotifContext'
 
 interface AppNotification {
   id: string
@@ -36,9 +37,11 @@ const TONE_ICON_STYLES: Record<Tone, { icon: string; bg: string }> = {
 }
 
 const CTA_CONFIG: Record<string, { label: string; path: string }> = {
-  LOW_CREDIT: { label: 'Comprar créditos', path: '/client/creditos' },
-  DELIVERY_DONE: { label: 'Acompanhar', path: '/client/pedidos' },
-  RECONFIGURE: { label: 'Ajustar agenda', path: '/client/agenda' },
+  LOW_CREDIT:       { label: 'Comprar créditos', path: '/client/creditos' },
+  DELIVERY_DONE:    { label: 'Ver pedido',        path: '/client/pedidos' },
+  DELIVERY_EVE:     { label: 'Ver pedido',        path: '/client/pedidos' },
+  OUT_FOR_DELIVERY: { label: 'Acompanhar',        path: '/client/pedidos' },
+  RECONFIGURE:      { label: 'Ajustar agenda',    path: '/client/agenda'  },
 }
 
 function formatTimestamp(dateStr: string): string {
@@ -55,6 +58,7 @@ function formatTimestamp(dateStr: string): string {
 
 export function NotificationsScreen() {
   const navigate = useNavigate()
+  const { refresh } = useNotif()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRead, setIsRead] = useState(false)
@@ -73,11 +77,11 @@ export function NotificationsScreen() {
       }
 
       apiFetch('/notifications/read-all', { method: 'PATCH' })
-        .then(() => setIsRead(true))
+        .then(() => { setIsRead(true); refresh() })
         .catch(() => {})
     }
     void load()
-  }, [])
+  }, [refresh])
 
   return (
     <div

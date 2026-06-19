@@ -4,7 +4,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
 import { Icon } from '../../components/brand/Icon'
 import { useOrderTracking } from '../../hooks/useOrderTracking'
-import { useNotifBadge } from '../../hooks/useNotifBadge'
+import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
 import BannerInsuficiente from '../../components/client/BannerInsuficiente'
 
@@ -49,7 +49,7 @@ export function HomeScreen() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { order } = useOrderTracking()
-  const { unreadCount } = useNotifBadge()
+  const { unreadCount } = useNotif()
   const [isCutoff, setIsCutoff] = useState(false)
 
   const creditBalance = user?.creditBalance ?? 0
