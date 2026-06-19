@@ -499,11 +499,11 @@ Todas as libs em uso (`react-onesignal`, `react-router`, `apiFetch`) foram intro
 
 ## Checker Sign-Off
 
-- [x] Dimension 1 Copywriting: PASS
-- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 1 Copywriting: FLAG (não-bloqueante — CTA "Acompanhar" sem substantivo; considerar "Ver entrega")
+- [x] Dimension 2 Visuals: FLAG (não-bloqueante — phone button icon-only sem aria-label declarada; adicionar na execução)
 - [x] Dimension 3 Color: PASS
-- [x] Dimension 4 Typography: PASS
-- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 4 Typography: FLAG (não-bloqueante — exceções do handoff mandatório, mesmo padrão Fase 8 aprovada)
+- [x] Dimension 5 Spacing: FLAG (não-bloqueante — 38px/34px/42px são dimensões de componente herdadas do handoff)
 - [x] Dimension 6 Registry Safety: PASS
 
 **Approval:** approved 2026-06-19
