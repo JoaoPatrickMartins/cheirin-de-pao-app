@@ -31,12 +31,12 @@ export class AuthRepository {
 
   findActiveOtp(userId: string) {
     return this.prisma.otpCode.findFirst({
-      where: { userId, usedAt: { isSet: false }, expiresAt: { gt: new Date() } },
+      where: { userId, usedAt: { isSet: false }, expiresAt: { gt: new Date() }, purpose: { in: [null, 'LOGIN'] } },
       orderBy: { createdAt: 'desc' },
     })
   }
 
-  createOtp(data: { userId: string; code: string; channel: string; expiresAt: Date }) {
+  createOtp(data: { userId: string; code: string; channel: string; expiresAt: Date; purpose?: string }) {
     return this.prisma.otpCode.create({ data })
   }
 

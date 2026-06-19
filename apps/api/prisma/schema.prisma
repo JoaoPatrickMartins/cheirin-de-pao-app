@@ -319,6 +319,7 @@ model OtpCode {
   channel   String
   expiresAt DateTime
   usedAt    DateTime?
+  purpose   String?
   createdAt DateTime  @default(now())
 }
 
