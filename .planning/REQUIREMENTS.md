@@ -61,10 +61,10 @@
 
 ### Acompanhamento de Entrega e Histórico (ACOMP)
 
-- [ ] **ACOMP-01**: Status da entrega do dia em 3 estados: Agendado → Saiu para entrega → Entregue
+- [x] **ACOMP-01**: Status da entrega do dia em 3 estados: Agendado → Saiu para entrega → Entregue
 - [x] **ACOMP-02**: Notificação push na véspera lembrando da entrega agendada para o dia seguinte
 - [x] **ACOMP-03**: Notificação push confirmando quando a entrega foi realizada
-- [ ] **ACOMP-04**: Histórico de pedidos — últimos 30 dias com data, quantidade e status
+- [x] **ACOMP-04**: Histórico de pedidos — últimos 30 dias com data, quantidade e status
 - [x] **ACOMP-05**: Central de notificações no app com cards por tipo e indicação de itens novos
 
 ### Pagamentos (PAY)
@@ -153,9 +153,9 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 
 ### Crédito Manual Admin (CREDM)
 
-- [ ] **CREDM-01**: Admin pode adicionar créditos manualmente a um cliente selecionando quantidade e motivo (acerto, bonificação, compensação ou promoção)
-- [ ] **CREDM-02**: Operação registra CreditTransaction com type=ADMIN_GRANT, quantidade, adminId e motivo para auditoria completa
-- [ ] **CREDM-03**: Cliente recebe notificação push + in-app com mensagem no estilo Cheirin de Pão ao receber créditos manuais
+- [x] **CREDM-01**: Admin pode adicionar créditos manualmente a um cliente selecionando quantidade e motivo (acerto, bonificação, compensação ou promoção)
+- [x] **CREDM-02**: Operação registra CreditTransaction com type=ADMIN_GRANT, quantidade, adminId e motivo para auditoria completa
+- [x] **CREDM-03**: Cliente recebe notificação push + in-app com mensagem no estilo Cheirin de Pão ao receber créditos manuais
 
 ### Configurações do Cliente (CONF)
 
@@ -195,8 +195,8 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 
 ### Logout Entregador e Admin (LGOUT)
 
-- [ ] **LGOUT-01**: Entregador tem botão de logout acessível no app
-- [ ] **LGOUT-02**: Admin tem botão de logout acessível no painel
+- [x] **LGOUT-01**: Entregador tem botão de logout acessível no app
+- [x] **LGOUT-02**: Admin tem botão de logout acessível no painel
 
 ---
 
@@ -268,10 +268,10 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | SCHED-04 | Phase 4 — Scheduling | Complete |
 | SCHED-05 | Phase 4 — Scheduling | Complete |
 | SCHED-06 | Phase 4 — Scheduling | Complete |
-| ACOMP-01 | Phase 9 — Finalização Rastreamento | Pending |
+| ACOMP-01 | Phase 9 — Finalização Rastreamento | Complete |
 | ACOMP-02 | Phase 9 — Finalização Rastreamento | Complete |
 | ACOMP-03 | Phase 9 — Finalização Rastreamento | Complete |
-| ACOMP-04 | Phase 9 — Finalização Rastreamento | Pending |
+| ACOMP-04 | Phase 9 — Finalização Rastreamento | Complete |
 | ACOMP-05 | Phase 9 — Finalização Rastreamento | Complete |
 | PAY-03 | Phase 7 — Admin Panel | Pending |
 | PAY-04 | Phase 7 — Admin Panel | Pending |
@@ -307,11 +307,11 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | ADMF-03 | Phase 7 — Admin Panel | Pending |
 | ADMF-04 | Phase 7 — Admin Panel | Pending |
 | UI-09 | Phase 7 — Admin Panel | Complete |
-| CREDM-01 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
-| CREDM-02 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
-| CREDM-03 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
-| LGOUT-01 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
-| LGOUT-02 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Pending |
+| CREDM-01 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Complete |
+| CREDM-02 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Complete |
+| CREDM-03 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Complete |
+| LGOUT-01 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Complete |
+| LGOUT-02 | Phase 10 — Schema v1.1 + Crédito Manual + Logout | Complete |
 | CONF-01 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-02 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-03 | Phase 11 — Configurações e Perfil do Cliente | Pending |
