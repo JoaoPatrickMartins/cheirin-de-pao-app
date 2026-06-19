@@ -31,6 +31,12 @@ O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele
 - [x] TypeScript ponta a ponta (frontend + backend + shared)
 - [x] Prisma com MongoDB Atlas — 15 collections (schema gerado, validate passa)
 
+#### Schema v1.1 + Crédito Manual + Logout (Validado em Phase 10)
+- [x] Schema v1.1 aplicado: ADMIN_GRANT/CREDIT_GRANTED, adminId/reason em CreditTransaction, mpCustomerId em User, model SavedCard, deliverySlots em Condominium, days em Schedule
+- [x] Endpoint POST /admin/clients/:id/grant-credits com transação atômica, push OneSignal e notificação in-app
+- [x] Logout em todos os perfis: admin (dialog), entregador (direto), cliente (via configurações)
+- [x] Suporte a CREDIT_GRANTED na NotificationsScreen (tom gold, ícone coin, deep link home)
+
 #### PWA Base (Validado em Phase 1: Foundation)
 - [x] PWA instalável — VitePWA injectManifest, manifest.webmanifest servido, SW registrado
 - [x] SplashScreen com prompt de instalação (Android: banner nativo; iOS: bottom sheet 3 passos)
