@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: Experiência Completa do Cliente
 status: executing
 stopped_at: Phase 9 planned — 4 planos em 3 waves
-last_updated: "2026-06-19T06:02:09.513Z"
-last_activity: 2026-06-19 -- Phase 09 planning complete
+last_updated: "2026-06-19T13:51:15.444Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 14
   completed_phases: 8
   total_plans: 49
-  completed_plans: 45
+  completed_plans: 46
   percent: 57
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-18)
 ## Current Position
 
 Phase: 09 (finaliza-o-rastreamento) — PLANNED, NOT STARTED
-Plan: 0 of 4
+Plan: 1 of 4
 Status: Ready to execute
-Last activity: 2026-06-19 -- Phase 09 planning complete
+Last activity: 2026-06-19
 
 ## v1.0 Status Summary
 
@@ -76,6 +76,7 @@ Last activity: 2026-06-19 -- Phase 09 planning complete
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 09-finaliza-o-rastreamento P01 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,7 @@ Recent decisions affecting current work:
 - Fase 9: NotifContext usa React Context nativo (padrão AuthContext) com useCallback para refresh() (D-06/07 Phase 9)
 - Fase 9: mark-all-read automático ao montar NotificationsScreen — sem botão explícito (D-08 Phase 9)
 - Fase 9: notification.data = { screen: 'pedidos' } nos pushes sendEveReminders e notifyAndPersist (D-03/04 Phase 9)
+- [Phase ?]: Campo data do SDK @onesignal/node-onesignal recebido pelo frontend como additionalData.screen
 
 ### Pending Todos
 
@@ -139,7 +141,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-19T06:30:00.000Z
+Last session: 2026-06-19T13:51:15.428Z
 Stopped at: Phase 9 planned — 4 planos em 3 waves
 Resume with: `/gsd:execute-phase 9`
 Next phase: 09-finaliza-o-rastreamento (planejada — pronta para executar)
