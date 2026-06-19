@@ -289,17 +289,20 @@ Plans:
 
 **Plans**: 5 plans
 Plans:
-**Wave 1** *(08-01, 08-02 e 08-05 são paralelos)*
+**Wave 1** *(08-01 e 08-02 são paralelos)*
 
 - [ ] 08-01-PLAN.md — Auditoria backend (testes payments + webhooks + credits) + user_setup MP sandbox blocking
 - [ ] 08-02-PLAN.md — sendLowCreditNotifications (CRED-09) + fix processAutoBuy URL + cron wiring + testes unitários
+
+**Wave 2** *(blocked on Wave 1 — 08-05 depende de 08-02)*
+
 - [ ] 08-05-PLAN.md — Auditoria e testes unitários de processAutoBuy (CRED-08/10): weekday, modo semanal, push de confirmação
 
-**Wave 2** *(blocked on Wave 1 — 08-03 depende de 08-01 e 08-02)*
+**Wave 3** *(blocked on Wave 2 — 08-03 depende de 08-01, 08-02 e 08-05)*
 
 - [ ] 08-03-PLAN.md — HomeScreen (BannerInsuficiente + NextDays reais + TodayDelivery 3 estados) + CardPaymentScreen fix + useOneSignalDeepLink + auditoria CombosScreen e PixWaitingScreen
 
-**Wave 3** *(blocked on Wave 2 completion)*
+**Wave 4** *(blocked on Wave 3 completion)*
 
 - [ ] 08-04-PLAN.md — Verificação end-to-end sandbox MP (Pix + cartão + avulso) + marcação planos 03-03/05/06 concluídos no ROADMAP
 
