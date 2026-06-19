@@ -57,11 +57,11 @@ Exceções: hit targets mínimos de 44px nos botões de logout e chips de motivo
 | Papel | Fonte | Tamanho | Peso | Line-height |
 |-------|-------|---------|------|-------------|
 | Body | Hanken Grotesk | 15px (`--text-base`) | 400 (normal) | 1.5 |
-| Label / meta | Hanken Grotesk | 12.5px (`--text-sm`) | 600 (semibold) | 1.4 |
+| Label / meta | Hanken Grotesk | 12.5px (`--text-sm`) | 700 (bold) | 1.4 |
 | Heading de seção | Bricolage Grotesque | 21px (`--text-xl`) | 700 (bold) | 1.2 |
-| Display / número grande | Bricolage Grotesque | 32px (`--text-3xl`) | 800 (extrabold) | 1.1 |
+| Display / número grande | Bricolage Grotesque | 32px (`--text-3xl`) | 700 (bold) | 1.1 |
 
-Regra de peso: apenas 2 pesos efetivos — **600 (semibold)** para texto de apoio e labels, **700–800 (bold/extrabold)** para títulos e números. Hanken Grotesk no modal usa 700 para botões e 400–500 para input.
+Regra de peso: exatamente 2 pesos efetivos — **400 (normal)** para texto corrido (body), **700 (bold)** para todos os demais papéis (labels, botões, chips, títulos e números grandes).
 
 ---
 
@@ -148,7 +148,7 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 
 **Estrutura do botão gatilho:**
 - Variante: `ghost` (`border: 1.5px solid var(--color-border)`)
-- Tamanho: `sm` (`padding: 9px 14px`, `font-size: 13px`)
+- Tamanho: `sm` (`padding: 8px 16px`, `font-size: 13px`)
 - Ícone: `<Icon name="plus" size={16} />` à esquerda
 - Label: `+ Adicionar créditos`
 - Cor do texto: `var(--color-text-sec)` (cor discreta — admin vê o saldo e pode agir)
@@ -174,14 +174,14 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 1. **Handle bar:** `width: 36px`, `height: 4px`, `border-radius: 999px`, `background: var(--color-border)`, centralizado, `margin-bottom: 20px`
 2. **Título:** `id="modal-grant-title"`, Bricolage Grotesque, `font-size: 21px` (`--text-xl`), `font-weight: 700`, `color: var(--color-text)`, `margin-bottom: 20px`
 3. **Campo de quantidade:**
-   - Label: `Quantidade de pães`, `font-size: 12.5px`, `font-weight: 700`, `color: var(--color-text-sec)`, `margin-bottom: 7px`
+   - Label: `Quantidade de pães`, `font-size: 12.5px`, `font-weight: 700`, `color: var(--color-text-sec)`, `margin-bottom: 8px`
    - Input numérico: `type="number"`, `min="1"`, `max="500"`
-   - Estilo: `background: var(--color-surface-alt)`, `border: 1.5px solid var(--color-border)`, foco em `var(--color-accent)`, `border-radius: 14px`, `padding: 12px 14px`, `font-size: 15px`, `font-family: Hanken Grotesk`
+   - Estilo: `background: var(--color-surface-alt)`, `border: 1.5px solid var(--color-border)`, foco em `var(--color-accent)`, `border-radius: 14px`, `padding: 12px 16px`, `font-size: 15px`, `font-family: Hanken Grotesk`
    - `min-height: 48px`
 4. **Seletor de motivo (chips):**
    - Label: `Motivo`, mesma estilização do label de campo
    - Container: `display: flex`, `flex-wrap: wrap`, `gap: 8px`, `margin-top: 16px`, `margin-bottom: 8px`
-   - Chip não selecionado: `padding: 8px 14px`, `border-radius: 999px`, `border: 1.5px solid var(--color-border)`, `background: transparent`, `color: var(--color-text)`, `font-size: 13px`, `font-weight: 700`, `min-height: 44px`
+   - Chip não selecionado: `padding: 8px 16px`, `border-radius: 999px`, `border: 1.5px solid var(--color-border)`, `background: transparent`, `color: var(--color-text)`, `font-size: 13px`, `font-weight: 700`, `min-height: 44px`
    - Chip selecionado: `border: none`, `background: var(--color-gold)`, `color: var(--color-espresso)` (`#1E1207`), `font-size: 13px`, `font-weight: 700`
    - Transição: `transition: background 0.15s, border 0.15s`
 5. **Botões de ação:**
@@ -231,9 +231,9 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 **Posicionamento:** Último item da nav (6.º elemento visualmente), após "Gestão".
 
 **Botão "Sair" na nav:**
-- Mesma estrutura visual dos outros tabs: `flex: 1`, `display: flex`, `flex-direction: column`, `align-items: center`, `gap: 4px`, `padding: 5px 0`
+- Mesma estrutura visual dos outros tabs: `flex: 1`, `display: flex`, `flex-direction: column`, `align-items: center`, `gap: 4px`, `padding: 4px 0`
 - Ícone: `<Icon name="logout" size={22} color="var(--color-text-ter)" />` (sempre terciário — não tem estado "ativo")
-- Label: `Sair`, `font-size: 10px`, `font-weight: 600`, `color: var(--color-text-ter)`
+- Label: `Sair`, `font-size: 10px`, `font-weight: 700`, `color: var(--color-text-ter)`
 - `background: none`, `border: none`, `cursor: pointer`
 - `min-height: 44px` (UI-10)
 - aria-label: `"Sair da conta"`
