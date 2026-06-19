@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
 
+const GRANT_MOTIVOS = ['Acerto', 'Bonificação', 'Compensação', 'Promoção'] as const
+
 // ------------------------------------------------------------------ tipos
 interface ClienteSchedule {
   weeklyQty: Record<string, number>
@@ -79,6 +81,11 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [isBlocking, setIsBlocking] = useState(false)
   const [showDialog, setShowDialog] = useState(false)
   const [blockError, setBlockError] = useState<string | null>(null)
+  const [showGrantModal, setShowGrantModal] = useState(false)
+  const [grantQty, setGrantQty] = useState(1)
+  const [grantMotivo, setGrantMotivo] = useState<string | null>(null)
+  const [grantLoading, setGrantLoading] = useState(false)
+  const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
   useEffect(() => {
     const fetchCliente = async () => {
@@ -95,6 +102,31 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
     }
     void fetchCliente()
   }, [clienteId])
+
+  async function handleGrant() {
+    if (!grantMotivo || grantQty < 1 || !cliente) return
+    setGrantLoading(true)
+    try {
+      const res = await apiFetch(`/admin/clients/${cliente.id}/grant-credits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: grantQty, reason: grantMotivo }),
+      })
+      if (res.ok) {
+        const updated = (await res.json()) as { creditBalance: number }
+        setCliente((prev) => prev ? { ...prev, creditBalance: updated.creditBalance } : prev)
+        setShowGrantModal(false)
+        setGrantQty(1)
+        setGrantMotivo(null)
+        setToast({ message: `${grantQty} crédito(s) adicionado(s) a ${cliente.name}`, ok: true })
+        setTimeout(() => setToast(null), 2500)
+      }
+    } catch {
+      // silencioso
+    } finally {
+      setGrantLoading(false)
+    }
+  }
 
   async function handleConfirmarBloqueio() {
     if (!cliente || isBlocking) return
@@ -117,6 +149,13 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
       setIsBlocking(false)
     }
   }
+
+  useEffect(() => {
+    if (!showGrantModal) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowGrantModal(false) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [showGrantModal])
 
   return (
     <div
@@ -336,6 +375,28 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               </span>
             </div>
 
+            {/* Botão adicionar créditos (D-03) */}
+            <div style={{ padding: '0 16px 14px' }}>
+              <button
+                onClick={() => setShowGrantModal(true)}
+                aria-label="Adicionar créditos"
+                style={{
+                  background: 'none',
+                  border: '1.5px solid var(--color-border)',
+                  borderRadius: 999,
+                  padding: '6px 14px',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: 'var(--color-text)',
+                  cursor: 'pointer',
+                  minHeight: 36,
+                }}
+              >
+                + Adicionar créditos
+              </button>
+            </div>
+
             {/* Separador */}
             <div style={{ height: 1, background: 'var(--color-border-2)' }} />
 
@@ -481,6 +542,202 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
             </p>
           )}
         </div>
+      )}
+
+      {/* Toast inline */}
+      {toast && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed',
+            top: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            background: 'var(--color-espresso)',
+            color: '#fff',
+            borderRadius: 20,
+            padding: '10px 20px',
+            fontSize: 14,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      {/* Modal bottom sheet — grant-credits */}
+      {showGrantModal && (
+        <>
+          {/* Overlay */}
+          <div
+            onClick={() => setShowGrantModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.5)',
+              zIndex: 50,
+            }}
+          />
+          {/* Container */}
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-grant-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: 'var(--color-app-bg)',
+              borderRadius: '20px 20px 0 0',
+              padding: `24px 20px calc(32px + env(safe-area-inset-bottom, 0px))`,
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              zIndex: 51,
+            }}
+          >
+            {/* Handle bar */}
+            <div
+              style={{
+                width: 36,
+                height: 4,
+                borderRadius: 999,
+                background: 'var(--color-border)',
+                margin: '0 auto 20px',
+              }}
+            />
+
+            {/* Título */}
+            <h2
+              id="modal-grant-title"
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontWeight: 700,
+                fontSize: 19,
+                color: 'var(--color-text)',
+                margin: '0 0 20px',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Adicionar Créditos
+            </h2>
+
+            {/* Input de quantidade */}
+            <label
+              style={{
+                display: 'block',
+                fontFamily: 'var(--font-body)',
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'var(--color-text-sec)',
+                marginBottom: 8,
+              }}
+            >
+              Quantidade
+            </label>
+            <input
+              type="number"
+              min="1"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              value={grantQty}
+              onChange={(e) => setGrantQty(Number(e.target.value))}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '12px 14px',
+                borderRadius: 12,
+                border: '1.5px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                fontFamily: 'var(--font-body)',
+                fontSize: 15,
+                fontWeight: 700,
+                color: 'var(--color-text)',
+                marginBottom: 20,
+              }}
+            />
+
+            {/* Chips de motivo */}
+            <label
+              style={{
+                display: 'block',
+                fontFamily: 'var(--font-body)',
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'var(--color-text-sec)',
+                marginBottom: 10,
+              }}
+            >
+              Motivo
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
+              {GRANT_MOTIVOS.map((m) => (
+                <button
+                  key={m}
+                  aria-pressed={grantMotivo === m}
+                  onClick={() => setGrantMotivo(m)}
+                  style={{
+                    minHeight: 44,
+                    padding: '8px 16px',
+                    borderRadius: 999,
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-body)',
+                    border: grantMotivo === m ? 'none' : '1.5px solid var(--color-border)',
+                    background: grantMotivo === m ? 'var(--color-gold)' : 'transparent',
+                    color: grantMotivo === m ? '#1E1207' : 'var(--color-text)',
+                  }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            {/* Botões de ação */}
+            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+              <button
+                onClick={() => setShowGrantModal(false)}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  borderRadius: 999,
+                  border: '1.5px solid var(--color-border)',
+                  background: 'none',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 700,
+                  fontSize: 15,
+                  color: 'var(--color-text)',
+                  cursor: 'pointer',
+                }}
+              >
+                Descartar
+              </button>
+              <button
+                onClick={() => { void handleGrant() }}
+                disabled={!grantMotivo || grantQty < 1 || grantLoading}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  borderRadius: 999,
+                  border: 'none',
+                  background: 'var(--color-accent)',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 700,
+                  fontSize: 15,
+                  color: '#1E1207',
+                  cursor: !grantMotivo || grantQty < 1 || grantLoading ? 'not-allowed' : 'pointer',
+                  opacity: !grantMotivo || grantQty < 1 ? 0.45 : 1,
+                }}
+              >
+                {grantLoading ? 'Confirmando...' : 'Adicionar créditos'}
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Dialog de confirmação */}

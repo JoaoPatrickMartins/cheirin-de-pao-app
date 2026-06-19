@@ -18,7 +18,7 @@ type Tone = 'good' | 'gold' | 'neutral'
 
 function getTone(type: string): Tone {
   if (['DELIVERY_EVE', 'DELIVERY_DONE', 'OUT_FOR_DELIVERY'].includes(type)) return 'good'
-  if (['LOW_CREDIT'].includes(type)) return 'gold'
+  if (['LOW_CREDIT', 'CREDIT_GRANTED'].includes(type)) return 'gold'
   return 'neutral'
 }
 
@@ -27,6 +27,7 @@ function getIcon(type: string) {
   if (type === 'DELIVERY_DONE') return 'check'
   if (type === 'OUT_FOR_DELIVERY') return 'truck'
   if (type === 'LOW_CREDIT') return 'alert'
+  if (type === 'CREDIT_GRANTED') return 'coin'
   return 'repeat'
 }
 
@@ -42,6 +43,7 @@ const CTA_CONFIG: Record<string, { label: string; path: string }> = {
   DELIVERY_EVE:     { label: 'Ver pedido',        path: '/client/pedidos' },
   OUT_FOR_DELIVERY: { label: 'Acompanhar',        path: '/client/pedidos' },
   RECONFIGURE:      { label: 'Ajustar agenda',    path: '/client/agenda'  },
+  CREDIT_GRANTED:   { label: 'Ver saldo',         path: '/client/home'    },
 }
 
 function formatTimestamp(dateStr: string): string {

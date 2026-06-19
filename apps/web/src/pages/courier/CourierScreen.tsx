@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { BreadMark } from '../../components/brand/BreadMark'
+import { Icon } from '../../components/brand/Icon'
 import { useAuth } from '../../hooks/useAuth'
 import { ProgressCard } from '../../components/courier/ProgressCard'
 import { SegmentedControl } from '../../components/courier/SegmentedControl'
@@ -36,7 +37,7 @@ function getTodayLabel(): string {
 }
 
 export function CourierScreen() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const [data, setData] = useState<TodayOrdersResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [tab, setTab] = useState<'list' | 'route'>('list')
@@ -101,8 +102,26 @@ export function CourierScreen() {
           <BreadMark size={27} color="#E3AC3F" aria-label="Cheirin de Pão" />
         </div>
 
-        {/* Textos */}
+        {/* Textos + logout */}
         <div style={{ textAlign: 'right' }}>
+          {/* Botão logout — D-08: sem dialog, clique direto */}
+          <button
+            onClick={logout}
+            aria-label="Sair"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              marginBottom: 4,
+              marginLeft: 'auto',
+            }}
+          >
+            <Icon name="logout" size={22} color="var(--color-text-ter)" />
+          </button>
           <p
             style={{
               fontFamily: 'var(--font-body)',

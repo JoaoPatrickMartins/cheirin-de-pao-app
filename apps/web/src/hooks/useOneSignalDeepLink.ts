@@ -5,7 +5,7 @@
  * Escuta eventos de clique em notificações OneSignal e redireciona conforme additionalData.screen.
  *
  * Threat model:
- * - T-08-09: additionalData.screen manipulado — apenas navega para rotas internas (/client/creditos);
+ * - T-08-09: additionalData.screen manipulado — apenas navega para rotas internas (/client/creditos, /client/pedidos, /client/home);
  *   nenhuma ação destrutiva possível via deep link; risco mínimo (accept)
  *
  * Requirements: CRED-11 (deep link push → tela de créditos)
@@ -33,6 +33,8 @@ export function useOneSignalDeepLink(): void {
           navigate('/client/creditos')
         } else if (screen === 'pedidos') {
           navigate('/client/pedidos')
+        } else if (screen === 'home') {
+          navigate('/client/home')
         }
       } catch {
         // Silencioso — falha no deep link não impede uso do app
