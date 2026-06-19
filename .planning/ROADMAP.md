@@ -127,12 +127,12 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — 03-03 depende de 03-02; 03-05 depende de 03-04)*
 
-- [ ] 03-03-PLAN.md — Módulo webhooks API (HMAC-SHA256, idempotência, crédito atômico) + registro dos 3 módulos em server.ts
-- [ ] 03-05-PLAN.md — CombosScreen + QuantityStepper + StepperInline + ComboCard + BannerInsuficiente + PurchasedScreen + AutoBuyScreen
+- [x] 03-03-PLAN.md — Módulo webhooks API (HMAC-SHA256, idempotência, crédito atômico) + registro dos 3 módulos em server.ts
+- [x] 03-05-PLAN.md — CombosScreen + QuantityStepper + StepperInline + ComboCard + BannerInsuficiente + PurchasedScreen + AutoBuyScreen
 
 **Wave 3** *(blocked on Wave 2 completion — 03-06 depende de 03-03 e 03-05)*
 
-- [ ] 03-06-PLAN.md — PixWaitingScreen (QR code + polling) + CardPaymentScreen (Bricks) + usePaymentPolling + initMercadoPago
+- [x] 03-06-PLAN.md — PixWaitingScreen (QR code + polling) + CardPaymentScreen (Bricks) + usePaymentPolling + initMercadoPago
 
 **UI hint**: yes
 
@@ -287,7 +287,21 @@ Plans:
   4. Cliente faz compra personalizada com quantidade abaixo do limite do Admin — o preço unitário exibido é maior que o do combo
   5. Quando créditos estão insuficientes sem compra automática, o banner de alerta aparece com opções de comprar combo ou ajustar agendamento
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+**Wave 1** *(08-01 e 08-02 são paralelos)*
+
+- [ ] 08-01-PLAN.md — Auditoria backend (testes payments + webhooks + credits) + user_setup MP sandbox blocking
+- [ ] 08-02-PLAN.md — sendLowCreditNotifications (CRED-09) + fix processAutoBuy URL + cron wiring + testes unitários
+
+**Wave 2** *(blocked on Wave 1 — 08-03 depende de 08-01 e 08-02)*
+
+- [ ] 08-03-PLAN.md — HomeScreen (BannerInsuficiente + NextDays reais + TodayDelivery 3 estados) + CardPaymentScreen fix + useOneSignalDeepLink + auditoria CombosScreen e PixWaitingScreen
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 08-04-PLAN.md — Verificação end-to-end sandbox MP (Pix + cartão + avulso) + marcação planos 03-03/05/06 concluídos no ROADMAP
+
 **UI hint**: yes
 
 ### Phase 9: Finalização Rastreamento
@@ -393,12 +407,12 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete | 2026-06-13 |
 | 2. Authentication | 6/6 | Complete | 2026-06-14 |
-| 3. Credits & Commerce | 3/6 | In Progress | |
+| 3. Credits & Commerce | 6/6 | Complete | 2026-06-18 |
 | 4. Scheduling | 6/6 | Complete | 2026-06-15 |
 | 5. Delivery Experience | 2/4 | In Progress | |
 | 6. Courier App | 3/3 | Complete | 2026-06-15 |
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
-| 8. Finalização Pagamentos | 0/TBD | Not started | |
+| 8. Finalização Pagamentos | 0/4 | In Progress | |
 | 9. Finalização Rastreamento | 0/TBD | Not started | |
 | 10. Schema v1.1 + Crédito Manual + Logout | 0/TBD | Not started | |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
