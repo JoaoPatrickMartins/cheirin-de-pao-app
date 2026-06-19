@@ -43,11 +43,13 @@ Declared values (multiples of 4 only):
 | 2xl | 48px | Espaço abaixo do último card antes do rodapé (zona segura + tab bar) |
 | 3xl | 64px | Não utilizado nesta fase |
 
-Exceções:
+Exceções (componentes existentes — não replicar em novos componentes):
 - Tab bar: altura fixa 56px + `env(safe-area-inset-bottom)` (padrão existente — não alterar)
-- Botão de voltar (AppBar): 38×38px visual, padding 3px externo para hit target de 44px (padrão existente)
+- Botão de voltar (AppBar): 38×38px visual, padding 3px externo para hit target de 44px (padrão existente — apenas herdar)
 - Touch targets mínimos: 44px em todos os elementos interativos (UI-10)
-- Header AppBar interno: padding `'6px 20px 14px'` + `env(safe-area-inset-top)` (padrão existente — replicar)
+- Header AppBar interno: padding `'6px 20px 14px'` + `env(safe-area-inset-top)` (padrão existente — apenas herdar)
+
+**Regra de novos componentes:** valores fora da escala de 4px (38px, 3px, 6px, 14px) são herdados somente onde explicitamente indicado acima. Novos componentes criados nesta fase devem usar exclusivamente múltiplos de 4px.
 
 ---
 
@@ -57,12 +59,12 @@ Exceções:
 |------|------|--------|-------------|------|-------|
 | Body | 15px (`--text-base`) | 400 (regular) | 1.5 | Hanken Grotesk | Valores de campos, texto descritivo de seção, corpo de dialogs |
 | Label | 12.5px (`--text-sm`) | 600 (semibold) | 1.4 | Hanken Grotesk | Labels acima de campos, labels de tab bar, captions de seção, texto auxiliar de CPF bloqueado |
-| Heading | 21px (`--text-xl`) | 700 (bold) | 1.2 | Bricolage Grotesque | Título da AppBar da tela ("Perfil" / "Editar contato") |
-| Display | 32px (`--text-3xl`) | 700 (bold) | 1.1 | Bricolage Grotesque | Não utilizado nesta fase |
+| Heading | 21px (`--text-xl`) | 600 (semibold) | 1.2 | Bricolage Grotesque | Título da AppBar da tela ("Perfil" / "Editar contato") |
+| Display | 32px (`--text-3xl`) | 600 (semibold) | 1.1 | Bricolage Grotesque | Não utilizado nesta fase |
 
 **Letter-spacing do heading:** `-0.02em` (padrão existente em ScheduleScreen e HomeScreen).
 
-Regra: somente 2 pesos em uso — 400 (body) e 600/700 (labels e headings). Peso 700 reservado exclusivamente para Bricolage Grotesque em headings de AppBar.
+**Regra de pesos:** somente 2 pesos em uso — 400 (body) e 600 (labels, headings e botões). Peso 700 não é utilizado nesta fase. Bricolage Grotesque 600 renderiza visualmente próximo ao 700, mantendo consistência com botões.
 
 ---
 
@@ -78,7 +80,7 @@ Todos os tokens extraídos de `apps/web/src/styles/globals.css` — não criar n
 | Texto primário | `--color-text` | `#241608` | Nome, dados de campos preenchidos, título AppBar |
 | Texto secundário | `--color-text-sec` | `#7C6A50` | Labels de campo, texto auxiliar, endereço de condomínio |
 | Texto terciário | `--color-text-ter` | `#A89A82` | Placeholder de campos vazios, tab label inativo |
-| Accent (10%) | `--color-accent` | `#B0702A` | **Reservado para:** label do tab ativo "Perfil"; botão primário CTA (Salvar, Enviar código, Confirmar) |
+| Accent (10%) | `--color-accent` | `#B0702A` | **Reservado para:** label do tab ativo "Perfil"; botão primário CTA (Salvar, Enviar código, Confirmar código) |
 | Accent dourado | `--color-gold` | `#E3AC3F` | Ícone do tab ativo "Perfil" (padrão tab bar existente) |
 | Espresso | `--color-espresso` | `#1E1207` | Fundo de toast (sucesso e erro), texto de botão primário via `--color-primary-btn-text` |
 | Destructive | `--color-good` seria N/A — usar `#C0392B` inline | N/A | **Reservado para:** texto do botão "Sair" na seção Conta (vermelho semântico); borda de campo com erro de validação |
@@ -88,7 +90,7 @@ Todos os tokens extraídos de `apps/web/src/styles/globals.css` — não criar n
 | Borda suave | `--color-border-2` | `rgba(43,26,12,0.06)` | Borda superior do tab bar (existente); separadores internos de card |
 | Sombra soft | `--shadow-soft` | (CSS var) | Sombra dos cards de seção |
 
-**Accent reservado para:** botão CTA primário (Salvar dados, Enviar código, Confirmar código), label e ícone do tab ativo "Perfil".
+**Accent reservado para:** botão CTA primário (Salvar dados, Salvar endereço, Enviar código, Confirmar código), label e ícone do tab ativo "Perfil".
 **Nunca usar accent em:** texto body, backgrounds de seção, bordas de campos, ícones decorativos.
 
 **Nota sobre destructive:** O projeto não define um token `--color-destructive`. Usar `color: '#C0392B'` inline exclusivamente no texto do botão "Sair". Nenhum background vermelho — apenas a cor do texto.
@@ -102,7 +104,7 @@ Tokens existentes — usar conforme contexto:
 | Token | Value | Usage nesta fase |
 |-------|-------|-----------------|
 | `--radius-field` | 14px | Campos de input (nome, data, apartamento, bloco, novo contato) |
-| `--radius-btn` | 16px | Botões primários (Salvar, Enviar código, Confirmar) |
+| `--radius-btn` | 16px | Botões primários (Salvar, Enviar código, Confirmar código) |
 | `--radius-card` | 22px | Cards de seção (Dados Pessoais, Contato, Condomínio, Conta) |
 | `--radius-pill` | 999px | Chips de seleção de canal (SMS / E-mail) na EditContactScreen |
 
@@ -114,10 +116,12 @@ Tokens existentes — usar conforme contexto:
 
 **Estrutura:** Tab de nível superior — sem AppBar com botão voltar. Título da página exibido no topo da área scrollável com padding top seguro.
 
+**Focal point:** Card "Dados Pessoais" é o primeiro ponto de atenção ao abrir a tela — posicionado imediatamente abaixo do título, sem elementos que disputem atenção acima da dobra.
+
 **Layout:**
 ```
 SafeAreaTop padding
-Título "Perfil" (heading 21px, Bricolage, weight 700, color-text)
+Título "Perfil" (heading 21px, Bricolage, weight 600, color-text)
 ─────────────────────
 ScrollArea (padding horizontal 16px)
   Card — Dados Pessoais
@@ -151,13 +155,16 @@ PaddingBottom 48px (zona acima do tab bar)
 
 **AppBar:** Idêntica ao padrão de ScheduleScreen — botão voltar 38×38px (surface-2, radius 12px) + título heading.
 
+**Focal point (Step 1):** Heading "Qual é o novo contato?" ancora o olhar imediatamente abaixo do step indicator — campo de input segue na sequência visual natural.
+**Focal point (Step 2):** Campo OTP centralizado ancora a atenção — quatro dígitos bem espaçados são o único elemento interativo visível no step.
+
 **Layout — Step 1 (input do novo contato):**
 ```
 AppBar: ← "Editar contato"
 ─────────────────────
 Padding 24px horizontal
 StepIndicator: "Passo 1 de 2" (label 12.5px, color-text-sec)
-Heading: "Qual é o novo contato?" (21px, Bricolage, weight 700)
+Heading: "Qual é o novo contato?" (21px, Bricolage, weight 600)
 Subtitle: "Você receberá um código de verificação." (15px, color-text-sec)
 ─────────────────────
 ChannelSelector (SMS / E-mail) — reutilizar componente existente
@@ -176,7 +183,7 @@ Subtitle: "Código enviado para {novo contato}." (15px, color-text-sec)
 OtpInput 4 dígitos (componente existente — reutilizar)
 ResendTimer (componente existente — reutilizar)
 ─────────────────────
-Botão "Confirmar" (CTA primário, disabled até 4 dígitos)
+Botão "Confirmar código" (CTA primário, disabled até 4 dígitos)
 Erro inline abaixo do botão
 ```
 
@@ -226,7 +233,7 @@ Erro inline abaixo do botão
 | Step 1 — CTA | `Enviar código` |
 | Step 2 — heading | `Confirme o código` |
 | Step 2 — subtitle | `Código enviado para {contato}.` |
-| Step 2 — CTA | `Confirmar` |
+| Step 2 — CTA | `Confirmar código` |
 | Toast sucesso dados | `Dados salvos!` |
 | Toast sucesso condomínio (sem mudança de condo) | `Endereço atualizado!` |
 | Toast sucesso contato | `Contato atualizado!` |
@@ -317,7 +324,7 @@ Modificação no `ClientTabBar.tsx`:
 - `isActive`: `location.pathname.startsWith('/client/perfil')`
 - Cor ícone ativo: `var(--color-gold)` (padrão existente)
 - Cor label ativo: `var(--color-accent)` (padrão existente)
-- Peso label ativo: 700; inativo: 600 (padrão existente)
+- Peso label ativo: 600; inativo: 600 (padrão existente — sem distinção de peso entre estados)
 
 Ao expandir de 4 para 5 tabs: cada tab recebe `flex: 1`. Com 5 tabs, largura de cada tab cai de ~25% para ~20% — espaço suficiente para label de 6 caracteres ("Perfil") em 10.5px.
 
@@ -333,7 +340,7 @@ Visual do banner (padrão `BannerInsuficiente` como referência):
 - Fundo: `--color-gold-soft` (`#F3DDA6`)
 - Borda esquerda: 3px solid `--color-accent`
 - Ícone: `alert` (cor `--color-accent`)
-- Texto: 14px, `--color-text`, weight 500
+- Texto: 14px, `--color-text`, weight 600
 - Radius: 12px
 - Padding: `12px 16px`
 - O banner desaparece após o usuário salvar nova agenda com pelo menos 1 dia configurado
