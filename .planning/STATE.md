@@ -3,15 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-06-19T23:29:20.019Z"
+last_updated: "2026-06-19T00:00:00.000Z"
 last_activity: 2026-06-19
 progress:
   total_phases: 14
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 57
-  completed_plans: 53
-  percent: 71
+  completed_plans: 59
+  percent: 79
 ---
 
 # Project State
@@ -25,10 +24,9 @@ See: .planning/PROJECT.md (updated 2026-06-18)
 
 ## Current Position
 
-Phase: 11 (configurações e perfil do cliente) — EXECUTING
-Plan: 2 of 5
-Next: Phase 10 (schema-v1.1-credm-logout) — Not started
-Status: Ready to execute
+Phase: 11 (configurações e perfil do cliente) — COMPLETE (2026-06-19)
+Next: Phase 12 (cartões salvos)
+Status: Ready to plan Phase 12
 Last activity: 2026-06-19
 
 ## v1.0 Status Summary
@@ -50,7 +48,7 @@ Last activity: 2026-06-19
 | 8. Finalização Pagamentos | Webhooks MP + telas compra + Home Carteira | CRED-01..11 (exceto 07), PAY-01..02, UI-04, UI-07, UI-08 | Complete (2026-06-19) |
 | 9. Finalização Rastreamento | Cron 21h + TrackingScreen + NotificationsScreen + badge | ACOMP-01..05 | Complete (2026-06-19) |
 | 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Needs Review (human UAT) |
-| 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Planned (5 planos) |
+| 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Complete (2026-06-19) |
 | 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Not started |
 | 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Not started |
 | 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
@@ -149,7 +147,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-19T23:29:20.007Z
-Stopped at: Completed 11-01-PLAN.md
-Resume with: `/gsd:execute-phase 11`
-Next phase: 11-configurações-e-perfil-do-cliente (planned, not executed)
+Last session: 2026-06-19
+Resume with: `/gsd:plan-phase 12`
+Next phase: 12-cartoes-salvos (not planned)
