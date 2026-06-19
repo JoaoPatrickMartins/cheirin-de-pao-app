@@ -287,12 +287,13 @@ Plans:
   4. Cliente faz compra personalizada com quantidade abaixo do limite do Admin — o preço unitário exibido é maior que o do combo
   5. Quando créditos estão insuficientes sem compra automática, o banner de alerta aparece com opções de comprar combo ou ajustar agendamento
 
-**Plans**: 4 plans
+**Plans**: 5 plans
 Plans:
-**Wave 1** *(08-01 e 08-02 são paralelos)*
+**Wave 1** *(08-01, 08-02 e 08-05 são paralelos)*
 
 - [ ] 08-01-PLAN.md — Auditoria backend (testes payments + webhooks + credits) + user_setup MP sandbox blocking
 - [ ] 08-02-PLAN.md — sendLowCreditNotifications (CRED-09) + fix processAutoBuy URL + cron wiring + testes unitários
+- [ ] 08-05-PLAN.md — Auditoria e testes unitários de processAutoBuy (CRED-08/10): weekday, modo semanal, push de confirmação
 
 **Wave 2** *(blocked on Wave 1 — 08-03 depende de 08-01 e 08-02)*
 
@@ -412,7 +413,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Delivery Experience | 2/4 | In Progress | |
 | 6. Courier App | 3/3 | Complete | 2026-06-15 |
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
-| 8. Finalização Pagamentos | 0/4 | In Progress | |
+| 8. Finalização Pagamentos | 0/5 | In Progress | |
 | 9. Finalização Rastreamento | 0/TBD | Not started | |
 | 10. Schema v1.1 + Crédito Manual + Logout | 0/TBD | Not started | |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |

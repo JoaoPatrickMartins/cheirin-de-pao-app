@@ -482,12 +482,12 @@ useEffect(() => {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`PaymentsRepository.creditUserBalance` usa `$transaction`?**
    - O que sabemos: `reconcilePayment` chama `creditUserBalance` e `updatePaymentStatus` sequencialmente.
-   - O que é incerto: o arquivo `payments.repository.ts` não foi inspecionado nesta pesquisa.
-   - Recomendação: O plano deve incluir inspeção do repositório na wave de auditoria.
+   - O que era incerto: o arquivo `payments.repository.ts` não foi inspecionado nesta pesquisa.
+   - Resolução: 08-01 Task 2 inclui leitura obrigatória de `payments.repository.ts` e documenta o resultado no SUMMARY.
 
 2. **`webhooks.service.test.ts` cobre o caso de `customQuantity` (compra avulsa)?**
    - O que sabemos: o arquivo existe em `apps/api/src/modules/webhooks/__tests__/`.
