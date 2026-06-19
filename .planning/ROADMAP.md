@@ -21,14 +21,14 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Authentication** - OTP login, cadastro em 5 passos, sessão permanente e roteamento por perfil (completed 2026-06-14)
 - [ ] **Phase 3: Credits & Commerce** - Compra de combos, compra personalizada, saldo de créditos e pagamento via Mercado Pago
 - [x] **Phase 4: Scheduling** - Agenda semanal, pedido único, reserva de créditos e compra automática (completed 2026-06-15)
-- [ ] **Phase 5: Delivery Experience** - Rastreamento 3 estados, notificações push, histórico e central de notificações
+- [x] **Phase 5: Delivery Experience** - Rastreamento 3 estados, notificações push, histórico e central de notificações (completed 2026-06-19)
 - [x] **Phase 6: Courier App** - Lista de entregas do entregador, confirmação manual e rota com mapa (completed 2026-06-15)
 - [x] **Phase 7: Admin Panel** - Painel admin completo: gestão, operação, financeiro e pagamentos (completed 2026-06-15)
 
 ### Milestone v1.1 — Experiência Completa do Cliente
 
 - [x] **Phase 8: Finalização Pagamentos** - Webhooks MP, telas de compra (CombosScreen, PixWaiting, CardPayment) e Home Carteira completa (completed 2026-06-19)
-- [ ] **Phase 9: Finalização Rastreamento** - Cron de véspera, TrackingScreen, NotificationsScreen e badge na Home
+- [x] **Phase 9: Finalização Rastreamento** - Cron de véspera, TrackingScreen, NotificationsScreen e badge na Home (completed 2026-06-19)
 - [ ] **Phase 10: Schema v1.1 + Crédito Manual Admin + Logout** - Schema unificado v1.1, crédito manual admin com push, botão de logout para entregador e admin
 - [ ] **Phase 11: Configurações e Perfil do Cliente** - Tela de configurações completa: dados pessoais, contato com OTP, condomínio e logout do cliente
 - [ ] **Phase 12: Cartões Salvos** - Fluxo de compra com cartão salvo via MP Customer API, CRUD de cartões nas configurações
@@ -195,8 +195,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — 05-03 e 05-04 são paralelos)*
 
-- [ ] 05-03-PLAN.md — sendEveReminders em schedules.service + cron 21h em cron.ts + wiring adminOrdersRoute em server.ts
-- [ ] 05-04-PLAN.md — useOrderTracking hook + TrackingScreen + NotificationsScreen + HomeScreen bell/badge + router.tsx
+- [x] 05-03-PLAN.md — sendEveReminders em schedules.service + cron 21h em cron.ts + wiring adminOrdersRoute em server.ts
+- [x] 05-04-PLAN.md — useOrderTracking hook + TrackingScreen + NotificationsScreen + HomeScreen bell/badge + router.tsx
 
 **UI hint**: yes
 
@@ -329,11 +329,11 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 — 09-03 depende de 09-02)*
 
-- [ ] 09-03-PLAN.md — NotificationsScreen CTA_CONFIG completo + badge sync via refresh(); HomeScreen migra useNotifBadge → useNotif; stubs TrackingScreen + NotificationsScreen
+- [x] 09-03-PLAN.md — NotificationsScreen CTA_CONFIG completo + badge sync via refresh(); HomeScreen migra useNotifBadge → useNotif; stubs TrackingScreen + NotificationsScreen
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 09-04-PLAN.md — Auditoria TrackingScreen + fallback navigate + ROADMAP 05-03/05-04 concluídos + checkpoint humano
+- [x] 09-04-PLAN.md — Auditoria TrackingScreen + fallback navigate + ROADMAP 05-03/05-04 concluídos + checkpoint humano
 
 **UI hint**: yes
 
@@ -427,11 +427,11 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. Authentication | 6/6 | Complete | 2026-06-14 |
 | 3. Credits & Commerce | 6/6 | Complete | 2026-06-18 |
 | 4. Scheduling | 6/6 | Complete | 2026-06-15 |
-| 5. Delivery Experience | 2/4 | In Progress | |
+| 5. Delivery Experience | 4/4 | Complete | 2026-06-19 |
 | 6. Courier App | 3/3 | Complete | 2026-06-15 |
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
 | 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
-| 9. Finalização Rastreamento | 2/4 | In Progress|  |
+| 9. Finalização Rastreamento | 4/4 | Complete | 2026-06-19 |
 | 10. Schema v1.1 + Crédito Manual + Logout | 0/TBD | Not started | |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
 | 12. Cartões Salvos | 0/TBD | Not started | |
