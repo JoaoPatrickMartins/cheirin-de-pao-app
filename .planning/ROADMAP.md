@@ -325,7 +325,7 @@ Plans:
 **Wave 1** *(09-01 e 09-02 são paralelos)*
 
 - [x] 09-01-PLAN.md — Backend gaps: notification.data nos pushes sendEveReminders + notifyAndPersist + copywriting alinhado ao UI-SPEC
-- [ ] 09-02-PLAN.md — NotifContext + ClientLayout provider + useOneSignalDeepLink case pedidos + stubs de teste NotifContext
+- [x] 09-02-PLAN.md — NotifContext + ClientLayout provider + useOneSignalDeepLink case pedidos + stubs de teste NotifContext
 
 **Wave 2** *(blocked on Wave 1 — 09-03 depende de 09-02)*
 
@@ -431,7 +431,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Courier App | 3/3 | Complete | 2026-06-15 |
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
 | 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
-| 9. Finalização Rastreamento | 1/4 | In Progress|  |
+| 9. Finalização Rastreamento | 2/4 | In Progress|  |
 | 10. Schema v1.1 + Crédito Manual + Logout | 0/TBD | Not started | |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
 | 12. Cartões Salvos | 0/TBD | Not started | |

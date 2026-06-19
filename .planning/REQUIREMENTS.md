@@ -65,7 +65,7 @@
 - [x] **ACOMP-02**: Notificação push na véspera lembrando da entrega agendada para o dia seguinte
 - [x] **ACOMP-03**: Notificação push confirmando quando a entrega foi realizada
 - [ ] **ACOMP-04**: Histórico de pedidos — últimos 30 dias com data, quantidade e status
-- [ ] **ACOMP-05**: Central de notificações no app com cards por tipo e indicação de itens novos
+- [x] **ACOMP-05**: Central de notificações no app com cards por tipo e indicação de itens novos
 
 ### Pagamentos (PAY)
 
@@ -272,7 +272,7 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | ACOMP-02 | Phase 9 — Finalização Rastreamento | Complete |
 | ACOMP-03 | Phase 9 — Finalização Rastreamento | Complete |
 | ACOMP-04 | Phase 9 — Finalização Rastreamento | Pending |
-| ACOMP-05 | Phase 9 — Finalização Rastreamento | Pending |
+| ACOMP-05 | Phase 9 — Finalização Rastreamento | Complete |
 | PAY-03 | Phase 7 — Admin Panel | Pending |
 | PAY-04 | Phase 7 — Admin Panel | Pending |
 | COUR-01 | Phase 6 — Courier App | Pending |
