@@ -268,7 +268,7 @@ export class SchedulesService {
             notification.include_subscription_ids = [user.oneSignalPlayerId]
             notification.headings = { pt: 'Cheirin de Pão — Reposição automática' }
             notification.contents = { pt: 'Toque para finalizar sua compra automática de créditos.' }
-            notification.url = '/client/comprar'
+            notification.url = '/client/creditos'
             await osClient.createNotification(notification)
           } catch (pushErr) {
             this.fastify.log.warn(
@@ -295,6 +295,69 @@ export class SchedulesService {
             // Falha silenciosa no fallback de push
           }
         }
+      }
+    }
+  }
+
+  // CRED-09: Notifica clientes sem auto-recharge quando o saldo está abaixo do consumo semanal.
+  // Chamado no cron de meia-noite após processAutoBuy (D-10).
+  async sendLowCreditNotifications(): Promise<void> {
+    const schedules = await this.prisma.schedule.findMany({
+      where: { isActive: true },
+    })
+
+    for (const schedule of schedules) {
+      try {
+        const user = await this.repo.findUserById(schedule.userId)
+        if (!user) continue
+
+        // Usuários com auto-recharge ativo não precisam da notificação (D-10)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const autoRecharge = user.autoRecharge as any
+        if (autoRecharge?.active) continue
+
+        // Calcular consumo semanal (padrão já existente em processAutoBuy)
+        const weeklyQty = schedule.weeklyQty as WeeklyQty
+        const consumoSemanal = Object.values(weeklyQty).reduce(
+          (sum: number, v) => sum + (v as number),
+          0,
+        )
+        if (consumoSemanal === 0) continue
+        if (user.creditBalance >= consumoSemanal) continue
+
+        // Enviar push de crédito insuficiente (D-11 — deep link via additionalData.screen)
+        if (user.oneSignalPlayerId) {
+          try {
+            const osClient = createOsClient()
+            const notification = new OneSignal.Notification()
+            notification.app_id = process.env.ONESIGNAL_APP_ID!
+            notification.include_subscription_ids = [user.oneSignalPlayerId]
+            notification.headings = { pt: 'Seus créditos estão acabando' }
+            notification.contents = {
+              pt: `Você tem ${user.creditBalance} crédito(s) e sua semana precisa de ${consumoSemanal}. Recarregue agora antes que faltem pães!`,
+            }
+            notification.additionalData = { screen: 'creditos' }
+            await osClient.createNotification(notification)
+          } catch (pushErr) {
+            this.fastify.log.warn(
+              { userId: schedule.userId, err: pushErr },
+              '[schedules] falha ao enviar push de crédito insuficiente — silencioso',
+            )
+          }
+        }
+
+        // Persistir Notification LOW_CREDIT independente de oneSignalPlayerId (padrão de sendEveReminders)
+        await this.notificationsService.createAndTrim({
+          userId: schedule.userId,
+          type: 'LOW_CREDIT',
+          title: 'Créditos insuficientes',
+          body: `Você tem ${user.creditBalance} crédito(s) e sua semana precisa de ${consumoSemanal}.`,
+        })
+      } catch (err) {
+        this.fastify.log.error(
+          { scheduleId: schedule.id, err },
+          '[schedules] erro ao processar sendLowCreditNotifications',
+        )
       }
     }
   }
