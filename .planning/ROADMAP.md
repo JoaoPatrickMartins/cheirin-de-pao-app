@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 8: Finalização Pagamentos** - Webhooks MP, telas de compra (CombosScreen, PixWaiting, CardPayment) e Home Carteira completa (completed 2026-06-19)
 - [x] **Phase 9: Finalização Rastreamento** - Cron de véspera, TrackingScreen, NotificationsScreen e badge na Home (completed 2026-06-19)
-- [ ] **Phase 10: Schema v1.1 + Crédito Manual Admin + Logout** - Schema unificado v1.1, crédito manual admin com push, botão de logout para entregador e admin
+- [x] **Phase 10: Schema v1.1 + Crédito Manual Admin + Logout** - Schema unificado v1.1, crédito manual admin com push, botão de logout para entregador e admin (completed 2026-06-19)
 - [ ] **Phase 11: Configurações e Perfil do Cliente** - Tela de configurações completa: dados pessoais, contato com OTP, condomínio e logout do cliente
 - [ ] **Phase 12: Cartões Salvos** - Fluxo de compra com cartão salvo via MP Customer API, CRUD de cartões nas configurações
 - [ ] **Phase 13: Horários por Condomínio** - Admin configura 2 slots (manhã/tarde) por condomínio com horários e cortes individuais
@@ -432,7 +432,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
 | 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
-| 10. Schema v1.1 + Crédito Manual + Logout | 2/3 | In Progress|  |
+| 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete   | 2026-06-19 |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
 | 12. Cartões Salvos | 0/TBD | Not started | |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
