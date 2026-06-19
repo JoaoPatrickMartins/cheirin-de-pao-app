@@ -1,4 +1,14 @@
 import { FastifyInstance } from 'fastify'
+import * as OneSignal from '@onesignal/node-onesignal'
+import { TransactionType, NotificationType } from '@prisma/client'
+import { NotificationsService } from '../notifications/notifications.service.js'
+
+function createOsClient() {
+  const configuration = OneSignal.createConfiguration({
+    restApiKey: process.env.ONESIGNAL_REST_API_KEY!,
+  })
+  return new OneSignal.DefaultApi(configuration)
+}
 
 /**
  * AdminClientsService — lógica de negócio para gestão de clientes.
@@ -113,6 +123,79 @@ export class AdminClientsService {
         isBlocked: true,
       },
     })
+  }
+
+  /**
+   * Concede créditos manualmente a um cliente.
+   *
+   * Fluxo:
+   * 1. Valida quantity >= 1
+   * 2. Verifica se cliente existe e tem role CLIENT
+   * 3. Executa prisma.$transaction atômica (CreditTransaction.create + User.update increment)
+   * 4. Dispara push OneSignal best-effort (falha ignorada)
+   * 5. Persiste notificação in-app CREDIT_GRANTED obrigatoriamente (fora do try)
+   * 6. Retorna updatedUser
+   *
+   * T-10-02-01: adminId extraído de fora (JWT), não do body.
+   * T-10-02-02: quantity >= 1 validado aqui (dupla camada: Zod + service).
+   * T-10-02-04: adminId e reason salvos no CreditTransaction para auditoria.
+   * T-10-02-SC: push falha silenciosa — não bloqueia operação financeira.
+   */
+  async grantCredits(clientId: string, payload: { quantity: number; reason: string; adminId: string }) {
+    const { quantity, reason, adminId } = payload
+
+    // 1. Validar quantity >= 1
+    if (quantity < 1) {
+      throw { statusCode: 400, message: 'quantity deve ser >= 1' }
+    }
+
+    // 2. Verificar que o cliente existe e é CLIENT
+    const user = await this.prisma.user.findUnique({ where: { id: clientId } })
+    if (!user || user.role !== 'CLIENT') {
+      throw { statusCode: 404, message: 'Cliente não encontrado' }
+    }
+
+    // 3. Transação atômica: CreditTransaction ADMIN_GRANT + User.creditBalance increment
+    const [, updatedUser] = await this.prisma.$transaction([
+      this.prisma.creditTransaction.create({
+        data: { userId: clientId, type: TransactionType.ADMIN_GRANT, quantity, adminId, reason },
+      }),
+      this.prisma.user.update({
+        where: { id: clientId },
+        data: { creditBalance: { increment: quantity } },
+      }),
+    ])
+
+    const total = updatedUser.creditBalance
+
+    // 4. Push OneSignal — best-effort (falha silenciosa)
+    if (user?.oneSignalPlayerId) {
+      try {
+        const osClient = createOsClient()
+        const notification = new OneSignal.Notification()
+        notification.app_id = process.env.ONESIGNAL_APP_ID!
+        notification.include_subscription_ids = [user.oneSignalPlayerId]
+        notification.headings = { pt: 'Pãezinhos chegando!' }
+        notification.contents = { pt: `Você ganhou ${quantity} pão(es) de crédito. Novo saldo: ${total} pão(es).` }
+        notification.data = { screen: 'home' }
+        await osClient.createNotification(notification)
+      } catch (pushErr) {
+        this.fastify.log.warn({ err: pushErr }, '[admin-clients] falha ao enviar push — ignorado')
+      }
+    }
+
+    // 5. Persistir notificação in-app obrigatoriamente — FORA do try do push (D-12, D-13)
+    const notificationsService = new NotificationsService(this.fastify)
+    await notificationsService.createAndTrim({
+      userId: clientId,
+      type: NotificationType.CREDIT_GRANTED,
+      title: 'Pãezinhos chegando!',
+      body: `Você ganhou ${quantity} pão(es) de crédito. Novo saldo: ${total} pão(es).`,
+      actionRoute: '/client/home',
+    })
+
+    // 6. Retornar user atualizado
+    return updatedUser
   }
 
   /**

@@ -91,6 +91,11 @@ function makeFastifyMock(overrides: {
       { id: 'tx-02', userId: 'user-01', type: 'ADMIN_GRANT', quantity: 5 },
       { id: 'user-01', name: 'João Cliente', creditBalance: 15 },
     ]),
+    notification: {
+      create: vi.fn().mockResolvedValue({ id: 'notif-01', userId: 'user-01', type: 'CREDIT_GRANTED', isRead: false }),
+      findMany: vi.fn().mockResolvedValue([]),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
   }
 
   return {
