@@ -1,6 +1,6 @@
-// SchedulesService unit tests — Wave 1 (Fase 4 Plan 02)
-// Requirements: SCHED-02, SCHED-03, SCHED-04, CRED-10
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+// SchedulesService unit tests — Wave 1 (Fase 4 Plan 02) + Wave 2 (Fase 8 Plan 05)
+// Requirements: SCHED-02, SCHED-03, SCHED-04, CRED-08, CRED-10
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SchedulesService } from '../schedules.service.js'
 import { FastifyInstance } from 'fastify'
 import * as OneSignalModule from '@onesignal/node-onesignal'
@@ -340,8 +340,7 @@ describe('SchedulesService', () => {
       await service.sendReconfigureReminders()
 
       // Verificar que o módulo OneSignal foi invocado
-      const OneSignal = OneSignalModule
-      expect(OneSignal.DefaultApi).toHaveBeenCalled()
+      expect(OneSignalModule.DefaultApi).toHaveBeenCalled()
     })
 
     it('não cria instância OneSignal quando nenhum playerIds existe', async () => {
@@ -377,6 +376,104 @@ describe('SchedulesService', () => {
       // Log de info deve ter sido chamado indicando 0 playerIds
       expect(fastify.log.info).toHaveBeenCalledWith(
         expect.stringContaining('nenhum player_id encontrado'),
+      )
+    })
+  })
+
+  describe('processAutoBuy [CRED-08/10]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+      vi.useRealTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('CRED-08 — weekday respeitado: NÃO compra quando autoRecharge.weekday não coincide com o dia atual', async () => {
+      // 2024-01-09T15:00:00Z = terça-feira 12:00 BRT (America/Sao_Paulo = UTC-3)
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2024-01-09T15:00:00Z'))
+
+      const user: UserShape = {
+        id: 'user-cred08',
+        creditBalance: 2,
+        condominiumId: 'condo-1',
+        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' }, // seg ≠ ter
+        oneSignalPlayerId: 'player-cred08',
+      }
+
+      const fastify = createMockFastify({ users: { 'user-cred08': user } })
+      ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
+
+      const createNotificationSpy = vi.fn().mockResolvedValue({})
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementation(function () {
+        return { createNotification: createNotificationSpy }
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.processAutoBuy()
+
+      // Weekday não coincide (seg vs ter) — não deve enviar push de compra automática
+      expect(createNotificationSpy).not.toHaveBeenCalled()
+    })
+
+    it('CRED-10 — modo semanal verificado: NÃO compra quando autoRecharge.mode !== "semanal"', async () => {
+      // mode='mensal' não é tratado em processAutoBuy (apenas 'acabar' e 'semanal')
+      // shouldBuy permanece false → nenhuma ação de compra
+      const user: UserShape = {
+        id: 'user-cred10-mode',
+        creditBalance: 0,
+        condominiumId: 'condo-1',
+        autoRecharge: { active: true, mode: 'mensal', weekday: 'seg', comboId: 'combo-1' },
+        oneSignalPlayerId: 'player-cred10-mode',
+      }
+
+      const fastify = createMockFastify({ users: { 'user-cred10-mode': user } })
+      ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
+
+      const createNotificationSpy = vi.fn().mockResolvedValue({})
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementation(function () {
+        return { createNotification: createNotificationSpy }
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.processAutoBuy()
+
+      // mode='mensal' → shouldBuy=false → nenhum push enviado
+      expect(createNotificationSpy).not.toHaveBeenCalled()
+    })
+
+    it('CRED-08/10 — push de confirmação enviado após compra automática bem-sucedida (semanal + weekday correto)', async () => {
+      // 2024-01-08T15:00:00Z = segunda-feira 12:00 BRT (America/Sao_Paulo = UTC-3)
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2024-01-08T15:00:00Z'))
+
+      const user: UserShape = {
+        id: 'user-cred08-push',
+        creditBalance: 2,
+        condominiumId: 'condo-1',
+        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' }, // seg === seg ✓
+        oneSignalPlayerId: 'player-cred08-push',
+      }
+
+      const fastify = createMockFastify({ users: { 'user-cred08-push': user } })
+      ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
+
+      const createNotificationSpy = vi.fn().mockResolvedValue({})
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementation(function () {
+        return { createNotification: createNotificationSpy }
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.processAutoBuy()
+
+      // Weekday correto (seg === seg) → push de compra automática DEVE ser enviado
+      expect(createNotificationSpy).toHaveBeenCalledOnce()
+      expect(createNotificationSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: '/client/creditos',
+        }),
       )
     })
   })
@@ -466,8 +563,7 @@ describe('SchedulesService', () => {
       await service.sendLowCreditNotifications()
 
       // Não deve enviar push nem criar Notification (auto-recharge cuida disso — D-10)
-      const OneSignal = OneSignalModule
-      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
+      const mockInstance = vi.mocked(OneSignalModule.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
       if (mockInstance) {
         expect(mockInstance.createNotification).not.toHaveBeenCalled()
       }
@@ -507,8 +603,7 @@ describe('SchedulesService', () => {
       await service.sendLowCreditNotifications()
 
       // Saldo suficiente — não deve notificar
-      const OneSignal = OneSignalModule
-      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
+      const mockInstance = vi.mocked(OneSignalModule.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
       if (mockInstance) {
         expect(mockInstance.createNotification).not.toHaveBeenCalled()
       }
@@ -548,8 +643,7 @@ describe('SchedulesService', () => {
       await service.sendLowCreditNotifications()
 
       // Push não enviado (sem oneSignalPlayerId), mas Notification persistida
-      const OneSignal = OneSignalModule
-      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
+      const mockInstance = vi.mocked(OneSignalModule.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
       if (mockInstance) {
         expect(mockInstance.createNotification).not.toHaveBeenCalled()
       }
