@@ -5,6 +5,8 @@ interface BannerInsuficienteProps {
   requerido: number
   onComprar: () => void
   onAjustar: (novaQtd: number) => void
+  /** Ocultar o botão "Usar N" quando não faz sentido contextualmente (ex: HomeScreen) */
+  hideAjustar?: boolean
 }
 
 export default function BannerInsuficiente({
@@ -12,6 +14,7 @@ export default function BannerInsuficiente({
   requerido,
   onComprar,
   onAjustar,
+  hideAjustar = false,
 }: BannerInsuficienteProps) {
   if (requerido <= saldo) return null
 
@@ -59,23 +62,25 @@ export default function BannerInsuficiente({
         >
           Comprar mais
         </button>
-        <button
-          onClick={() => onAjustar(saldo)}
-          style={{
-            minHeight: 44,
-            padding: '8px 16px',
-            borderRadius: 'var(--radius-btn)',
-            border: '1.5px solid var(--color-border)',
-            background: 'transparent',
-            color: 'var(--color-text)',
-            fontFamily: 'var(--font-body)',
-            fontWeight: 600,
-            fontSize: 13,
-            cursor: 'pointer',
-          }}
-        >
-          Usar {saldo}
-        </button>
+        {!hideAjustar && (
+          <button
+            onClick={() => onAjustar(saldo)}
+            style={{
+              minHeight: 44,
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-btn)',
+              border: '1.5px solid var(--color-border)',
+              background: 'transparent',
+              color: 'var(--color-text)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            Usar {saldo}
+          </button>
+        )}
       </div>
     </div>
   )

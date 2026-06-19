@@ -266,6 +266,15 @@ export function CombosScreen() {
           )
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* BannerInsuficiente aba avulso — quando customQty > creditBalance */}
+            {creditBalance < customQty && (
+              <BannerInsuficiente
+                saldo={creditBalance}
+                requerido={customQty}
+                onComprar={() => setTab('combos')}
+                onAjustar={(qtd) => setCustomQty(qtd)}
+              />
+            )}
             <p
               style={{
                 fontFamily: 'var(--font-body)',

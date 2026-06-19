@@ -171,7 +171,7 @@ function PixWaitingContent({
           }}
         >
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: 'var(--color-text)', margin: 0, textAlign: 'center' }}>
-            Pagamento recusado.
+            Pagamento não aprovado. Isso pode ter sido um erro temporário do banco. Tente novamente.
           </p>
           <button
             onClick={() => onNavigate('/client/creditos')}

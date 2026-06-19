@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { CardPayment } from '@mercadopago/sdk-react'
 import { apiFetch } from '../../lib/apiFetch'
+import { Icon } from '../../components/brand/Icon'
 
 interface CardState {
   comboId?: string
@@ -72,17 +73,20 @@ export function CardPaymentScreen() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           onClick={() => navigate('/client/creditos')}
+          aria-label="Voltar"
           style={{
             minHeight: 44,
-            width: 44,
-            borderRadius: 'var(--radius-btn)',
+            width: 38,
+            height: 38,
+            borderRadius: 12,
             border: '1.5px solid var(--color-border)',
-            background: 'var(--color-surface)',
+            background: 'var(--color-surface-2)',
             cursor: 'pointer',
-            fontSize: 18,
+            display: 'grid',
+            placeItems: 'center',
           }}
         >
-          ←
+          <Icon name="arrowL" size={20} color="var(--color-text)" />
         </button>
         <h1
           style={{
