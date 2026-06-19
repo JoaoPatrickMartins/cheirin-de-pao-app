@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Experiência Completa do Cliente
 status: executing
-stopped_at: Phase 9 context gathered
-last_updated: "2026-06-19T05:17:53.615Z"
-last_activity: 2026-06-19 -- Phase 08 execution started
+stopped_at: Phase 9 planned — 4 planos em 3 waves
+last_updated: "2026-06-19T06:02:09.513Z"
+last_activity: 2026-06-19 -- Phase 09 planning complete
 progress:
   total_phases: 14
   completed_phases: 8
-  total_plans: 45
+  total_plans: 49
   completed_plans: 45
   percent: 57
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele precise fazer nada — o sistema cuida dos créditos, dos agendamentos e das notificações automaticamente.
-**Current focus:** Phase 08 — finalizacao-pagamentos
+**Current focus:** Phase 09 — finaliza-o-rastreamento
 
 ## Current Position
 
-Phase: 08 (finalizacao-pagamentos) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 08
-Last activity: 2026-06-19 -- Phase 08 execution started
+Phase: 09 (finaliza-o-rastreamento) — PLANNED, NOT STARTED
+Plan: 0 of 4
+Status: Ready to execute
+Last activity: 2026-06-19 -- Phase 09 planning complete
 
 ## v1.0 Status Summary
 
@@ -36,7 +36,7 @@ Last activity: 2026-06-19 -- Phase 08 execution started
 |-------|--------|-----------------|
 | 1. Foundation | Complete (2026-06-13) | — |
 | 2. Authentication | Complete (2026-06-14) | — |
-| 3. Credits & Commerce | PARCIAL | 03-03, 03-05, 03-06 |
+| 3. Credits & Commerce | Complete (2026-06-18) | — |
 | 4. Scheduling | Complete (2026-06-15) | — |
 | 5. Delivery Experience | PARCIAL | 05-03, 05-04 |
 | 6. Courier App | Complete (2026-06-15) | — |
@@ -46,8 +46,8 @@ Last activity: 2026-06-19 -- Phase 08 execution started
 
 | Phase | Goal | Requirements | Status |
 |-------|------|--------------|--------|
-| 8. Finalização Pagamentos | Webhooks MP + telas compra + Home Carteira | CRED-01..11 (exceto 07), PAY-01..02, UI-04, UI-07, UI-08 | Not started |
-| 9. Finalização Rastreamento | Cron 21h + TrackingScreen + NotificationsScreen + badge | ACOMP-01..05 | Not started |
+| 8. Finalização Pagamentos | Webhooks MP + telas compra + Home Carteira | CRED-01..11 (exceto 07), PAY-01..02, UI-04, UI-07, UI-08 | Complete (2026-06-19) |
+| 9. Finalização Rastreamento | Cron 21h + TrackingScreen + NotificationsScreen + badge | ACOMP-01..05 | Planned (4 planos) |
 | 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Not started |
 | 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Not started |
 | 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Not started |
@@ -100,16 +100,18 @@ Recent decisions affecting current work:
 - v1.1: CVV obrigatório via Brick a cada transação com cartão salvo — `processAutoBuy` apenas via Pix (D-16)
 - v1.1: `@@unique([userId, condominiumId])` em Schedule mantido — horário por dia dentro do campo `days` (Cenário A, sem risco de migração de índice) (D-17)
 - v1.1: OTP de mudança de contato precisa de `purpose: 'CONTACT_CHANGE'` para não conflitar com `findActiveOtp` de login (D-18)
+- Fase 9: Fase audita e completa gaps — não reconstrói do zero (D-01 Phase 9)
+- Fase 9: NotifContext usa React Context nativo (padrão AuthContext) com useCallback para refresh() (D-06/07 Phase 9)
+- Fase 9: mark-all-read automático ao montar NotificationsScreen — sem botão explícito (D-08 Phase 9)
+- Fase 9: notification.data = { screen: 'pedidos' } nos pushes sendEveReminders e notifyAndPersist (D-03/04 Phase 9)
 
 ### Pending Todos
 
-- Configurar credenciais sandbox MP (MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET, MP_PUBLIC_KEY) nos .env locais antes da Wave 2 da Phase 8
 - Executar script de backfill de `deliverySlots` nos condomínios existentes antes de iniciar Phase 13
 - Verificar se `CourierScreen` precisa filtrar por slot em `GET /courier/orders/today` após Phase 14
 
 ### Blockers/Concerns
 
-- Phase 8 depende dos planos 03-03/03-05/03-06 pendentes — são as primeiras tarefas a planejar
 - Phase 10 contém o schema v1.1 unificado — BLOQUEANTE para Phases 11, 12, 13 e 14
 - Phase 13 depende de script de migração ser executado no Atlas antes do deploy — documentar no plano
 
@@ -126,6 +128,8 @@ Recent decisions affecting current work:
 | v1.1 | Cartão padrão com 1 toque | Defer → v2 | Research v1.1 |
 | v1.1 | Toggles granulares de notificações push | Defer → v2 | Research v1.1 |
 | v1.1 | Badge de contagem de clientes por slot | Defer → v2 | Research v1.1 |
+| v1.1 Fase 9 | Push de "Saiu para entrega" (OUT_FOR_DELIVERY) | Defer → v2 | Phase 9 Context |
+| v1.1 Fase 9 | Polling do badge em tempo real com app aberto (WebSocket/SSE) | Defer → v2 | Phase 9 Context |
 
 ## Quick Tasks Completed
 
@@ -135,7 +139,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-19T05:17:53.605Z
-Stopped at: Phase 9 context gathered
-Resume with: `/gsd:plan-phase 8` para iniciar planejamento da Phase 8
-Next phase: 08-finalizacao-pagamentos (não iniciada — planejar antes de executar)
+Last session: 2026-06-19T06:30:00.000Z
+Stopped at: Phase 9 planned — 4 planos em 3 waves
+Resume with: `/gsd:execute-phase 9`
+Next phase: 09-finaliza-o-rastreamento (planejada — pronta para executar)

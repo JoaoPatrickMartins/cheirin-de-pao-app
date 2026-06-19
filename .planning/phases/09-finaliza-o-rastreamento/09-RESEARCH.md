@@ -544,16 +544,15 @@ apiFetch('/notifications/read-all', { method: 'PATCH' })
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Push title do `sendEveReminders`**
-   - O que sabemos: O copywriting contract da UI-SPEC define título "Entrega amanhã 🍞". O código atual usa `headings: { pt: 'Cheirin de Pão' }` como título e coloca o conteúdo em `contents`.
-   - O que não está claro: O planner deve atualizar o `headings` para "Entrega amanhã 🍞"? Ou apenas adicionar `notification.data`?
-   - Recomendação: Atualizar `headings` e `contents` para alinhar com o copywriting contract — o custo é mínimo e a consistência com o UI-SPEC é importante.
+1. **Push title do `sendEveReminders`** — RESOLVED
+   - O que sabemos: O copywriting contract da UI-SPEC define título "Entrega amanhã 🍞". O código atual usa `headings: { pt: 'Cheirin de Pão' }` como título.
+   - **Resolução (plano 09-01 Task 1):** Atualizar `headings.pt` para `'Entrega amanhã 🍞'` e `contents.pt` para o texto do copywriting contract. Alinhamento com UI-SPEC é obrigatório.
 
-2. **`useNotifBadge` — manter ou remover**
-   - O que sabemos: O hook será substituído por `useNotif()` do `NotifContext`. Manter o arquivo não causa danos; remover é mais limpo.
-   - Recomendação: Manter como stub/wrapper por ora (evita quebrar imports em arquivos `.js` compilados) — decisão do executor.
+2. **`useNotifBadge` — manter ou remover** — RESOLVED
+   - O que sabemos: O hook será substituído por `useNotif()` do `NotifContext`.
+   - **Resolução (plano 09-03 Task 2):** Manter `useNotifBadge.ts` sem modificação — apenas remover o import na `HomeScreen`. Arquivo permanece como dead code inofensivo; limpeza deferida para refactor futuro.
 
 ---
 

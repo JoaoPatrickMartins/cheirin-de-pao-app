@@ -320,7 +320,21 @@ Plans:
   3. Ao tocar no sino, a tela de notificações lista todas as notificações com cards por tipo e marca as não lidas visualmente
   4. Tela de histórico exibe os pedidos dos últimos 30 dias com data, quantidade e status de cada entrega
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+**Wave 1** *(09-01 e 09-02 são paralelos)*
+
+- [ ] 09-01-PLAN.md — Backend gaps: notification.data nos pushes sendEveReminders + notifyAndPersist + copywriting alinhado ao UI-SPEC
+- [ ] 09-02-PLAN.md — NotifContext + ClientLayout provider + useOneSignalDeepLink case pedidos + stubs de teste NotifContext
+
+**Wave 2** *(blocked on Wave 1 — 09-03 depende de 09-02)*
+
+- [ ] 09-03-PLAN.md — NotificationsScreen CTA_CONFIG completo + badge sync via refresh(); HomeScreen migra useNotifBadge → useNotif; stubs TrackingScreen + NotificationsScreen
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 09-04-PLAN.md — Auditoria TrackingScreen + fallback navigate + ROADMAP 05-03/05-04 concluídos + checkpoint humano
+
 **UI hint**: yes
 
 ### Phase 10: Schema v1.1 + Crédito Manual Admin + Logout
@@ -417,7 +431,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Courier App | 3/3 | Complete | 2026-06-15 |
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
 | 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
-| 9. Finalização Rastreamento | 0/TBD | Not started | |
+| 9. Finalização Rastreamento | 0/4 | Not started | |
 | 10. Schema v1.1 + Crédito Manual + Logout | 0/TBD | Not started | |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
 | 12. Cartões Salvos | 0/TBD | Not started | |
