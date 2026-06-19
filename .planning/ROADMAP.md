@@ -370,7 +370,7 @@ Plans:
 Plans:
 **Wave 1** *(bloqueante — schema + stubs de teste)*
 
-- [ ] 11-01-PLAN.md — Schema Prisma (OtpCode.purpose String?) + auth.repository.ts fix (findActiveOtp backward-compat) + stubs de teste Wave 0
+- [x] 11-01-PLAN.md — Schema Prisma (OtpCode.purpose String?) + auth.repository.ts fix (findActiveOtp backward-compat) + stubs de teste Wave 0
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -454,7 +454,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
-| 11. Configurações e Perfil do Cliente | 0/5 | Not started | |
+| 11. Configurações e Perfil do Cliente | 1/5 | In Progress|  |
 | 12. Cartões Salvos | 0/TBD | Not started | |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |

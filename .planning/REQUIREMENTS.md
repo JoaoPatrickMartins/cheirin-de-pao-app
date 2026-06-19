@@ -162,7 +162,7 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 - [ ] **CONF-01**: Cliente acessa tela de configurações pelo botão de engrenagem no tab bar
 - [ ] **CONF-02**: Cliente pode visualizar e editar nome completo e data de nascimento
 - [ ] **CONF-03**: CPF é exibido mas não pode ser alterado (imutável por compliance)
-- [ ] **CONF-04**: Cliente pode editar telefone ou e-mail com re-verificação OTP enviado ao novo contato antes de salvar
+- [x] **CONF-04**: Cliente pode editar telefone ou e-mail com re-verificação OTP enviado ao novo contato antes de salvar
 - [ ] **CONF-05**: Cliente pode visualizar e editar condomínio e número do apartamento
 - [ ] **CONF-06**: Mudança de condomínio desativa a agenda semanal ativa e notifica o cliente para reconfigurar
 - [ ] **CONF-07**: Cliente pode fazer logout pelo menu de configurações
@@ -315,7 +315,7 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | CONF-01 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-02 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-03 | Phase 11 — Configurações e Perfil do Cliente | Pending |
-| CONF-04 | Phase 11 — Configurações e Perfil do Cliente | Pending |
+| CONF-04 | Phase 11 — Configurações e Perfil do Cliente | Complete |
 | CONF-05 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-06 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-07 | Phase 11 — Configurações e Perfil do Cliente | Pending |

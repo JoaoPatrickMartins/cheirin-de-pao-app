@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
 status: executing
-stopped_at: Phase 11 planned — ready to execute
-last_updated: "2026-06-19T23:23:50.713Z"
-last_activity: 2026-06-19 -- Phase 11 planning complete
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-06-19T23:29:20.019Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 14
   completed_phases: 10
   total_plans: 57
-  completed_plans: 52
+  completed_plans: 53
   percent: 71
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-18)
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
+Phase: 11 (configurações e perfil do cliente) — EXECUTING
+Plan: 2 of 5
 Next: Phase 10 (schema-v1.1-credm-logout) — Not started
 Status: Ready to execute
-Last activity: 2026-06-19 -- Phase 11 planning complete
+Last activity: 2026-06-19
 
 ## v1.0 Status Summary
 
@@ -82,6 +82,7 @@ Last activity: 2026-06-19 -- Phase 11 planning complete
 | Phase 10 P01 | 2min | 2 tasks | 2 files |
 | Phase 10 P02 | 15min | 2 tasks | 5 files |
 | Phase 10 P03 | 20min | 2 tasks | 7 files |
+| Phase 11-configura-es-e-perfil-do-cliente P01 | 8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,7 @@ Recent decisions affecting current work:
 - Fase 9: notification.data = { screen: 'pedidos' } nos pushes sendEveReminders e notifyAndPersist (D-03/04 Phase 9)
 - [Phase ?]: Campo data do SDK @onesignal/node-onesignal recebido pelo frontend como additionalData.screen
 - [Phase ?]: v1.1 Phase 10-02: adminId extraido do JWT no controller (nunca do body) — padrao T-10-02-01 aplicado
+- [Phase ?]: D-18 aplicado: purpose: { in: [null, 'LOGIN'] } em findActiveOtp — documentos OtpCode sem purpose (legados) tratados como LOGIN para backward-compat
 
 ### Pending Todos
 
@@ -147,7 +149,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-19T23:23:50.713Z
-Stopped at: Phase 11 planned (5 planos prontos)
+Last session: 2026-06-19T23:29:20.007Z
+Stopped at: Completed 11-01-PLAN.md
 Resume with: `/gsd:execute-phase 11`
 Next phase: 11-configurações-e-perfil-do-cliente (planned, not executed)
