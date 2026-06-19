@@ -3,20 +3,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SchedulesService } from '../schedules.service.js'
 import { FastifyInstance } from 'fastify'
+import * as OneSignalModule from '@onesignal/node-onesignal'
 
 // Mock do módulo OneSignal
 vi.mock('@onesignal/node-onesignal', () => {
   const createNotificationMock = vi.fn().mockResolvedValue({})
   return {
     createConfiguration: vi.fn().mockReturnValue({}),
-    DefaultApi: vi.fn().mockImplementation(() => ({ createNotification: createNotificationMock })),
-    Notification: vi.fn().mockImplementation(() => ({
-      app_id: '',
-      include_subscription_ids: [],
-      headings: {},
-      contents: {},
-      additionalData: {},
-    })),
+    // function keyword obrigatório em Vitest 4+ para constructor mocks — arrow functions ignoram return value
+    DefaultApi: vi.fn().mockImplementation(function () {
+      return { createNotification: createNotificationMock }
+    }),
+    Notification: vi.fn().mockImplementation(function () {
+      return { app_id: '', include_subscription_ids: [], headings: {}, contents: {}, additionalData: {} }
+    }),
     _createNotificationMock: createNotificationMock,
   }
 })
@@ -340,7 +340,7 @@ describe('SchedulesService', () => {
       await service.sendReconfigureReminders()
 
       // Verificar que o módulo OneSignal foi invocado
-      const OneSignal = await import('@onesignal/node-onesignal')
+      const OneSignal = OneSignalModule
       expect(OneSignal.DefaultApi).toHaveBeenCalled()
     })
 
@@ -411,31 +411,26 @@ describe('SchedulesService', () => {
         users: { 'user-1': user },
       })
 
-      // Override schedule.findMany para retornar o schedule do CRED-09
       ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
 
-      // Mock notificationsService.createAndTrim
       const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+
+      // Spy local para createNotification — function keyword obrigatório em Vitest 4+ para constructor mocks
+      const createNotificationSpy = vi.fn().mockResolvedValue({})
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementationOnce(function () {
+        return { createNotification: createNotificationSpy }
+      })
 
       const service = new SchedulesService(fastify)
       ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
 
       await service.sendLowCreditNotifications()
 
-      // Verificar que OneSignal.DefaultApi foi invocado (push disparado)
-      const OneSignal = await import('@onesignal/node-onesignal')
-      expect(OneSignal.DefaultApi).toHaveBeenCalled()
-
-      // Verificar que createAndTrim foi chamado com type LOW_CREDIT
+      expect(OneSignalModule.DefaultApi).toHaveBeenCalled()
+      expect(createNotificationSpy).toHaveBeenCalled()
       expect(createAndTrimMock).toHaveBeenCalledWith(
         expect.objectContaining({ userId: 'user-1', type: 'LOW_CREDIT' }),
       )
-
-      // Verificar que createNotification foi chamada (deep link D-11 via additionalData.screen)
-      // O DefaultApi mock retorna { createNotification: createNotificationMock }
-      // A instância do mock captura o additionalData atribuído
-      const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> }
-      expect(mockInstance?.createNotification).toHaveBeenCalled()
     })
 
     it('NAO envia push quando autoRecharge.active=true', async () => {
@@ -471,7 +466,7 @@ describe('SchedulesService', () => {
       await service.sendLowCreditNotifications()
 
       // Não deve enviar push nem criar Notification (auto-recharge cuida disso — D-10)
-      const OneSignal = await import('@onesignal/node-onesignal')
+      const OneSignal = OneSignalModule
       const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
       if (mockInstance) {
         expect(mockInstance.createNotification).not.toHaveBeenCalled()
@@ -512,7 +507,7 @@ describe('SchedulesService', () => {
       await service.sendLowCreditNotifications()
 
       // Saldo suficiente — não deve notificar
-      const OneSignal = await import('@onesignal/node-onesignal')
+      const OneSignal = OneSignalModule
       const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
       if (mockInstance) {
         expect(mockInstance.createNotification).not.toHaveBeenCalled()
@@ -553,7 +548,7 @@ describe('SchedulesService', () => {
       await service.sendLowCreditNotifications()
 
       // Push não enviado (sem oneSignalPlayerId), mas Notification persistida
-      const OneSignal = await import('@onesignal/node-onesignal')
+      const OneSignal = OneSignalModule
       const mockInstance = vi.mocked(OneSignal.DefaultApi).mock.results[0]?.value as { createNotification: ReturnType<typeof vi.fn> } | undefined
       if (mockInstance) {
         expect(mockInstance.createNotification).not.toHaveBeenCalled()
