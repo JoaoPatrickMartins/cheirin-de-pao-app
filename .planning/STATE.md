@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
-status: ready_to_plan
-stopped_at: Phase 10 complete (3/3) — ready to discuss Phase 11
-last_updated: 2026-06-19T20:49:17.632Z
-last_activity: 2026-06-19
+status: executing
+stopped_at: Phase 11 planned — ready to execute
+last_updated: "2026-06-19T23:23:50.713Z"
+last_activity: 2026-06-19 -- Phase 11 planning complete
 progress:
   total_phases: 14
   completed_phases: 10
-  total_plans: 52
+  total_plans: 57
   completed_plans: 52
   percent: 71
 ---
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-06-18)
 Phase: 11
 Plan: Not started
 Next: Phase 10 (schema-v1.1-credm-logout) — Not started
-Status: Ready to plan
-Last activity: 2026-06-19
+Status: Ready to execute
+Last activity: 2026-06-19 -- Phase 11 planning complete
 
 ## v1.0 Status Summary
 
@@ -49,8 +49,8 @@ Last activity: 2026-06-19
 |-------|------|--------------|--------|
 | 8. Finalização Pagamentos | Webhooks MP + telas compra + Home Carteira | CRED-01..11 (exceto 07), PAY-01..02, UI-04, UI-07, UI-08 | Complete (2026-06-19) |
 | 9. Finalização Rastreamento | Cron 21h + TrackingScreen + NotificationsScreen + badge | ACOMP-01..05 | Complete (2026-06-19) |
-| 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Not started |
-| 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Not started |
+| 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Needs Review (human UAT) |
+| 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Planned (5 planos) |
 | 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Not started |
 | 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Not started |
 | 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
@@ -120,7 +120,7 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-- Phase 10 contém o schema v1.1 unificado — BLOQUEANTE para Phases 11, 12, 13 e 14
+- Phase 10 concluída — schema v1.1 aplicado, desbloqueando Phases 11, 12, 13, 14
 - Phase 13 depende de script de migração ser executado no Atlas antes do deploy — documentar no plano
 
 ## Deferred Items
@@ -147,7 +147,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-19T20:28:34.818Z
-Stopped at: Completed 10-02-PLAN.md
-Resume with: `/gsd:plan-phase 10`
-Next phase: 10-schema-v1.1-credm-logout (não iniciada)
+Last session: 2026-06-19T23:23:50.713Z
+Stopped at: Phase 11 planned (5 planos prontos)
+Resume with: `/gsd:execute-phase 11`
+Next phase: 11-configurações-e-perfil-do-cliente (planned, not executed)
