@@ -5,6 +5,7 @@ import { Navigate } from 'react-router'
 import { ClientTabBar } from '../../components/client/ClientTabBar'
 import { useOneSignalRegister } from '../../hooks/useOneSignalRegister'
 import { useOneSignalDeepLink } from '../../hooks/useOneSignalDeepLink'
+import { NotifProvider } from '../../contexts/NotifContext'
 
 export function ClientLayout() {
   const { user, isLoading } = useAuth()
@@ -24,8 +25,10 @@ export function ClientLayout() {
         paddingBottom: 'calc(56px + env(safe-area-inset-bottom))',
       }}
     >
-      <Outlet />
-      <ClientTabBar />
+      <NotifProvider>
+        <Outlet />
+        <ClientTabBar />
+      </NotifProvider>
     </div>
   )
 }

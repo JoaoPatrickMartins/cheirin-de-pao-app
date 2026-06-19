@@ -31,6 +31,8 @@ export function useOneSignalDeepLink(): void {
         const screen = event?.notification?.additionalData?.screen
         if (screen === 'creditos') {
           navigate('/client/creditos')
+        } else if (screen === 'pedidos') {
+          navigate('/client/pedidos')
         }
       } catch {
         // Silencioso — falha no deep link não impede uso do app
