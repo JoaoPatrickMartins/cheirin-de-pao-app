@@ -45,6 +45,7 @@ enum TransactionType {
   DELIVERY
   REFUND
   EXPIRY
+  ADMIN_GRANT
 }
 
 enum OrderType {
@@ -95,6 +96,7 @@ enum NotificationType {
   CUTOFF
   RECONFIGURE
   CREDIT_PURCHASED
+  CREDIT_GRANTED
 }
 
 // ===== MODELS (15 collections) =====
@@ -116,19 +118,21 @@ model User {
   autoRecharge       Json?
   cardTokenMp        String?
   oneSignalPlayerId  String?
+  mpCustomerId       String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }
 
 // 2. Condominium — condomínios cadastrados
 model Condominium {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  name      String
-  address   Address
-  type      CondoType
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  address       Address
+  type          CondoType
+  isActive      Boolean   @default(true)
+  deliverySlots String[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 // 3. Combo — pacotes de créditos de pãezinhos
@@ -173,6 +177,8 @@ model CreditTransaction {
   quantity    Int
   referenceId String?
   description String?
+  adminId     String?         @db.ObjectId
+  reason      String?
   createdAt   DateTime        @default(now())
 }
 
@@ -185,6 +191,7 @@ model Schedule {
   deliveryTime      String
   notifyReconfigure Boolean  @default(false)
   isActive          Boolean  @default(true)
+  days              Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -313,4 +320,16 @@ model OtpCode {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+}
+
+// 18. SavedCard — cartões salvos do cliente no Mercado Pago
+model SavedCard {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  mpCardId  String
+  brand     String
+  lastFour  String
+  expiresAt String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
 }

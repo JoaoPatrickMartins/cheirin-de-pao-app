@@ -85,7 +85,12 @@ function makeFastifyMock(overrides: {
     },
     creditTransaction: {
       findFirst: vi.fn().mockResolvedValue(lastTransaction),
+      create: vi.fn().mockResolvedValue({ id: 'tx-02', userId: 'user-01', type: 'ADMIN_GRANT', quantity: 5 }),
     },
+    $transaction: vi.fn().mockResolvedValue([
+      { id: 'tx-02', userId: 'user-01', type: 'ADMIN_GRANT', quantity: 5 },
+      { id: 'user-01', name: 'João Cliente', creditBalance: 15 },
+    ]),
   }
 
   return {
@@ -280,6 +285,58 @@ describe('AdminClientsService', () => {
 
       expect(result).toBeDefined()
       expect(result.isBlocked).toBe(true)
+    })
+  })
+
+  // ── grantCredits — RED phase (stubs para Plan 10-02 implementar) ──────────────
+  describe('grantCredits', () => {
+    it('cria CreditTransaction ADMIN_GRANT e incrementa creditBalance via $transaction', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.grantCredits('user-01', { quantity: 5, reason: 'Acerto', adminId: 'admin-01' })
+
+      expect(prisma.$transaction).toHaveBeenCalled()
+      expect(result.creditBalance).toBe(15)
+    })
+
+    it('lança { statusCode: 404 } quando cliente não existe', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(
+        service.grantCredits('id-inexistente', { quantity: 5, reason: 'Acerto', adminId: 'admin-01' }),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+
+    it('lança { statusCode: 404 } quando user não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({
+        client: { id: 'admin-01', name: 'Admin User', role: 'ADMIN', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(
+        service.grantCredits('admin-01', { quantity: 5, reason: 'Acerto', adminId: 'admin-01' }),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+
+    it('lança { statusCode: 400 } quando quantity é menor que 1', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(
+        service.grantCredits('user-01', { quantity: 0, reason: 'Acerto', adminId: 'admin-01' }),
+      ).rejects.toMatchObject({ statusCode: 400 })
     })
   })
 })
