@@ -29,8 +29,9 @@ const DAYS = [
 
 export function ScheduleScreen() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const creditBalance = user?.creditBalance ?? 0
+  const showCondoBanner = user?.condominiumJustChanged === true
 
   const {
     weeklyQty,
@@ -51,6 +52,9 @@ export function ScheduleScreen() {
   const handleSave = async () => {
     if (isSaving) return
     const result = await saveSchedule()
+    if (result.ok) {
+      updateUser({ condominiumJustChanged: false })
+    }
     setToast({
       message: result.ok ? 'Agenda salva!' : (result.error ?? 'Não conseguimos salvar. Tente novamente.'),
       ok: result.ok,
@@ -133,6 +137,29 @@ export function ScheduleScreen() {
           Agenda semanal
         </h1>
       </div>
+
+      {/* Banner: mudança de condomínio */}
+      {showCondoBanner && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            background: '#F3DDA6',
+            borderLeft: '3px solid var(--color-accent)',
+            borderRadius: 12,
+            padding: '12px 16px',
+            margin: '0 16px 16px',
+            fontFamily: 'var(--font-body)',
+            fontSize: 15,
+            fontWeight: 600,
+            color: 'var(--color-text)',
+          }}
+        >
+          <Icon name="alert" size={18} color="var(--color-accent)" />
+          <span>Você mudou de condomínio. Configure sua nova agenda semanal.</span>
+        </div>
+      )}
 
       {/* Área scrollável */}
       <div
