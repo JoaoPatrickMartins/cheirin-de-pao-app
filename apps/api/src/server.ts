@@ -27,6 +27,7 @@ import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
 import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
 import { courierRoute } from './modules/courier/courier.route.js'
+import { clientProfileRoute } from './modules/client-profile/client-profile.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 
@@ -184,6 +185,7 @@ const start = async () => {
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
     await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
     await fastify.register(courierRoute)        // GET /courier/orders/today + PATCH /courier/orders/:id/confirm (COUR-01/02)
+    await fastify.register(clientProfileRoute)  // Phase 11 — GET/PATCH /client/profile, POST contact/change (CONF-02..06)
     await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h + 21h (SCHED-03/04)
 
     const port = Number(process.env.API_PORT ?? 3001)
