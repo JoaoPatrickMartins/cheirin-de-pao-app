@@ -336,7 +336,7 @@ export function TrackingScreen() {
         }}
       >
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => { if (window.history.length > 1) { navigate(-1) } else { navigate('/client/home') } }}
           aria-label="Voltar"
           style={{
             width: 38,
