@@ -81,6 +81,20 @@ export const router = createBrowserRouter([
               })),
           },
           {
+            path: 'perfil',
+            lazy: () =>
+              import('../pages/client/SettingsScreen').then((m) => ({
+                Component: m.SettingsScreen,
+              })),
+          },
+          {
+            path: 'perfil/editar-contato',
+            lazy: () =>
+              import('../pages/client/ContactEditScreen').then((m) => ({
+                Component: m.ContactEditScreen,
+              })),
+          },
+          {
             path: 'creditos/pix',
             lazy: () =>
               import('../pages/client/PixWaitingScreen').then((m) => ({

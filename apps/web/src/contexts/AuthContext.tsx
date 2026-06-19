@@ -6,6 +6,15 @@ export interface AuthUser {
   role: 'CLIENT' | 'COURIER' | 'ADMIN'
   name: string
   creditBalance: number
+  phone?: string
+  email?: string
+  cpf?: string
+  birthDate?: string
+  condominiumId?: string
+  condominiumName?: string
+  apartment?: string
+  block?: string
+  condominiumJustChanged?: boolean
 }
 
 export interface AuthContextType {
@@ -15,6 +24,7 @@ export interface AuthContextType {
   login: (token: string, user: AuthUser) => void
   logout: () => void
   updateCreditBalance: (balance: number) => void
+  updateUser: (partial: Partial<AuthUser>) => void
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null)
@@ -75,6 +85,18 @@ export function AuthProvider() {
         setUser((prev) => {
           if (!prev) return prev
           const updated: AuthUser = { ...prev, creditBalance: balance }
+          try {
+            localStorage.setItem('auth_user', JSON.stringify(updated))
+          } catch {
+            // localStorage unavailable — update in-memory only
+          }
+          return updated
+        })
+      },
+      updateUser: (partial: Partial<AuthUser>) => {
+        setUser((prev) => {
+          if (!prev) return prev
+          const updated: AuthUser = { ...prev, ...partial }
           try {
             localStorage.setItem('auth_user', JSON.stringify(updated))
           } catch {

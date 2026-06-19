@@ -90,6 +90,12 @@ export function LoginScreen() {
           name: data.user.name,
           creditBalance: data.user.creditBalance ?? 0,
         })
+        // Fetch full profile for CLIENT and persist in AuthContext (CONF-01)
+        if (data.user.role === 'CLIENT') {
+          apiFetch('/client/profile').then((pr) => {
+            if (pr.ok) pr.json().then((profile) => auth.updateUser(profile)).catch(() => {})
+          }).catch(() => {})
+        }
         // Role-based redirect (AUTH-08: admin → /admin)
         const roleRoutes: Record<string, string> = {
           ADMIN: '/admin',
