@@ -108,9 +108,9 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 | Chip — Bonificação | `Bonificação` |
 | Chip — Compensação | `Compensação` |
 | Chip — Promoção | `Promoção` |
-| Botão cancelar | `Cancelar` |
-| Botão confirmar (estado normal) | `Confirmar` |
-| Botão confirmar (estado desabilitado) | `Confirmar` (opacity 0.45, disabled) |
+| Botão cancelar | `Descartar` |
+| Botão confirmar (estado normal) | `Adicionar créditos` |
+| Botão confirmar (estado desabilitado) | `Adicionar créditos` (opacity 0.45, disabled) |
 | Toast de sucesso | `{N} crédito(s) adicionado(s) a {nome}` |
 | Erro genérico de API | `Não foi possível adicionar os créditos. Tente novamente.` |
 
@@ -120,7 +120,7 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 |---------|-------|
 | Título do dialog | `Sair da conta?` |
 | Corpo do dialog | `Você será redirecionado para a tela de login.` |
-| Botão cancelar | `Cancelar` |
+| Botão cancelar | `Continuar na conta` |
 | Botão confirmar | `Sair` |
 
 ### Logout Entregador (LGOUT-01)
@@ -186,11 +186,11 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
    - Transição: `transition: background 0.15s, border 0.15s`
 5. **Botões de ação:**
    - `display: flex`, `gap: 12px`, `margin-top: 24px`
-   - Cancelar: variante `ghost` (borda + texto), `flex: 1`, `min-height: 52px`
-   - Confirmar: variante `primary` (espresso + texto claro), `flex: 1`, `min-height: 52px`
-   - Confirmar desabilitado: `opacity: 0.45`, `cursor: default` — desabilitado até que quantidade ≥ 1 E motivo selecionado
+   - Descartar: variante `ghost` (borda + texto), `flex: 1`, `min-height: 52px`
+   - Adicionar créditos: variante `primary` (espresso + texto claro), `flex: 1`, `min-height: 52px`
+   - Adicionar créditos desabilitado: `opacity: 0.45`, `cursor: default` — desabilitado até que quantidade ≥ 1 E motivo selecionado
 
-**Estado de carregamento do botão Confirmar:**
+**Estado de carregamento do botão Adicionar créditos:**
 - Texto: `Confirmando...` (sem spinner — padrão do projeto)
 - `disabled: true`, `opacity: 0.7`
 
@@ -246,7 +246,7 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 - Título: `id="dialog-logout-title"`, `font-size: 21px`, Bricolage Grotesque, `font-weight: 700`, `color: var(--color-text)`, `margin-bottom: 8px`
 - Corpo: `font-size: 15px`, Hanken Grotesk, `color: var(--color-text-sec)`, `margin-bottom: 24px`, `line-height: 1.5`
 - Botões: `display: flex`, `gap: 12px`
-  - Cancelar: variante `ghost`, `flex: 1`, `min-height: 52px` — onClick: fecha dialog
+  - Continuar na conta: variante `ghost`, `flex: 1`, `min-height: 52px` — onClick: fecha dialog
   - Sair: variante `primary` (espresso), `flex: 1`, `min-height: 52px` — onClick: `logout()` do `AuthContext`
 
 ---
@@ -269,12 +269,12 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 
 | Regra | Comportamento |
 |-------|--------------|
-| quantidade < 1 | Botão Confirmar desabilitado (opacity 0.45) |
-| quantidade > 500 | Botão Confirmar desabilitado + hint vermelho: `Máximo 500 pães` |
+| quantidade < 1 | Botão Adicionar créditos desabilitado (opacity 0.45) |
+| quantidade > 500 | Botão Adicionar créditos desabilitado + hint vermelho: `Máximo 500 pães` |
 | quantidade não inteiro | `type="number"` + `step="1"` + validação via Zod no backend |
-| motivo não selecionado | Botão Confirmar desabilitado |
-| quantidade ≥ 1 E motivo selecionado | Botão Confirmar habilitado |
-| Confirmação em andamento | Botão Confirmar: `disabled=true`, texto `Confirmando...` |
+| motivo não selecionado | Botão Adicionar créditos desabilitado |
+| quantidade ≥ 1 E motivo selecionado | Botão Adicionar créditos habilitado |
+| Confirmação em andamento | Botão Adicionar créditos: `disabled=true`, texto `Confirmando...` |
 
 ### Estados do Botão "+ Adicionar créditos"
 
@@ -287,7 +287,7 @@ Fonte: `globals.css` + `brand.jsx` handoff. Tema claro obrigatório (v2 define t
 ### Acessibilidade
 
 - Modal de grant: `role="dialog"`, `aria-modal="true"`, `aria-labelledby="modal-grant-title"`. Foco vai para o campo de quantidade ao abrir (`autoFocus`).
-- Dialog de logout admin: `role="alertdialog"`, `aria-modal="true"`. Foco vai para o botão Cancelar ao abrir.
+- Dialog de logout admin: `role="alertdialog"`, `aria-modal="true"`. Foco vai para o botão Continuar na conta ao abrir.
 - Botão de logout entregador: `aria-label="Sair"`.
 - Chips de motivo: cada botão tem `aria-pressed={motivo === m}`.
 - Todos os elementos interativos: `min-height: 44px`, `min-width: 44px` (UI-10).
@@ -327,6 +327,8 @@ Nenhum pacote novo instalado nesta fase. Todos os componentes são inline, segui
 | Validação quantidade (max 500) | Claude's Discretion — CONTEXT.md |
 | Ícone gold no CTA_CONFIG | Claude's Discretion — consistência com `CREDIT_PURCHASED` existente |
 | Dialog bottom sheet (vs. centered) | Claude's Discretion — padrão do projeto é bottom sheet (Padrão 3 verificado) |
+| Labels CREDM cancelar/confirmar | gsd-ui-checker revision — substituídos por labels contextuais (Descartar / Adicionar créditos) |
+| Label LGOUT-02 cancelar | gsd-ui-checker revision — substituído por label contextual (Continuar na conta) |
 
 ---
 
