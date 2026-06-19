@@ -144,4 +144,46 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.blockToggle.bind(ctrl),
   )
+
+  fastify.post(
+    '/admin/clients/:id/grant-credits',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Conceder créditos manualmente (admin)',
+        description: 'Concede créditos a um cliente de forma manual com auditoria (adminId + reason). Operação atômica: CreditTransaction ADMIN_GRANT + User.creditBalance increment. Dispara push OneSignal (best-effort) e persiste notificação in-app CREDIT_GRANTED. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['quantity', 'reason'],
+          properties: {
+            quantity: { type: 'integer', minimum: 1, description: 'Quantidade de créditos a conceder (mínimo 1).' },
+            reason: {
+              type: 'string',
+              enum: ['Acerto', 'Bonificação', 'Compensação', 'Promoção'],
+              description: 'Motivo da concessão para fins de auditoria.',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Dados atualizados do cliente após concessão.',
+            properties: {
+              creditBalance: { type: 'integer', description: 'Novo saldo de créditos do cliente.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.grantCredits.bind(ctrl),
+  )
 }
