@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
 status: executing
-stopped_at: Phase 10 context gathered
-last_updated: "2026-06-19T20:11:32.876Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-06-19T20:19:35.902Z"
 last_activity: 2026-06-19
 progress:
   total_phases: 14
   completed_phases: 9
   total_plans: 52
-  completed_plans: 49
+  completed_plans: 51
   percent: 64
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-18)
 ## Current Position
 
 Phase: 10 (schema-v1-1-cr-dito-manual-admin-logout) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Next: Phase 10 (schema-v1.1-credm-logout) — Not started
 Status: Ready to execute
 Last activity: 2026-06-19
@@ -79,6 +79,7 @@ Last activity: 2026-06-19
 *Updated after each plan completion*
 | Phase 09-finaliza-o-rastreamento P01 | 8min | 2 tasks | 2 files |
 | Phase 10 P01 | 2min | 2 tasks | 2 files |
+| Phase 10 P02 | 15min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,7 @@ Recent decisions affecting current work:
 - Fase 9: mark-all-read automático ao montar NotificationsScreen — sem botão explícito (D-08 Phase 9)
 - Fase 9: notification.data = { screen: 'pedidos' } nos pushes sendEveReminders e notifyAndPersist (D-03/04 Phase 9)
 - [Phase ?]: Campo data do SDK @onesignal/node-onesignal recebido pelo frontend como additionalData.screen
+- [Phase ?]: v1.1 Phase 10-02: adminId extraido do JWT no controller (nunca do body) — padrao T-10-02-01 aplicado
 
 ### Pending Todos
 
@@ -143,7 +145,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-19T20:11:32.865Z
-Stopped at: Phase 10 context gathered
+Last session: 2026-06-19T20:19:35.890Z
+Stopped at: Completed 10-02-PLAN.md
 Resume with: `/gsd:plan-phase 10`
 Next phase: 10-schema-v1.1-credm-logout (não iniciada)

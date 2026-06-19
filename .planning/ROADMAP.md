@@ -432,7 +432,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
 | 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
-| 10. Schema v1.1 + Crédito Manual + Logout | 0/3 | Planned    |  |
+| 10. Schema v1.1 + Crédito Manual + Logout | 2/3 | In Progress|  |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
 | 12. Cartões Salvos | 0/TBD | Not started | |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
