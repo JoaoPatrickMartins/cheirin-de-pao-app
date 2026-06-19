@@ -27,7 +27,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### Milestone v1.1 — Experiência Completa do Cliente
 
-- [ ] **Phase 8: Finalização Pagamentos** - Webhooks MP, telas de compra (CombosScreen, PixWaiting, CardPayment) e Home Carteira completa
+- [x] **Phase 8: Finalização Pagamentos** - Webhooks MP, telas de compra (CombosScreen, PixWaiting, CardPayment) e Home Carteira completa (completed 2026-06-19)
 - [ ] **Phase 9: Finalização Rastreamento** - Cron de véspera, TrackingScreen, NotificationsScreen e badge na Home
 - [ ] **Phase 10: Schema v1.1 + Crédito Manual Admin + Logout** - Schema unificado v1.1, crédito manual admin com push, botão de logout para entregador e admin
 - [ ] **Phase 11: Configurações e Perfil do Cliente** - Tela de configurações completa: dados pessoais, contato com OTP, condomínio e logout do cliente
@@ -304,7 +304,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 08-04-PLAN.md — Verificação end-to-end sandbox MP (Pix + cartão + avulso) + marcação planos 03-03/05/06 concluídos no ROADMAP
+- [x] 08-04-PLAN.md — Verificação end-to-end sandbox MP (Pix + cartão + avulso) + marcação planos 03-03/05/06 concluídos no ROADMAP
 
 **UI hint**: yes
 
@@ -416,7 +416,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Delivery Experience | 2/4 | In Progress | |
 | 6. Courier App | 3/3 | Complete | 2026-06-15 |
 | 7. Admin Panel | 12/12 | Complete | 2026-06-15 |
-| 8. Finalização Pagamentos | 4/5 | In Progress|  |
+| 8. Finalização Pagamentos | 5/5 | Complete   | 2026-06-19 |
 | 9. Finalização Rastreamento | 0/TBD | Not started | |
 | 10. Schema v1.1 + Crédito Manual + Logout | 0/TBD | Not started | |
 | 11. Configurações e Perfil do Cliente | 0/TBD | Not started | |
