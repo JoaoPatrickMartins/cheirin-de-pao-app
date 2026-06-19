@@ -5,8 +5,32 @@ import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
 import { Icon } from '../../components/brand/Icon'
 import { useOrderTracking } from '../../hooks/useOrderTracking'
 import { useNotifBadge } from '../../hooks/useNotifBadge'
+import { useSchedule } from '../../hooks/useSchedule'
+import BannerInsuficiente from '../../components/client/BannerInsuficiente'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+
+// Mapa de índice do dia da semana (getDay()) para chave de WeeklyQty
+const DAY_KEY_MAP: Record<number, keyof ReturnType<typeof useSchedule>['weeklyQty']> = {
+  0: 'dom',
+  1: 'seg',
+  2: 'ter',
+  3: 'qua',
+  4: 'qui',
+  5: 'sex',
+  6: 'sab',
+}
+
+// Abreviações exibidas nos cards de próximas entregas
+const DAY_ABBR: Record<string, string> = {
+  seg: 'Seg',
+  ter: 'Ter',
+  qua: 'Qua',
+  qui: 'Qui',
+  sex: 'Sex',
+  sab: 'Sáb',
+  dom: 'Dom',
+}
 
 function getGreeting(): string {
   const hours = new Date().getHours()
@@ -27,6 +51,26 @@ export function HomeScreen() {
   const { order } = useOrderTracking()
   const { unreadCount } = useNotifBadge()
   const [isCutoff, setIsCutoff] = useState(false)
+
+  const creditBalance = user?.creditBalance ?? 0
+
+  // Dados reais de agendamento para NextDays (GET /schedules/me via useSchedule)
+  const { weeklyQty, isLoading: scheduleLoading } = useSchedule(creditBalance)
+
+  // Próximos 5 dias a partir de amanhã (BRT)
+  const nextDays = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date()
+    d.setDate(d.getDate() + i + 1)
+    const key = DAY_KEY_MAP[d.getDay()]
+    return {
+      abbr: DAY_ABBR[key],
+      dayNum: d.getDate(),
+      qty: weeklyQty?.[key] ?? 0,
+      key,
+    }
+  })
+
+  const hasSchedule = Object.values(weeklyQty).some((v) => v > 0)
 
   useEffect(() => {
     // Verificar status de corte ao montar — endpoint público, sem token
@@ -159,11 +203,11 @@ export function HomeScreen() {
 
       {/* Credit Balance Card */}
       <CreditBalanceCard
-        creditBalance={user?.creditBalance ?? 0}
+        creditBalance={creditBalance}
         isLoading={false}
       />
 
-      {/* TodayDelivery — funcional */}
+      {/* TodayDelivery — funcional com 3 estados: SCHEDULED / OUT_FOR_DELIVERY / DELIVERED */}
       <div
         onClick={() => navigate('/client/pedidos')}
         role="button"
@@ -288,6 +332,17 @@ export function HomeScreen() {
         )}
       </div>
 
+      {/* BannerInsuficiente (CRED-09 frontend) — exibido quando creditBalance === 0 */}
+      {creditBalance === 0 && (
+        <BannerInsuficiente
+          saldo={0}
+          requerido={1}
+          onComprar={() => navigate('/client/creditos')}
+          onAjustar={() => {}}
+          hideAjustar={true}
+        />
+      )}
+
       {/* Quick Actions */}
       <div
         style={{
@@ -363,7 +418,7 @@ export function HomeScreen() {
         </div>
       </div>
 
-      {/* Next Days Placeholder */}
+      {/* Próximas Entregas — dados reais do agendamento semanal (GET /schedules/me) */}
       <div
         style={{
           background: 'var(--color-surface)',
@@ -377,21 +432,20 @@ export function HomeScreen() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: 8,
+            marginBottom: 12,
           }}
         >
           <p
             style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: 'var(--color-text-ter)',
-              letterSpacing: '0.04em',
+              fontFamily: 'var(--font-display)',
+              fontSize: 16,
+              fontWeight: 700,
+              color: 'var(--color-text)',
+              letterSpacing: '-0.01em',
               margin: 0,
-              textTransform: 'uppercase' as const,
             }}
           >
-            PRÓXIMAS ENTREGAS
+            Próximas entregas
           </p>
           <button
             onClick={() => navigate('/client/agenda')}
@@ -409,16 +463,107 @@ export function HomeScreen() {
             Editar agenda
           </button>
         </div>
-        <p
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: 14,
-            color: 'var(--color-text-sec)',
-            margin: 0,
-          }}
-        >
-          Configure sua agenda para ver as próximas entregas
-        </p>
+
+        {scheduleLoading ? (
+          /* Placeholder durante carregamento */
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: 70,
+                  borderRadius: 16,
+                  background: 'var(--color-surface-2)',
+                }}
+              />
+            ))}
+          </div>
+        ) : !hasSchedule ? (
+          /* Sem agendamento configurado */
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 14,
+              color: 'var(--color-text-sec)',
+              margin: 0,
+            }}
+          >
+            Configure sua agenda para ver as próximas entregas
+          </p>
+        ) : (
+          /* Cards dos próximos 5 dias com dados reais do weeklyQty */
+          <div style={{ display: 'flex', gap: 8 }}>
+            {nextDays.map((day) => (
+              <div
+                key={day.key + day.dayNum}
+                style={{
+                  flex: 1,
+                  borderRadius: 16,
+                  padding: '12px 0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'var(--color-surface-2)',
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: 'var(--color-text-ter)',
+                  }}
+                >
+                  {day.abbr}
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 20,
+                    fontWeight: 800,
+                    color: 'var(--color-text)',
+                    lineHeight: 1,
+                  }}
+                >
+                  {day.dayNum}
+                </span>
+                {day.qty > 0 ? (
+                  <div
+                    style={{
+                      background: 'var(--color-gold)',
+                      borderRadius: 99,
+                      padding: '2px 6px',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        color: 'var(--color-espresso)',
+                      }}
+                    >
+                      {day.qty} pão
+                    </span>
+                  </div>
+                ) : (
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      color: 'var(--color-text-ter)',
+                    }}
+                  >
+                    folga
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
