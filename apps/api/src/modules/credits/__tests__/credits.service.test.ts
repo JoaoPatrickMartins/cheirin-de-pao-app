@@ -99,4 +99,31 @@ describe('CreditsService [CRED-03, CRED-04]', () => {
       })
     })
   })
+
+  describe('getPricing [CRED-04]', () => {
+    it('retorna avulsoLimite e avulsoUnit a partir das configuracoes do banco', async () => {
+      const mockFastify = createMockFastify()
+      ;(mockFastify.prisma.setting.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { key: 'avulsoLimite', value: '10' },
+        { key: 'avulsoUnit', value: '1.50' },
+      ])
+
+      const service = new CreditsService(mockFastify)
+      const result = await service.getPricing()
+
+      expect(result.avulsoLimite).toBe(10)
+      expect(result.avulsoUnit).toBe(1.5)
+    })
+
+    it('retorna zeros quando as configuracoes nao existem no banco', async () => {
+      const mockFastify = createMockFastify()
+      ;(mockFastify.prisma.setting.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([])
+
+      const service = new CreditsService(mockFastify)
+      const result = await service.getPricing()
+
+      expect(result.avulsoLimite).toBe(0)
+      expect(result.avulsoUnit).toBe(0)
+    })
+  })
 })
