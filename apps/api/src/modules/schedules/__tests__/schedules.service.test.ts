@@ -15,7 +15,7 @@ vi.mock('@onesignal/node-onesignal', () => {
       return { createNotification: createNotificationMock }
     }),
     Notification: vi.fn().mockImplementation(function () {
-      return { app_id: '', include_subscription_ids: [], headings: {}, contents: {}, additionalData: {} }
+      return { app_id: '', include_subscription_ids: [], headings: {}, contents: {}, url: '' }
     }),
     _createNotificationMock: createNotificationMock,
   }

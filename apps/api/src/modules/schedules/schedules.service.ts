@@ -325,7 +325,7 @@ export class SchedulesService {
         if (consumoSemanal === 0) continue
         if (user.creditBalance >= consumoSemanal) continue
 
-        // Enviar push de crédito insuficiente (D-11 — deep link via additionalData.screen)
+        // Enviar push de crédito insuficiente (D-11 — deep link via url)
         if (user.oneSignalPlayerId) {
           try {
             const osClient = createOsClient()
@@ -336,7 +336,7 @@ export class SchedulesService {
             notification.contents = {
               pt: `Você tem ${user.creditBalance} crédito(s) e sua semana precisa de ${consumoSemanal}. Recarregue agora antes que faltem pães!`,
             }
-            notification.additionalData = { screen: 'creditos' }
+            notification.url = '/client/creditos'
             await osClient.createNotification(notification)
           } catch (pushErr) {
             this.fastify.log.warn(
