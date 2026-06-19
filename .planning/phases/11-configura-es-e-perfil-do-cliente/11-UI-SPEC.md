@@ -37,6 +37,7 @@ Declared values (multiples of 4 only):
 |-------|-------|-------|
 | xs | 4px | Gap entre ícone e label no tab bar; gap interno de icon+text em linha |
 | sm | 8px | Espaçamento entre campos inline; gap entre ícone e texto em botões de ação |
+| sm+ | 12px | Gap entre botões lado a lado no dialog (Cancelar / Confirmar mudança); padding interno de toast e banner |
 | md | 16px | Padding horizontal padrão de campos de formulário; gap entre label e campo |
 | lg | 24px | Padding horizontal de seções e tela; padding vertical de seção dentro de card |
 | xl | 32px | Separação entre seções de configuração (Dados Pessoais → Contato → Condomínio) |
@@ -57,14 +58,16 @@ Exceções (componentes existentes — não replicar em novos componentes):
 
 | Role | Size | Weight | Line Height | Font | Usage |
 |------|------|--------|-------------|------|-------|
-| Body | 15px (`--text-base`) | 400 (regular) | 1.5 | Hanken Grotesk | Valores de campos, texto descritivo de seção, corpo de dialogs |
-| Label | 12.5px (`--text-sm`) | 600 (semibold) | 1.4 | Hanken Grotesk | Labels acima de campos, labels de tab bar, captions de seção, texto auxiliar de CPF bloqueado |
+| Body | 15px (`--text-base`) | 400 (regular) | 1.5 | Hanken Grotesk | Valores de campos, texto descritivo de seção, corpo de dialogs, texto de toast, texto de banner |
+| Label | 12.5px (`--text-sm`) | 600 (semibold) | 1.4 | Hanken Grotesk | Labels acima de campos, captions de seção, texto auxiliar de CPF bloqueado, step indicator ("Passo 1 de 2"), texto de erro inline abaixo de campos e botões |
 | Heading | 21px (`--text-xl`) | 600 (semibold) | 1.2 | Bricolage Grotesque | Título da AppBar da tela ("Perfil" / "Editar contato") |
 | Display | 32px (`--text-3xl`) | 600 (semibold) | 1.1 | Bricolage Grotesque | Não utilizado nesta fase |
 
 **Letter-spacing do heading:** `-0.02em` (padrão existente em ScheduleScreen e HomeScreen).
 
 **Regra de pesos:** somente 2 pesos em uso — 400 (body) e 600 (labels, headings e botões). Peso 700 não é utilizado nesta fase. Bricolage Grotesque 600 renderiza visualmente próximo ao 700, mantendo consistência com botões.
+
+**Nota — tab bar label:** O label "Perfil" no tab bar exibido a ~10.5px é herança do componente `ClientTabBar` existente (tamanho herdado via CSS do componente, não uma role tipográfica nova). Não constitui um 5º tamanho de fonte — é o mesmo token `--text-sm` (12.5px) renderizado em espaço comprimido pelo flex layout de 5 tabs. Não alterar o CSS do tab bar para conformar: o label herda o padrão existente como os valores de espaçamento 38px/3px/6px.
 
 ---
 
@@ -129,8 +132,8 @@ ScrollArea (padding horizontal 16px)
     Campo: Data de nascimento (editável)
     Campo: CPF (readonly — fundo surface-2, cursor not-allowed)
   Card — Contato
-    Linha: Telefone (label + valor ou "Não informado") + botão 'Editar' (chevR)
-    Linha: E-mail (label + valor ou "Não informado") + botão 'Editar' (chevR)
+    Linha: Telefone (label + valor ou "Não informado") + botão 'Editar contato' (chevR)
+    Linha: E-mail (label + valor ou "Não informado") + botão 'Editar contato' (chevR)
   Botão "Salvar dados" (CTA primário — span toda a largura)
   ─────────────────────
   Card — Condomínio
@@ -171,7 +174,7 @@ ChannelSelector (SMS / E-mail) — reutilizar componente existente
 Campo de input (phone ou email conforme canal selecionado)
 ─────────────────────
 Botão "Enviar código" (CTA primário, disabled até campo preenchido)
-Erro inline: texto 13px color '#C0392B' abaixo do botão
+Erro inline: texto 12.5px (`--text-sm`) color '#C0392B' abaixo do botão
 ```
 
 **Layout — Step 2 (OTP):**
@@ -226,7 +229,7 @@ Erro inline abaixo do botão
 | Label campo bloco | `Bloco / Torre` |
 | Botão CTA dados pessoais | `Salvar dados` |
 | Botão CTA condomínio | `Salvar endereço` |
-| Botão de linha de contato | `Editar` |
+| Botão de linha de contato | `Editar contato` |
 | Botão sair | `Sair` |
 | Step 1 — heading | `Qual é o novo contato?` |
 | Step 1 — subtitle | `Você receberá um código de verificação.` |
@@ -249,6 +252,8 @@ Erro inline abaixo do botão
 | **Dialog — botão confirmar** | `Confirmar mudança` |
 | **Banner ScheduleScreen** | `Você mudou de condomínio. Configure sua nova agenda semanal.` |
 
+**Nota — "Editar contato":** O botão nas linhas de contato usa `Editar contato` (verbo + substantivo). Em mobile com layout de linha comprimida, o truncamento natural do flex não é esperado pois "Editar contato" ocupa ~14 caracteres em 12.5px; caso o espaço seja insuficiente em testes reais, reduzir para `Editar` como exceção de contexto visual declarada — o contexto da linha (label "Telefone" / "E-mail") fornece o substantivo implicitamente.
+
 ---
 
 ## Interactions e Estados
@@ -260,7 +265,7 @@ Erro inline abaixo do botão
 | Default | border 1px `--color-border`, radius `--radius-field` 14px, bg `--color-surface` |
 | Focus | border 1.5px `--color-accent` |
 | Readonly (CPF) | bg `--color-surface-2`, cursor `not-allowed`, opacity 0.7 |
-| Erro | border 1.5px `#C0392B`; texto de erro 12.5px `#C0392B` abaixo do campo |
+| Erro | border 1.5px `#C0392B`; texto de erro 12.5px (`--text-sm`) `#C0392B` abaixo do campo |
 | Disabled (botão CTA) | opacity 0.45, cursor `not-allowed` |
 
 ### Botão CTA primário (padrão existente)
@@ -289,16 +294,16 @@ Erro inline abaixo do botão
 - Máximo de largura: `calc(100vw - 48px)`
 - Botão "Cancelar": secundário — bg `--color-surface-2`, texto `--color-text-sec`, radius `--radius-btn`
 - Botão "Confirmar mudança": primário — bg `--color-espresso`, texto `--color-primary-btn-text`
-- Botões lado a lado em linha (gap 12px)
+- Botões lado a lado em linha (gap 12px — ver token `sm+` na tabela de espaçamento)
 
 ### Toast de feedback
 
 Padrão existente (idêntico ao ScheduleScreen):
 - Posição: `fixed`, `top: 16px`, `left: 50%`, `transform: translateX(-50%)`
 - Fundo: `--color-espresso`
-- Texto: `--color-primary-btn-text`, 14px, weight 600
+- Texto: `--color-primary-btn-text`, 15px (`--text-base`), weight 600
 - Radius: 12px
-- Padding: `12px 16px`
+- Padding: `12px 16px` (gap 12px — ver token `sm+` na tabela de espaçamento)
 - Auto-dismiss: 2500ms
 - z-index: 9999
 
@@ -306,7 +311,7 @@ Padrão existente (idêntico ao ScheduleScreen):
 
 - Transição entre steps: fade + translateY(-8px) para cima (150ms ease-out)
 - Sem animação de slide horizontal — não há sensação de "próxima página"
-- Step indicator ("Passo 1 de 2"): texto 12.5px, `--color-text-sec`
+- Step indicator ("Passo 1 de 2"): texto 12.5px (`--text-sm`), `--color-text-sec`
 
 ---
 
@@ -326,7 +331,7 @@ Modificação no `ClientTabBar.tsx`:
 - Cor label ativo: `var(--color-accent)` (padrão existente)
 - Peso label ativo: 600; inativo: 600 (padrão existente — sem distinção de peso entre estados)
 
-Ao expandir de 4 para 5 tabs: cada tab recebe `flex: 1`. Com 5 tabs, largura de cada tab cai de ~25% para ~20% — espaço suficiente para label de 6 caracteres ("Perfil") em 10.5px.
+Ao expandir de 4 para 5 tabs: cada tab recebe `flex: 1`. Com 5 tabs, largura de cada tab cai de ~25% para ~20% — espaço suficiente para label de 6 caracteres ("Perfil") no tamanho herdado do componente existente. O tamanho de fonte do tab label é herdado do `ClientTabBar` CSS existente e não constitui role tipográfica nova (ver nota em Typography).
 
 ---
 
@@ -340,9 +345,9 @@ Visual do banner (padrão `BannerInsuficiente` como referência):
 - Fundo: `--color-gold-soft` (`#F3DDA6`)
 - Borda esquerda: 3px solid `--color-accent`
 - Ícone: `alert` (cor `--color-accent`)
-- Texto: 14px, `--color-text`, weight 600
+- Texto: 15px (`--text-base`), `--color-text`, weight 600
 - Radius: 12px
-- Padding: `12px 16px`
+- Padding: `12px 16px` (gap 12px — ver token `sm+` na tabela de espaçamento)
 - O banner desaparece após o usuário salvar nova agenda com pelo menos 1 dia configurado
 
 ---
