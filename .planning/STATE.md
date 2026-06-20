@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
-status: "Phase 12 concluída. Próximo: /gsd:execute-phase 13"
-last_updated: "2026-06-20T02:34:29.793Z"
-last_activity: 2026-06-19
+status: "Phase 13 concluída. Próximo: /gsd:execute-phase 14"
+last_updated: "2026-06-20T03:00:00.000Z"
+last_activity: 2026-06-20
 progress:
   total_phases: 14
   completed_phases: 13
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele precise fazer nada — o sistema cuida dos créditos, dos agendamentos e das notificações automaticamente.
-**Current focus:** Phase 13 — Horários por Condomínio
+**Current focus:** Phase 14 — Agenda Multi-Slot
 
 ## Current Position
 
-Phase: 12 (cart-es-salvos) — COMPLETE (2026-06-19)
-Next: Phase 13 — Horários por Condomínio (SLOT-01..07)
-Status: Phase 12 concluída. Próximo: /gsd:execute-phase 13
-Last activity: 2026-06-19
+Phase: 13 (hor-rios-por-condom-nio) — COMPLETE (2026-06-20)
+Next: Phase 14 — Agenda Multi-Slot (MSCHED-01..04)
+Status: Phase 13 concluída. Próximo: /gsd:execute-phase 14
+Last activity: 2026-06-20
 
 ## v1.0 Status Summary
 
@@ -50,7 +50,7 @@ Last activity: 2026-06-19
 | 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Needs Review (human UAT) |
 | 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Complete (2026-06-19) |
 | 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Complete (2026-06-19) |
-| 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Not started |
+| 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Complete (2026-06-20) |
 | 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
 
 ## Performance Metrics
@@ -116,13 +116,13 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Executar script de backfill de `deliverySlots` nos condomínios existentes antes de iniciar Phase 13
+- Antes do deploy: executar `npm run migrate:slots` no Atlas (order: migrate → generate → db push → deploy API)
 - Verificar se `CourierScreen` precisa filtrar por slot em `GET /courier/orders/today` após Phase 14
 
 ### Blockers/Concerns
 
 - Phase 10 concluída — schema v1.1 aplicado, desbloqueando Phases 11, 12, 13, 14
-- Phase 13 depende de script de migração ser executado no Atlas antes do deploy — documentar no plano
+- Phase 13 completa — script migrate:slots deve ser executado no Atlas antes do deploy
 
 ## Deferred Items
 
@@ -148,6 +148,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-20T02:34:29.781Z
-Resume with: `/gsd:execute-phase 12`
-Next phase: 12-cartoes-salvos (planned — ready to execute)
+Last session: 2026-06-20T03:00:00.000Z
+Resume with: `/gsd:execute-phase 14`
+Next phase: 14-agenda-multi-slot (planned — ready to execute)
