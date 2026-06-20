@@ -81,13 +81,21 @@ export class SavedCardsService {
       throw { error: 'Cliente sem conta no Mercado Pago', status: 400 }
     }
 
-    // Remove no MP ANTES do Prisma — se MP falhar, não deleta localmente
-    await this.customerCardApi.remove({
-      customerId: user.mpCustomerId,
-      id: card.mpCardId,
-    })
+    // CR-03: Remove no MP ANTES do Prisma — envolvido em try/catch para evitar que erros
+    // do SDK do MP (inclusive síncronos) vazem detalhes internos para o cliente.
+    try {
+      await this.customerCardApi.remove({
+        customerId: user.mpCustomerId,
+        id: card.mpCardId,
+      })
+    } catch {
+      // Log sanitizado — nunca expor campos internos da resposta MP em logs externos
+      this.fastify.log.error({ mpCardId: card.mpCardId }, 'MP card removal failed')
+      throw { error: 'Não foi possível remover o cartão no Mercado Pago. Tente novamente.', status: 502 }
+    }
 
-    await this.repo.deleteById(cardId)
+    // WR-04: passa userId para que o repositório inclua no predicado do delete (defesa em profundidade)
+    await this.repo.deleteById(cardId, userId)
   }
 
   // ── createCardWithSaved ───────────────────────────────────────────────────

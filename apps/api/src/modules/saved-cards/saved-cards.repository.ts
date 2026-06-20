@@ -36,14 +36,17 @@ export class SavedCardsRepository {
         where: { userId },
         data: { isDefault: false },
       }),
+      // WR-03: inclui userId no predicado do update para defesa em profundidade —
+      // impede atualizar cartão de outro usuário mesmo que a guarda de serviço seja contornada
       this.prisma.savedCard.update({
-        where: { id: cardId },
+        where: { id: cardId, userId },
         data: { isDefault: true },
       }),
     ])
   }
 
-  deleteById(id: string) {
-    return this.prisma.savedCard.delete({ where: { id } })
+  // WR-04: recebe userId e inclui no predicado do delete para defesa em profundidade
+  deleteById(id: string, userId: string) {
+    return this.prisma.savedCard.delete({ where: { id, userId } })
   }
 }
