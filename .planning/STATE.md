@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
-status: executing
-last_updated: "2026-06-19T00:00:00.000Z"
-last_activity: 2026-06-19
+status: planning
+last_updated: "2026-06-20T01:00:00.000Z"
+last_activity: 2026-06-20
 progress:
   total_phases: 14
   completed_phases: 11
-  total_plans: 57
-  completed_plans: 59
+  total_plans: 60
+  completed_plans: 57
   percent: 79
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele precise fazer nada — o sistema cuida dos créditos, dos agendamentos e das notificações automaticamente.
-**Current focus:** Phase 11 — configurações e perfil do cliente
+**Current focus:** Phase 12 — cartões salvos
 
 ## Current Position
 
-Phase: 11 (configurações e perfil do cliente) — COMPLETE (2026-06-19)
-Next: Phase 12 (cartões salvos)
-Status: Ready to plan Phase 12
-Last activity: 2026-06-19
+Phase: 12 (cartões salvos) — PLANNED (2026-06-20)
+Next: Execute Phase 12
+Status: Ready to execute Phase 12 (3 plans: Wave 1 → 2 → 3)
+Last activity: 2026-06-20
 
 ## v1.0 Status Summary
 
@@ -49,7 +49,7 @@ Last activity: 2026-06-19
 | 9. Finalização Rastreamento | Cron 21h + TrackingScreen + NotificationsScreen + badge | ACOMP-01..05 | Complete (2026-06-19) |
 | 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Needs Review (human UAT) |
 | 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Complete (2026-06-19) |
-| 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Not started |
+| 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Planned (2026-06-20) |
 | 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Not started |
 | 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
 
@@ -147,6 +147,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-19
-Resume with: `/gsd:plan-phase 12`
-Next phase: 12-cartoes-salvos (not planned)
+Last session: 2026-06-20T01:00:00.000Z
+Resume with: `/gsd:execute-phase 12`
+Next phase: 12-cartoes-salvos (planned — ready to execute)

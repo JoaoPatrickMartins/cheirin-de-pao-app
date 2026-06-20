@@ -403,7 +403,20 @@ Plans:
   4. Nas configurações, cliente vê seus cartões salvos (até 3), pode definir um como padrão e remover cartões existentes
   5. Fluxo de cartão salvo funciona tanto para compra de combo quanto para compra personalizada
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 12-01-PLAN.md — Módulo backend saved-cards (schema + repository + service + controller + route) + expansão payments.service (savedCardId + saveCard:true) + wiring server.ts + testes unitários
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 12-02-PLAN.md — SavedCardItem + SavedCardsList + CardPaymentScreen refatorada (Modo A: cartões salvos / Modo B: sem cartões)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 12-03-PLAN.md — SavedCardsSection na SettingsScreen + checkpoint humano CARD-01..06
+
 **UI hint**: yes
 
 ### Phase 13: Horários por Condomínio
@@ -455,6 +468,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
-| 12. Cartões Salvos | 0/TBD | Not started | |
+| 12. Cartões Salvos | 0/3 | Planned | |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |
