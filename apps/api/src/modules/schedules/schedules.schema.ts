@@ -12,10 +12,20 @@ export const WeeklyQtySchema = z.object({
 
 export type WeeklyQty = z.infer<typeof WeeklyQtySchema>
 
-export const ScheduleBodySchema = z.object({
-  weeklyQty: WeeklyQtySchema,
-  deliveryTime: z.enum(['06:30', '07:00', '07:30', '08:00']),
-  notifyReconfigure: z.boolean().default(false),
-})
+export const DaysSchema = z.record(z.string(), WeeklyQtySchema)
+
+export const ScheduleBodySchema = z
+  .object({
+    days: DaysSchema.optional(),
+    weeklyQty: WeeklyQtySchema.optional(),
+    deliveryTime: z.string().optional(),
+    notifyReconfigure: z.boolean().default(false),
+  })
+  .refine(
+    (data) =>
+      data.days !== undefined ||
+      (data.weeklyQty !== undefined && data.deliveryTime !== undefined),
+    { message: 'Forneça days (multi-slot) ou weeklyQty+deliveryTime (single-slot)' },
+  )
 
 export type ScheduleBody = z.infer<typeof ScheduleBodySchema>
