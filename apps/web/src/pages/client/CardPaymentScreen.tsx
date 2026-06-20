@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { CardPayment } from '@mercadopago/sdk-react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../../components/brand/Icon'
+import { SavedCardsList } from '../../components/client/SavedCardsList'
+import type { SavedCard } from '../../components/client/SavedCardItem'
 
 interface CardState {
   comboId?: string
@@ -16,14 +18,102 @@ export function CardPaymentScreen() {
   const state = (location.state as CardState | null) ?? { amount: 0 }
   const { comboId, customQuantity, amount } = state
 
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // Estado do Brick (preservado)
+  const [brickLoading, setBrickLoading] = useState(true)
+  const [brickError, setBrickError] = useState<string | null>(null)
 
-  const handleSubmit = async (formData: Record<string, unknown>) => {
-    setError(null)
+  // Estado dos cartões salvos (novo — Modo A)
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([])
+  const [loadingCards, setLoadingCards] = useState(true)
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+  const [addCardExpanded, setAddCardExpanded] = useState(false)
+  // Modo A (Brick expandido): checked por padrão
+  const [saveForLater, setSaveForLater] = useState(true)
+  // Modo B (sem cartões salvos): unchecked por padrão (conforme spec)
+  const [saveModeBCard, setSaveModeBCard] = useState(false)
+  const [cvv, setCvv] = useState('')
+  const [cvvError, setCvvError] = useState<string | null>(null)
+
+  // Estado de pagamento
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = (message: string) => {
+    setToast(message)
+    setTimeout(() => setToast(null), 2500)
+  }
+
+  // Carregar cartões salvos na montagem
+  useEffect(() => {
+    const loadCards = async () => {
+      try {
+        const res = await apiFetch('/users/me/cards')
+        if (res.ok) {
+          const cards = (await res.json()) as SavedCard[]
+          setSavedCards(cards)
+          // Pré-selecionar: cartão padrão ou primeiro
+          const defaultCard = cards.find((c) => c.isDefault)
+          const firstCard = cards[0]
+          const toSelect = defaultCard ?? firstCard
+          if (toSelect) setSelectedCardId(toSelect.id)
+        }
+        // Se erro: permitir que o Brick apareça diretamente (Modo B degradado)
+      } catch {
+        // Falha silenciosa — Modo B
+      } finally {
+        setLoadingCards(false)
+      }
+    }
+    void loadCards()
+  }, [])
+
+  const hasSavedCards = savedCards.length > 0
+
+  // Pagamento com cartão salvo
+  const handlePayWithSavedCard = async () => {
+    if (isProcessing) return
+    if (!selectedCardId) return
+
+    if (cvv.length < 3) {
+      setCvvError('Informe o código de segurança')
+      return
+    }
+
+    setIsProcessing(true)
+    setBrickError(null)
+    const cvvToSend = cvv
+    setCvv('') // T-12-07: limpar CVV imediatamente após disparar o POST
+
     try {
-      // O Brick coleta dados do pagador em formData.payer (e-mail + identification/CPF) —
-      // encaminhamos para o backend. Em teste, o e-mail deve ser diferente do da conta MP.
+      const res = await apiFetch('/payments/card', {
+        method: 'POST',
+        body: JSON.stringify({
+          savedCardId: selectedCardId,
+          securityCode: cvvToSend,
+          comboId,
+          customQuantity,
+        }),
+      })
+
+      if (res.ok) {
+        const comboQty = customQuantity ?? 1
+        navigate('/client/creditos/sucesso', { state: { quantity: comboQty } })
+      } else {
+        const err = (await res.json()) as { error?: string }
+        showToast(err.error ?? 'Erro no pagamento. Verifique os dados e tente novamente.')
+      }
+    } catch {
+      showToast('Algo deu errado. Verifique sua conexão e tente novamente.')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // Pagamento com novo cartão (Brick onSubmit)
+  const handleBrickSubmit = async (formData: Record<string, unknown>) => {
+    setBrickError(null)
+    setIsProcessing(true)
+    try {
       const payer = formData.payer as
         | { email?: string; identification?: { type: string; number: string } }
         | undefined
@@ -38,94 +128,513 @@ export function CardPaymentScreen() {
           payerIdentification: payer?.identification,
           comboId,
           customQuantity,
+          saveCard: hasSavedCards ? saveForLater : saveModeBCard,
         }),
       })
 
       if (res.ok) {
-        // fire-and-forget: salvar token para compra recorrente (D-06)
-        apiFetch('/users/me/card-token', {
-          method: 'PUT',
-          body: JSON.stringify({ token: formData.token }),
-        }).catch(() => {})
-
         const comboQty = customQuantity ?? 1
         navigate('/client/creditos/sucesso', { state: { quantity: comboQty } })
       } else {
         const err = (await res.json()) as { error?: string }
-        setError(err.error ?? 'Erro no pagamento. Tente novamente.')
+        setBrickError(err.error ?? 'Erro no pagamento. Tente novamente.')
       }
     } catch {
-      setError('Algo deu errado. Verifique sua conexão e tente novamente.')
+      setBrickError('Algo deu errado. Verifique sua conexão e tente novamente.')
+    } finally {
+      setIsProcessing(false)
     }
   }
+
+  // Determinar label e ação do CTA
+  const ctaLabel = (() => {
+    if (hasSavedCards && selectedCardId !== null && !addCardExpanded) return 'Pagar com este cartão'
+    if (addCardExpanded && saveForLater) return 'Salvar cartão e pagar'
+    if (!hasSavedCards) return 'Pagar com cartão' // Modo B com Brick
+    return null // "Pagar sem salvar" é renderizado separado
+  })()
+
+  const showPrimaryBtn =
+    (!hasSavedCards) ||
+    (hasSavedCards && selectedCardId !== null && !addCardExpanded) ||
+    (addCardExpanded && saveForLater)
+
+  const showSecondaryBtn =
+    addCardExpanded && !saveForLater
 
   return (
     <div
       style={{
         minHeight: 'calc(100dvh - 56px - env(safe-area-inset-bottom))',
         background: 'var(--color-app-bg)',
-        padding: '20px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 20,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button
-          onClick={() => navigate('/client/creditos')}
-          aria-label="Voltar"
+      {/* Toast */}
+      {toast && (
+        <div
           style={{
-            minHeight: 44,
-            width: 38,
-            height: 38,
+            position: 'fixed',
+            top: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            background: 'var(--color-espresso)',
+            color: '#FBF3E4',
             borderRadius: 12,
-            border: '1.5px solid var(--color-border)',
-            background: 'var(--color-surface-2)',
-            cursor: 'pointer',
-            display: 'grid',
-            placeItems: 'center',
+            padding: '12px 16px',
+            fontFamily: 'var(--font-body)',
+            fontWeight: 600,
+            fontSize: 15,
+            whiteSpace: 'nowrap',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.22)',
           }}
         >
-          <Icon name="arrowL" size={20} color="var(--color-text)" />
-        </button>
-        <h1
+          {toast}
+        </div>
+      )}
+
+      {/* Scroll area */}
+      <div style={{ flex: 1, padding: '20px', paddingBottom: 116, overflowY: 'auto' }}>
+        {/* AppBar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <button
+            onClick={() => navigate('/client/creditos')}
+            aria-label="Voltar"
+            style={{
+              minHeight: 44,
+              width: 38,
+              height: 38,
+              borderRadius: 12,
+              border: '1.5px solid var(--color-border)',
+              background: 'var(--color-surface-2)',
+              cursor: 'pointer',
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="arrowL" size={20} color="var(--color-text)" />
+          </button>
+          <h1
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 600,
+              fontSize: 21,
+              color: 'var(--color-text)',
+              letterSpacing: '-0.02em',
+              margin: 0,
+            }}
+          >
+            Pagamento com cartão
+          </h1>
+        </div>
+
+        <p
           style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 700,
-            fontSize: 21,
-            color: 'var(--color-text)',
-            letterSpacing: '-0.02em',
-            margin: 0,
+            fontFamily: 'var(--font-body)',
+            fontSize: 12,
+            color: 'var(--color-text-ter)',
+            margin: '0 0 24px',
           }}
         >
-          Pagamento com cartão
-        </h1>
+          Pagamento processado com segurança pelo Mercado Pago
+        </p>
+
+        {/* ── MODO A: cliente tem cartões salvos ── */}
+        {hasSavedCards && !loadingCards && (
+          <>
+            {/* Seção: Seus cartões */}
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
+                fontWeight: 600,
+                letterSpacing: '0.04em',
+                color: 'var(--color-text-sec)',
+                margin: '0 0 12px',
+              }}
+            >
+              SEUS CARTÕES
+            </p>
+
+            <SavedCardsList
+              cards={savedCards}
+              loading={false}
+              mode="select"
+              selectedCardId={selectedCardId}
+              onSelect={(id) => {
+                setSelectedCardId(id)
+                setAddCardExpanded(false)
+              }}
+            />
+
+            {/* CVV input — exibido abaixo da lista quando cartão salvo selecionado */}
+            {selectedCardId !== null && !addCardExpanded && (
+              <div style={{ marginTop: 16 }}>
+                <p
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    color: 'var(--color-text-sec)',
+                    margin: '0 0 8px',
+                  }}
+                >
+                  Código de segurança (CVV)
+                </p>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={cvv}
+                  placeholder="•••"
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '')
+                    setCvv(val)
+                    if (cvvError) setCvvError(null)
+                  }}
+                  style={{
+                    width: 100,
+                    border: cvvError
+                      ? '1.5px solid #C0392B'
+                      : '1.5px solid var(--color-border)',
+                    borderRadius: 'var(--radius-field)',
+                    padding: '12px 14px',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 15,
+                    color: 'var(--color-text)',
+                    background: 'var(--color-surface)',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                {cvvError && (
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: 12.5,
+                      color: '#C0392B',
+                      margin: '6px 0 0',
+                    }}
+                  >
+                    {cvvError}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Separador "ou" */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                margin: '20px 0',
+              }}
+            >
+              <div style={{ flex: 1, height: 1, background: 'var(--color-border-2)' }} />
+              <span
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  color: 'var(--color-text-ter)',
+                }}
+              >
+                ou
+              </span>
+              <div style={{ flex: 1, height: 1, background: 'var(--color-border-2)' }} />
+            </div>
+
+            {/* Card: Adicionar novo cartão (colapsável) */}
+            <div
+              role="button"
+              aria-expanded={addCardExpanded}
+              tabIndex={0}
+              onClick={() => {
+                if (!addCardExpanded) {
+                  setAddCardExpanded(true)
+                  setSelectedCardId(null)
+                  setCvv('')
+                  setCvvError(null)
+                }
+              }}
+              onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && !addCardExpanded) {
+                  setAddCardExpanded(true)
+                  setSelectedCardId(null)
+                  setCvv('')
+                  setCvvError(null)
+                }
+              }}
+              style={{
+                borderRadius: 22,
+                background: 'var(--color-surface)',
+                border: addCardExpanded
+                  ? '2px solid var(--color-accent)'
+                  : '2px solid var(--color-border)',
+                boxShadow: 'var(--shadow-soft)',
+                overflow: 'hidden',
+                cursor: addCardExpanded ? 'default' : 'pointer',
+                transition: 'border 150ms ease-out',
+              }}
+            >
+              {/* Header do card — sempre visível */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 16,
+                }}
+              >
+                <Icon name="plus" size={24} color="var(--color-accent)" />
+                <span
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 15,
+                    color: 'var(--color-text)',
+                  }}
+                >
+                  Adicionar novo cartão
+                </span>
+              </div>
+
+              {/* Conteúdo expandido: Brick + checkbox */}
+              {addCardExpanded && (
+                <div style={{ padding: '0 16px 16px' }}>
+                  {brickError && (
+                    <p
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 14,
+                        color: '#C0392B',
+                        marginBottom: 12,
+                      }}
+                    >
+                      {brickError}
+                    </p>
+                  )}
+                  <div style={{ borderRadius: 16 }}>
+                    <CardPayment
+                      initialization={{ amount }}
+                      onSubmit={handleBrickSubmit as unknown as Parameters<typeof CardPayment>[0]['onSubmit']}
+                      onError={() =>
+                        setBrickError(
+                          'Erro ao carregar o formulário. Recarregue a página e tente novamente.',
+                        )
+                      }
+                      onReady={() => setBrickLoading(false)}
+                    />
+                  </div>
+                  {brickLoading && (
+                    <p
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 14,
+                        color: 'var(--color-text-sec)',
+                        marginTop: 8,
+                      }}
+                    >
+                      Carregando formulário...
+                    </p>
+                  )}
+                  {/* Checkbox salvar */}
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      marginTop: 16,
+                      cursor: 'pointer',
+                      minHeight: 44,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={saveForLater}
+                      onChange={(e) => setSaveForLater(e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: 'var(--color-accent)', cursor: 'pointer' }}
+                    />
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 14,
+                        color: 'var(--color-text-sec)',
+                      }}
+                    >
+                      Salvar para compras futuras
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ── MODO A: loading dos cartões ── */}
+        {loadingCards && (
+          <SavedCardsList
+            cards={[]}
+            loading={true}
+            mode="select"
+          />
+        )}
+
+        {/* ── MODO B: sem cartões salvos (Brick direto) ── */}
+        {!loadingCards && !hasSavedCards && (
+          <>
+            {brickError && (
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 14,
+                  color: '#C0392B',
+                  marginBottom: 12,
+                }}
+              >
+                {brickError}
+              </p>
+            )}
+            {brickLoading && (
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 14,
+                  color: 'var(--color-text-sec)',
+                }}
+              >
+                Carregando formulário de pagamento...
+              </p>
+            )}
+            <div style={{ borderRadius: 16 }}>
+              <CardPayment
+                initialization={{ amount }}
+                onSubmit={handleBrickSubmit as unknown as Parameters<typeof CardPayment>[0]['onSubmit']}
+                onError={() =>
+                  setBrickError(
+                    'Erro ao carregar o formulário. Recarregue a página e tente novamente.',
+                  )
+                }
+                onReady={() => setBrickLoading(false)}
+              />
+            </div>
+            {/* Checkbox salvar — Modo B, unchecked por padrão */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                marginTop: 16,
+                cursor: 'pointer',
+                minHeight: 44,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={saveModeBCard}
+                onChange={(e) => setSaveModeBCard(e.target.checked)}
+                style={{ width: 18, height: 18, accentColor: 'var(--color-accent)', cursor: 'pointer' }}
+              />
+              <span
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 14,
+                  color: 'var(--color-text-sec)',
+                }}
+              >
+                Salvar este cartão para compras futuras
+              </span>
+            </label>
+          </>
+        )}
       </div>
 
-      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: 0 }}>
-        Pagamento processado com segurança pelo Mercado Pago
-      </p>
+      {/* ── CTA bar fixa — padrão CombosScreen.tsx ── */}
+      {!loadingCards && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 'calc(56px + env(safe-area-inset-bottom))',
+            left: 0,
+            right: 0,
+            padding: '10px 20px 12px',
+            background: 'var(--color-app-bg)',
+            borderTop: '1px solid var(--color-border-2)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 0,
+          }}
+        >
+          {/* Botão primário */}
+          {showPrimaryBtn && (
+            <button
+              onClick={() => {
+                if (!hasSavedCards || (addCardExpanded && saveForLater)) {
+                  // Modo B ou Brick expandido com salvar — acionar Brick submit não é possível
+                  // diretamente; o Brick tem seu próprio submit handler via onSubmit
+                  // Nada a fazer aqui — o Brick controla o submit
+                  return
+                }
+                // Modo A com cartão salvo selecionado
+                void handlePayWithSavedCard()
+              }}
+              disabled={isProcessing}
+              style={{
+                width: '100%',
+                minHeight: 52,
+                borderRadius: 'var(--radius-btn)',
+                border: 'none',
+                background: 'var(--color-accent)',
+                color: 'var(--color-primary-btn-text)',
+                fontFamily: 'var(--font-display)',
+                fontWeight: 600,
+                fontSize: 15,
+                cursor: isProcessing ? 'default' : 'pointer',
+                opacity: isProcessing ? 0.7 : 1,
+              }}
+            >
+              {isProcessing ? 'Processando...' : ctaLabel}
+            </button>
+          )}
 
-      {isLoading && (
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-sec)' }}>
-          Carregando formulário de pagamento...
-        </p>
+          {/* Botão "Pagar sem salvar" — menor destaque visual (CARD-03) */}
+          {showSecondaryBtn && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 44,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: 'var(--color-text-sec)',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                }}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  // Brick tem seu próprio submit — nada a fazer aqui manualmente
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    // Brick tem seu próprio submit
+                  }
+                }}
+              >
+                Pagar sem salvar
+              </span>
+            </div>
+          )}
+        </div>
       )}
-
-      {error && (
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-accent)' }}>
-          {error}
-        </p>
-      )}
-
-      <div style={{ borderRadius: 16, maxWidth: 390 }}>
-        <CardPayment
-          initialization={{ amount }}
-          onSubmit={handleSubmit as unknown as Parameters<typeof CardPayment>[0]['onSubmit']}
-          onError={() => setError('Erro ao carregar o formulário. Recarregue a página e tente novamente.')}
-          onReady={() => setIsLoading(false)}
-        />
-      </div>
     </div>
   )
 }
