@@ -1,21 +1,27 @@
 /**
- * DeliveryTimeChips — 4 chips de seleção de horário de entrega
+ * DeliveryTimeChips — chips de seleção de horário de entrega
  *
  * Seleção exclusiva (uma opção por vez). Chip ativo usa goldSoft + borda accent.
  * borderRadius: 13px (excepção de alta fidelidade do handoff — não 16px)
  *
- * Requirements: SCHED-02 (salvar deliveryTime no Schedule)
+ * Requirements: SCHED-02 (salvar deliveryTime no Schedule), SLOT-04
  * Source: screens-order.jsx linhas 193–197, 04-UI-SPEC.md seção 2
  */
 
-const DELIVERY_TIMES = ['06:30', '07:00', '07:30', '08:00']
+export interface DeliverySlot {
+  name: string        // "manha" | "tarde"
+  time: string        // "06:30"
+  cutoffTime: string
+  isActive: boolean
+}
 
 interface DeliveryTimeChipsProps {
+  slots: DeliverySlot[]
   value: string
   onChange: (v: string) => void
 }
 
-export default function DeliveryTimeChips({ value, onChange }: DeliveryTimeChipsProps) {
+export default function DeliveryTimeChips({ slots, value, onChange }: DeliveryTimeChipsProps) {
   return (
     <div>
       {/* Label da seção */}
@@ -39,12 +45,12 @@ export default function DeliveryTimeChips({ value, onChange }: DeliveryTimeChips
           marginBottom: 18,
         }}
       >
-        {DELIVERY_TIMES.map((time) => {
-          const isActive = value === time
+        {slots.map((slot) => {
+          const isActive = value === slot.time
           return (
             <button
-              key={time}
-              onClick={() => onChange(time)}
+              key={slot.name}
+              onClick={() => onChange(slot.time)}
               style={{
                 flex: 1,
                 padding: '11px 0',
@@ -62,7 +68,7 @@ export default function DeliveryTimeChips({ value, onChange }: DeliveryTimeChips
                 minHeight: 44,
               }}
             >
-              {time}
+              {slot.time}
             </button>
           )
         })}
