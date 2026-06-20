@@ -400,6 +400,9 @@ export function SettingsScreen() {
           onClick={() => {
             setShowRemoveDialog(false)
             setCardToRemove(null)
+            // WR-06: resetar removingCardId ao fechar pelo backdrop para evitar que o
+            // botão "Remover" fique travado no estado "Removendo..." indefinidamente
+            setRemovingCardId(null)
           }}
           style={{
             position: 'fixed',
