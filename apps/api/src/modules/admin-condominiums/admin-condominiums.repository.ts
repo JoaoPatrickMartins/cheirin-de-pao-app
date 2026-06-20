@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { CreateCondominiumBody, UpdateCondominiumBody } from './admin-condominiums.schema.js'
+import { CreateCondominiumBody, UpdateCondominiumBody, SlotUpdateBody } from './admin-condominiums.schema.js'
 
 /**
  * AdminCondominiumsRepository — acesso ao banco para operações CRUD de condomínios.
@@ -30,5 +30,22 @@ export class AdminCondominiumsRepository {
 
   remove(id: string) {
     return this.prisma.condominium.delete({ where: { id } })
+  }
+
+  async updateSlot(id: string, slotName: string, patch: SlotUpdateBody) {
+    const condo = await this.findById(id)
+    if (!condo) throw { statusCode: 404, message: 'Condomínio não encontrado' }
+
+    const slotExists = condo.deliverySlots.some((s) => s.name === slotName)
+    if (!slotExists) throw { statusCode: 404, message: 'Slot não encontrado' }
+
+    const updatedSlots = condo.deliverySlots.map((s) =>
+      s.name === slotName ? { ...s, ...patch } : s,
+    )
+
+    return this.prisma.condominium.update({
+      where: { id },
+      data: { deliverySlots: updatedSlots },
+    })
   }
 }

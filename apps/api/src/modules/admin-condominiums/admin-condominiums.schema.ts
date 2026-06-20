@@ -23,3 +23,10 @@ export type CreateCondominiumBody = z.infer<typeof CreateCondominiumSchema>
 
 export const UpdateCondominiumSchema = CreateCondominiumSchema.partial()
 export type UpdateCondominiumBody = z.infer<typeof UpdateCondominiumSchema>
+
+export const SlotUpdateSchema = z.object({
+  time: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM esperado').optional(),
+  cutoffTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM esperado').optional(),
+  isActive: z.boolean().optional(),
+})
+export type SlotUpdateBody = z.infer<typeof SlotUpdateSchema>
