@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: Finalização Rastreamento** - Cron de véspera, TrackingScreen, NotificationsScreen e badge na Home (completed 2026-06-19)
 - [x] **Phase 10: Schema v1.1 + Crédito Manual Admin + Logout** - Schema unificado v1.1, crédito manual admin com push, botão de logout para entregador e admin (completed 2026-06-19)
 - [ ] **Phase 11: Configurações e Perfil do Cliente** - Tela de configurações completa: dados pessoais, contato com OTP, condomínio e logout do cliente
-- [ ] **Phase 12: Cartões Salvos** - Fluxo de compra com cartão salvo via MP Customer API, CRUD de cartões nas configurações
+- [x] **Phase 12: Cartões Salvos** - Fluxo de compra com cartão salvo via MP Customer API, CRUD de cartões nas configurações (completed 2026-06-20)
 - [ ] **Phase 13: Horários por Condomínio** - Admin configura 2 slots (manhã/tarde) por condomínio com horários e cortes individuais
 - [ ] **Phase 14: Agenda Multi-Slot** - Cliente agenda quantidade por horário por dia; cron e app entregador ajustados
 
@@ -415,7 +415,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-03-PLAN.md — SavedCardsSection na SettingsScreen + checkpoint humano CARD-01..06
+- [x] 12-03-PLAN.md — SavedCardsSection na SettingsScreen + checkpoint humano CARD-01..06
 
 **UI hint**: yes
 
@@ -468,6 +468,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
-| 12. Cartões Salvos | 2/3 | In Progress|  |
+| 12. Cartões Salvos | 3/3 | Complete   | 2026-06-20 |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |
