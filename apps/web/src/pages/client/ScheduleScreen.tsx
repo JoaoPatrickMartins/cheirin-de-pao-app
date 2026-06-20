@@ -7,14 +7,15 @@
  * Requirements: SCHED-02, SCHED-04, SCHED-05, SCHED-06
  * Source: screens-order.jsx linhas 173–253, 04-UI-SPEC.md seções 1–6
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { useSchedule } from '../../hooks/useSchedule'
 import { Icon } from '../../components/brand/Icon'
 import StepperInline from '../../components/client/StepperInline'
-import DeliveryTimeChips from '../../components/client/DeliveryTimeChips'
+import DeliveryTimeChips, { DeliverySlot } from '../../components/client/DeliveryTimeChips'
 import BannerCobertura from '../../components/client/BannerCobertura'
+import { apiFetch } from '../../lib/apiFetch'
 
 // Dados dos 7 dias da semana
 const DAYS = [
@@ -47,7 +48,25 @@ export function ScheduleScreen() {
     cobre,
   } = useSchedule(creditBalance)
 
+  const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
+
+  useEffect(() => {
+    const fetchSlots = async () => {
+      try {
+        const res = await apiFetch('/client/condominium/slots')
+        if (res.ok) {
+          const data = (await res.json()) as DeliverySlot[]
+          setSlots(data)
+        } else {
+          console.warn('[ScheduleScreen] GET /client/condominium/slots retornou status', res.status)
+        }
+      } catch (err) {
+        console.warn('[ScheduleScreen] Erro ao buscar slots de entrega:', err)
+      }
+    }
+    fetchSlots()
+  }, [])
 
   const handleSave = async () => {
     if (isSaving) return
@@ -185,7 +204,7 @@ export function ScheduleScreen() {
         </p>
 
         {/* Chips de horário de entrega */}
-        <DeliveryTimeChips value={deliveryTime} onChange={setDeliveryTime} />
+        <DeliveryTimeChips slots={slots} value={deliveryTime} onChange={setDeliveryTime} />
 
         {/* Lista de 7 Day-Rows */}
         {isLoading ? (
