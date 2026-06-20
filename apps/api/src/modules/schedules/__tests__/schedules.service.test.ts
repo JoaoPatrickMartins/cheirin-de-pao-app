@@ -870,19 +870,14 @@ describe('SchedulesService', () => {
       })
       ;(fastify2.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
 
-      const createNotificationSpy2 = vi.fn().mockResolvedValue({})
-      vi.mocked(OneSignalModule.DefaultApi).mockImplementationOnce(function () {
-        return { createNotification: createNotificationSpy2 }
-      })
-
       const createAndTrimMock2 = vi.fn().mockResolvedValue(undefined)
       const service2 = new SchedulesService(fastify2)
       ;(service2 as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock2 }
 
       await service2.sendLowCreditNotifications()
 
-      // creditBalance=10 >= consumoSemanal=9 → NÃO deve enviar push
-      expect(createNotificationSpy2).not.toHaveBeenCalled()
+      // creditBalance=10 >= consumoSemanal=9 → NÃO deve enviar push nem persistir Notification
+      expect(createAndTrimMock2).not.toHaveBeenCalled()
     })
   })
 
@@ -1057,19 +1052,14 @@ describe('SchedulesService', () => {
       })
       ;(fastify2.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
 
-      const createNotificationSpy2 = vi.fn().mockResolvedValue({})
-      vi.mocked(OneSignalModule.DefaultApi).mockImplementationOnce(function () {
-        return { createNotification: createNotificationSpy2 }
-      })
-
       const createAndTrimMock2 = vi.fn().mockResolvedValue(undefined)
       const service2 = new SchedulesService(fastify2)
       ;(service2 as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock2 }
 
       await service2.sendLowCreditNotifications()
 
-      // creditBalance=50 >= consumoSemanal=42 → NÃO deve enviar push
-      expect(createNotificationSpy2).not.toHaveBeenCalled()
+      // creditBalance=50 >= consumoSemanal=42 → NÃO deve enviar push nem persistir Notification
+      expect(createAndTrimMock2).not.toHaveBeenCalled()
     })
   })
 })

@@ -32,6 +32,18 @@ function getTomorrowDate(): Date {
   return new Date(now.getTime() + 24 * 60 * 60 * 1000)
 }
 
+// D-09: Helper puro que calcula consumo semanal total independente de modo (multi-slot ou legado)
+function getConsumoSemanal(schedule: { days: unknown; weeklyQty: unknown }): number {
+  if (schedule.days) {
+    const days = schedule.days as Record<string, WeeklyQty>
+    return Object.values(days)
+      .flatMap((wq) => Object.values(wq))
+      .reduce((sum, v) => sum + (v as number), 0)
+  }
+  const wq = schedule.weeklyQty as WeeklyQty
+  return Object.values(wq).reduce((sum, v) => sum + (v as number), 0)
+}
+
 function createOsClient() {
   const configuration = OneSignal.createConfiguration({
     restApiKey: process.env.ONESIGNAL_REST_API_KEY!,
@@ -68,6 +80,71 @@ export class SchedulesService {
 
     for (const schedule of schedules) {
       try {
+        // D-08: Detectar modo multi-slot via schedule.days
+        if (schedule.days) {
+          // MODO MULTI-SLOT: iterar por slot — transação independente por slot (T-14-03-02)
+          const days = schedule.days as Record<string, WeeklyQty>
+          for (const [slotTime, weeklyQtyMap] of Object.entries(days)) {
+            const qty = weeklyQtyMap[dayKey] ?? 0
+            if (qty === 0) continue
+
+            // Busca fresh do usuário dentro de cada iteração de slot (saldo pode ter mudado após slot anterior)
+            const user = await this.repo.findUserById(schedule.userId)
+            if (!user) continue
+
+            if (user.creditBalance < qty) {
+              // Saldo insuficiente para este slot — enviar push de alerta e continuar para próximo slot
+              if (user.oneSignalPlayerId) {
+                try {
+                  const osClient = createOsClient()
+                  const notification = new OneSignal.Notification()
+                  notification.app_id = process.env.ONESIGNAL_APP_ID!
+                  notification.include_subscription_ids = [user.oneSignalPlayerId]
+                  notification.headings = { pt: 'Cheirin de Pão' }
+                  notification.contents = { pt: 'Créditos insuficientes para a entrega de amanhã' }
+                  await osClient.createNotification(notification)
+                } catch (pushErr) {
+                  this.fastify.log.warn(
+                    { userId: schedule.userId, err: pushErr },
+                    '[schedules] falha ao enviar push de crédito insuficiente',
+                  )
+                }
+              }
+              continue
+            }
+
+            // Saldo suficiente — transação independente para este slot
+            await this.prisma.$transaction(async (tx) => {
+              await tx.order.create({
+                data: {
+                  userId: schedule.userId,
+                  type: 'SCHEDULED',
+                  quantity: qty,
+                  scheduledDate,
+                  status: 'SCHEDULED',
+                  deliveryTime: slotTime,
+                },
+              })
+
+              await tx.user.update({
+                where: { id: schedule.userId },
+                data: { creditBalance: { decrement: qty } },
+              })
+
+              await tx.creditTransaction.create({
+                data: {
+                  userId: schedule.userId,
+                  type: 'DELIVERY',
+                  quantity: -qty,
+                  description: `Entrega agendada para ${scheduledDate.toISOString().split('T')[0]} às ${slotTime}`,
+                },
+              })
+            })
+          }
+          continue // pular o bloco legado abaixo
+        }
+
+        // MODO LEGADO: código original inalterado
         const weeklyQty = schedule.weeklyQty as WeeklyQty
         const qty = weeklyQty[dayKey] ?? 0
 
@@ -197,7 +274,9 @@ export class SchedulesService {
           notification.app_id = process.env.ONESIGNAL_APP_ID!
           notification.include_subscription_ids = [user.oneSignalPlayerId]
           notification.headings = { pt: 'Entrega amanhã 🍞' }
-          notification.contents = { pt: `Lembrete: ${order.quantity} pães agendados para amanhã.` }
+          // D-10: incluir horário no texto quando disponível; nunca interpolar null (T-14-03-03)
+          const timeStr = order.deliveryTime ? ` às ${order.deliveryTime}` : ''
+          notification.contents = { pt: `Lembrete: ${order.quantity} pães${timeStr} amanhã.` }
           notification.data = { screen: 'pedidos' }
           await osClient.createNotification(notification)
         } catch (pushErr) {
@@ -209,11 +288,12 @@ export class SchedulesService {
         }
       }
 
+      const timeStr = order.deliveryTime ? ` às ${order.deliveryTime}` : ''
       await this.notificationsService.createAndTrim({
         userId: order.userId,
         type: 'DELIVERY_EVE',
         title: 'Entrega amanhã 🍞',
-        body: `Lembrete: ${order.quantity} pães agendados para amanhã.`,
+        body: `Lembrete: ${order.quantity} pães${timeStr} amanhã.`,
         actionRoute: '/client/pedidos',
       })
     }
@@ -239,13 +319,9 @@ export class SchedulesService {
         let shouldBuy = false
 
         if (autoRecharge.mode === 'acabar') {
-          // Limiar: saldo < consumo semanal
+          // Limiar: saldo < consumo semanal (D-09: usa getConsumoSemanal para suportar multi-slot)
           if (schedule) {
-            const weeklyQty = schedule.weeklyQty as WeeklyQty
-            const consumoSemanal = Object.values(weeklyQty).reduce(
-              (sum: number, v) => sum + (v as number),
-              0,
-            )
+            const consumoSemanal = getConsumoSemanal(schedule)
             shouldBuy = user.creditBalance < consumoSemanal
           }
         } else if (autoRecharge.mode === 'semanal') {
@@ -318,12 +394,8 @@ export class SchedulesService {
         const autoRecharge = user.autoRecharge as any
         if (autoRecharge?.active) continue
 
-        // Calcular consumo semanal (padrão já existente em processAutoBuy)
-        const weeklyQty = schedule.weeklyQty as WeeklyQty
-        const consumoSemanal = Object.values(weeklyQty).reduce(
-          (sum: number, v) => sum + (v as number),
-          0,
-        )
+        // D-09: usar getConsumoSemanal para suportar multi-slot e legado
+        const consumoSemanal = getConsumoSemanal(schedule)
         if (consumoSemanal === 0) continue
         if (user.creditBalance >= consumoSemanal) continue
 
