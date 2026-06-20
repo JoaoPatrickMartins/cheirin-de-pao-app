@@ -6,7 +6,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate:slots": "tsx src/scripts/migrate-delivery-slots.ts"
   },
   "dependencies": {
     "@cheirin-de-pao/shared": "0.0.1",
