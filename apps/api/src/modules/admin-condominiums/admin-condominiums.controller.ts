@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { CreateCondominiumSchema, UpdateCondominiumSchema } from './admin-condominiums.schema.js'
+import { CreateCondominiumSchema, UpdateCondominiumSchema, SlotUpdateSchema } from './admin-condominiums.schema.js'
 import { AdminCondominiumsService } from './admin-condominiums.service.js'
 
 type ZodIssue = { message: string }
@@ -96,6 +96,38 @@ export class AdminCondominiumsController {
     try {
       const result = await this.service.update(id, body)
       return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * PATCH /admin/condominiums/:id/slots/:slotName
+   * Atualiza campos de um slot individual (manha ou tarde) via read-modify-write.
+   */
+  async updateSlot(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    const { id, slotName } = request.params as { id: string; slotName: string }
+
+    let body: ReturnType<typeof SlotUpdateSchema.parse>
+    try {
+      body = SlotUpdateSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      const updated = await this.service.updateSlot(id, slotName, body)
+      return reply.send(updated)
     } catch (err) {
       this.fastify.log.error(err)
       const e = err as { statusCode?: number; message?: string }

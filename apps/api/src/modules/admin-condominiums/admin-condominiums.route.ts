@@ -148,6 +148,60 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.update.bind(ctrl),
   )
 
+  fastify.patch(
+    '/admin/condominiums/:id/slots/:slotName',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — condominiums'],
+        summary: 'Atualizar slot de entrega (admin)',
+        description: 'Atualiza campos de um slot de entrega individual (manha ou tarde) para o condomínio. Usa padrão read-modify-write: lê array, substitui o slot pelo name e reescreve. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id', 'slotName'],
+          properties: {
+            id: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
+            slotName: { type: 'string', enum: ['manha', 'tarde'], description: 'Nome do slot a atualizar: "manha" ou "tarde" (sem acento).' },
+          },
+        },
+        body: {
+          type: 'object',
+          description: 'Campos parciais do slot a atualizar.',
+          properties: {
+            time: { type: 'string', description: 'Novo horário de entrega no formato HH:MM (ex: "06:30").' },
+            cutoffTime: { type: 'string', description: 'Novo horário limite de pedido no formato HH:MM (ex: "22:00").' },
+            isActive: { type: 'boolean', description: 'Ativar ou desativar o slot.' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Condomínio com slots atualizados.',
+            properties: {
+              id: { type: 'string', description: 'ID do condomínio.' },
+              name: { type: 'string', description: 'Nome do condomínio.' },
+              deliverySlots: {
+                type: 'array',
+                description: 'Array completo de slots após atualização.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: 'Nome do slot (manha ou tarde).' },
+                    time: { type: 'string', description: 'Horário de entrega.' },
+                    cutoffTime: { type: 'string', description: 'Horário limite de pedido.' },
+                    isActive: { type: 'boolean', description: 'Se o slot está ativo.' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.updateSlot.bind(ctrl),
+  )
+
   fastify.delete(
     '/admin/condominiums/:id',
     {

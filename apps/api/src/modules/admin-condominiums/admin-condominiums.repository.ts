@@ -20,7 +20,7 @@ export class AdminCondominiumsRepository {
     return this.prisma.condominium.findUnique({ where: { id } })
   }
 
-  create(data: CreateCondominiumBody) {
+  create(data: CreateCondominiumBody & { deliverySlots?: Array<{ name: string; time: string; cutoffTime: string; isActive: boolean }> }) {
     return this.prisma.condominium.create({ data })
   }
 

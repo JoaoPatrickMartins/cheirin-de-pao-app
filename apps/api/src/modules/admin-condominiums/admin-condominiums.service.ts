@@ -1,6 +1,11 @@
 import { FastifyInstance } from 'fastify'
 import { AdminCondominiumsRepository } from './admin-condominiums.repository.js'
-import { CreateCondominiumBody, UpdateCondominiumBody } from './admin-condominiums.schema.js'
+import { CreateCondominiumBody, UpdateCondominiumBody, SlotUpdateBody } from './admin-condominiums.schema.js'
+
+const DEFAULT_SLOTS = [
+  { name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true },
+  { name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true },
+]
 
 /**
  * AdminCondominiumsService — lógica de negócio para CRUD de condomínios.
@@ -23,10 +28,10 @@ export class AdminCondominiumsService {
   }
 
   /**
-   * Cria um novo condomínio.
+   * Cria um novo condomínio com slots padrão (manhã e tarde) pré-injetados.
    */
   async create(data: CreateCondominiumBody) {
-    return this.repository.create(data)
+    return this.repository.create({ ...data, deliverySlots: DEFAULT_SLOTS })
   }
 
   /**
@@ -36,6 +41,14 @@ export class AdminCondominiumsService {
     const existing = await this.repository.findById(id)
     if (!existing) throw { statusCode: 404, message: 'Condomínio não encontrado' }
     return this.repository.update(id, data)
+  }
+
+  /**
+   * Atualiza um slot individual de um condomínio (read-modify-write).
+   * Lança 404 se condomínio ou slot não encontrado.
+   */
+  async updateSlot(id: string, slotName: string, patch: SlotUpdateBody) {
+    return this.repository.updateSlot(id, slotName, patch)
   }
 
   /**

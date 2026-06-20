@@ -104,30 +104,48 @@ export class AdminSettingsService {
   }
 
   /**
-   * Verifica se o horário atual (BRT) corresponde ao horário de corte.
-   * Se sim, notifica via OneSignal todos os clientes sem Order para amanhã.
+   * Verifica se o horário atual (BRT) corresponde ao horário de corte de algum slot
+   * em algum condomínio ativo. Itera por condomínio e por slot — multi-slot.
+   *
+   * Para cada par (condomínio, slot) em corte:
+   *   - Notifica clientes do condomínio que não têm Order para amanhã.
    *
    * Push é best-effort — falhas são logadas como warn e não interrompem o fluxo.
    * Chamado pelo cron job a cada hora cheia (cron.ts).
    */
   async processCutoff(): Promise<void> {
-    const cutoffTime = await this.getCutoffTime()
-
-    // Hora atual no fuso de Brasília
-    const nowBrt = new Date().toLocaleTimeString('pt-BR', {
+    // Hora atual no fuso de Brasília — formato HH:MM (24h)
+    const nowHHMM = new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Sao_Paulo',
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
+    }).format(new Date())
+
+    // Busca todos os condomínios ativos com seus slots
+    const condominiums = await this.prisma.condominium.findMany({
+      where: { isActive: true },
     })
 
-    if (nowBrt !== cutoffTime) {
+    // Filtra pares (condomínio, slot) cujo cutoffTime corresponde ao horário atual
+    const cutoffPairs: Array<{ condoId: string; condoName: string; slotName: string }> = []
+    for (const condo of condominiums) {
+      for (const slot of condo.deliverySlots) {
+        if (slot.isActive && slot.cutoffTime === nowHHMM) {
+          cutoffPairs.push({ condoId: condo.id, condoName: condo.name, slotName: slot.name })
+        }
+      }
+    }
+
+    if (cutoffPairs.length === 0) {
       return
     }
 
-    this.fastify.log.info(`[admin-settings] processCutoff iniciado para horário ${cutoffTime}`)
+    this.fastify.log.info(
+      `[admin-settings] processCutoff: ${cutoffPairs.length} par(es) condomínio/slot em corte no horário ${nowHHMM}`,
+    )
 
-    // Calcula o intervalo de amanhã em BRT (início do dia / fim do dia)
+    // Calcula o intervalo de amanhã em BRT (início / fim do dia)
     const now = new Date()
     const tomorrowStart = new Date(
       new Date(now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })).getTime() +
@@ -137,63 +155,78 @@ export class AdminSettingsService {
     const tomorrowStartBrt = new Date(tomorrowStart.getTime() + 3 * 60 * 60 * 1000)
     const tomorrowEndBrt = new Date(tomorrowStartBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
 
-    // Busca clientes com oneSignalPlayerId
-    const clients = await this.prisma.user.findMany({
-      where: {
-        role: 'CLIENT',
-        oneSignalPlayerId: { not: null },
-        isBlocked: false,
-      },
-      select: { id: true, oneSignalPlayerId: true },
-    })
-
-    if (clients.length === 0) return
-
-    // Busca Orders de amanhã para filtrar quem JÁ tem pedido
-    const tomorrowOrders = await this.prisma.order.findMany({
-      where: {
-        scheduledDate: {
-          gte: tomorrowStartBrt,
-          lte: tomorrowEndBrt,
-        },
-        status: { not: 'CANCELLED' },
-      },
-      select: { userId: true },
-    })
-
-    const usersWithOrderTomorrow = new Set(tomorrowOrders.map((o: { userId: string }) => o.userId))
-
-    // Filtra clientes sem pedido para amanhã
-    const clientsToNotify = clients.filter(
-      (c: { id: string; oneSignalPlayerId: string | null }) =>
-        !usersWithOrderTomorrow.has(c.id) && c.oneSignalPlayerId,
-    )
-
-    if (clientsToNotify.length === 0) {
-      this.fastify.log.info('[admin-settings] processCutoff: todos os clientes já têm pedido para amanhã')
-      return
-    }
-
-    // Envia push para cada cliente que não tem pedido amanhã — best-effort
     const osClient = createOsClient()
+    let totalNotified = 0
 
-    for (const client of clientsToNotify) {
-      try {
-        const notification = new OneSignal.Notification()
-        notification.app_id = process.env.ONESIGNAL_APP_ID!
-        notification.include_subscription_ids = [client.oneSignalPlayerId!]
-        notification.headings = { pt: 'Cheirin de Pão' }
-        notification.contents = {
-          pt: 'O prazo para pedidos de amanhã foi encerrado. Seus pãezinhos não chegarão amanhã.',
+    for (const pair of cutoffPairs) {
+      // Busca clientes do condomínio com oneSignalPlayerId — batched por condomínio (não O(N²))
+      const clients = await this.prisma.user.findMany({
+        where: {
+          role: 'CLIENT',
+          condominiumId: pair.condoId,
+          oneSignalPlayerId: { not: null },
+          isBlocked: false,
+        },
+        select: { id: true, oneSignalPlayerId: true },
+      })
+
+      if (clients.length === 0) continue
+
+      // Busca Orders de amanhã para este condomínio — filtra quem JÁ tem pedido
+      const tomorrowOrders = await this.prisma.order.findMany({
+        where: {
+          condominiumId: pair.condoId,
+          scheduledDate: {
+            gte: tomorrowStartBrt,
+            lte: tomorrowEndBrt,
+          },
+          status: { not: 'CANCELLED' },
+        },
+        select: { userId: true },
+      })
+
+      const usersWithOrderTomorrow = new Set(tomorrowOrders.map((o: { userId: string }) => o.userId))
+
+      // Filtra clientes sem pedido para amanhã
+      const clientsToNotify = clients.filter(
+        (c: { id: string; oneSignalPlayerId: string | null }) =>
+          !usersWithOrderTomorrow.has(c.id) && c.oneSignalPlayerId,
+      )
+
+      if (clientsToNotify.length === 0) {
+        this.fastify.log.info(
+          `[admin-settings] processCutoff: todos os clientes do condomínio ${pair.condoName} (slot ${pair.slotName}) já têm pedido para amanhã`,
+        )
+        continue
+      }
+
+      // Mensagem específica por slot
+      const pushContents =
+        pair.slotName === 'tarde'
+          ? 'Prazo de pãezinhos da tarde de amanhã encerrando!'
+          : 'Prazo de pãezinhos da manhã de amanhã encerrando!'
+
+      // Envia push — best-effort
+      for (const client of clientsToNotify) {
+        try {
+          const notification = new OneSignal.Notification()
+          notification.app_id = process.env.ONESIGNAL_APP_ID!
+          notification.include_subscription_ids = [client.oneSignalPlayerId!]
+          notification.headings = { pt: 'Cheirin de Pão' }
+          notification.contents = { pt: pushContents }
+          await osClient.createNotification(notification)
+          totalNotified++
+        } catch (pushErr) {
+          this.fastify.log.warn(
+            { err: pushErr },
+            `[admin-settings] falha ao enviar push para ${client.id} (slot ${pair.slotName}) — ignorado`,
+          )
         }
-        await osClient.createNotification(notification)
-      } catch (pushErr) {
-        this.fastify.log.warn({ err: pushErr }, `[admin-settings] falha ao enviar push para ${client.id} — ignorado`)
       }
     }
 
     this.fastify.log.info(
-      `[admin-settings] processCutoff: ${clientsToNotify.length} notificação(ões) enviada(s)`,
+      `[admin-settings] processCutoff: ${totalNotified} notificação(ões) enviada(s) no horário ${nowHHMM}`,
     )
   }
 }
