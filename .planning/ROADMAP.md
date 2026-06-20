@@ -451,7 +451,7 @@ Plans:
 Plans:
 **Wave 0** *(paralelo com Wave 1 — testes TDD em RED state)*
 
-- [ ] 14-01-PLAN.md — Testes unitários Wave 0: 7 novos testes MSCHED-02/04 em estado RED
+- [x] 14-01-PLAN.md — Testes unitários Wave 0: 7 novos testes MSCHED-02/04 em estado RED
 
 **Wave 1** *(paralelo com Wave 0 — schema + Zod; bloqueante para Wave 2)*
 
@@ -487,4 +487,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
 | 12. Cartões Salvos | 3/3 | Complete   | 2026-06-20 |
 | 13. Horários por Condomínio | 4/4 | Complete   | 2026-06-20 |
-| 14. Agenda Multi-Slot | 1/4 | In Progress|  |
+| 14. Agenda Multi-Slot | 2/4 | In Progress|  |
