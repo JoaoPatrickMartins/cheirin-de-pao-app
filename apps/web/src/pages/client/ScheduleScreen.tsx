@@ -3,14 +3,15 @@
  *
  * Permite configurar quantidade de pãezinhos por dia da semana, horário de entrega,
  * lembrete de reconfiguração semanal e exibe cobertura de créditos.
+ * Suporta modo single-slot (1 horário) e multi-slot (2 horários por dia).
  *
- * Requirements: SCHED-02, SCHED-04, SCHED-05, SCHED-06
- * Source: screens-order.jsx linhas 173–253, 04-UI-SPEC.md seções 1–6
+ * Requirements: SCHED-02, SCHED-04, SCHED-05, SCHED-06, MSCHED-01, MSCHED-03
+ * Source: screens-order.jsx linhas 173–253, 04-UI-SPEC.md seções 1–6, 14-UI-SPEC.md
  */
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
-import { useSchedule } from '../../hooks/useSchedule'
+import { useSchedule, WeeklyQty } from '../../hooks/useSchedule'
 import { Icon } from '../../components/brand/Icon'
 import StepperInline from '../../components/client/StepperInline'
 import DeliveryTimeChips, { DeliverySlot } from '../../components/client/DeliveryTimeChips'
@@ -28,6 +29,8 @@ const DAYS = [
   { label: 'Dom', key: 'dom' as const },
 ]
 
+const DEFAULT_WEEKLY_QTY: WeeklyQty = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+
 export function ScheduleScreen() {
   const navigate = useNavigate()
   const { user, updateUser } = useAuth()
@@ -41,6 +44,8 @@ export function ScheduleScreen() {
     setWeeklyQty,
     setDeliveryTime,
     setNotifyReconfigure,
+    days,
+    setDays,
     saveSchedule,
     isLoading,
     isSaving,
@@ -51,6 +56,10 @@ export function ScheduleScreen() {
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
+  // D-05: isMultiSlot quando há 2+ slots ativos no condomínio
+  const activeSlots = slots.filter((s) => s.isActive)
+  const isMultiSlot = activeSlots.length >= 2
+
   useEffect(() => {
     const fetchSlots = async () => {
       try {
@@ -58,6 +67,15 @@ export function ScheduleScreen() {
         if (res.ok) {
           const data = (await res.json()) as DeliverySlot[]
           setSlots(data)
+          // D-13: inicializar days zerado para condo multi-slot sem schedule.days preexistente
+          const activos = data.filter((s) => s.isActive)
+          if (activos.length >= 2 && Object.keys(days).length === 0) {
+            const initDays: Record<string, WeeklyQty> = {}
+            activos.forEach((slot) => {
+              initDays[slot.time] = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+            })
+            setDays(initDays)
+          }
         } else {
           console.warn('[ScheduleScreen] GET /client/condominium/slots retornou status', res.status)
         }
@@ -66,11 +84,12 @@ export function ScheduleScreen() {
       }
     }
     fetchSlots()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSave = async () => {
     if (isSaving) return
-    const result = await saveSchedule()
+    const result = await saveSchedule(slots)  // D-12: passa slots para determinar modo
     if (result.ok) {
       updateUser({ condominiumJustChanged: false })
     }
@@ -189,7 +208,7 @@ export function ScheduleScreen() {
           paddingBottom: 90,
         }}
       >
-        {/* Subtexto introdutório */}
+        {/* Subtexto introdutório — condicional por modo */}
         <p
           style={{
             fontFamily: 'var(--font-body)',
@@ -200,94 +219,229 @@ export function ScheduleScreen() {
             marginTop: 0,
           }}
         >
-          Quantos pães em cada dia. A gente entrega sozinho, todo dia, no horário escolhido.
+          {isMultiSlot
+            ? 'Quantos pães em cada horário por dia. A gente entrega no horário certo, todo dia, sem você precisar fazer nada.'
+            : 'Quantos pães em cada dia. A gente entrega sozinho, todo dia, no horário escolhido.'}
         </p>
 
-        {/* Chips de horário de entrega */}
-        <DeliveryTimeChips slots={slots} value={deliveryTime} onChange={setDeliveryTime} />
-
-        {/* Lista de 7 Day-Rows */}
-        {isLoading ? (
-          // Skeleton de carregamento
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  height: 64,
-                  borderRadius: 18,
-                  background: 'var(--color-surface-2)',
-                  animation: 'pulse 1.5s ease-in-out infinite',
-                }}
-              />
-            ))}
-            <style>{`
-              @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.5; }
-              }
-            `}</style>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {DAYS.map(({ label, key }) => {
-              const v = weeklyQty[key]
-              return (
+        {/* Conteúdo principal — bifurcação single-slot vs multi-slot */}
+        {isMultiSlot ? (
+          /* MODO MULTI-SLOT: 2 seções com headers de horário */
+          isLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {Array.from({ length: 14 }).map((_, i) => (
                 <div
-                  key={key}
+                  key={i}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 14,
-                    background: 'var(--color-surface)',
+                    height: 64,
                     borderRadius: 18,
-                    border: '1px solid var(--color-border-2)',
-                    padding: '12px 16px',
-                    opacity: v === 0 ? 0.66 : 1,
-                    transition: 'opacity .15s',
+                    background: 'var(--color-surface-2)',
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                    marginTop: i === 7 ? 24 : 0,
                   }}
-                >
-                  {/* Coluna de label */}
-                  <div style={{ width: 44, flexShrink: 0 }}>
-                    <p
+                />
+              ))}
+              <style>{`
+                @keyframes pulse {
+                  0%, 100% { opacity: 1; }
+                  50% { opacity: 0.5; }
+                }
+              `}</style>
+            </div>
+          ) : (
+            <div>
+              {activeSlots.map((slot, idx) => (
+                <div key={slot.time} style={{ marginTop: idx > 0 ? 24 : 0 }}>
+                  {/* Separador entre seções (exceto a primeira) */}
+                  {idx > 0 && (
+                    <div
+                      style={{
+                        borderTop: '1px solid var(--color-border-2)',
+                        marginBottom: 16,
+                      }}
+                    />
+                  )}
+
+                  {/* Header pill da seção — D-06 */}
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      background: 'var(--color-surface-2)',
+                      borderRadius: 12,
+                      padding: '8px 12px',
+                      marginBottom: 8,
+                    }}
+                  >
+                    <span
                       style={{
                         fontFamily: 'var(--font-display)',
+                        fontSize: 'var(--text-base)',
                         fontWeight: 700,
-                        fontSize: 15,
-                        color: 'var(--color-text)',
-                        margin: 0,
-                        lineHeight: 1.2,
+                        color: 'var(--color-accent)',
+                        letterSpacing: '-0.02em',
                       }}
                     >
-                      {label}
-                    </p>
-                    <p
-                      style={{
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 11,
-                        color: 'var(--color-text-ter)',
-                        margin: 0,
-                        marginTop: 2,
-                      }}
-                    >
-                      {v === 0 ? 'folga' : `${v} pães`}
-                    </p>
+                      {slot.name === 'manha' ? '☀️ Manhã' : '🌙 Tarde'} · {slot.time}
+                    </span>
                   </div>
 
-                  {/* Espaçador */}
-                  <div style={{ flex: 1 }} />
+                  {/* 7 day-rows para este slot */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {DAYS.map(({ label, key }) => {
+                      const v = (days[slot.time] ?? DEFAULT_WEEKLY_QTY)[key]
+                      return (
+                        <div
+                          key={key}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 14,
+                            background: 'var(--color-surface)',
+                            borderRadius: 18,
+                            border: '1px solid var(--color-border-2)',
+                            padding: '12px 16px',
+                            opacity: v === 0 ? 0.66 : 1,
+                            transition: 'opacity .15s',
+                          }}
+                        >
+                          <div style={{ width: 44, flexShrink: 0 }}>
+                            <p
+                              style={{
+                                fontFamily: 'var(--font-display)',
+                                fontWeight: 700,
+                                fontSize: 'var(--text-base)',
+                                color: 'var(--color-text)',
+                                margin: 0,
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              {label}
+                            </p>
+                            <p
+                              style={{
+                                fontFamily: 'var(--font-body)',
+                                fontSize: 'var(--text-sm)',
+                                color: 'var(--color-text-ter)',
+                                margin: 0,
+                                marginTop: 2,
+                              }}
+                            >
+                              {v === 0 ? 'folga' : `${v} pães`}
+                            </p>
+                          </div>
 
-                  {/* StepperInline */}
-                  <StepperInline
-                    min={0}
-                    max={12}
-                    value={v}
-                    onChange={(newV) => setWeeklyQty({ ...weeklyQty, [key]: newV })}
-                  />
+                          <div style={{ flex: 1 }} />
+
+                          <StepperInline
+                            min={0}
+                            max={12}
+                            value={v}
+                            onChange={(newV) =>
+                              setDays({
+                                ...days,
+                                [slot.time]: { ...(days[slot.time] ?? DEFAULT_WEEKLY_QTY), [key]: newV },
+                              })
+                            }
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              )
-            })}
-          </div>
+              ))}
+            </div>
+          )
+        ) : (
+          /* MODO SINGLE-SLOT: layout original inalterado */
+          <>
+            {/* Chips de horário de entrega */}
+            <DeliveryTimeChips slots={slots} value={deliveryTime} onChange={setDeliveryTime} />
+
+            {/* Lista de 7 Day-Rows */}
+            {isLoading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      height: 64,
+                      borderRadius: 18,
+                      background: 'var(--color-surface-2)',
+                      animation: 'pulse 1.5s ease-in-out infinite',
+                    }}
+                  />
+                ))}
+                <style>{`
+                  @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.5; }
+                  }
+                `}</style>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {DAYS.map(({ label, key }) => {
+                  const v = weeklyQty[key]
+                  return (
+                    <div
+                      key={key}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 14,
+                        background: 'var(--color-surface)',
+                        borderRadius: 18,
+                        border: '1px solid var(--color-border-2)',
+                        padding: '12px 16px',
+                        opacity: v === 0 ? 0.66 : 1,
+                        transition: 'opacity .15s',
+                      }}
+                    >
+                      {/* Coluna de label */}
+                      <div style={{ width: 44, flexShrink: 0 }}>
+                        <p
+                          style={{
+                            fontFamily: 'var(--font-display)',
+                            fontWeight: 700,
+                            fontSize: 15,
+                            color: 'var(--color-text)',
+                            margin: 0,
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {label}
+                        </p>
+                        <p
+                          style={{
+                            fontFamily: 'var(--font-body)',
+                            fontSize: 11,
+                            color: 'var(--color-text-ter)',
+                            margin: 0,
+                            marginTop: 2,
+                          }}
+                        >
+                          {v === 0 ? 'folga' : `${v} pães`}
+                        </p>
+                      </div>
+
+                      {/* Espaçador */}
+                      <div style={{ flex: 1 }} />
+
+                      {/* StepperInline */}
+                      <StepperInline
+                        min={0}
+                        max={12}
+                        value={v}
+                        onChange={(newV) => setWeeklyQty({ ...weeklyQty, [key]: newV })}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
         )}
 
         {/* Card "Lembrar de reconfigurar" */}
@@ -410,8 +564,8 @@ export function ScheduleScreen() {
           <p
             style={{
               fontFamily: 'var(--font-body)',
-              fontWeight: 600,
-              fontSize: 13.5,
+              fontWeight: 400,
+              fontSize: 'var(--text-sm)',
               color: 'var(--color-text-sec)',
               margin: 0,
             }}
@@ -421,14 +575,15 @@ export function ScheduleScreen() {
           <p
             style={{
               fontFamily: 'var(--font-display)',
-              fontWeight: 800,
-              fontSize: 18,
+              fontWeight: 700,
+              fontSize: 'var(--text-xl)',
               color: 'var(--color-text)',
               letterSpacing: '-0.02em',
               margin: 0,
             }}
           >
-            {consumoSemanal} pães · {deliveryTime}
+            {/* D-07: multi-slot omite horário no footer */}
+            {isMultiSlot ? `${consumoSemanal} pães` : `${consumoSemanal} pães · ${deliveryTime}`}
           </p>
         </div>
 

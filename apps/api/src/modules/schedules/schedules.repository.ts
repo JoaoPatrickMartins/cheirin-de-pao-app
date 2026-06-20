@@ -15,6 +15,29 @@ export class SchedulesRepository {
   }
 
   upsert(userId: string, condominiumId: string, data: ScheduleBody) {
+    const isMultiSlot = 'days' in data && data.days !== undefined
+
+    if (isMultiSlot) {
+      return this.prisma.schedule.upsert({
+        where: {
+          userId_condominiumId: { userId, condominiumId },
+        },
+        update: {
+          days: data.days,
+          notifyReconfigure: data.notifyReconfigure,
+          isActive: true,
+        },
+        create: {
+          userId,
+          condominiumId,
+          days: data.days,
+          notifyReconfigure: data.notifyReconfigure,
+          isActive: true,
+        },
+      })
+    }
+
+    // Modo legado: weeklyQty + deliveryTime
     return this.prisma.schedule.upsert({
       where: {
         userId_condominiumId: { userId, condominiumId },

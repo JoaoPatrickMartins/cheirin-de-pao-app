@@ -84,6 +84,9 @@ export function AuthProvider() {
       updateCreditBalance: (balance: number) => {
         setUser((prev) => {
           if (!prev) return prev
+          // idempotente: se o saldo não mudou, mantém a mesma referência
+          // para não disparar re-renders/efeitos desnecessários
+          if (prev.creditBalance === balance) return prev
           const updated: AuthUser = { ...prev, creditBalance: balance }
           try {
             localStorage.setItem('auth_user', JSON.stringify(updated))
@@ -96,6 +99,11 @@ export function AuthProvider() {
       updateUser: (partial: Partial<AuthUser>) => {
         setUser((prev) => {
           if (!prev) return prev
+          // idempotente: se nenhum campo de fato mudou, mantém a referência
+          const changed = (Object.keys(partial) as (keyof AuthUser)[]).some(
+            (k) => prev[k] !== partial[k],
+          )
+          if (!changed) return prev
           const updated: AuthUser = { ...prev, ...partial }
           try {
             localStorage.setItem('auth_user', JSON.stringify(updated))

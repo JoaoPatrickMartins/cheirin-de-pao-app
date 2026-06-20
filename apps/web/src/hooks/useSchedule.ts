@@ -4,7 +4,7 @@
  * Carrega GET /schedules/me na montagem e expõe métodos para salvar via PUT /schedules/me.
  * Deriva consumoSemanal, cobre e falta como valores calculados (não estado) a cada render.
  *
- * Requirements: SCHED-02, SCHED-04, SCHED-06
+ * Requirements: SCHED-02, SCHED-04, SCHED-06, MSCHED-01, MSCHED-03
  * Threat model: T-04-05-02 — useEffect com dependência vazia [] para evitar loop infinito
  */
 import { useState, useEffect } from 'react'
@@ -20,11 +20,19 @@ export interface WeeklyQty {
   dom: number
 }
 
+// D-11: redeclarado aqui para não criar dependência circular com DeliveryTimeChips
+interface DeliverySlot {
+  name: string    // 'manha' | 'tarde'
+  time: string    // 'HH:MM'
+  isActive: boolean
+}
+
 interface ScheduleApiResponse {
   id?: string
   weeklyQty?: WeeklyQty
   deliveryTime?: string
   notifyReconfigure?: boolean
+  days?: Record<string, WeeklyQty> | null  // MSCHED-01: formato multi-slot
 }
 
 const DEFAULT_WEEKLY_QTY: WeeklyQty = {
@@ -45,7 +53,9 @@ export interface UseScheduleReturn {
   setWeeklyQty: (qty: WeeklyQty) => void
   setDeliveryTime: (time: string) => void
   setNotifyReconfigure: (v: boolean) => void
-  saveSchedule: () => Promise<{ ok: boolean; error?: string }>
+  days: Record<string, WeeklyQty>           // MSCHED-01
+  setDays: (d: Record<string, WeeklyQty>) => void  // MSCHED-01
+  saveSchedule: (activeSlots: DeliverySlot[]) => Promise<{ ok: boolean; error?: string }>  // D-12
   isLoading: boolean
   isSaving: boolean
   consumoSemanal: number
@@ -58,6 +68,7 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
   const [weeklyQty, setWeeklyQty] = useState<WeeklyQty>(DEFAULT_WEEKLY_QTY)
   const [deliveryTime, setDeliveryTime] = useState<string>('07:00')
   const [notifyReconfigure, setNotifyReconfigure] = useState<boolean>(false)
+  const [days, setDays] = useState<Record<string, WeeklyQty>>({})  // D-11
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [isSaving, setIsSaving] = useState<boolean>(false)
 
@@ -74,6 +85,8 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
           if (typeof data.notifyReconfigure === 'boolean') {
             setNotifyReconfigure(data.notifyReconfigure)
           }
+          // D-11: inicializar days a partir do backend quando disponível
+          if (data.days) setDays(data.days as Record<string, WeeklyQty>)
         }
         // 404 (sem schedule) mantém os defaults zerados
       } catch {
@@ -86,8 +99,13 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
   }, []) // dependência vazia — executa apenas na montagem
 
   // Valores calculados a cada render (D-03)
-  // consumoSemanal = soma de todos os dias
-  const consumoSemanal = Object.values(weeklyQty).reduce((a, b) => a + b, 0)
+  // D-09 client-side: consumoSemanal soma todos os slots em modo multi-slot
+  const consumoSemanal =
+    Object.keys(days).length > 0
+      ? Object.values(days)
+          .flatMap((wq) => Object.values(wq))
+          .reduce((a, b) => a + b, 0)
+      : Object.values(weeklyQty).reduce((a, b) => a + b, 0)
 
   // cobre = Math.floor(saldo / consumoSemanal) — evita divisão por zero com (|| 1)
   const cobre = Math.floor(creditBalance / (consumoSemanal || 1))
@@ -95,12 +113,18 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
   // falta = true quando semana > saldo
   const falta = consumoSemanal > creditBalance
 
-  const saveSchedule = async (): Promise<{ ok: boolean; error?: string }> => {
+  // D-12: assinatura muda para receber activeSlots e determinar modo (multi vs legado)
+  const saveSchedule = async (activeSlots: DeliverySlot[]): Promise<{ ok: boolean; error?: string }> => {
     setIsSaving(true)
     try {
+      const isMulti = activeSlots.filter((s) => s.isActive).length >= 2
+      const body = isMulti
+        ? { days, notifyReconfigure }
+        : { weeklyQty, deliveryTime, notifyReconfigure }
+
       const res = await apiFetch('/schedules/me', {
         method: 'PUT',
-        body: JSON.stringify({ weeklyQty, deliveryTime, notifyReconfigure }),
+        body: JSON.stringify(body),
         headers: { 'Content-Type': 'application/json' },
       })
       if (res.ok) {
@@ -126,6 +150,8 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
     setWeeklyQty,
     setDeliveryTime,
     setNotifyReconfigure,
+    days,
+    setDays,
     saveSchedule,
     isLoading,
     isSaving,

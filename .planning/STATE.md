@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
-status: "Phase 13 concluída. Próximo: /gsd:execute-phase 14"
-last_updated: "2026-06-20T03:00:00.000Z"
+status: complete
+last_updated: "2026-06-20T06:00:00.000Z"
 last_activity: 2026-06-20
 progress:
   total_phases: 14
-  completed_phases: 13
-  total_plans: 64
-  completed_plans: 64
-  percent: 93
+  completed_phases: 14
+  total_plans: 68
+  completed_plans: 68
+  percent: 100
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele precise fazer nada — o sistema cuida dos créditos, dos agendamentos e das notificações automaticamente.
-**Current focus:** Phase 14 — Agenda Multi-Slot
+**Current focus:** Milestone v1.1 completo
 
 ## Current Position
 
-Phase: 13 (hor-rios-por-condom-nio) — COMPLETE (2026-06-20)
-Next: Phase 14 — Agenda Multi-Slot (MSCHED-01..04)
-Status: Phase 13 concluída. Próximo: /gsd:execute-phase 14
+Phase: 14 (agenda-multi-slot) — COMPLETE (2026-06-20)
+Plan: 4 of 4 — todos concluídos
+Next: Milestone v1.1 completo — pronto para deploy ou novo milestone
 Last activity: 2026-06-20
 
 ## v1.0 Status Summary
@@ -51,7 +51,7 @@ Last activity: 2026-06-20
 | 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Complete (2026-06-19) |
 | 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Complete (2026-06-19) |
 | 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Complete (2026-06-20) |
-| 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
+| 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Complete (2026-06-20) |
 
 ## Performance Metrics
 
@@ -82,6 +82,7 @@ Last activity: 2026-06-20
 | Phase 10 P03 | 20min | 2 tasks | 7 files |
 | Phase 11-configura-es-e-perfil-do-cliente P01 | 8min | 2 tasks | 5 files |
 | Phase 12-cart-es-salvos P02 | 8min | 2 tasks | 3 files |
+| Phase 14 P02 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Campo data do SDK @onesignal/node-onesignal recebido pelo frontend como additionalData.screen
 - [Phase ?]: v1.1 Phase 10-02: adminId extraido do JWT no controller (nunca do body) — padrao T-10-02-01 aplicado
 - [Phase ?]: D-18 aplicado: purpose: { in: [null, 'LOGIN'] } em findActiveOtp — documentos OtpCode sem purpose (legados) tratados como LOGIN para backward-compat
+- [Phase ?]: 14-02: DaysSchema=z.record(z.string(),WeeklyQtySchema); ScheduleBodySchema com .refine backward-compat; deliveryTime z.string() (slots configuráveis pelo admin)
 
 ### Pending Todos
 
@@ -148,6 +150,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-20T03:00:00.000Z
+Last session: 2026-06-20T05:24:35.205Z
 Resume with: `/gsd:execute-phase 14`
 Next phase: 14-agenda-multi-slot (planned — ready to execute)

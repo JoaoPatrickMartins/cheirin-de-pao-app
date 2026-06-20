@@ -189,9 +189,9 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 ### Agenda com Múltiplos Horários (MSCHED)
 
 - [ ] **MSCHED-01**: Se o condomínio tem os 2 slots ativos, cliente pode configurar quantidade de pães por horário (manhã e tarde) para cada dia da semana
-- [ ] **MSCHED-02**: O cron de meia-noite gera um Order separado por slot de entrega agendado (podendo gerar 2 orders por dia para um mesmo cliente)
+- [x] **MSCHED-02**: O cron de meia-noite gera um Order separado por slot de entrega agendado (podendo gerar 2 orders por dia para um mesmo cliente)
 - [ ] **MSCHED-03**: Tela de agenda exibe seção por horário (manhã / tarde) com stepper de quantidade por dia da semana em cada seção
-- [ ] **MSCHED-04**: Agendamentos no formato legado (campo único deliveryTime + weeklyQty) continuam funcionando sem migração forçada de dados
+- [x] **MSCHED-04**: Agendamentos no formato legado (campo único deliveryTime + weeklyQty) continuam funcionando sem migração forçada de dados
 
 ### Logout Entregador e Admin (LGOUT)
 
@@ -333,9 +333,9 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | SLOT-06 | Phase 13 — Horários por Condomínio | Pending |
 | SLOT-07 | Phase 13 — Horários por Condomínio | Pending |
 | MSCHED-01 | Phase 14 — Agenda Multi-Slot | Pending |
-| MSCHED-02 | Phase 14 — Agenda Multi-Slot | Pending |
+| MSCHED-02 | Phase 14 — Agenda Multi-Slot | Complete |
 | MSCHED-03 | Phase 14 — Agenda Multi-Slot | Pending |
-| MSCHED-04 | Phase 14 — Agenda Multi-Slot | Pending |
+| MSCHED-04 | Phase 14 — Agenda Multi-Slot | Complete |
 
 **Coverage:**
 - v1.0 requirements: 87 total — Mapped to phases: 87 — Unmapped: 0 ✓

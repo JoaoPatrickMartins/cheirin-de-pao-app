@@ -1,5 +1,5 @@
-// SchedulesService unit tests — Wave 1 (Fase 4 Plan 02) + Wave 2 (Fase 8 Plan 05)
-// Requirements: SCHED-02, SCHED-03, SCHED-04, CRED-08, CRED-10
+// SchedulesService unit tests — Wave 1 (Fase 4 Plan 02) + Wave 2 (Fase 8 Plan 05) + Wave 0 (Fase 14 Plan 01)
+// Requirements: SCHED-02, SCHED-03, SCHED-04, CRED-08, CRED-10, MSCHED-02, MSCHED-04
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SchedulesService } from '../schedules.service.js'
 import { FastifyInstance } from 'fastify'
@@ -27,6 +27,7 @@ type OrderShape = {
   quantity: number
   scheduledDate: Date
   status: string
+  deliveryTime?: string | null
 }
 
 type ScheduleShape = {
@@ -37,6 +38,7 @@ type ScheduleShape = {
   weeklyQty: object
   deliveryTime: string
   notifyReconfigure: boolean
+  days?: object | null
 }
 
 type UserShape = {
@@ -54,8 +56,10 @@ function createMockFastify(overrides?: {
   createOrderFn?: ReturnType<typeof vi.fn>
   updateUserFn?: ReturnType<typeof vi.fn>
   createTransactionFn?: ReturnType<typeof vi.fn>
+  orderFindManyFn?: ReturnType<typeof vi.fn>
+  userFindUniqueFn?: ReturnType<typeof vi.fn>
 }) {
-  const { schedules = [], users = {}, createOrderFn, updateUserFn, createTransactionFn } = overrides ?? {}
+  const { schedules = [], users = {}, createOrderFn, updateUserFn, createTransactionFn, orderFindManyFn, userFindUniqueFn } = overrides ?? {}
 
   const transactionFn = vi.fn().mockImplementation(async (cb: (tx: object) => Promise<void>) => {
     const tx = {
@@ -90,9 +94,12 @@ function createMockFastify(overrides?: {
         findMany: vi.fn().mockResolvedValue(schedules),
         upsert: vi.fn().mockResolvedValue({ id: 'schedule-1' }),
       },
+      order: {
+        findMany: orderFindManyFn ?? vi.fn().mockResolvedValue([]),
+      },
       user: {
         findMany: vi.fn().mockResolvedValue([]),
-        findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
+        findUnique: userFindUniqueFn ?? vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
           return Promise.resolve(users[where.id] ?? null)
         }),
       },
@@ -651,6 +658,408 @@ describe('SchedulesService', () => {
       expect(createAndTrimMock).toHaveBeenCalledWith(
         expect.objectContaining({ userId: 'user-4', type: 'LOW_CREDIT' }),
       )
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Wave 0 — Fase 14 Plan 01: Testes MSCHED-02/04 (estado RED)
+  // Implementação multi-slot será adicionada no Plano 03 desta fase.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  describe('createDailyOrders [MSCHED-02 multi-slot]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('createDailyOrders_multiSlot_cria2Orders_quandoAmbosSlotsTêmQty', async () => {
+      // schedule.days com 2 slots: 06:30 (qty=2 todos os dias) e 15:30 (qty=1 todos os dias)
+      const schedule: ScheduleShape = {
+        id: 'sched-multi-1',
+        userId: 'user-multi-1',
+        condominiumId: 'condo-1',
+        isActive: true,
+        // weeklyQty placeholder — não usado no modo multi-slot
+        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+        deliveryTime: '06:30',
+        notifyReconfigure: false,
+        days: {
+          '06:30': { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
+          '15:30': { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 },
+        },
+      }
+
+      const user: UserShape = {
+        id: 'user-multi-1',
+        creditBalance: 20, // suficiente para ambos os slots (2+1=3 por dia)
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: null,
+      }
+
+      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-multi' })
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-multi-1': user },
+        createOrderFn,
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createDailyOrders()
+
+      // Esperado: 2 orders criados — um por slot (06:30 e 15:30)
+      expect(createOrderFn).toHaveBeenCalledTimes(2)
+      expect(createOrderFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ deliveryTime: '06:30' }),
+        }),
+      )
+      expect(createOrderFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ deliveryTime: '15:30' }),
+        }),
+      )
+    })
+
+    it('createDailyOrders_multiSlot_criaApenasOrdersManhã_quandoTardeInsuficiente', async () => {
+      // Manhã qty=2 (saldo 3 >= 2 ✓), Tarde qty=5 (saldo após manhã = 1 < 5 ✗)
+      const schedule: ScheduleShape = {
+        id: 'sched-multi-2',
+        userId: 'user-multi-2',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+        deliveryTime: '06:30',
+        notifyReconfigure: false,
+        days: {
+          '06:30': { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
+          '15:30': { seg: 5, ter: 5, qua: 5, qui: 5, sex: 5, sab: 5, dom: 5 },
+        },
+      }
+
+      const user: UserShape = {
+        id: 'user-multi-2',
+        creditBalance: 3, // suficiente para manhã (qty=2) mas insuficiente para tarde (qty=5)
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: null,
+      }
+
+      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-manha-only' })
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-multi-2': user },
+        createOrderFn,
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createDailyOrders()
+
+      // Esperado: apenas 1 order criado (manhã 06:30)
+      expect(createOrderFn).toHaveBeenCalledTimes(1)
+      expect(createOrderFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ deliveryTime: '06:30' }),
+        }),
+      )
+    })
+
+    it('createDailyOrders_legado_continuaFuncionando_quandoDaysNulo', async () => {
+      // Modo legado: schedule.days = null → usa weeklyQty sem deliveryTime no order
+      const schedule: ScheduleShape = {
+        id: 'sched-legado-1',
+        userId: 'user-legado-1',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
+        deliveryTime: '07:00',
+        notifyReconfigure: false,
+        days: null, // modo legado explícito
+      }
+
+      const user: UserShape = {
+        id: 'user-legado-1',
+        creditBalance: 10,
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: null,
+      }
+
+      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-legado' })
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-legado-1': user },
+        createOrderFn,
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createDailyOrders()
+
+      // Esperado: 1 order criado sem deliveryTime (ou deliveryTime undefined/absent)
+      expect(createOrderFn).toHaveBeenCalledTimes(1)
+      // No modo legado, deliveryTime NÃO deve ser passado para o order
+      const callArgs = createOrderFn.mock.calls[0][0]
+      expect(callArgs.data).not.toHaveProperty('deliveryTime')
+    })
+  })
+
+  describe('getConsumoSemanal [MSCHED-04]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('getConsumoSemanal_retornaSomaTotal_modoMultiSlot', async () => {
+      // days: 06:30 → seg:2, qua:2, sex:2 (total=6); 15:30 → seg:1, qua:1, sex:1 (total=3)
+      // consumoSemanal esperado = 6+3 = 9
+      // Teste via sendLowCreditNotifications: creditBalance=8 (< 9) → push enviado
+      const schedule: ScheduleShape = {
+        id: 'sched-consumo-1',
+        userId: 'user-consumo-1',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+        deliveryTime: '06:30',
+        notifyReconfigure: false,
+        days: {
+          '06:30': { seg: 2, ter: 0, qua: 2, qui: 0, sex: 2, sab: 0, dom: 0 }, // total = 6
+          '15:30': { seg: 1, ter: 0, qua: 1, qui: 0, sex: 1, sab: 0, dom: 0 }, // total = 3
+        },
+      }
+
+      const userBaixo: UserShape = {
+        id: 'user-consumo-1',
+        creditBalance: 8, // < consumoSemanal (9) → push enviado
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: 'player-consumo',
+      }
+
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-consumo-1': userBaixo },
+      })
+      ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      const createNotificationSpy = vi.fn().mockResolvedValue({})
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementationOnce(function () {
+        return { createNotification: createNotificationSpy }
+      })
+
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendLowCreditNotifications()
+
+      // creditBalance=8 < consumoSemanal=9 → DEVE enviar push
+      expect(createNotificationSpy).toHaveBeenCalled()
+
+      // Agora testar que com creditBalance=10 (>= 9) NÃO envia push
+      vi.clearAllMocks()
+
+      const userAlto: UserShape = {
+        id: 'user-consumo-1',
+        creditBalance: 10, // >= consumoSemanal (9) → push NÃO enviado
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: 'player-consumo',
+      }
+
+      const fastify2 = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-consumo-1': userAlto },
+      })
+      ;(fastify2.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      const createAndTrimMock2 = vi.fn().mockResolvedValue(undefined)
+      const service2 = new SchedulesService(fastify2)
+      ;(service2 as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock2 }
+
+      await service2.sendLowCreditNotifications()
+
+      // creditBalance=10 >= consumoSemanal=9 → NÃO deve enviar push nem persistir Notification
+      expect(createAndTrimMock2).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sendEveReminders [MSCHED-04 deliveryTime]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('sendEveReminders_textoPush_inclui_deliveryTime_quandoDisponível', async () => {
+      // order com deliveryTime: "06:30" → texto do push deve conter "06:30"
+      const orders: OrderShape[] = [
+        {
+          id: 'order-eve-1',
+          userId: 'user-eve-1',
+          quantity: 2,
+          scheduledDate: new Date(),
+          status: 'SCHEDULED',
+          deliveryTime: '06:30',
+        },
+      ]
+
+      const orderFindManyFn = vi.fn().mockResolvedValue(orders)
+      const userFindUniqueFn = vi.fn().mockResolvedValue({ oneSignalPlayerId: 'player-1' })
+
+      const fastify = createMockFastify({
+        orderFindManyFn,
+        userFindUniqueFn,
+      })
+      ;(fastify.prisma as unknown as Record<string, unknown>).notification = {
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({}),
+      }
+
+      const capturedNotifications: Array<{ contents?: { pt?: string } }> = []
+      const createNotificationSpy = vi.fn().mockImplementation((n: { contents?: { pt?: string } }) => {
+        capturedNotifications.push(n)
+        return Promise.resolve({})
+      })
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementationOnce(function () {
+        return { createNotification: createNotificationSpy }
+      })
+
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendEveReminders()
+
+      // O push DEVE conter "06:30" no texto
+      expect(createNotificationSpy).toHaveBeenCalled()
+      const pushedNotif = capturedNotifications[0]
+      expect(pushedNotif?.contents?.pt).toContain('06:30')
+      // E NÃO deve conter a string literal "null"
+      expect(pushedNotif?.contents?.pt).not.toContain('null')
+    })
+
+    it('sendEveReminders_textoPush_SEM_null_quandoDeliveryTimeNulo', async () => {
+      // order com deliveryTime: null → texto do push NÃO deve conter "null" nem "undefined"
+      const orders: OrderShape[] = [
+        {
+          id: 'order-eve-2',
+          userId: 'user-eve-2',
+          quantity: 3,
+          scheduledDate: new Date(),
+          status: 'SCHEDULED',
+          deliveryTime: null,
+        },
+      ]
+
+      const orderFindManyFn = vi.fn().mockResolvedValue(orders)
+      const userFindUniqueFn = vi.fn().mockResolvedValue({ oneSignalPlayerId: 'player-1' })
+
+      const fastify = createMockFastify({
+        orderFindManyFn,
+        userFindUniqueFn,
+      })
+      ;(fastify.prisma as unknown as Record<string, unknown>).notification = {
+        create: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+        deleteMany: vi.fn().mockResolvedValue({}),
+      }
+
+      const capturedNotifications: Array<{ contents?: { pt?: string } }> = []
+      const createNotificationSpy = vi.fn().mockImplementation((n: { contents?: { pt?: string } }) => {
+        capturedNotifications.push(n)
+        return Promise.resolve({})
+      })
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementationOnce(function () {
+        return { createNotification: createNotificationSpy }
+      })
+
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendEveReminders()
+
+      // O push NÃO deve conter "null" nem "undefined" no texto
+      expect(createNotificationSpy).toHaveBeenCalled()
+      const pushedNotif = capturedNotifications[0]
+      expect(pushedNotif?.contents?.pt).not.toContain('null')
+      expect(pushedNotif?.contents?.pt).not.toContain('undefined')
+    })
+  })
+
+  describe('sendLowCreditNotifications [MSCHED-04 multi-slot]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('sendLowCreditNotifications_usaGetConsumoSemanal_modoMultiSlot', async () => {
+      // days: 06:30 → 3 todos os dias (7*3=21), 15:30 → 3 todos os dias (7*3=21)
+      // consumoSemanal = 21+21 = 42
+      const schedule: ScheduleShape = {
+        id: 'sched-low-multi-1',
+        userId: 'user-low-multi-1',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+        deliveryTime: '06:30',
+        notifyReconfigure: false,
+        days: {
+          '06:30': { seg: 3, ter: 3, qua: 3, qui: 3, sex: 3, sab: 3, dom: 3 }, // 21
+          '15:30': { seg: 3, ter: 3, qua: 3, qui: 3, sex: 3, sab: 3, dom: 3 }, // 21
+        },
+      }
+
+      // creditBalance=10 < consumoSemanal=42 → push enviado
+      const userBaixo: UserShape = {
+        id: 'user-low-multi-1',
+        creditBalance: 10,
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: 'player-low-multi',
+      }
+
+      const fastify = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-low-multi-1': userBaixo },
+      })
+      ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      const createNotificationSpy = vi.fn().mockResolvedValue({})
+      vi.mocked(OneSignalModule.DefaultApi).mockImplementationOnce(function () {
+        return { createNotification: createNotificationSpy }
+      })
+
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+
+      await service.sendLowCreditNotifications()
+
+      // creditBalance=10 < consumoSemanal=42 → DEVE enviar push de low credit
+      expect(createNotificationSpy).toHaveBeenCalled()
+
+      // Agora testar com creditBalance=50 (>= 42) → NÃO envia push
+      vi.clearAllMocks()
+
+      const userAlto: UserShape = {
+        id: 'user-low-multi-1',
+        creditBalance: 50,
+        condominiumId: 'condo-1',
+        autoRecharge: null,
+        oneSignalPlayerId: 'player-low-multi',
+      }
+
+      const fastify2 = createMockFastify({
+        schedules: [schedule],
+        users: { 'user-low-multi-1': userAlto },
+      })
+      ;(fastify2.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+
+      const createAndTrimMock2 = vi.fn().mockResolvedValue(undefined)
+      const service2 = new SchedulesService(fastify2)
+      ;(service2 as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock2 }
+
+      await service2.sendLowCreditNotifications()
+
+      // creditBalance=50 >= consumoSemanal=42 → NÃO deve enviar push nem persistir Notification
+      expect(createAndTrimMock2).not.toHaveBeenCalled()
     })
   })
 })

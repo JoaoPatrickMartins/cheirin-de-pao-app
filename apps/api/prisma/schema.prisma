@@ -194,8 +194,8 @@ model Schedule {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
   userId            String   @db.ObjectId
   condominiumId     String   @db.ObjectId
-  weeklyQty         Json
-  deliveryTime      String
+  weeklyQty         Json?
+  deliveryTime      String?
   notifyReconfigure Boolean  @default(false)
   isActive          Boolean  @default(true)
   days              Json?
@@ -216,6 +216,7 @@ model Order {
   deliveryListId String?     @db.ObjectId
   courierId      String?     @db.ObjectId
   condominiumId  String?     @db.ObjectId
+  deliveryTime   String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 }
