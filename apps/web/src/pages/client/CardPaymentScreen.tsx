@@ -74,8 +74,12 @@ export function CardPaymentScreen() {
     if (isProcessing) return
     if (!selectedCardId) return
 
-    if (cvv.length < 3) {
-      setCvvError('Informe o código de segurança')
+    // WR-02: validação do CVV considera o número de dígitos exigido pela bandeira.
+    // Amex (brand === 'amex') exige 4 dígitos (CID); demais bandeiras exigem 3.
+    const selectedCard = savedCards.find((c) => c.id === selectedCardId)
+    const requiredCvvLength = selectedCard?.brand === 'amex' ? 4 : 3
+    if (cvv.length < requiredCvvLength) {
+      setCvvError(`Informe o código de segurança (${requiredCvvLength} dígitos)`)
       return
     }
 
@@ -149,18 +153,15 @@ export function CardPaymentScreen() {
   // Determinar label e ação do CTA
   const ctaLabel = (() => {
     if (hasSavedCards && selectedCardId !== null && !addCardExpanded) return 'Pagar com este cartão'
-    if (addCardExpanded && saveForLater) return 'Salvar cartão e pagar'
+    // CR-02: o label do Brick é controlado via customization.visual.buttonLabel — não há
+    // botão externo. O Brick renderiza sempre seu próprio submit; este label não é usado aqui.
     if (!hasSavedCards) return 'Pagar com cartão' // Modo B com Brick
-    return null // "Pagar sem salvar" é renderizado separado
+    return null
   })()
 
   const showPrimaryBtn =
     (!hasSavedCards) ||
-    (hasSavedCards && selectedCardId !== null && !addCardExpanded) ||
-    (addCardExpanded && saveForLater)
-
-  const showSecondaryBtn =
-    addCardExpanded && !saveForLater
+    (hasSavedCards && selectedCardId !== null && !addCardExpanded)
 
   return (
     <div
@@ -417,8 +418,20 @@ export function CardPaymentScreen() {
                     </p>
                   )}
                   <div style={{ borderRadius: 16 }}>
+                    {/*
+                      CR-02: o Brick controla seu próprio submit via onSubmit.
+                      Usamos customization.visual.buttonLabel para alterar o label do botão
+                      interno do Brick de acordo com o estado do checkbox "Salvar para compras futuras".
+                      Isso elimina a necessidade de um botão externo "Pagar sem salvar" — que não
+                      conseguiria acionar programaticamente o submit do Brick.
+                    */}
                     <CardPayment
                       initialization={{ amount }}
+                      customization={{
+                        visual: {
+                          buttonLabel: saveForLater ? 'Salvar cartão e pagar' : 'Pagar sem salvar',
+                        },
+                      }}
                       onSubmit={handleBrickSubmit as unknown as Parameters<typeof CardPayment>[0]['onSubmit']}
                       onError={() =>
                         setBrickError(
@@ -567,14 +580,17 @@ export function CardPaymentScreen() {
             gap: 0,
           }}
         >
-          {/* Botão primário */}
+          {/*
+            CR-02: Quando addCardExpanded é true, o Brick possui seu próprio botão de submit
+            (com label controlado via customization.visual.buttonLabel).
+            O CTA externo só é renderizado para Modo B (sem cartões) e Modo A com cartão
+            salvo selecionado — nunca quando o Brick está expandido.
+          */}
           {showPrimaryBtn && (
             <button
               onClick={() => {
-                if (!hasSavedCards || (addCardExpanded && saveForLater)) {
-                  // Modo B ou Brick expandido com salvar — acionar Brick submit não é possível
-                  // diretamente; o Brick tem seu próprio submit handler via onSubmit
-                  // Nada a fazer aqui — o Brick controla o submit
+                if (!hasSavedCards) {
+                  // Modo B — o Brick controla seu próprio submit; nada a fazer aqui
                   return
                 }
                 // Modo A com cartão salvo selecionado
@@ -597,41 +613,6 @@ export function CardPaymentScreen() {
             >
               {isProcessing ? 'Processando...' : ctaLabel}
             </button>
-          )}
-
-          {/* Botão "Pagar sem salvar" — menor destaque visual (CARD-03) */}
-          {showSecondaryBtn && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 44,
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: 'var(--color-text-sec)',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                }}
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  // Brick tem seu próprio submit — nada a fazer aqui manualmente
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    // Brick tem seu próprio submit
-                  }
-                }}
-              >
-                Pagar sem salvar
-              </span>
-            </div>
           )}
         </div>
       )}
