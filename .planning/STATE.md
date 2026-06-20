@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
-status: executing
-last_updated: "2026-06-20T05:24:35.214Z"
+status: complete
+last_updated: "2026-06-20T06:00:00.000Z"
 last_activity: 2026-06-20
 progress:
   total_phases: 14
-  completed_phases: 13
+  completed_phases: 14
   total_plans: 68
-  completed_plans: 66
-  percent: 93
+  completed_plans: 68
+  percent: 100
 ---
 
 # Project State
@@ -20,14 +20,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele precise fazer nada — o sistema cuida dos créditos, dos agendamentos e das notificações automaticamente.
-**Current focus:** Phase 14 — agenda-multi-slot
+**Current focus:** Milestone v1.1 completo
 
 ## Current Position
 
-Phase: 14 (agenda-multi-slot) — EXECUTING
-Plan: 2 of 4
-Next: Phase 14 — Agenda Multi-Slot (MSCHED-01..04)
-Status: Ready to execute
+Phase: 14 (agenda-multi-slot) — COMPLETE (2026-06-20)
+Plan: 4 of 4 — todos concluídos
+Next: Milestone v1.1 completo — pronto para deploy ou novo milestone
 Last activity: 2026-06-20
 
 ## v1.0 Status Summary
@@ -52,7 +51,7 @@ Last activity: 2026-06-20
 | 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Complete (2026-06-19) |
 | 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Complete (2026-06-19) |
 | 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Complete (2026-06-20) |
-| 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
+| 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Complete (2026-06-20) |
 
 ## Performance Metrics
 
