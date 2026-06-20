@@ -4,6 +4,8 @@ import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { CondoSearch } from '../../components/auth/CondoSearch'
 import { Icon } from '../../components/brand/Icon'
+import { SavedCardsList } from '../../components/client/SavedCardsList'
+import type { SavedCard } from '../../components/client/SavedCardItem'
 
 interface Condo {
   id: string
@@ -35,6 +37,14 @@ export function SettingsScreen() {
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
+  // Cartões salvos
+  const [savedCards, setSavedCards] = useState<SavedCard[]>([])
+  const [loadingCards, setLoadingCards] = useState(true)
+  const [cardError, setCardError] = useState<string | null>(null)
+  const [removingCardId, setRemovingCardId] = useState<string | null>(null)
+  const [cardToRemove, setCardToRemove] = useState<SavedCard | null>(null)
+  const [showRemoveDialog, setShowRemoveDialog] = useState(false)
+
   const showToast = (message: string, ok: boolean) => {
     setToast({ message, ok })
     setTimeout(() => setToast(null), 2500)
@@ -51,6 +61,14 @@ export function SettingsScreen() {
         }
       })
       .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    apiFetch('/users/me/cards')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((cards: SavedCard[]) => setSavedCards(cards))
+      .catch(() => setCardError('Não foi possível carregar seus cartões. Tente novamente.'))
+      .finally(() => setLoadingCards(false))
   }, [])
 
   const handleCondoSelect = (id: string) => {
@@ -117,6 +135,51 @@ export function SettingsScreen() {
       showToast('Não foi possível salvar. Tente novamente.', false)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSetDefault = async (cardId: string) => {
+    try {
+      const res = await apiFetch(`/users/me/cards/${cardId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isDefault: true }),
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (res.ok) {
+        setSavedCards((prev) =>
+          prev.map((c) => ({ ...c, isDefault: c.id === cardId })),
+        )
+        showToast('Cartão padrão atualizado.', true)
+      } else {
+        showToast('Algo deu errado. Tente novamente.', false)
+      }
+    } catch {
+      showToast('Algo deu errado. Tente novamente.', false)
+    }
+  }
+
+  const handleRemovePress = (card: SavedCard) => {
+    setCardToRemove(card)
+    setShowRemoveDialog(true)
+  }
+
+  const handleRemoveConfirm = async () => {
+    if (!cardToRemove) return
+    setRemovingCardId(cardToRemove.id)
+    try {
+      const res = await apiFetch(`/users/me/cards/${cardToRemove.id}`, { method: 'DELETE' })
+      if (res.ok || res.status === 204) {
+        setSavedCards((prev) => prev.filter((c) => c.id !== cardToRemove.id))
+        showToast('Cartão removido.', true)
+        setShowRemoveDialog(false)
+        setCardToRemove(null)
+      } else {
+        showToast('Algo deu errado. Tente novamente.', false)
+      }
+    } catch {
+      showToast('Algo deu errado. Tente novamente.', false)
+    } finally {
+      setRemovingCardId(null)
     }
   }
 
@@ -243,6 +306,33 @@ export function SettingsScreen() {
           />
         </SectionCard>
 
+        {/* Seção: Cartões */}
+        <SectionCard title="Cartões">
+          <SavedCardsList
+            cards={savedCards}
+            loading={loadingCards}
+            error={cardError}
+            mode="manage"
+            onSetDefault={handleSetDefault}
+            onRemove={(id) => handleRemovePress(savedCards.find((c) => c.id === id)!)}
+            removingId={removingCardId}
+          />
+          {!loadingCards && !cardError && savedCards.length > 0 && savedCards.length < 3 && (
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
+                color: 'var(--color-text-ter)',
+                textAlign: 'center',
+                marginTop: 16,
+                marginBottom: 0,
+              }}
+            >
+              Adicione cartões ao fazer uma compra na tela de Créditos.
+            </p>
+          )}
+        </SectionCard>
+
         {/* Seção: Condomínio */}
         <SectionCard title="Condomínio">
           <CondoSearch
@@ -301,6 +391,103 @@ export function SettingsScreen() {
           </button>
         </SectionCard>
       </div>
+
+      {/* Dialog: confirmar remoção de cartão */}
+      {showRemoveDialog && cardToRemove && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            setShowRemoveDialog(false)
+            setCardToRemove(null)
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--color-surface)',
+              borderRadius: 22,
+              padding: 24,
+              width: 'calc(100vw - 48px)',
+              maxWidth: 320,
+            }}
+          >
+            <h2
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 18,
+                fontWeight: 700,
+                color: 'var(--color-text)',
+                margin: '0 0 8px',
+              }}
+            >
+              Remover cartão
+            </h2>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 15,
+                color: 'var(--color-text-sec)',
+                margin: '0 0 20px',
+                lineHeight: 1.5,
+              }}
+            >
+              Tem certeza que deseja remover o cartão •••• {cardToRemove.lastFour}? Esta ação não pode ser desfeita.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                onClick={() => {
+                  setShowRemoveDialog(false)
+                  setCardToRemove(null)
+                }}
+                style={{
+                  width: '100%',
+                  height: 52,
+                  background: 'transparent',
+                  color: 'var(--color-text)',
+                  borderRadius: 'var(--radius-btn)',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  border: '1.5px solid var(--color-border)',
+                  cursor: 'pointer',
+                }}
+              >
+                Manter cartão
+              </button>
+              <button
+                onClick={() => void handleRemoveConfirm()}
+                disabled={removingCardId !== null}
+                style={{
+                  width: '100%',
+                  height: 52,
+                  background: '#C0392B',
+                  color: '#FFFFFF',
+                  borderRadius: 'var(--radius-btn)',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  border: 'none',
+                  cursor: removingCardId !== null ? 'not-allowed' : 'pointer',
+                  opacity: removingCardId !== null ? 0.7 : 1,
+                }}
+              >
+                {removingCardId !== null ? 'Removendo...' : 'Remover cartão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dialog: confirmar mudança de condomínio */}
       {showCondoDialog && (
