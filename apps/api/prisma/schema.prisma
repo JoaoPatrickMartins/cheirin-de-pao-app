@@ -22,6 +22,13 @@ type Address {
   zip        String
 }
 
+type DeliverySlot {
+  name        String  // "manha" | "tarde"
+  time        String  // "06:30"
+  cutoffTime  String  // "22:00"
+  isActive    Boolean
+}
+
 // ===== ENUMS =====
 
 enum UserRole {
@@ -130,7 +137,7 @@ model Condominium {
   address       Address
   type          CondoType
   isActive      Boolean   @default(true)
-  deliverySlots String[]
+  deliverySlots DeliverySlot[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
