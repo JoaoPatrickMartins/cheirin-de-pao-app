@@ -407,7 +407,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — Módulo backend saved-cards (schema + repository + service + controller + route) + expansão payments.service (savedCardId + saveCard:true) + wiring server.ts + testes unitários
+- [x] 12-01-PLAN.md — Módulo backend saved-cards (schema + repository + service + controller + route) + expansão payments.service (savedCardId + saveCard:true) + wiring server.ts + testes unitários
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -468,6 +468,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
-| 12. Cartões Salvos | 0/3 | Planned | |
+| 12. Cartões Salvos | 1/3 | In Progress|  |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |
