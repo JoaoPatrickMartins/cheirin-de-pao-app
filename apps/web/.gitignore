@@ -1,0 +1,5 @@
+# Compiled JS emitted next to TS sources by `tsc` (build uses Vite for emit).
+# tsconfig has "noEmit": true, mas isto evita recommit acidental se alguém rodar tsc sem a flag.
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
