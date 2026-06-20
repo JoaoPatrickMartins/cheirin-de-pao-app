@@ -95,9 +95,11 @@ export class PaymentsService {
 
   // ── getOrCreateMpCustomer ─────────────────────────────────────────────────
   // Idempotente: verifica DB → busca MP → cria (T-12-06: nunca cria duplicata)
+  // WR-01: lança erro se usuário não existir (null-safety — user? não é suficiente)
   private async getOrCreateMpCustomer(userId: string, userEmail: string): Promise<string> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } })
-    if (user?.mpCustomerId) return user.mpCustomerId
+    if (!user) throw { error: 'Usuário não encontrado', status: 404 }
+    if (user.mpCustomerId) return user.mpCustomerId
 
     const email = userEmail ?? `${userId}@cheirin.app`
     const searchResult = await this.customerApi.search({ options: { email } })
@@ -148,10 +150,11 @@ export class PaymentsService {
     const { amount, quantity, description } = await this.resolveAmount(comboId, customQuantity)
 
     let paymentToken: string | undefined = rawToken
+    let savedCard: { userId: string; mpCardId: string; brand: string } | null = null
 
     // ── Fluxo com cartão salvo (CARD-06) ──────────────────────────────────
     if (savedCardId) {
-      const savedCard = await this.prisma.savedCard.findUnique({ where: { id: savedCardId } })
+      savedCard = await this.prisma.savedCard.findUnique({ where: { id: savedCardId } })
       // T-12-01: IDOR — 404 mesmo se cartão existe mas é de outro usuário
       if (!savedCard || savedCard.userId !== userId) {
         throw { error: 'Cartão não encontrado', status: 404 }
@@ -185,7 +188,8 @@ export class PaymentsService {
         installments,
         // payment_method_id é OBRIGATÓRIO pelo MP para cartão (ex.: "master", "visa").
         // O Brick fornece em formData.payment_method_id; sem ele o MP retorna internal_error.
-        payment_method_id: paymentMethodId,
+        // WR-05: usa brand do cartão salvo como fallback quando savedCardId está presente
+        payment_method_id: paymentMethodId ?? (savedCardId ? savedCard?.brand : undefined),
         issuer_id: issuerId ? parseInt(issuerId) : undefined,
         // Prioriza o e-mail informado no checkout; cai para o do cadastro e, por fim, um sintético.
         // identification (CPF) vem do Brick — exigido pelo MP em produção no Brasil.
@@ -222,7 +226,22 @@ export class PaymentsService {
           body: { token: rawToken },
         })
         if (mpCard?.id) {
-          const isDefault = count === 0
+          // CR-01: recontagem pós-criação no MP para evitar race condition no limite de 3 cartões.
+          // Dois requests concorrentes passariam pelo count < 3 inicial; este segundo count
+          // garante que somente o primeiro a salvar vence — o excedente remove o cartão no MP
+          // e retorna sem persistir (pagamento já efetuado com sucesso).
+          const currentCount = await this.prisma.savedCard.count({ where: { userId } })
+          if (currentCount >= 3) {
+            // Rollback no MP — cartão criado mas limite atingido por request concorrente
+            try {
+              await this.customerCardApi.remove({ customerId: mpCustomerId, id: mpCard.id })
+            } catch {
+              this.fastify.log.error({ mpCardId: mpCard.id }, 'MP rollback failed after concurrent limit exceeded')
+            }
+            return { paymentId: payment.id }
+          }
+
+          const isDefault = currentCount === 0
           const brand = ((mpCard as { payment_method?: { id?: string } }).payment_method?.id ?? '').toLowerCase()
           const lastFour = (mpCard as { last_four_digits?: string }).last_four_digits ?? ''
           const expMonth = String((mpCard as { expiration_month?: number }).expiration_month ?? '').padStart(2, '0')
