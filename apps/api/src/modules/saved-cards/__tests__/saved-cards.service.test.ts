@@ -244,7 +244,7 @@ describe('SavedCardsService [CARD-01, CARD-04, CARD-05, CARD-06]', () => {
         customerId: 'mp-cust-1',
         id: 'mp-card-1',
       })
-      expect(fastify.prisma.savedCard.delete).toHaveBeenCalledWith({ where: { id: 'card-1' } })
+      expect(fastify.prisma.savedCard.delete).toHaveBeenCalledWith({ where: { id: 'card-1', userId } })
     })
 
     it('propaga erro do MP sem deletar no Prisma se MP falhar', async () => {
@@ -262,7 +262,7 @@ describe('SavedCardsService [CARD-01, CARD-04, CARD-05, CARD-06]', () => {
       })
       mockCustomerCardDelete.mockRejectedValueOnce(new Error('MP API error'))
 
-      await expect(service.removeCard('card-1', userId)).rejects.toThrow('MP API error')
+      await expect(service.removeCard('card-1', userId)).rejects.toMatchObject({ error: expect.any(String), status: 502 })
       expect(fastify.prisma.savedCard.delete).not.toHaveBeenCalled()
     })
   })
