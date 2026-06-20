@@ -1,6 +1,67 @@
 import { FastifyPluginAsync } from 'fastify'
 
 export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
+  /**
+   * GET /client/condominium/slots
+   *
+   * Retorna os slots de entrega ativos do condomínio do cliente autenticado.
+   *
+   * SEGURANÇA (IDOR): condominiumId é obtido EXCLUSIVAMENTE de user.condominiumId
+   * (via DB a partir do JWT) — nunca de query param ou body.
+   */
+  fastify.get('/client/condominium/slots', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['condominiums'],
+      summary: 'Listar slots ativos do condomínio do cliente',
+      description:
+        'Retorna os slots de entrega ativos do condomínio vinculado ao cliente autenticado. O condominiumId é extraído do JWT — nunca aceita condominiumId de query param.',
+      response: {
+        200: {
+          type: 'array',
+          description: 'Lista de slots de entrega ativos.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: '"manha" ou "tarde".' },
+              time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
+              cutoffTime: { type: 'string', description: 'Horário de corte (HH:MM).' },
+              isActive: { type: 'boolean', description: 'Slot ativo.' },
+            },
+          },
+        },
+        404: {
+          type: 'object',
+          properties: { message: { type: 'string' } },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const user = request.user!
+
+    // Busca condominiumId do usuário autenticado — NUNCA de query param
+    const dbUser = await fastify.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { condominiumId: true },
+    })
+
+    if (!dbUser?.condominiumId) {
+      return reply.code(404).send({ message: 'Usuário sem condomínio vinculado' })
+    }
+
+    const condo = await fastify.prisma.condominium.findUnique({
+      where: { id: dbUser.condominiumId },
+      select: { deliverySlots: true },
+    })
+
+    if (!condo) {
+      return reply.code(404).send({ message: 'Condomínio não encontrado' })
+    }
+
+    const activeSlots = condo.deliverySlots.filter((s) => s.isActive)
+    return reply.send(activeSlots)
+  })
+
   // Public route — no preHandler required
   fastify.get('/condominiums', {
     schema: {
