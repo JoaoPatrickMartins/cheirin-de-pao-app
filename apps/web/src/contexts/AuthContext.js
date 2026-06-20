@@ -68,6 +68,20 @@ export function AuthProvider() {
                 return updated;
             });
         },
+        updateUser: (partial) => {
+            setUser((prev) => {
+                if (!prev)
+                    return prev;
+                const updated = { ...prev, ...partial };
+                try {
+                    localStorage.setItem('auth_user', JSON.stringify(updated));
+                }
+                catch {
+                    // localStorage unavailable — update in-memory only
+                }
+                return updated;
+            });
+        },
     }), [user, token, isLoading, navigate]);
     return (_jsx(AuthContext.Provider, { value: value, children: _jsx(Outlet, {}) }));
 }

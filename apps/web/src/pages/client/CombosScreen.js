@@ -150,7 +150,7 @@ export function CombosScreen() {
                                         fontSize: 13,
                                         color: 'var(--color-good)',
                                         margin: 0,
-                                    }, children: "\u2713 Cr\u00E9ditos n\u00E3o expiram. Pause quando viajar." }) })] }))) : (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 20 }, children: [_jsx("p", { style: {
+                                    }, children: "\u2713 Cr\u00E9ditos n\u00E3o expiram. Pause quando viajar." }) })] }))) : (_jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 20 }, children: [creditBalance < customQty && (_jsx(BannerInsuficiente, { saldo: creditBalance, requerido: customQty, onComprar: () => setTab('combos'), onAjustar: (qtd) => setCustomQty(qtd) })), _jsx("p", { style: {
                                     fontFamily: 'var(--font-body)',
                                     fontWeight: 600,
                                     fontSize: 12.5,

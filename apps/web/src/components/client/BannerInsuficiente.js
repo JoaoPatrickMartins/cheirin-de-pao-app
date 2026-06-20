@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { Icon } from '../brand/Icon';
-export default function BannerInsuficiente({ saldo, requerido, onComprar, onAjustar, }) {
+export default function BannerInsuficiente({ saldo, requerido, onComprar, onAjustar, hideAjustar = false, }) {
     if (requerido <= saldo)
         return null;
     return (_jsxs("div", { style: {
@@ -27,7 +27,7 @@ export default function BannerInsuficiente({ saldo, requerido, onComprar, onAjus
                             fontWeight: 600,
                             fontSize: 13,
                             cursor: 'pointer',
-                        }, children: "Comprar mais" }), _jsxs("button", { onClick: () => onAjustar(saldo), style: {
+                        }, children: "Comprar mais" }), !hideAjustar && (_jsxs("button", { onClick: () => onAjustar(saldo), style: {
                             minHeight: 44,
                             padding: '8px 16px',
                             borderRadius: 'var(--radius-btn)',
@@ -38,5 +38,5 @@ export default function BannerInsuficiente({ saldo, requerido, onComprar, onAjus
                             fontWeight: 600,
                             fontSize: 13,
                             cursor: 'pointer',
-                        }, children: ["Usar ", saldo] })] })] }));
+                        }, children: ["Usar ", saldo] }))] })] }));
 }

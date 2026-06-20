@@ -6,6 +6,7 @@ const TABS = [
     { label: 'Agenda', icon: 'calendar', path: '/client/agenda' },
     { label: 'Créditos', icon: 'coin', path: '/client/creditos' },
     { label: 'Pedidos', icon: 'bag', path: '/client/pedidos' },
+    { label: 'Perfil', icon: 'user', path: '/client/perfil' },
 ];
 export function ClientTabBar() {
     const location = useLocation();

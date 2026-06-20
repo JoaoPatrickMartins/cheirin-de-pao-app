@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../../lib/apiFetch';
 import { BreadMark } from '../../components/brand/BreadMark';
+import { Icon } from '../../components/brand/Icon';
 import { useAuth } from '../../hooks/useAuth';
 import { ProgressCard } from '../../components/courier/ProgressCard';
 import { SegmentedControl } from '../../components/courier/SegmentedControl';
@@ -23,7 +24,7 @@ function getTodayLabel() {
     return `${day} ${month}`;
 }
 export function CourierScreen() {
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
     const [data, setData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [tab, setTab] = useState('list');
@@ -71,7 +72,17 @@ export function CourierScreen() {
                             display: 'grid',
                             placeItems: 'center',
                             flexShrink: 0,
-                        }, children: _jsx(BreadMark, { size: 27, color: "#E3AC3F", "aria-label": "Cheirin de P\u00E3o" }) }), _jsxs("div", { style: { textAlign: 'right' }, children: [_jsxs("p", { style: {
+                        }, children: _jsx(BreadMark, { size: 27, color: "#E3AC3F", "aria-label": "Cheirin de P\u00E3o" }) }), _jsxs("div", { style: { textAlign: 'right' }, children: [_jsx("button", { onClick: logout, "aria-label": "Sair", style: {
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: 4,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    marginBottom: 4,
+                                    marginLeft: 'auto',
+                                }, children: _jsx(Icon, { name: "logout", size: 22, color: "var(--color-text-ter)" }) }), _jsxs("p", { style: {
                                     fontFamily: 'var(--font-body)',
                                     fontSize: 12,
                                     fontWeight: 700,

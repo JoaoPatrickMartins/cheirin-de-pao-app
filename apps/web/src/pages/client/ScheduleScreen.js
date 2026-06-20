@@ -8,7 +8,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  * Requirements: SCHED-02, SCHED-04, SCHED-05, SCHED-06
  * Source: screens-order.jsx linhas 173–253, 04-UI-SPEC.md seções 1–6
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../../hooks/useAuth';
 import { useSchedule } from '../../hooks/useSchedule';
@@ -16,6 +16,7 @@ import { Icon } from '../../components/brand/Icon';
 import StepperInline from '../../components/client/StepperInline';
 import DeliveryTimeChips from '../../components/client/DeliveryTimeChips';
 import BannerCobertura from '../../components/client/BannerCobertura';
+import { apiFetch } from '../../lib/apiFetch';
 // Dados dos 7 dias da semana
 const DAYS = [
     { label: 'Seg', key: 'seg' },
@@ -28,14 +29,37 @@ const DAYS = [
 ];
 export function ScheduleScreen() {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, updateUser } = useAuth();
     const creditBalance = user?.creditBalance ?? 0;
+    const showCondoBanner = user?.condominiumJustChanged === true;
     const { weeklyQty, deliveryTime, notifyReconfigure, setWeeklyQty, setDeliveryTime, setNotifyReconfigure, saveSchedule, isLoading, isSaving, consumoSemanal, cobre, } = useSchedule(creditBalance);
+    const [slots, setSlots] = useState([]);
     const [toast, setToast] = useState(null);
+    useEffect(() => {
+        const fetchSlots = async () => {
+            try {
+                const res = await apiFetch('/client/condominium/slots');
+                if (res.ok) {
+                    const data = (await res.json());
+                    setSlots(data);
+                }
+                else {
+                    console.warn('[ScheduleScreen] GET /client/condominium/slots retornou status', res.status);
+                }
+            }
+            catch (err) {
+                console.warn('[ScheduleScreen] Erro ao buscar slots de entrega:', err);
+            }
+        };
+        fetchSlots();
+    }, []);
     const handleSave = async () => {
         if (isSaving)
             return;
         const result = await saveSchedule();
+        if (result.ok) {
+            updateUser({ condominiumJustChanged: false });
+        }
         setToast({
             message: result.ok ? 'Agenda salva!' : (result.error ?? 'Não conseguimos salvar. Tente novamente.'),
             ok: result.ok,
@@ -87,7 +111,20 @@ export function ScheduleScreen() {
                             color: 'var(--color-text)',
                             letterSpacing: '-0.02em',
                             margin: 0,
-                        }, children: "Agenda semanal" })] }), _jsxs("div", { style: {
+                        }, children: "Agenda semanal" })] }), showCondoBanner && (_jsxs("div", { style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#F3DDA6',
+                    borderLeft: '3px solid var(--color-accent)',
+                    borderRadius: 12,
+                    padding: '12px 16px',
+                    margin: '0 16px 16px',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: 'var(--color-text)',
+                }, children: [_jsx(Icon, { name: "alert", size: 18, color: "var(--color-accent)" }), _jsx("span", { children: "Voc\u00EA mudou de condom\u00EDnio. Configure sua nova agenda semanal." })] })), _jsxs("div", { style: {
                     flex: 1,
                     overflowY: 'auto',
                     padding: '4px 20px',
@@ -99,7 +136,7 @@ export function ScheduleScreen() {
                             lineHeight: 1.5,
                             marginBottom: 16,
                             marginTop: 0,
-                        }, children: "Quantos p\u00E3es em cada dia. A gente entrega sozinho, todo dia, no hor\u00E1rio escolhido." }), _jsx(DeliveryTimeChips, { value: deliveryTime, onChange: setDeliveryTime }), isLoading ? (
+                        }, children: "Quantos p\u00E3es em cada dia. A gente entrega sozinho, todo dia, no hor\u00E1rio escolhido." }), _jsx(DeliveryTimeChips, { slots: slots, value: deliveryTime, onChange: setDeliveryTime }), isLoading ? (
                     // Skeleton de carregamento
                     _jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: [Array.from({ length: 7 }).map((_, i) => (_jsx("div", { style: {
                                     height: 64,

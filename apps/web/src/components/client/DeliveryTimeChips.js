@@ -1,15 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-/**
- * DeliveryTimeChips — 4 chips de seleção de horário de entrega
- *
- * Seleção exclusiva (uma opção por vez). Chip ativo usa goldSoft + borda accent.
- * borderRadius: 13px (excepção de alta fidelidade do handoff — não 16px)
- *
- * Requirements: SCHED-02 (salvar deliveryTime no Schedule)
- * Source: screens-order.jsx linhas 193–197, 04-UI-SPEC.md seção 2
- */
-const DELIVERY_TIMES = ['06:30', '07:00', '07:30', '08:00'];
-export default function DeliveryTimeChips({ value, onChange }) {
+export default function DeliveryTimeChips({ slots, value, onChange }) {
     return (_jsxs("div", { children: [_jsx("p", { style: {
                     fontFamily: 'var(--font-body)',
                     fontWeight: 700,
@@ -20,9 +10,9 @@ export default function DeliveryTimeChips({ value, onChange }) {
                     display: 'flex',
                     gap: 9,
                     marginBottom: 18,
-                }, children: DELIVERY_TIMES.map((time) => {
-                    const isActive = value === time;
-                    return (_jsx("button", { onClick: () => onChange(time), style: {
+                }, children: slots.map((slot) => {
+                    const isActive = value === slot.time;
+                    return (_jsx("button", { onClick: () => onChange(slot.time), style: {
                             flex: 1,
                             padding: '11px 0',
                             borderRadius: 13,
@@ -37,6 +27,6 @@ export default function DeliveryTimeChips({ value, onChange }) {
                             cursor: 'pointer',
                             transition: 'background .15s, border-color .15s, color .15s',
                             minHeight: 44,
-                        }, children: time }, time));
+                        }, children: slot.time }, slot.name));
                 }) })] }));
 }

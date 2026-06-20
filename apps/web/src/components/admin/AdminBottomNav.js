@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { useState } from 'react';
 import { Icon } from '../brand/Icon';
 import { useAuth } from '../../hooks/useAuth';
 const TABS = [
@@ -12,7 +12,7 @@ const TABS = [
 export function AdminBottomNav({ activeTab, onTabChange, }) {
     const { logout } = useAuth();
     const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-    return (_jsxs(_Fragment, { children: [_jsxs("nav", { role: "navigation", "aria-label": "Navegação administrativa", style: {
+    return (_jsxs(_Fragment, { children: [_jsxs("nav", { role: "navigation", "aria-label": "Navega\u00E7\u00E3o administrativa", style: {
                     position: 'fixed',
                     bottom: 0,
                     left: 0,
@@ -88,7 +88,7 @@ export function AdminBottomNav({ activeTab, onTabChange, }) {
                                 fontSize: 14,
                                 color: 'var(--color-text-sec)',
                                 margin: '0 0 24px',
-                            }, children: "Você será redirecionado para a tela de login." }), _jsxs("div", { style: { display: 'flex', gap: 12 }, children: [_jsx("button", { onClick: () => setShowLogoutDialog(false), style: {
+                            }, children: "Voc\u00EA ser\u00E1 redirecionado para a tela de login." }), _jsxs("div", { style: { display: 'flex', gap: 12 }, children: [_jsx("button", { onClick: () => setShowLogoutDialog(false), style: {
                                         flex: 1,
                                         minHeight: 44,
                                         borderRadius: 999,

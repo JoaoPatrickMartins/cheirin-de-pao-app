@@ -85,7 +85,7 @@ function PixWaitingContent({ paymentId, qrCodeBase64, qrCode, comboQuantity, onC
                     flexDirection: 'column',
                     gap: 12,
                     alignItems: 'center',
-                }, children: [_jsx("p", { style: { fontFamily: 'var(--font-body)', fontSize: 15, color: 'var(--color-text)', margin: 0, textAlign: 'center' }, children: "Pagamento recusado." }), _jsx("button", { onClick: () => onNavigate('/client/creditos'), style: {
+                }, children: [_jsx("p", { style: { fontFamily: 'var(--font-body)', fontSize: 15, color: 'var(--color-text)', margin: 0, textAlign: 'center' }, children: "Pagamento n\u00E3o aprovado. Isso pode ter sido um erro tempor\u00E1rio do banco. Tente novamente." }), _jsx("button", { onClick: () => onNavigate('/client/creditos'), style: {
                             minHeight: 44,
                             padding: '10px 24px',
                             borderRadius: 'var(--radius-btn)',
