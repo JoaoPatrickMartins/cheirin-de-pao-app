@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
-status: executing
-last_updated: "2026-06-20T01:05:40.564Z"
-last_activity: 2026-06-20
+status: planning
+last_updated: "2026-06-19T00:00:00.000Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 14
-  completed_phases: 11
+  completed_phases: 12
   total_plans: 60
-  completed_plans: 59
-  percent: 79
+  completed_plans: 60
+  percent: 86
 ---
 
 # Project State
@@ -20,15 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18)
 
 **Core value:** O cliente configura a agenda uma vez e os pãezinhos chegam todo dia sem que ele precise fazer nada — o sistema cuida dos créditos, dos agendamentos e das notificações automaticamente.
-**Current focus:** Phase 12 — cart-es-salvos
+**Current focus:** Phase 13 — Horários por Condomínio
 
 ## Current Position
 
-Phase: 12 (cart-es-salvos) — EXECUTING
-Plan: 2 of 3
-Next: Execute Phase 12
-Status: Ready to execute
-Last activity: 2026-06-20
+Phase: 12 (cart-es-salvos) — COMPLETE (2026-06-19)
+Next: Phase 13 — Horários por Condomínio (SLOT-01..07)
+Status: Phase 12 concluída. Próximo: /gsd:execute-phase 13
+Last activity: 2026-06-19
 
 ## v1.0 Status Summary
 
@@ -50,7 +49,7 @@ Last activity: 2026-06-20
 | 9. Finalização Rastreamento | Cron 21h + TrackingScreen + NotificationsScreen + badge | ACOMP-01..05 | Complete (2026-06-19) |
 | 10. Schema v1.1 + CREDM + Logout | Schema unificado + crédito manual + logout | CREDM-01..03, LGOUT-01..02 | Needs Review (human UAT) |
 | 11. Configurações e Perfil | Tela configurações completa + OTP contato + logout | CONF-01..07 | Complete (2026-06-19) |
-| 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Planned (2026-06-20) |
+| 12. Cartões Salvos | MP Customer API + cartão salvo no fluxo compra | CARD-01..06 | Complete (2026-06-19) |
 | 13. Horários por Condomínio | Admin CRUD slots + cortes individuais + migração | SLOT-01..07 | Not started |
 | 14. Agenda Multi-Slot | days Json + cron multi-slot + ScheduleScreen refatorada | MSCHED-01..04 | Not started |
 
