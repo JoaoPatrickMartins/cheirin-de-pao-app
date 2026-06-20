@@ -469,5 +469,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
 | 12. Cartões Salvos | 3/3 | Complete   | 2026-06-20 |
-| 13. Horários por Condomínio | 1/4 | In Progress|  |
+| 13. Horários por Condomínio | 2/4 | In Progress|  |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |
