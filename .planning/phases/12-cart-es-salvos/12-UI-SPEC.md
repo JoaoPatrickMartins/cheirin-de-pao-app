@@ -36,9 +36,8 @@ Declared values (multiples of 4 only):
 | Token | Value | Usage |
 |-------|-------|-------|
 | xs | 4px | Gap entre ícone e label dentro de chip de cartão; gap entre radio indicator e texto |
-| sm | 8px | Gap entre bandeira do cartão e dígitos finais; gap entre linhas de detalhe do cartão |
-| sm+ | 12px | Gap entre botões no dialog de confirmação de remoção; padding interno de toast e banner |
-| md | 16px | Padding horizontal da área de conteúdo; gap entre cards de cartão na lista |
+| sm | 8px | Gap entre bandeira do cartão e dígitos finais; gap entre linhas de detalhe do cartão; gap entre botões no dialog de confirmação de remoção |
+| md | 16px | Padding horizontal da área de conteúdo; gap entre cards de cartão na lista; padding interno de toast e banner |
 | lg | 24px | Padding dos cards de seção (SavedCardsSection na SettingsScreen); padding de dialogs |
 | xl | 32px | Separação entre seção de cartões salvos e seção seguinte na SettingsScreen |
 | 2xl | 48px | Espaço de segurança abaixo do último card antes do tab bar |
@@ -65,7 +64,7 @@ Exceções (herdadas de componentes existentes — não replicar em novos compon
 
 **Letter-spacing dos headings:** `-0.02em` (padrão existente em `CardPaymentScreen.tsx` e `ScheduleScreen.tsx`).
 
-**Regra de pesos:** somente 2 pesos em uso — 400 (body) e 600 (labels, headings e botões). Peso 700 é utilizado apenas no título da CardPaymentScreen existente (herança — não propagar para novos componentes).
+**Regra de pesos:** somente 2 pesos em uso — 400 (body) e 600 (labels, headings e botões). Não usar peso 700 em componentes novos ou modificados desta fase.
 
 ---
 
@@ -210,7 +209,7 @@ Especificação do card reutilizável usado tanto no fluxo de pagamento quanto n
 - Borda: 2px solid `--color-border-2` (não selecionado) | 2px solid `--color-accent` (selecionado)
 - Sombra: `--shadow-soft` (não selecionado) | `--shadow-strong` (selecionado)
 - Radius: `--radius-card` 22px
-- Padding: 18px (herdado do `ComboCard` — padrão de seleção)
+- Padding: 16px (`--space-md` — alinhado à escala de espaçamento; visual consistente com ComboCard)
 - Radio indicator: círculo 26×26px — padrão idêntico ao `ComboCard.tsx` (borda 2px accent, círculo interno 13×13px accent quando selecionado)
 - Height mínima do card: 64px (hit target seguro para toda a área clicável)
 
@@ -252,8 +251,8 @@ Especificação do card reutilizável usado tanto no fluxo de pagamento quanto n
 | Erro carregamento cartões | `Não foi possível carregar seus cartões. Tente novamente.` |
 | **Dialog remoção — título** | `Remover cartão` |
 | **Dialog remoção — corpo** | `Tem certeza que deseja remover o cartão •••• {4 dígitos}? Esta ação não pode ser desfeita.` |
-| **Dialog remoção — botão cancelar** | `Cancelar` |
-| **Dialog remoção — botão confirmar** | `Remover` |
+| **Dialog remoção — botão cancelar** | `Manter cartão` |
+| **Dialog remoção — botão confirmar** | `Remover cartão` |
 
 **Nota de hierarquia CARD-03:** "Pagar sem salvar" deve ter menor proeminência visual que "Salvar cartão e pagar". Não usar o mesmo estilo de botão primário para ambos — ver seção Interactions para especificação de estilo.
 
@@ -278,11 +277,11 @@ Especificação do card reutilizável usado tanto no fluxo de pagamento quanto n
 - Botão primário ("Pagar com este cartão" / "Salvar cartão e pagar"):
   - Fundo: `--color-accent` | Texto: `--color-primary-btn-text`
   - Radius: `--radius-btn` 16px | Altura: 52px | Largura: 100%
-  - Font: `--font-display` (Bricolage) 16px weight 700 (padrão CombosScreen)
+  - Font: `--font-display` (Bricolage) 15px weight 600 (padrão CombosScreen — alinhado à escala tipográfica)
   - Loading: substituir texto por "Processando..." (não usar spinner — consistência com CombosScreen)
 - Botão/texto secundário "Pagar sem salvar":
   - Sem fundo, sem borda — aparência de texto/link
-  - Cor: `--color-text-sec` | Font: `--font-body` 13px weight 600
+  - Cor: `--color-text-sec` | Font: `--font-body` 12.5px (`--text-sm`) weight 600
   - Alinhamento: centralizado | Height mínima: 44px (hit target)
 
 ### "Adicionar novo cartão" — card colapsável
@@ -306,14 +305,14 @@ Especificação do card reutilizável usado tanto no fluxo de pagamento quanto n
 - Overlay: `rgba(0,0,0,0.45)` cobrindo toda a tela
 - Card central: bg `--color-surface`, radius `--radius-card` 22px, padding 24px
 - Máximo de largura: `calc(100vw - 48px)` | Máximo de largura absoluta: 320px
-- Botão "Cancelar": bg `transparent`, borda 1.5px `--color-border`, texto `--color-text`, radius `--radius-btn`
-- Botão "Remover": bg `#C0392B`, texto `#FFFFFF`, radius `--radius-btn`
-- Botões em coluna: "Cancelar" em cima, "Remover" embaixo (gap 8px) — sem risco de tap acidental
+- Botão "Manter cartão": bg `transparent`, borda 1.5px `--color-border`, texto `--color-text`, radius `--radius-btn`
+- Botão "Remover cartão": bg `#C0392B`, texto `#FFFFFF`, radius `--radius-btn`
+- Botões em coluna: "Manter cartão" em cima, "Remover cartão" embaixo (gap 8px) — sem risco de tap acidental
 
 ### Botão "Definir como padrão" (SettingsScreen)
 
 - Aparência de texto/link: sem fundo, sem borda
-- Cor: `--color-accent` | Font: `--font-body` 13px weight 600
+- Cor: `--color-accent` | Font: `--font-body` 12.5px (`--text-sm`) weight 600
 - Hit target: 44px de altura mínima no item da lista
 - Sem dialog — ação imediata com toast de confirmação
 
@@ -330,7 +329,7 @@ Idêntico ao padrão estabelecido em `SettingsScreen.tsx`:
 
 ```
 Texto heading: "Nenhum cartão salvo." (15px, color-text-ter, centralizado)
-Subtexto: "Você pode salvar um cartão ao fazer uma compra." (13px, color-text-ter, centralizado)
+Subtexto: "Você pode salvar um cartão ao fazer uma compra." (12.5px, `--text-sm`, color-text-ter, centralizado)
 ```
 Sem ícone ilustrativo. Sem CTA de navegação — o usuário descobre o fluxo de adição naturalmente pela compra.
 
@@ -401,9 +400,9 @@ Skeleton de 1–3 cards (placeholders cinzas, altura 64px, radius 22px, fundo `-
 
 | Bandeira | Renderização |
 |----------|-------------|
-| Visa | Texto `VISA` em Bricolage Grotesque 700, cor `#1A1F71` (azul Visa), fundo `--color-surface-2`, radius 4px, padding `2px 6px` |
+| Visa | Texto `VISA` em Bricolage Grotesque 600, cor `#1A1F71` (azul Visa), fundo `--color-surface-2`, radius 4px, padding `2px 6px` |
 | Mastercard | SVG inline: dois círculos sobrepostos (vermelho `#EB001B` + laranja `#F79E1B`), tamanho 32×20px |
-| Elo | Texto `elo` em Bricolage Grotesque 700, cor `#FFD100` (amarelo Elo em fundo escuro) — ou simplificar para texto uppercase `ELO` em color-text + fundo surface-2 |
+| Elo | Texto `ELO` em Bricolage Grotesque 600, cor `--color-text`, fundo `--color-surface-2`, radius 4px, padding `2px 6px` |
 | Outros / desconhecido | `<Icon name="card" size={20} color="var(--color-text-ter)" />` |
 
 **Nota de implementação:** O `payment_method_id` retornado pelo Brick identifica a bandeira (ex: `"visa"`, `"master"`, `"elo"`). Mapear para a renderização correta acima. Sem dependência de imagens externas ou libs de logos de bandeira.
@@ -452,11 +451,11 @@ Nenhum componente de terceiros adicionado nesta fase. Todos os componentes são 
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: FLAG (não-bloqueante — "Remover" na lista, contextualmente claro)
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved — 2026-06-19
