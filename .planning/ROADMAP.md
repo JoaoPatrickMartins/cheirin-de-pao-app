@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 10: Schema v1.1 + Crédito Manual Admin + Logout** - Schema unificado v1.1, crédito manual admin com push, botão de logout para entregador e admin (completed 2026-06-19)
 - [ ] **Phase 11: Configurações e Perfil do Cliente** - Tela de configurações completa: dados pessoais, contato com OTP, condomínio e logout do cliente
 - [x] **Phase 12: Cartões Salvos** - Fluxo de compra com cartão salvo via MP Customer API, CRUD de cartões nas configurações (completed 2026-06-20)
-- [ ] **Phase 13: Horários por Condomínio** - Admin configura 2 slots (manhã/tarde) por condomínio com horários e cortes individuais
+- [x] **Phase 13: Horários por Condomínio** - Admin configura 2 slots (manhã/tarde) por condomínio com horários e cortes individuais (completed 2026-06-20)
 - [ ] **Phase 14: Agenda Multi-Slot** - Cliente agenda quantidade por horário por dia; cron e app entregador ajustados
 
 ## Phase Details
@@ -469,5 +469,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
 | 12. Cartões Salvos | 3/3 | Complete   | 2026-06-20 |
-| 13. Horários por Condomínio | 3/4 | In Progress|  |
+| 13. Horários por Condomínio | 4/4 | Complete   | 2026-06-20 |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |
