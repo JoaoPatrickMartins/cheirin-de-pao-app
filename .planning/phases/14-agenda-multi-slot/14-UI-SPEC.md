@@ -5,6 +5,8 @@ status: draft
 shadcn_initialized: false
 preset: none
 created: 2026-06-20
+revised: 2026-06-20
+revision_reason: UI checker blocking fixes — typography (sizes/weights) and spacing (non-multiples)
 ---
 
 # Phase 14 — UI Design Contract
@@ -41,34 +43,41 @@ Declared values (must be multiples of 4):
 | 2xl | 48px | — |
 | 3xl | 64px | — |
 
-Exceptions:
-- Day-row gap within a slot section: 10px (matches existing ScheduleScreen gap pattern — source: ScheduleScreen.tsx line 232)
-- Inter-slot section gap: 24px between the last day-row of "Manhã" and the header of "Tarde"
-- AppBar back-button: 38×38px (existing pattern — matches Phase 4 implementation)
-- Sticky footer padding: 14px top + safe-area-inset-bottom (matches existing footer)
-- StepperInline buttons: 34×34px touch target — below 44px minimum; compensated by 12px gap between buttons giving 80px wide interaction zone (existing approved exception)
-- All other interactive elements: minimum 44px hit target (UI-10)
+**Phase 14 new design choice:**
+- Slot section header pill padding: `8px 12px` (8px top/bottom, 12px left/right — both multiples of 4)
+
+**Inherited non-modifiable constraints from the implemented codebase** (NOT new design choices for this phase — executor must NOT treat these as design decisions):
+- Day-row gap within a slot section: `10px` — matches existing ScheduleScreen gap pattern (source: ScheduleScreen.tsx line 232). Do not change.
+- AppBar back-button: `38×38px` — existing pattern from Phase 4 implementation. Do not change.
+- Sticky footer padding: `14px` top + `safe-area-inset-bottom` — matches existing footer implementation. Do not change.
+- StepperInline buttons: `34×34px` touch target — existing approved exception (compensated by 12px gap between buttons giving 80px wide interaction zone). Do not change.
+
+All other interactive elements: minimum 44px hit target (UI-10).
 
 ---
 
 ## Typography
 
-Source: `globals.css` CSS `@theme` block — detected via codebase scan. No changes for this phase.
+Source: `globals.css` CSS `@theme` block — detected via codebase scan.
+
+**Maximum 4 sizes, 2 weights.** All phase-specific elements mapped to this system.
 
 | Role | Font Family | Size | Weight | Line Height |
 |------|-------------|------|--------|-------------|
 | Body | Hanken Grotesk (`--font-body`) | 15px (`--text-base`) | 400 | 1.5 |
-| Label / Secondary | Hanken Grotesk (`--font-body`) | 12.5px (`--text-sm`) | 600 | 1.4 |
+| Label / Secondary | Hanken Grotesk (`--font-body`) | 12.5px (`--text-sm`) | 400 | 1.4 |
 | Heading / Section | Bricolage Grotesque (`--font-display`) | 21px (`--text-xl`) | 700 | 1.2 |
-| Display / Numbers | Bricolage Grotesque (`--font-display`) | 32px (`--text-3xl`) | 800 | 1.1 |
+| Display / Numbers | Bricolage Grotesque (`--font-display`) | 32px (`--text-3xl`) | 700 | 1.1 |
+
+**Allowed weights:** 400 (regular) and 700 (bold) only. No 600, no 800.
 
 **Phase-specific typography rules:**
 
-- Slot section header ("☀️ Manhã · 06:30"): `--font-display`, 15px (`--text-base`), weight 700, color `--color-text`, letter-spacing `-0.02em`. Matches day-row label font treatment for visual consistency.
-- Day-label inside each row (Seg, Ter...): `--font-display`, 15px, weight 700, `--color-text` — identical to existing single-slot pattern.
-- Day sub-label ("folga" / "X pães"): `--font-body`, 11px, weight 400, `--color-text-ter`.
-- Footer summary "Consumo semanal": `--font-body`, 13.5px, weight 600, `--color-text-sec`.
-- Footer quantity total value: `--font-display`, 18px, weight 800, `--color-text`, letter-spacing `-0.02em`.
+- Slot section header ("☀️ Manhã · 06:30"): `--font-display`, 15px (`--text-base`), weight 700, color `--color-accent`, letter-spacing `-0.02em`.
+- Day-label inside each row (Seg, Ter...): `--font-display`, 15px (`--text-base`), weight 700, `--color-text`.
+- Day sub-label ("folga" / "X pães"): `--font-body`, 12.5px (`--text-sm`), weight 400, `--color-text-ter`. *(Consolidated from 11px — using --text-sm minimum.)*
+- Footer summary label "Consumo semanal": `--font-body`, 12.5px (`--text-sm`), weight 400, `--color-text-sec`. *(Consolidated from 13.5px — using --text-sm.)*
+- Footer quantity total value: `--font-display`, 21px (`--text-xl`), weight 700, `--color-text`, letter-spacing `-0.02em`. *(Consolidated from 18px — using --text-xl.)*
 - Skeleton rows: no text — pulse animation only.
 
 ---
@@ -83,7 +92,9 @@ Source: `globals.css` CSS `@theme` block — detected via codebase scan. Palette
 | Secondary (30%) | `--color-surface` | `#FFFFFF` | Day-row cards, notification/reconfigure card |
 | Secondary alt | `--color-surface-2` | `#F4EBDA` | Skeleton pulse rows, back-button background, slot section header background pill |
 | Accent (10%) | `--color-accent` | `#B0702A` | Slot section header label color, StepperInline value when > 0, BannerCobertura icons, toggle switch track when active (`--color-gold`), border accent on chips |
-| Destructive | `--color-espresso` | `#1E1207` | Primary CTA button background, AppBar title color, day-row label color |
+| Primary dark / CTA background | `--color-espresso` | `#1E1207` | Primary CTA button background, AppBar title color, day-row label color |
+
+**Note:** `--color-espresso` role is "Primary dark / CTA background" — not destructive. There are no destructive actions in this phase. The dark espresso token is reserved for the primary CTA and text anchors only.
 
 Accent (`--color-accent` #B0702A) reserved for:
 - Slot section header label text ("☀️ Manhã · 06:30" and "🌙 Tarde · 15:30")
@@ -102,6 +113,14 @@ Accent (`--color-accent` #B0702A) reserved for:
 - condominium-change banner background
 
 No destructive actions in this phase. Destructive color not applicable.
+
+---
+
+## Visual Hierarchy
+
+**Primary visual anchor:** The slot section headers ("☀️ Manhã · 06:30" and "🌙 Tarde · 15:30") rendered in `--color-accent` with `--font-display` at weight 700 draw the eye before the day-rows. The creme pill background (`--color-surface-2`) frames each header and creates visual separation between the two slot sections. The 32px display font in the footer (stepper value when > 0) provides a secondary anchor at the bottom of the screen.
+
+**Reading order:** AppBar title → slot section header (manhã) → day-rows (manhã) → slot section header (tarde) → day-rows (tarde) → sticky footer summary + CTA.
 
 ---
 
@@ -128,8 +147,8 @@ No destructive actions in this phase. Destructive color not applicable.
 All new visual elements for the multi-slot mode are implemented inline in `ScheduleScreen.tsx` using existing CSS var tokens. No new component files needed.
 
 **Slot Section Header** (inline element, not extracted):
-- Pill-style header label: background `--color-surface-2`, border-radius 12px, padding `8px 14px`, display inline-flex, gap 8px
-- Text: `--font-display`, 15px, weight 700, `--color-accent`, letter-spacing `-0.02em`
+- Pill-style header label: background `--color-surface-2`, border-radius 12px, padding `8px 12px` (multiples of 4), display inline-flex, gap 8px
+- Text: `--font-display`, 15px (`--text-base`), weight 700, `--color-accent`, letter-spacing `-0.02em`
 - Emoji prefix: ☀️ for manhã, 🌙 for tarde — rendered as text character, not Icon component
 - Separator line: `border-top: 1px solid var(--color-border-2)` above each section header (except the first)
 
