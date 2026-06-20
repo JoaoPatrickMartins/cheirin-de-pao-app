@@ -1,11 +1,14 @@
 import { FastifyInstance } from 'fastify'
-import { MercadoPagoConfig, Payment } from 'mercadopago'
+import { MercadoPagoConfig, Payment, Customer, CustomerCard, CardToken } from 'mercadopago'
 import { PaymentsRepository } from './payments.repository.js'
 
 export class PaymentsService {
   private repo: PaymentsRepository
   private mpClient: MercadoPagoConfig
   private paymentApi: Payment
+  private customerApi: Customer
+  private customerCardApi: CustomerCard
+  private cardTokenApi: CardToken
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new PaymentsRepository(fastify)
@@ -14,6 +17,9 @@ export class PaymentsService {
       options: { timeout: 5000 },
     })
     this.paymentApi = new Payment(this.mpClient)
+    this.customerApi = new Customer(this.mpClient)
+    this.customerCardApi = new CustomerCard(this.mpClient)
+    this.cardTokenApi = new CardToken(this.mpClient)
   }
 
   private get prisma() {
@@ -87,8 +93,31 @@ export class PaymentsService {
     }
   }
 
+  // ── getOrCreateMpCustomer ─────────────────────────────────────────────────
+  // Idempotente: verifica DB → busca MP → cria (T-12-06: nunca cria duplicata)
+  private async getOrCreateMpCustomer(userId: string, userEmail: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (user?.mpCustomerId) return user.mpCustomerId
+
+    const email = userEmail ?? `${userId}@cheirin.app`
+    const searchResult = await this.customerApi.search({ options: { email } })
+    const existing = searchResult?.results?.[0]
+    if (existing?.id) {
+      await this.prisma.user.update({ where: { id: userId }, data: { mpCustomerId: existing.id } })
+      return existing.id
+    }
+
+    const created = await this.customerApi.create({ body: { email } })
+    if (!created?.id) throw { error: 'Falha ao criar cliente no Mercado Pago', status: 502 }
+    await this.prisma.user.update({ where: { id: userId }, data: { mpCustomerId: created.id } })
+    return created.id
+  }
+
   async createCard(params: {
-    token: string
+    token?: string
+    savedCardId?: string
+    securityCode?: string
+    saveCard?: boolean
     installments?: number
     issuerId?: string
     paymentMethodId?: string
@@ -98,18 +127,61 @@ export class PaymentsService {
     customQuantity?: number
     userId: string
   }) {
-    const { token, installments = 1, issuerId, paymentMethodId, payerEmail, payerIdentification, comboId, customQuantity, userId } = params
+    const {
+      token: rawToken,
+      savedCardId,
+      securityCode,
+      saveCard = false,
+      installments = 1,
+      issuerId,
+      paymentMethodId,
+      payerEmail,
+      payerIdentification,
+      comboId,
+      customQuantity,
+      userId,
+    } = params
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } })
     if (!user) throw { error: 'Usuário não encontrado', status: 404 }
 
     const { amount, quantity, description } = await this.resolveAmount(comboId, customQuantity)
 
+    let paymentToken: string | undefined = rawToken
+
+    // ── Fluxo com cartão salvo (CARD-06) ──────────────────────────────────
+    if (savedCardId) {
+      const savedCard = await this.prisma.savedCard.findUnique({ where: { id: savedCardId } })
+      // T-12-01: IDOR — 404 mesmo se cartão existe mas é de outro usuário
+      if (!savedCard || savedCard.userId !== userId) {
+        throw { error: 'Cartão não encontrado', status: 404 }
+      }
+      if (!user.mpCustomerId) {
+        throw { error: 'Perfil de pagamento não encontrado. Realize uma compra nova primeiro.', status: 400 }
+      }
+      // CVV (securityCode) processado AQUI e descartado — nunca vai para Payment.create (T-12-02)
+      const tokenResponse = await this.cardTokenApi.create({
+        body: {
+          card_id: savedCard.mpCardId,
+          customer_id: user.mpCustomerId,
+          security_code: securityCode,
+        },
+      })
+      if (!tokenResponse?.id) {
+        throw { error: 'Falha ao gerar token do cartão', status: 502 }
+      }
+      paymentToken = tokenResponse.id
+    }
+
+    if (!paymentToken) {
+      throw { error: 'Token de pagamento inválido', status: 400 }
+    }
+
     const response = await this.paymentApi.create({
       body: {
         transaction_amount: amount,
         description,
-        token,
+        token: paymentToken,
         installments,
         // payment_method_id é OBRIGATÓRIO pelo MP para cartão (ex.: "master", "visa").
         // O Brick fornece em formData.payment_method_id; sem ele o MP retorna internal_error.
@@ -135,12 +207,39 @@ export class PaymentsService {
       customQuantity,
     })
 
-    // Save card token for future automatic purchases (D-06)
-    if (token && user.id) {
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { cardTokenMp: token },
-      })
+    // ── Salvar cartão após pagamento bem-sucedido (CARD-02) ───────────────
+    // T-12-04: Customer.createCard e savedCard.create SOMENTE após Payment.create bem-sucedido
+    // T-12-03: verifica count < 3 antes de salvar
+    if (saveCard && rawToken && !savedCardId) {
+      const mpCustomerId = await this.getOrCreateMpCustomer(
+        userId,
+        payerEmail ?? user.email ?? `${userId}@cheirin.app`
+      )
+      const count = await this.prisma.savedCard.count({ where: { userId } })
+      if (count < 3) {
+        const mpCard = await this.customerCardApi.create({
+          customerId: mpCustomerId,
+          body: { token: rawToken },
+        })
+        if (mpCard?.id) {
+          const isDefault = count === 0
+          const brand = ((mpCard as { payment_method?: { id?: string } }).payment_method?.id ?? '').toLowerCase()
+          const lastFour = (mpCard as { last_four_digits?: string }).last_four_digits ?? ''
+          const expMonth = String((mpCard as { expiration_month?: number }).expiration_month ?? '').padStart(2, '0')
+          const expYear = String((mpCard as { expiration_year?: number }).expiration_year ?? '')
+          const expiresAt = expYear && expMonth ? `${expYear}-${expMonth}` : ''
+          await this.prisma.savedCard.create({
+            data: {
+              userId,
+              mpCardId: mpCard.id,
+              brand,
+              lastFour,
+              expiresAt,
+              isDefault,
+            },
+          })
+        }
+      }
     }
 
     return { paymentId: payment.id }

@@ -13,7 +13,8 @@ export type CreatePixPaymentBody = z.infer<typeof CreatePixPaymentSchema>
 
 export const CreateCardPaymentSchema = z
   .object({
-    token: z.string().min(1),
+    // ── Novo cartão via MP Brick ─────────────────────────────────────────
+    token: z.string().min(1).optional(),
     installments: z.number().int().positive().default(1),
     issuerId: z.string().optional(),
     // Obrigatório pelo MP para cartão (ex.: "master", "visa"); vem do Brick.
@@ -27,11 +28,22 @@ export const CreateCardPaymentSchema = z
       .object({ type: z.string(), number: z.string() })
       .optional()
       .catch(undefined),
+    // ── Cartão salvo (CARD-06) ───────────────────────────────────────────
+    // savedCardId presente → usa CartToken.create; token não obrigatório neste caso
+    savedCardId: z.string().optional(),
+    // CVV — necessário para reautenticar cartão salvo (D-16: CVV obrigatório por transação)
+    securityCode: z.string().optional(),
+    // Salvar cartão após pagamento bem-sucedido (CARD-02)
+    saveCard: z.boolean().optional().default(false),
+    // ── Valor ────────────────────────────────────────────────────────────
     comboId: z.string().optional(),
     customQuantity: z.number().int().positive().optional(),
   })
   .refine((d) => d.comboId || d.customQuantity, {
     message: 'comboId ou customQuantity obrigatório',
+  })
+  .refine((d) => d.token || d.savedCardId, {
+    message: 'token (novo cartão) ou savedCardId (cartão salvo) obrigatório',
   })
 
 export type CreateCardPaymentBody = z.infer<typeof CreateCardPaymentSchema>

@@ -14,9 +14,26 @@ vi.mock('mercadopago', () => {
     constructor(_client: unknown) {}
     create = mockPaymentCreate
   }
+  class MockCustomer {
+    constructor(_client: unknown) {}
+    search = vi.fn()
+    create = vi.fn()
+  }
+  class MockCustomerCard {
+    constructor(_client: unknown) {}
+    create = vi.fn()
+    remove = vi.fn()
+  }
+  class MockCardToken {
+    constructor(_client: unknown) {}
+    create = vi.fn()
+  }
   return {
     MercadoPagoConfig: MockMercadoPagoConfig,
     Payment: MockPayment,
+    Customer: MockCustomer,
+    CustomerCard: MockCustomerCard,
+    CardToken: MockCardToken,
   }
 })
 
@@ -42,6 +59,15 @@ function createMockFastify(overrides: Record<string, unknown> = {}): FastifyInst
       },
       setting: {
         findUnique: vi.fn(),
+      },
+      savedCard: {
+        findMany: vi.fn(),
+        findUnique: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
+        delete: vi.fn(),
+        count: vi.fn(),
       },
       $transaction: vi.fn(),
       ...overrides,
