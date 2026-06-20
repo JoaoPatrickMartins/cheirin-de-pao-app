@@ -169,12 +169,12 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 
 ### Cartões Salvos (CARD)
 
-- [ ] **CARD-01**: No fluxo de compra com cartão, cliente vê lista dos seus cartões salvos e pode selecionar um para pagar
-- [ ] **CARD-02**: Cliente pode cadastrar novo cartão no fluxo de compra (opcionalmente salvar para uso futuro)
-- [ ] **CARD-03**: Opção de compra única sem salvar cartão é apresentada com menor destaque visual para incentivar cadastro
-- [ ] **CARD-04**: CVV é solicitado apenas uma vez ao cadastrar o cartão; compras subsequentes com cartão salvo usam o token diretamente sem re-digitar nenhum dado
+- [x] **CARD-01**: No fluxo de compra com cartão, cliente vê lista dos seus cartões salvos e pode selecionar um para pagar
+- [x] **CARD-02**: Cliente pode cadastrar novo cartão no fluxo de compra (opcionalmente salvar para uso futuro)
+- [x] **CARD-03**: Opção de compra única sem salvar cartão é apresentada com menor destaque visual para incentivar cadastro
+- [x] **CARD-04**: CVV é solicitado apenas uma vez ao cadastrar o cartão; compras subsequentes com cartão salvo usam o token diretamente sem re-digitar nenhum dado
 - [ ] **CARD-05**: Cliente pode ter até 3 cartões salvos; pode definir um como padrão e remover nas configurações
-- [ ] **CARD-06**: Fluxo de cartão salvo aplica tanto para compra de combo quanto para compra personalizada
+- [x] **CARD-06**: Fluxo de cartão salvo aplica tanto para compra de combo quanto para compra personalizada
 
 ### Horários de Entrega por Condomínio (SLOT)
 
@@ -319,12 +319,12 @@ Os planos pendentes do v1.0 (Fases 3 e 5) são as primeiras fases do v1.1 e cobr
 | CONF-05 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-06 | Phase 11 — Configurações e Perfil do Cliente | Pending |
 | CONF-07 | Phase 11 — Configurações e Perfil do Cliente | Pending |
-| CARD-01 | Phase 12 — Cartões Salvos | Pending |
-| CARD-02 | Phase 12 — Cartões Salvos | Pending |
-| CARD-03 | Phase 12 — Cartões Salvos | Pending |
-| CARD-04 | Phase 12 — Cartões Salvos | Pending |
+| CARD-01 | Phase 12 — Cartões Salvos | Complete |
+| CARD-02 | Phase 12 — Cartões Salvos | Complete |
+| CARD-03 | Phase 12 — Cartões Salvos | Complete |
+| CARD-04 | Phase 12 — Cartões Salvos | Complete |
 | CARD-05 | Phase 12 — Cartões Salvos | Pending |
-| CARD-06 | Phase 12 — Cartões Salvos | Pending |
+| CARD-06 | Phase 12 — Cartões Salvos | Complete |
 | SLOT-01 | Phase 13 — Horários por Condomínio | Pending |
 | SLOT-02 | Phase 13 — Horários por Condomínio | Pending |
 | SLOT-03 | Phase 13 — Horários por Condomínio | Pending |

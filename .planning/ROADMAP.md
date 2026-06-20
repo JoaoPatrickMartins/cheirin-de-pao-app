@@ -411,7 +411,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 12-02-PLAN.md — SavedCardItem + SavedCardsList + CardPaymentScreen refatorada (Modo A: cartões salvos / Modo B: sem cartões)
+- [x] 12-02-PLAN.md — SavedCardItem + SavedCardsList + CardPaymentScreen refatorada (Modo A: cartões salvos / Modo B: sem cartões)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -468,6 +468,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Finalização Rastreamento | 4/4 | Complete   | 2026-06-19 |
 | 10. Schema v1.1 + Crédito Manual + Logout | 3/3 | Complete    | 2026-06-19 |
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
-| 12. Cartões Salvos | 1/3 | In Progress|  |
+| 12. Cartões Salvos | 2/3 | In Progress|  |
 | 13. Horários por Condomínio | 0/TBD | Not started | |
 | 14. Agenda Multi-Slot | 0/TBD | Not started | |
