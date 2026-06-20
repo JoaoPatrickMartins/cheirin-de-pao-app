@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { apiFetch } from '../lib/apiFetch'
 import { useAuth } from './useAuth'
 
@@ -19,20 +19,28 @@ import { useAuth } from './useAuth'
  */
 export function useCreditBalanceSync(): { refresh: () => Promise<void> } {
   const { user, token, updateCreditBalance } = useAuth()
+  const role = user?.role
+
+  // updateCreditBalance ganha nova referência a cada mudança de `user`
+  // (o useMemo do AuthContext depende de `user`). Guardamos num ref para que
+  // `refresh` NÃO dependa dessa referência — senão o efeito re-dispararia a
+  // cada setUser, criando loop infinito de fetch.
+  const updateRef = useRef(updateCreditBalance)
+  updateRef.current = updateCreditBalance
 
   const refresh = useCallback(async () => {
-    if (!token || user?.role !== 'CLIENT') return
+    if (!token || role !== 'CLIENT') return
     try {
       const res = await apiFetch('/client/profile')
       if (!res.ok) return
       const data = (await res.json()) as { creditBalance?: number }
       if (typeof data.creditBalance === 'number') {
-        updateCreditBalance(data.creditBalance)
+        updateRef.current(data.creditBalance)
       }
     } catch {
       // falha de rede — mantém saldo atual
     }
-  }, [token, user?.role, updateCreditBalance])
+  }, [token, role])
 
   useEffect(() => {
     void refresh()
