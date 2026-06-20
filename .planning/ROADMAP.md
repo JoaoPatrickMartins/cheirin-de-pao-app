@@ -455,7 +455,7 @@ Plans:
 
 **Wave 1** *(paralelo com Wave 0 — schema + Zod; bloqueante para Wave 2)*
 
-- [ ] 14-02-PLAN.md — Schema Prisma (Order.deliveryTime, Schedule.deliveryTime?, Schedule.weeklyQty?) + db push [BLOCKING] + ScheduleBodySchema multi-slot
+- [x] 14-02-PLAN.md — Schema Prisma (Order.deliveryTime, Schedule.deliveryTime?, Schedule.weeklyQty?) + db push [BLOCKING] + ScheduleBodySchema multi-slot
 
 **Wave 2** *(blocked on Wave 0 + Wave 1 — service + repository backend)*
 
@@ -487,4 +487,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 11. Configurações e Perfil do Cliente | 2/5 | In Progress|  |
 | 12. Cartões Salvos | 3/3 | Complete   | 2026-06-20 |
 | 13. Horários por Condomínio | 4/4 | Complete   | 2026-06-20 |
-| 14. Agenda Multi-Slot | 0/4 | Not started | |
+| 14. Agenda Multi-Slot | 1/4 | In Progress|  |

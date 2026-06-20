@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Experiência Completa do Cliente
 status: executing
-last_updated: "2026-06-20T05:03:19.219Z"
-last_activity: 2026-06-20 -- Phase 14 planning complete
+last_updated: "2026-06-20T05:18:18.292Z"
+last_activity: 2026-06-20
 progress:
   total_phases: 14
   completed_phases: 13
   total_plans: 68
-  completed_plans: 64
+  completed_plans: 65
   percent: 93
 ---
 
@@ -24,10 +24,11 @@ See: .planning/PROJECT.md (updated 2026-06-18)
 
 ## Current Position
 
-Phase: 13 (hor-rios-por-condom-nio) — COMPLETE (2026-06-20)
+Phase: 14 (Agenda Multi-Slot) — EXECUTING
+Plan: 2 of 4
 Next: Phase 14 — Agenda Multi-Slot (MSCHED-01..04)
 Status: Ready to execute
-Last activity: 2026-06-20 -- Phase 14 planning complete
+Last activity: 2026-06-20
 
 ## v1.0 Status Summary
 
@@ -82,6 +83,7 @@ Last activity: 2026-06-20 -- Phase 14 planning complete
 | Phase 10 P03 | 20min | 2 tasks | 7 files |
 | Phase 11-configura-es-e-perfil-do-cliente P01 | 8min | 2 tasks | 5 files |
 | Phase 12-cart-es-salvos P02 | 8min | 2 tasks | 3 files |
+| Phase 14 P02 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -113,6 +115,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Campo data do SDK @onesignal/node-onesignal recebido pelo frontend como additionalData.screen
 - [Phase ?]: v1.1 Phase 10-02: adminId extraido do JWT no controller (nunca do body) — padrao T-10-02-01 aplicado
 - [Phase ?]: D-18 aplicado: purpose: { in: [null, 'LOGIN'] } em findActiveOtp — documentos OtpCode sem purpose (legados) tratados como LOGIN para backward-compat
+- [Phase ?]: 14-02: DaysSchema=z.record(z.string(),WeeklyQtySchema); ScheduleBodySchema com .refine backward-compat; deliveryTime z.string() (slots configuráveis pelo admin)
 
 ### Pending Todos
 
@@ -148,6 +151,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-20T03:41:26.227Z
+Last session: 2026-06-20T05:18:13.421Z
 Resume with: `/gsd:execute-phase 14`
 Next phase: 14-agenda-multi-slot (planned — ready to execute)
