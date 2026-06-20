@@ -31,7 +31,12 @@ export class AuthRepository {
 
   findActiveOtp(userId: string) {
     return this.prisma.otpCode.findFirst({
-      where: { userId, usedAt: { isSet: false }, expiresAt: { gt: new Date() }, purpose: { in: [null as unknown as string, 'LOGIN'] } },
+      where: {
+        userId,
+        usedAt: { isSet: false },
+        expiresAt: { gt: new Date() },
+        OR: [{ purpose: 'LOGIN' }, { purpose: { isSet: false } }],
+      },
       orderBy: { createdAt: 'desc' },
     })
   }

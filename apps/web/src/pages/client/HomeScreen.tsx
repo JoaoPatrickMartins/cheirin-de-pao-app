@@ -6,6 +6,7 @@ import { Icon } from '../../components/brand/Icon'
 import { useOrderTracking } from '../../hooks/useOrderTracking'
 import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
+import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
 import BannerInsuficiente from '../../components/client/BannerInsuficiente'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -51,6 +52,9 @@ export function HomeScreen() {
   const { order } = useOrderTracking()
   const { unreadCount } = useNotif()
   const [isCutoff, setIsCutoff] = useState(false)
+
+  // Mantém o saldo sincronizado com o servidor (refresh de página + troca de aba)
+  useCreditBalanceSync()
 
   const creditBalance = user?.creditBalance ?? 0
 
