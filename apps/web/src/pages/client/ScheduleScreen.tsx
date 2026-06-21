@@ -67,14 +67,20 @@ export function ScheduleScreen() {
         if (res.ok) {
           const data = (await res.json()) as DeliverySlot[]
           setSlots(data)
-          // D-13: inicializar days zerado para condo multi-slot sem schedule.days preexistente
+          // D-13: inicializar days zerado para condo multi-slot sem schedule.days preexistente.
+          // Update funcional lê o estado ATUAL (não a closure de montagem, que é sempre {}),
+          // evitando uma corrida com o load() do GET /schedules/me que sobrescrevia a agenda
+          // salva com zeros ao recarregar/trocar de aba.
           const activos = data.filter((s) => s.isActive)
-          if (activos.length >= 2 && Object.keys(days).length === 0) {
-            const initDays: Record<string, WeeklyQty> = {}
-            activos.forEach((slot) => {
-              initDays[slot.time] = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+          if (activos.length >= 2) {
+            setDays((prev) => {
+              if (Object.keys(prev).length > 0) return prev
+              const initDays: Record<string, WeeklyQty> = {}
+              activos.forEach((slot) => {
+                initDays[slot.time] = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+              })
+              return initDays
             })
-            setDays(initDays)
           }
         } else {
           console.warn('[ScheduleScreen] GET /client/condominium/slots retornou status', res.status)

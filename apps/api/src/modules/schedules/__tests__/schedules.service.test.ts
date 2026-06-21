@@ -1062,4 +1062,139 @@ describe('SchedulesService', () => {
       expect(createAndTrimMock2).not.toHaveBeenCalled()
     })
   })
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // createOrdersAtCutoff — criação de orders no corte de cada slot (Regra A)
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('createOrdersAtCutoff [corte por slot]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+      vi.useRealTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // Mock dedicado com condominium.findMany + order.findFirst (idempotência)
+    function mockFastifyCutoff(opts: {
+      condominiums: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ name: string; time: string; cutoffTime: string; isActive: boolean }> }>
+      schedules: ScheduleShape[]
+      users: Record<string, UserShape>
+      existingOrder?: boolean
+      createOrderFn?: ReturnType<typeof vi.fn>
+    }) {
+      const createOrderFn = opts.createOrderFn ?? vi.fn().mockResolvedValue({ id: 'o-1' })
+      const transactionFn = vi.fn().mockImplementation(async (cb: (tx: object) => Promise<void>) =>
+        cb({
+          order: { create: createOrderFn },
+          user: { update: vi.fn().mockResolvedValue({}) },
+          creditTransaction: { create: vi.fn().mockResolvedValue({}) },
+        }),
+      )
+      const fastify = {
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        prisma: {
+          condominium: { findMany: vi.fn().mockResolvedValue(opts.condominiums) },
+          schedule: { findMany: vi.fn().mockResolvedValue(opts.schedules) },
+          order: {
+            findFirst: vi.fn().mockResolvedValue(opts.existingOrder ? { id: 'existing' } : null),
+          },
+          user: {
+            findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
+              Promise.resolve(opts.users[where.id] ?? null),
+            ),
+          },
+          $transaction: transactionFn,
+        },
+      } as unknown as FastifyInstance
+      return { fastify, createOrderFn }
+    }
+
+    const tardeCondo = {
+      id: 'condo-1',
+      name: 'Cond Teste',
+      isActive: true,
+      deliverySlots: [
+        { name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true },
+        { name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true },
+      ],
+    }
+
+    const multiSchedule: ScheduleShape = {
+      id: 'sched-cut-1',
+      userId: 'user-cut-1',
+      condominiumId: 'condo-1',
+      isActive: true,
+      weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+      deliveryTime: '06:30',
+      notifyReconfigure: false,
+      days: {
+        '06:30': { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
+        '15:30': { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 },
+      },
+    }
+
+    it('no corte da tarde (10:00), cria order do slot 15:30 para HOJE (Regra A) com condominiumId', async () => {
+      // 2026-06-22T13:00:00Z = segunda 10:00 BRT → casa cutoff da tarde (10:00)
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T13:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      // Só a tarde casa o corte (10:00); manhã (22:00) não → exatamente 1 order
+      expect(createOrderFn).toHaveBeenCalledTimes(1)
+      expect(createOrderFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'user-cut-1',
+            deliveryTime: '15:30',
+            condominiumId: 'condo-1',
+            quantity: 1, // seg do slot 15:30
+            type: 'SCHEDULED',
+          }),
+        }),
+      )
+    })
+
+    it('idempotente: NÃO recria se já existe order para o slot/dia', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T13:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+        existingOrder: true,
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      expect(createOrderFn).not.toHaveBeenCalled()
+    })
+
+    it('NÃO cria order para slot cujo cutoffTime não casa com a hora atual', async () => {
+      // 09:00 BRT — nenhum slot tem corte 09:00
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T12:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      expect(createOrderFn).not.toHaveBeenCalled()
+    })
+  })
 })

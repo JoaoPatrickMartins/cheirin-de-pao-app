@@ -96,14 +96,30 @@ export const schedulesRoute: FastifyPluginAsync = async (fastify) => {
             description: 'Agenda atualizada com sucesso.',
             properties: {
               id: { type: 'string', description: 'ID da agenda.' },
-              weeklyQty: { type: 'object', description: 'Agenda salva (single-slot).' },
+              weeklyQty: {
+                type: 'object',
+                description: 'Agenda salva (single-slot).',
+                // properties explícitas: sem elas o fast-json-stringify remove as chaves seg..dom
+                properties: {
+                  seg: { type: 'integer' }, ter: { type: 'integer' }, qua: { type: 'integer' },
+                  qui: { type: 'integer' }, sex: { type: 'integer' }, sab: { type: 'integer' },
+                  dom: { type: 'integer' },
+                },
+              },
               deliveryTime: { type: 'string', description: 'Horário de entrega configurado.' },
               notifyReconfigure: { type: 'boolean', description: 'Preferência de notificação salva.' },
               days: {
                 type: 'object',
                 nullable: true,
                 description: 'Agenda multi-slot salva.',
-                additionalProperties: { type: 'object' },
+                additionalProperties: {
+                  type: 'object',
+                  properties: {
+                    seg: { type: 'integer' }, ter: { type: 'integer' }, qua: { type: 'integer' },
+                    qui: { type: 'integer' }, sex: { type: 'integer' }, sab: { type: 'integer' },
+                    dom: { type: 'integer' },
+                  },
+                },
               },
             },
           },

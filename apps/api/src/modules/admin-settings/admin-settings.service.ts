@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
+import { isSlotCutoffPast } from '../../lib/cutoff.js'
 
 /**
  * AdminSettingsService — gerencia configurações globais (horário de corte + avulso).
@@ -81,26 +82,27 @@ export class AdminSettingsService {
   }
 
   /**
-   * Retorna o status atual de corte para clientes.
-   *
-   * Endpoint público (sem autenticação) — usado pelo HomeScreen do cliente
-   * para exibir banner de aviso quando o prazo de agendamento foi encerrado.
-   *
-   * Lógica: hora atual BRT (HH:MM) >= cutoffTime → isCutoff: true
+   * Status de corte POR SLOT do condomínio do cliente.
+   * Substitui o corte global no banner — cada slot tem seu próprio cutoffTime.
+   * `isPast`: o corte do slot para o ciclo atual já passou (hora BRT atual >= cutoffTime).
    */
-  async getCutoffStatus(): Promise<{ isCutoff: boolean; cutoffTime: string }> {
-    const cutoffTime = await this.getCutoffTime()
-
-    // Hora atual no fuso de Brasília — formato HH:MM (24h)
-    const nowHHMM = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(new Date())
-
-    const isCutoff = nowHHMM >= cutoffTime
-    return { isCutoff, cutoffTime }
+  async getCutoffStatusByCondo(condominiumId: string): Promise<{
+    slots: Array<{ name: string; time: string; cutoffTime: string; isPast: boolean }>
+  }> {
+    const condo = await this.prisma.condominium.findUnique({
+      where: { id: condominiumId },
+      select: { deliverySlots: true },
+    })
+    const now = new Date()
+    const slots = (condo?.deliverySlots ?? [])
+      .filter((s) => s.isActive)
+      .map((s) => ({
+        name: s.name,
+        time: s.time,
+        cutoffTime: s.cutoffTime,
+        isPast: isSlotCutoffPast(s.cutoffTime, now),
+      }))
+    return { slots }
   }
 
   /**

@@ -14,19 +14,14 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   const schedulesService = new SchedulesService(fastify)
 
   // Cron 1 — meia-noite diário (America/Sao_Paulo)
-  // Cria Orders do dia seguinte para todos os schedules ativos e processa compra automática
+  // Processa compra automática + notificações de saldo baixo.
+  // OBS: a criação de Orders NÃO acontece mais aqui — agora é feita no cutoffTime de cada slot
+  // (cron 'cutoff-orders' por minuto), para alinhar a "confirmação" da agenda ao horário de corte.
   // node-cron v4: TaskOptions não tem 'scheduled' — tasks são iniciadas automaticamente por padrão
   cron.schedule(
     '0 0 * * *',
     async () => {
-      fastify.log.info('[cron] iniciando createDailyOrders + processAutoBuy + sendLowCreditNotifications')
-      try {
-        await schedulesService.createDailyOrders()
-        fastify.log.info('[cron] createDailyOrders concluído')
-      } catch (err) {
-        fastify.log.error({ err }, '[cron] erro em createDailyOrders — servidor mantido ativo')
-      }
-
+      fastify.log.info('[cron] iniciando processAutoBuy + sendLowCreditNotifications')
       try {
         await schedulesService.processAutoBuy()
         fastify.log.info('[cron] processAutoBuy concluído')
@@ -41,7 +36,7 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.error({ err }, '[cron] erro em sendLowCreditNotifications — servidor mantido ativo')
       }
     },
-    { timezone: 'America/Sao_Paulo', name: 'daily-orders' },
+    { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },
   )
 
   // Cron 2 — domingo 20h (America/Sao_Paulo)
@@ -76,25 +71,29 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
     { timezone: 'America/Sao_Paulo', name: 'eve-reminders' },
   )
 
-  // Cron 4 — a cada hora cheia (America/Sao_Paulo)
-  // Verifica se a hora atual BRT corresponde ao horário de corte configurado.
-  // Se sim, notifica clientes sem pedido para amanhã via OneSignal (best-effort).
+  // Cron 4 — a cada minuto (America/Sao_Paulo)
+  // No cutoffTime de cada slot: (1) cria as Orders da data alvo (Regra A) e debita créditos,
+  // (2) notifica clientes que ficaram sem pedido. Por minuto para suportar cortes fora de HH:00.
   const adminSettingsService = new AdminSettingsService(fastify)
   cron.schedule(
-    '0 * * * *',
+    '* * * * *',
     async () => {
-      fastify.log.info('[cron] iniciando processCutoff')
+      try {
+        await schedulesService.createOrdersAtCutoff()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em createOrdersAtCutoff — servidor mantido ativo')
+      }
+
       try {
         await adminSettingsService.processCutoff()
-        fastify.log.info('[cron] processCutoff concluído')
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em processCutoff — servidor mantido ativo')
       }
     },
-    { timezone: 'America/Sao_Paulo', name: 'cutoff-check' },
+    { timezone: 'America/Sao_Paulo', name: 'cutoff-orders' },
   )
 
-  fastify.log.info('[cron] 4 cron jobs registrados (meia-noite diário + domingo 20h + diário 21h + horária cutoff-check)')
+  fastify.log.info('[cron] 4 cron jobs registrados (meia-noite jobs + domingo 20h + diário 21h + cutoff por minuto)')
 })
 
 export default cronPlugin

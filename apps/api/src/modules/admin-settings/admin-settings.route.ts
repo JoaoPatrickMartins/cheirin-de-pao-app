@@ -13,20 +13,32 @@ import { AdminSettingsController } from './admin-settings.controller.js'
 export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
   const ctrl = new AdminSettingsController(fastify)
 
-  // Rota pública — sem preHandler (nenhum token necessário)
-  // Registrada ANTES das rotas autenticadas para evitar conflito de preHandler
+  // Autenticada — o status é POR SLOT do condomínio do cliente (cada slot tem seu cutoffTime).
   fastify.get('/settings/cutoff-status', {
+    preHandler: [fastify.authenticate],
     schema: {
       tags: ['admin — settings'],
-      summary: 'Verificar status de corte de pedidos',
-      description: 'Retorna se o horário de corte de pedidos já passou (isCutoff=true) e qual é o cutoffTime configurado. Rota pública — usada no frontend do cliente para mostrar se ainda é possível fazer pedidos avulsos para hoje. Após o cutoff, novos pedidos só são aceitos para o próximo dia útil.',
+      summary: 'Status de corte por slot do condomínio do cliente',
+      description: 'Retorna, para o condomínio do cliente autenticado, cada slot de entrega ativo com seu horário, horário de corte e se o corte do ciclo atual já passou (isPast). Usado pelo banner da Home.',
+      security: [{ bearerAuth: [] }],
       response: {
         200: {
           type: 'object',
-          description: 'Status atual do corte de pedidos.',
+          description: 'Status de corte por slot.',
           properties: {
-            isCutoff: { type: 'boolean', description: 'true se o horário de corte já passou e não é mais possível fazer pedidos para hoje.' },
-            cutoffTime: { type: 'string', description: 'Horário de corte configurado no formato HH:MM (ex: "09:00").' },
+            slots: {
+              type: 'array',
+              description: 'Slots de entrega ativos do condomínio do cliente.',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string', description: 'Nome do slot (manha | tarde).' },
+                  time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
+                  cutoffTime: { type: 'string', description: 'Horário de corte do slot (HH:MM).' },
+                  isPast: { type: 'boolean', description: 'true se o corte do ciclo atual já passou.' },
+                },
+              },
+            },
           },
         },
       },

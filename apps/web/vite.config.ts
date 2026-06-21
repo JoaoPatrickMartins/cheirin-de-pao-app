@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // host: true vincula em todas as interfaces (IPv4 0.0.0.0 + IPv6) — necessário p/
+  // o port forwarding do Chrome (que encaminha p/ 127.0.0.1) e para acesso via LAN
+  server: { host: true },
   plugins: [
     react(),
     tailwindcss(),

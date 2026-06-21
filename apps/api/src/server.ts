@@ -76,6 +76,9 @@ const start = async () => {
     // Em produção: CORS_ORIGIN=https://app.cheirindepao.com.br
     await fastify.register(cors, {
       origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+      // @fastify/cors v11 usa default 'GET,HEAD,POST' (CORS-safelisted) e bloqueia
+      // PUT/PATCH/DELETE no preflight — precisamos declarar os métodos explicitamente
+      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     })
 
     // OpenAPI / Swagger — registrar ANTES das rotas

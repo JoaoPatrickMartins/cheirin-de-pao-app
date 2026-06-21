@@ -3,6 +3,7 @@ import * as OneSignal from '@onesignal/node-onesignal'
 import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
+import { nowHHMM, targetDeliveryDate, dayKeyOf, brtDayRange, type DayKey } from '../../lib/cutoff.js'
 
 // Dia da semana em UTC-3 (Brasília) → chave do WeeklyQty
 const DAY_OF_WEEK_MAP: Record<string, keyof WeeklyQty> = {
@@ -71,6 +72,129 @@ export class SchedulesService {
   async getSchedule(userId: string) {
     const schedule = await this.repo.findActiveByUserId(userId)
     return schedule ?? null
+  }
+
+  /**
+   * Cria as orders de UM slot de UM condomínio para a `deliveryDate` informada.
+   * Idempotente: pula se já existe Order para (user, slot, dia) — seguro p/ cron por minuto.
+   * Preenche `condominiumId` + `deliveryTime` e debita créditos (transação por order).
+   */
+  async createOrdersForCondoSlot(
+    condominiumId: string,
+    slotTime: string,
+    dayKey: DayKey,
+    deliveryDate: Date,
+  ): Promise<void> {
+    const schedules = await this.prisma.schedule.findMany({
+      where: { condominiumId, isActive: true },
+    })
+    const { start, end } = brtDayRange(deliveryDate)
+    const dateLabel = deliveryDate.toISOString().split('T')[0]
+
+    for (const schedule of schedules) {
+      try {
+        // Quantidade deste slot para o dia da semana alvo
+        let qty = 0
+        if (schedule.days) {
+          const days = schedule.days as Record<string, WeeklyQty>
+          qty = days[slotTime]?.[dayKey] ?? 0
+        } else if (schedule.deliveryTime === slotTime) {
+          // Legado: weeklyQty só conta para o slot cujo time bate com o deliveryTime salvo
+          qty = (schedule.weeklyQty as WeeklyQty)?.[dayKey] ?? 0
+        }
+        if (qty === 0) continue
+
+        // Idempotência — não duplica se o cron reexecutar no mesmo minuto/dia
+        const existing = await this.prisma.order.findFirst({
+          where: {
+            userId: schedule.userId,
+            deliveryTime: slotTime,
+            type: 'SCHEDULED',
+            status: { not: 'CANCELLED' },
+            scheduledDate: { gte: start, lte: end },
+          },
+          select: { id: true },
+        })
+        if (existing) continue
+
+        const user = await this.repo.findUserById(schedule.userId)
+        if (!user) continue
+
+        if (user.creditBalance < qty) {
+          // Saldo insuficiente — push best-effort, segue para próximo schedule
+          if (user.oneSignalPlayerId) {
+            try {
+              const osClient = createOsClient()
+              const notification = new OneSignal.Notification()
+              notification.app_id = process.env.ONESIGNAL_APP_ID!
+              notification.include_subscription_ids = [user.oneSignalPlayerId]
+              notification.headings = { pt: 'Cheirin de Pão' }
+              notification.contents = { pt: 'Créditos insuficientes para a entrega agendada' }
+              await osClient.createNotification(notification)
+            } catch (pushErr) {
+              this.fastify.log.warn(
+                { userId: schedule.userId, err: pushErr },
+                '[schedules] falha push crédito insuficiente (corte)',
+              )
+            }
+          }
+          continue
+        }
+
+        await this.prisma.$transaction(async (tx) => {
+          await tx.order.create({
+            data: {
+              userId: schedule.userId,
+              type: 'SCHEDULED',
+              quantity: qty,
+              scheduledDate: deliveryDate,
+              status: 'SCHEDULED',
+              deliveryTime: slotTime,
+              condominiumId,
+            },
+          })
+          await tx.user.update({
+            where: { id: schedule.userId },
+            data: { creditBalance: { decrement: qty } },
+          })
+          await tx.creditTransaction.create({
+            data: {
+              userId: schedule.userId,
+              type: 'DELIVERY',
+              quantity: -qty,
+              description: `Entrega agendada para ${dateLabel} às ${slotTime}`,
+            },
+          })
+        })
+      } catch (err) {
+        this.fastify.log.error(
+          { scheduleId: schedule.id, err },
+          '[schedules] erro ao criar order no corte',
+        )
+      }
+    }
+  }
+
+  /**
+   * Disparado pelo cron a cada minuto: para cada (condomínio ativo, slot ativo) cujo
+   * `cutoffTime` casa com a hora BRT atual, cria as orders da data alvo (Regra A).
+   * Substitui a criação à meia-noite — agora a order é "fechada" no corte de cada slot.
+   */
+  async createOrdersAtCutoff(now: Date = new Date()): Promise<void> {
+    const hhmm = nowHHMM(now)
+    const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
+
+    for (const condo of condominiums) {
+      for (const slot of condo.deliverySlots) {
+        if (!slot.isActive || slot.cutoffTime !== hhmm) continue
+        const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime, now)
+        const dayKey = dayKeyOf(deliveryDate)
+        this.fastify.log.info(
+          `[schedules] corte ${hhmm} — ${condo.name} / slot ${slot.name} (${slot.time}) → gerando orders p/ ${deliveryDate.toISOString().split('T')[0]}`,
+        )
+        await this.createOrdersForCondoSlot(condo.id, slot.time, dayKey, deliveryDate)
+      }
+    }
   }
 
   async createDailyOrders() {

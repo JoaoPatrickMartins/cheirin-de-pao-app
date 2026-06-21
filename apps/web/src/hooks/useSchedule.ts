@@ -7,7 +7,7 @@
  * Requirements: SCHED-02, SCHED-04, SCHED-06, MSCHED-01, MSCHED-03
  * Threat model: T-04-05-02 — useEffect com dependência vazia [] para evitar loop infinito
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Dispatch, SetStateAction } from 'react'
 import { apiFetch } from '../lib/apiFetch'
 
 export interface WeeklyQty {
@@ -54,7 +54,8 @@ export interface UseScheduleReturn {
   setDeliveryTime: (time: string) => void
   setNotifyReconfigure: (v: boolean) => void
   days: Record<string, WeeklyQty>           // MSCHED-01
-  setDays: (d: Record<string, WeeklyQty>) => void  // MSCHED-01
+  setDays: Dispatch<SetStateAction<Record<string, WeeklyQty>>>  // MSCHED-01 (aceita updater funcional)
+  dailyQty: WeeklyQty  // total por dia somando todos os slots (multi) ou weeklyQty (single)
   saveSchedule: (activeSlots: DeliverySlot[]) => Promise<{ ok: boolean; error?: string }>  // D-12
   isLoading: boolean
   isSaving: boolean
@@ -113,6 +114,21 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
   // falta = true quando semana > saldo
   const falta = consumoSemanal > creditBalance
 
+  // Total por dia da semana — soma todos os slots em multi-slot, ou usa weeklyQty em single-slot.
+  // Permite à Home exibir as próximas entregas sem precisar conhecer o formato (MSCHED-01).
+  const dailyQty: WeeklyQty =
+    Object.keys(days).length > 0
+      ? Object.values(days).reduce<WeeklyQty>(
+          (acc, wq) => {
+            ;(Object.keys(acc) as (keyof WeeklyQty)[]).forEach((k) => {
+              acc[k] += wq[k] ?? 0
+            })
+            return acc
+          },
+          { ...DEFAULT_WEEKLY_QTY },
+        )
+      : weeklyQty
+
   // D-12: assinatura muda para receber activeSlots e determinar modo (multi vs legado)
   const saveSchedule = async (activeSlots: DeliverySlot[]): Promise<{ ok: boolean; error?: string }> => {
     setIsSaving(true)
@@ -152,6 +168,7 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
     setNotifyReconfigure,
     days,
     setDays,
+    dailyQty,
     saveSchedule,
     isLoading,
     isSaving,

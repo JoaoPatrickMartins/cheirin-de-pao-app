@@ -8,8 +8,9 @@ import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
 import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
 import BannerInsuficiente from '../../components/client/BannerInsuficiente'
+import { apiFetch } from '../../lib/apiFetch'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
 
 // Mapa de índice do dia da semana (getDay()) para chave de WeeklyQty
 const DAY_KEY_MAP: Record<number, keyof ReturnType<typeof useSchedule>['weeklyQty']> = {
@@ -51,15 +52,17 @@ export function HomeScreen() {
   const navigate = useNavigate()
   const { order } = useOrderTracking()
   const { unreadCount } = useNotif()
-  const [isCutoff, setIsCutoff] = useState(false)
+  // Slots cujo corte já passou (ciclo atual encerrado) — por slot do condomínio do cliente
+  const [closedSlots, setClosedSlots] = useState<Array<{ name: string; cutoffTime: string }>>([])
 
   // Mantém o saldo sincronizado com o servidor (refresh de página + troca de aba)
   useCreditBalanceSync()
 
   const creditBalance = user?.creditBalance ?? 0
 
-  // Dados reais de agendamento para NextDays (GET /schedules/me via useSchedule)
-  const { weeklyQty, isLoading: scheduleLoading } = useSchedule(creditBalance)
+  // Dados reais de agendamento para NextDays (GET /schedules/me via useSchedule).
+  // dailyQty soma todos os slots (multi-slot) ou usa weeklyQty (single-slot).
+  const { dailyQty, isLoading: scheduleLoading } = useSchedule(creditBalance)
 
   // Próximos 5 dias a partir de amanhã (BRT)
   const nextDays = Array.from({ length: 5 }, (_, i) => {
@@ -69,23 +72,23 @@ export function HomeScreen() {
     return {
       abbr: DAY_ABBR[key],
       dayNum: d.getDate(),
-      qty: weeklyQty?.[key] ?? 0,
+      qty: dailyQty?.[key] ?? 0,
       key,
     }
   })
 
-  const hasSchedule = Object.values(weeklyQty).some((v) => v > 0)
+  const hasSchedule = Object.values(dailyQty).some((v) => v > 0)
 
   useEffect(() => {
-    // Verificar status de corte ao montar — endpoint público, sem token
-    fetch(`${API_BASE_URL}/settings/cutoff-status`)
-      .then((res) => res.json())
-      .then((data: { isCutoff?: boolean }) => {
-        setIsCutoff(data.isCutoff === true)
+    // Status de corte por slot do condomínio do cliente (autenticado)
+    apiFetch('/settings/cutoff-status')
+      .then((res) => (res.ok ? res.json() : { slots: [] }))
+      .then((data: { slots?: Array<{ name: string; cutoffTime: string; isPast: boolean }> }) => {
+        setClosedSlots((data.slots ?? []).filter((s) => s.isPast).map((s) => ({ name: s.name, cutoffTime: s.cutoffTime })))
       })
       .catch(() => {
         // Falha silenciosa — não exibe banner em caso de erro de rede
-        setIsCutoff(false)
+        setClosedSlots([])
       })
   }, [])
 
@@ -93,10 +96,9 @@ export function HomeScreen() {
   const greeting = getGreeting()
 
   const quickActions: QuickAction[] = [
-    { label: 'Comprar créditos', icon: 'coin',     path: '/client/creditos'        },
-    { label: 'Minha agenda',     icon: 'calendar', path: '/client/agenda'          },
-    { label: 'Histórico',        icon: 'clock',    path: '/client/creditos/extrato' },
-    { label: 'Configurações',    icon: 'settings', path: '/client/settings'        },
+    { label: 'Comprar créditos',     icon: 'coin',     path: '/client/creditos'            },
+    { label: 'Avulso',               icon: 'edit',     path: '/client/creditos?tab=avulso' },
+    { label: 'Minha agenda',         icon: 'calendar', path: '/client/agenda'              },
   ]
 
   return (
@@ -108,8 +110,8 @@ export function HomeScreen() {
         gap: 14,
       }}
     >
-      {/* Banner de corte — exibido quando o prazo de agendamento foi encerrado */}
-      {isCutoff && (
+      {/* Banner de corte por slot — exibido para cada slot cujo prazo já encerrou */}
+      {closedSlots.length > 0 && (
         <div
           style={{
             background: 'var(--color-surface-2)',
@@ -131,7 +133,7 @@ export function HomeScreen() {
               color: 'var(--color-text)',
             }}
           >
-            Prazo de agendamento encerrado para amanhã
+            {`Prazo encerrado: ${closedSlots.map((s) => SLOT_LABEL[s.name] ?? s.name).join(' e ')}`}
           </span>
         </div>
       )}

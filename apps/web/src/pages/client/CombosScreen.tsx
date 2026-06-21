@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import ComboCard from '../../components/client/ComboCard'
@@ -26,8 +26,11 @@ const formatBRL = (val: number) =>
 
 export function CombosScreen() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
-  const [tab, setTab] = useState<'combos' | 'avulso'>('combos')
+  const [tab, setTab] = useState<'combos' | 'avulso'>(
+    searchParams.get('tab') === 'avulso' ? 'avulso' : 'combos',
+  )
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [combos, setCombos] = useState<Combo[]>([])
@@ -185,7 +188,7 @@ export function CombosScreen() {
                 transition: 'background .15s, box-shadow .15s',
               }}
             >
-              {t === 'combos' ? 'Combos' : 'Compra personalizada'}
+              {t === 'combos' ? 'Combos' : 'Avulso'}
             </button>
           ))}
         </div>
