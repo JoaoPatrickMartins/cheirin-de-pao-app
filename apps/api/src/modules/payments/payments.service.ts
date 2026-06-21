@@ -191,12 +191,16 @@ export class PaymentsService {
         // WR-05: usa brand do cartão salvo como fallback quando savedCardId está presente
         payment_method_id: paymentMethodId ?? (savedCardId ? savedCard?.brand : undefined),
         issuer_id: issuerId ? parseInt(issuerId) : undefined,
-        // Prioriza o e-mail informado no checkout; cai para o do cadastro e, por fim, um sintético.
-        // identification (CPF) vem do Brick — exigido pelo MP em produção no Brasil.
-        payer: {
-          email: payerEmail ?? user.email ?? `${user.id}@cheirin.app`,
-          identification: payerIdentification,
-        },
+        // Cartão salvo (token gerado a partir do CustomerCard): o MP exige que o payer
+        // referencie o customer dono do cartão (type/id), senão retorna "Customer not found"
+        // (2002). Cartão novo: usa e-mail + identificação (CPF) do checkout.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        payer: (savedCardId && user.mpCustomerId
+          ? { type: 'customer', id: user.mpCustomerId }
+          : {
+              email: payerEmail ?? user.email ?? `${user.id}@cheirin.app`,
+              identification: payerIdentification,
+            }) as any,
       },
     })
 
@@ -234,7 +238,7 @@ export class PaymentsService {
           if (currentCount >= 3) {
             // Rollback no MP — cartão criado mas limite atingido por request concorrente
             try {
-              await this.customerCardApi.remove({ customerId: mpCustomerId, id: mpCard.id })
+              await this.customerCardApi.remove({ customerId: mpCustomerId, cardId: mpCard.id })
             } catch {
               this.fastify.log.error({ mpCardId: mpCard.id }, 'MP rollback failed after concurrent limit exceeded')
             }

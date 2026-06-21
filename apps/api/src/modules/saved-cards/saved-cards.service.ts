@@ -86,7 +86,7 @@ export class SavedCardsService {
     try {
       await this.customerCardApi.remove({
         customerId: user.mpCustomerId,
-        id: card.mpCardId,
+        cardId: card.mpCardId,
       })
     } catch {
       // Log sanitizado — nunca expor campos internos da resposta MP em logs externos
@@ -134,6 +134,67 @@ export class SavedCardsService {
 
     // Retorna token para payments.service usar no Payment.create — CVV não vai além daqui
     return { token: tokenResponse.id }
+  }
+
+  // ── addCard ───────────────────────────────────────────────────────────────
+  // CARD-07: cadastro avulso de cartão (sem cobrança). Tokeniza via Brick no front,
+  // associa ao Customer do MP e persiste. Mesmo fluxo do save pós-pagamento, sem o Payment.
+  async addCard(params: { userId: string; token: string }) {
+    const { userId, token } = params
+
+    // T-12-03: valida limite ANTES de tocar no MP para não criar cartão órfão
+    const count = await this.repo.countByUser(userId)
+    if (count >= 3) {
+      throw { error: 'Limite de 3 cartões atingido', status: 400 }
+    }
+
+    const mpCustomerId = await this.getOrCreateMpCustomer(userId)
+
+    // Cria o cartão no Customer do MP. Erros do SDK ficam contidos para não vazar detalhes.
+    let mpCard: {
+      id?: string
+      last_four_digits?: string
+      expiration_month?: number
+      expiration_year?: number
+      payment_method?: { id?: string }
+    }
+    try {
+      mpCard = await this.customerCardApi.create({ customerId: mpCustomerId, body: { token } })
+    } catch {
+      this.fastify.log.error({ userId }, 'MP card create failed')
+      throw { error: 'Não foi possível salvar o cartão no Mercado Pago. Tente novamente.', status: 502 }
+    }
+
+    if (!mpCard?.id) {
+      throw { error: 'Falha ao salvar o cartão', status: 502 }
+    }
+
+    // CR-01: recontagem pós-criação no MP para evitar race em requisições concorrentes
+    const currentCount = await this.repo.countByUser(userId)
+    if (currentCount >= 3) {
+      try {
+        await this.customerCardApi.remove({ customerId: mpCustomerId, cardId: mpCard.id })
+      } catch {
+        this.fastify.log.error({ mpCardId: mpCard.id }, 'MP rollback failed after concurrent limit exceeded')
+      }
+      throw { error: 'Limite de 3 cartões atingido', status: 400 }
+    }
+
+    const brand = (mpCard.payment_method?.id ?? '').toLowerCase()
+    const lastFour = mpCard.last_four_digits ?? ''
+    const expMonth = String(mpCard.expiration_month ?? '').padStart(2, '0')
+    const expYear = String(mpCard.expiration_year ?? '')
+    const expiresAt = expYear && expMonth ? `${expYear}-${expMonth}` : ''
+    const isDefault = currentCount === 0
+
+    return this.repo.create({
+      userId,
+      mpCardId: mpCard.id,
+      brand,
+      lastFour,
+      expiresAt,
+      isDefault,
+    })
   }
 
   // ── saveNewCard ───────────────────────────────────────────────────────────

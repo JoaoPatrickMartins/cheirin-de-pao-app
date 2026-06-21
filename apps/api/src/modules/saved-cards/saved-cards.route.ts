@@ -17,6 +17,12 @@ export const savedCardsRoute: FastifyPluginAsync = async (fastify) => {
     schema: { ...tags, summary: 'Listar cartões salvos do cliente' },
   }, controller.list.bind(controller))
 
+  // POST /users/me/cards — CARD-07: cadastro avulso de cartão (sem cobrança)
+  fastify.post('/users/me/cards', {
+    ...auth,
+    schema: { ...tags, summary: 'Cadastrar cartão salvo (sem cobrança)' },
+  }, controller.create.bind(controller))
+
   // PATCH /users/me/cards/:id — CARD-04: definir cartão padrão (atômico via $transaction)
   fastify.patch('/users/me/cards/:id', {
     ...auth,

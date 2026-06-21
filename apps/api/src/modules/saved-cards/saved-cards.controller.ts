@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
 import { SavedCardsService } from './saved-cards.service.js'
-import { SavedCardParamsSchema, SetDefaultBodySchema } from './saved-cards.schema.js'
+import { SavedCardParamsSchema, SetDefaultBodySchema, CreateSavedCardSchema } from './saved-cards.schema.js'
 
 type ZodIssue = { message: string }
 
@@ -43,6 +43,31 @@ export class SavedCardsController {
         return reply.status(err.status).send({ error: err.error })
       }
       return reply.status(500).send({ error: 'Erro ao listar cartões.' })
+    }
+  }
+
+  // POST /users/me/cards — CARD-07: cadastro avulso de cartão (sem cobrança)
+  async create(request: FastifyRequest, reply: FastifyReply) {
+    let body: ReturnType<typeof CreateSavedCardSchema.parse>
+    try {
+      body = CreateSavedCardSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      const userId = request.user!.id
+      const card = await this.service.addCard({ userId, token: body.token })
+      return reply.status(201).send(card)
+    } catch (err) {
+      request.log.error({ err }, 'saved-cards: erro ao cadastrar')
+      if (isBusinessError(err)) {
+        return reply.status(err.status).send({ error: err.error })
+      }
+      return reply.status(500).send({ error: 'Erro ao cadastrar cartão.' })
     }
   }
 

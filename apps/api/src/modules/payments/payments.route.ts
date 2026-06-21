@@ -49,7 +49,9 @@ export const paymentsRoute: FastifyPluginAsync = async (fastify) => {
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['token', 'installments', 'issuerId', 'paymentMethodId', 'payerEmail', 'payerIdentification'],
+          // Sem `required` aqui: há dois fluxos (cartão novo via token e cartão salvo via
+          // savedCardId+securityCode) com campos distintos. A validação real — incl. "token OU
+          // savedCardId" e "comboId OU customQuantity" — é feita pela camada Zod no controller.
           properties: {
             token: { type: 'string', description: 'Token único do cartão gerado pelo Mercado Pago Bricks no frontend. Válido por uso único.' },
             installments: { type: 'integer', minimum: 1, description: 'Número de parcelas (1 a 12).' },
@@ -64,6 +66,9 @@ export const paymentsRoute: FastifyPluginAsync = async (fastify) => {
                 number: { type: 'string', description: 'Número do documento sem pontuação.' },
               },
             },
+            savedCardId: { type: 'string', description: 'ID de um cartão já salvo do cliente. Mutuamente exclusivo com token.' },
+            securityCode: { type: 'string', description: 'CVV — obrigatório ao pagar com cartão salvo (savedCardId).' },
+            saveCard: { type: 'boolean', description: 'Salva o cartão novo (token) após o pagamento aprovado.' },
             comboId: { type: 'string', description: 'ID do combo a comprar. Mutuamente exclusivo com customQuantity.' },
             customQuantity: { type: 'integer', minimum: 1, description: 'Quantidade avulsa de pãezinhos. Mutuamente exclusivo com comboId.' },
           },
