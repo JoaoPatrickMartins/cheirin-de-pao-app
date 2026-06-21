@@ -58,8 +58,8 @@ describe('CombosScreen [CRED-01]', () => {
         json: () =>
           Promise.resolve({
             paymentId: 'pid-1',
-            qr_code_base64: 'base64data',
-            qr_code: 'pixcode',
+            pixQrCodeUrl: 'https://qr.png',
+            pixCopyPaste: 'pixcode',
           }),
       })
     })
@@ -78,7 +78,7 @@ describe('CombosScreen [CRED-01]', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/client/creditos/pix', expect.anything())
     })
 
-    it('navigate state contem qrCodeBase64 (camelCase, nao qr_code_base64)', async () => {
+    it('navigate state contem pixQrCodeUrl (camelCase, nao qr_code_base64)', async () => {
       render(
         <MemoryRouter>
           <CombosScreen />
@@ -88,11 +88,11 @@ describe('CombosScreen [CRED-01]', () => {
       fireEvent.click(screen.getByText(/Comprar Combo Básico/i))
       await waitFor(() => expect(mockNavigate).toHaveBeenCalled())
       const [, options] = mockNavigate.mock.calls[0]
-      expect(options.state).toHaveProperty('qrCodeBase64', 'base64data')
+      expect(options.state).toHaveProperty('pixQrCodeUrl', 'https://qr.png')
       expect(options.state).not.toHaveProperty('qr_code_base64')
     })
 
-    it('navigate state contem paymentId, qrCode e comboQuantity', async () => {
+    it('navigate state contem paymentId, pixCopyPaste e comboQuantity', async () => {
       render(
         <MemoryRouter>
           <CombosScreen />
@@ -103,7 +103,7 @@ describe('CombosScreen [CRED-01]', () => {
       await waitFor(() => expect(mockNavigate).toHaveBeenCalled())
       const [, options] = mockNavigate.mock.calls[0]
       expect(options.state).toHaveProperty('paymentId', 'pid-1')
-      expect(options.state).toHaveProperty('qrCode', 'pixcode')
+      expect(options.state).toHaveProperty('pixCopyPaste', 'pixcode')
       expect(options.state).toHaveProperty('comboQuantity', 20)
     })
 

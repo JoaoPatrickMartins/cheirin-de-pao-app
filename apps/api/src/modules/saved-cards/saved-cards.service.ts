@@ -103,6 +103,14 @@ export class SavedCardsService {
         this.fastify.log.warn({ paymentMethodId }, 'Stripe setDefault failed (não crítico)')
       }
     }
+
+    // Consentimento p/ cobrança sem CVV (off_session): salvar o cartão via SetupIntent
+    // usage=off_session é o momento do consentimento. Registra a 1ª vez.
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { offSessionConsentAt: true } })
+    if (!user?.offSessionConsentAt) {
+      await this.prisma.user.update({ where: { id: userId }, data: { offSessionConsentAt: new Date() } })
+    }
+
     return created
   }
 

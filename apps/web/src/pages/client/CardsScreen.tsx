@@ -79,11 +79,11 @@ export function CardsScreen() {
   }
 
   // Salva o cartão (sem cobrança). Retorna mensagem de erro ou null em sucesso.
-  const handleAddCard = async (payload: { token: string }): Promise<string | null> => {
+  const handleAddCard = async (paymentMethodId: string): Promise<string | null> => {
     try {
       const res = await apiFetch('/users/me/cards', {
         method: 'POST',
-        body: JSON.stringify({ token: payload.token }),
+        body: JSON.stringify({ paymentMethodId }),
       })
       if (res.ok) {
         const card = (await res.json()) as SavedCard

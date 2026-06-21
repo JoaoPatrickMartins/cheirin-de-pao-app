@@ -94,15 +94,15 @@ export function CombosScreen() {
       })
 
       if (res.ok) {
-        const { paymentId, qr_code_base64: qrCodeBase64, qr_code: qrCode } =
+        const { paymentId, pixCopyPaste, pixQrCodeUrl } =
           (await res.json()) as {
             paymentId: string
-            qr_code_base64: string
-            qr_code: string
+            pixCopyPaste: string
+            pixQrCodeUrl: string
           }
         const comboQuantity = selectedCombo?.quantity ?? customQty
         navigate('/client/creditos/pix', {
-          state: { paymentId, qrCodeBase64, qrCode, comboQuantity },
+          state: { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity },
         })
       } else {
         const err = (await res.json()) as { error?: string }

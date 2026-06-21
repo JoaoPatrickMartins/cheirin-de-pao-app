@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../../components/brand/Icon'
 import { SavedCardsList } from '../../components/client/SavedCardsList'
 import { AddCardForm } from '../../components/client/AddCardForm'
-import type { AddCardPayload } from '../../components/client/AddCardForm'
 import type { SavedCard } from '../../components/client/SavedCardItem'
 
 interface CardState {
@@ -17,7 +15,6 @@ interface CardState {
 export function CardPaymentScreen() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user } = useAuth()
   const state = (location.state as CardState | null) ?? { amount: 0 }
   const { comboId, customQuantity } = state
 
@@ -25,8 +22,6 @@ export function CardPaymentScreen() {
   const [loadingCards, setLoadingCards] = useState(true)
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const [addCardExpanded, setAddCardExpanded] = useState(false)
-  const [cvv, setCvv] = useState('')
-  const [cvvError, setCvvError] = useState<string | null>(null)
 
   const [isProcessing, setIsProcessing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -36,53 +31,50 @@ export function CardPaymentScreen() {
     setTimeout(() => setToast(null), 2500)
   }
 
-  useEffect(() => {
-    const loadCards = async () => {
-      try {
-        const res = await apiFetch('/users/me/cards')
-        if (res.ok) {
-          const cards = (await res.json()) as SavedCard[]
-          setSavedCards(cards)
-          const toSelect = cards.find((c) => c.isDefault) ?? cards[0]
-          if (toSelect) setSelectedCardId(toSelect.id)
-        }
-      } catch {
-        // Falha silenciosa — cai no fluxo de adicionar cartão
-      } finally {
-        setLoadingCards(false)
+  const loadCards = async () => {
+    try {
+      const res = await apiFetch('/users/me/cards')
+      if (res.ok) {
+        const cards = (await res.json()) as SavedCard[]
+        setSavedCards(cards)
+        const toSelect = cards.find((c) => c.isDefault) ?? cards[0]
+        if (toSelect) setSelectedCardId(toSelect.id)
+        return cards
       }
+    } catch {
+      // Falha silenciosa — cai no fluxo de adicionar cartão
     }
-    void loadCards()
+    return [] as SavedCard[]
+  }
+
+  useEffect(() => {
+    void loadCards().finally(() => setLoadingCards(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const hasSavedCards = savedCards.length > 0
   const goToSuccess = () => navigate('/client/creditos/sucesso', { state: { quantity: customQuantity ?? 1 } })
 
-  // Pagamento com cartão salvo (CVV por transação)
+  // Cobra um cartão salvo SEM CVV (off_session / 1 toque)
+  const payWithSavedCard = async (savedCardId: string): Promise<string | null> => {
+    const res = await apiFetch('/payments/card', {
+      method: 'POST',
+      body: JSON.stringify({ savedCardId, comboId, customQuantity }),
+    })
+    if (res.ok) {
+      goToSuccess()
+      return null
+    }
+    const err = (await res.json()) as { error?: string }
+    return err.error ?? 'Não foi possível concluir o pagamento. Tente outro cartão.'
+  }
+
   const handlePayWithSavedCard = async () => {
     if (isProcessing || !selectedCardId) return
-    const selectedCard = savedCards.find((c) => c.id === selectedCardId)
-    const requiredCvvLength = selectedCard?.brand === 'amex' ? 4 : 3
-    if (cvv.length < requiredCvvLength) {
-      setCvvError(`Informe o código de segurança (${requiredCvvLength} dígitos)`)
-      return
-    }
-
     setIsProcessing(true)
-    const cvvToSend = cvv
-    setCvv('') // limpar CVV imediatamente após disparar o POST
-
     try {
-      const res = await apiFetch('/payments/card', {
-        method: 'POST',
-        body: JSON.stringify({ savedCardId: selectedCardId, securityCode: cvvToSend, comboId, customQuantity }),
-      })
-      if (res.ok) {
-        goToSuccess()
-      } else {
-        const err = (await res.json()) as { error?: string }
-        showToast(err.error ?? 'Erro no pagamento. Verifique os dados e tente novamente.')
-      }
+      const msg = await payWithSavedCard(selectedCardId)
+      if (msg) showToast(msg)
     } catch {
       showToast('Algo deu errado. Verifique sua conexão e tente novamente.')
     } finally {
@@ -90,29 +82,19 @@ export function CardPaymentScreen() {
     }
   }
 
-  // Pagamento com cartão NOVO — sempre salva o cartão (saveCard: true). À vista (1x).
-  const handlePayWithNewCard = async (payload: AddCardPayload): Promise<string | null> => {
+  // Cartão novo: salva (SetupIntent já confirmado → paymentMethodId) e paga em seguida (off_session)
+  const handleAddAndPay = async (paymentMethodId: string): Promise<string | null> => {
     try {
-      const res = await apiFetch('/payments/card', {
+      const saveRes = await apiFetch('/users/me/cards', {
         method: 'POST',
-        body: JSON.stringify({
-          token: payload.token,
-          installments: 1,
-          paymentMethodId: payload.paymentMethodId ?? undefined,
-          issuerId: payload.issuerId ?? undefined,
-          payerEmail: user?.email,
-          payerIdentification: payload.payerIdentification,
-          saveCard: true,
-          comboId,
-          customQuantity,
-        }),
+        body: JSON.stringify({ paymentMethodId }),
       })
-      if (res.ok) {
-        goToSuccess()
-        return null
+      if (!saveRes.ok) {
+        const err = (await saveRes.json()) as { error?: string }
+        return err.error ?? 'Não foi possível salvar o cartão.'
       }
-      const err = (await res.json()) as { error?: string }
-      return err.error ?? 'Erro no pagamento. Verifique os dados e tente novamente.'
+      const card = (await saveRes.json()) as SavedCard
+      return await payWithSavedCard(card.id)
     } catch {
       return 'Algo deu errado. Verifique sua conexão e tente novamente.'
     }
@@ -129,7 +111,6 @@ export function CardPaymentScreen() {
         flexDirection: 'column',
       }}
     >
-      {/* Toast */}
       {toast && (
         <div
           style={{
@@ -145,7 +126,8 @@ export function CardPaymentScreen() {
             fontFamily: 'var(--font-body)',
             fontWeight: 600,
             fontSize: 15,
-            whiteSpace: 'nowrap',
+            maxWidth: '90vw',
+            textAlign: 'center',
             boxShadow: '0 4px 16px rgba(0,0,0,0.22)',
           }}
         >
@@ -153,9 +135,7 @@ export function CardPaymentScreen() {
         </div>
       )}
 
-      {/* Scroll area */}
       <div style={{ flex: 1, padding: '20px', paddingBottom: showSavedCardCta ? 116 : 24, overflowY: 'auto' }}>
-        {/* AppBar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
           <button
             onClick={() => navigate('/client/creditos')}
@@ -190,12 +170,12 @@ export function CardPaymentScreen() {
         </div>
 
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '0 0 24px' }}>
-          Pagamento processado com segurança pelo Mercado Pago
+          Pagamento processado com segurança pelo Stripe
         </p>
 
         {loadingCards && <SavedCardsList cards={[]} loading mode="select" />}
 
-        {/* ── Cliente tem cartões salvos ── */}
+        {/* ── Cliente tem cartões salvos: 1 toque, sem CVV ── */}
         {!loadingCards && hasSavedCards && (
           <>
             <SectionLabel>SEUS CARTÕES</SectionLabel>
@@ -207,53 +187,15 @@ export function CardPaymentScreen() {
               onSelect={(id) => {
                 setSelectedCardId(id)
                 setAddCardExpanded(false)
-                setCvvError(null)
               }}
             />
 
-            {/* CVV do cartão salvo selecionado */}
-            {selectedCardId !== null && !addCardExpanded && (
-              <div style={{ marginTop: 16 }}>
-                <SectionLabel as="p">Código de segurança (CVV)</SectionLabel>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={cvv}
-                  placeholder="•••"
-                  onChange={(e) => {
-                    setCvv(e.target.value.replace(/\D/g, ''))
-                    if (cvvError) setCvvError(null)
-                  }}
-                  style={{
-                    width: 100,
-                    border: cvvError ? '1.5px solid #C0392B' : '1.5px solid var(--color-border)',
-                    borderRadius: 'var(--radius-field)',
-                    padding: '12px 14px',
-                    fontFamily: 'var(--font-body)',
-                    fontSize: 15,
-                    color: 'var(--color-text)',
-                    background: 'var(--color-surface)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                />
-                {cvvError && (
-                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: '#C0392B', margin: '6px 0 0' }}>
-                    {cvvError}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Separador "ou" */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
               <div style={{ flex: 1, height: 1, background: 'var(--color-border-2)' }} />
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)' }}>ou</span>
               <div style={{ flex: 1, height: 1, background: 'var(--color-border-2)' }} />
             </div>
 
-            {/* Adicionar novo cartão (colapsável) */}
             <div
               role={addCardExpanded ? undefined : 'button'}
               aria-expanded={addCardExpanded}
@@ -262,16 +204,12 @@ export function CardPaymentScreen() {
                 if (!addCardExpanded) {
                   setAddCardExpanded(true)
                   setSelectedCardId(null)
-                  setCvv('')
-                  setCvvError(null)
                 }
               }}
               onKeyDown={(e) => {
                 if ((e.key === 'Enter' || e.key === ' ') && !addCardExpanded) {
                   setAddCardExpanded(true)
                   setSelectedCardId(null)
-                  setCvv('')
-                  setCvvError(null)
                 }
               }}
               style={{
@@ -293,7 +231,7 @@ export function CardPaymentScreen() {
 
               {addCardExpanded && (
                 <div style={{ padding: '0 16px 16px' }}>
-                  <AddCardForm submitLabel="Salvar cartão e pagar" onSubmit={handlePayWithNewCard} />
+                  <AddCardForm submitLabel="Salvar cartão e pagar" onSubmit={handleAddAndPay} />
                 </div>
               )}
             </div>
@@ -310,12 +248,16 @@ export function CardPaymentScreen() {
               boxShadow: 'var(--shadow-soft)',
             }}
           >
-            <AddCardForm submitLabel="Adicionar cartão e pagar" onSubmit={handlePayWithNewCard} />
+            <AddCardForm
+              submitLabel="Salvar cartão e pagar"
+              onSubmit={handleAddAndPay}
+              note="Seu cartão é salvo com segurança para as próximas compras serem em 1 toque, sem CVV."
+            />
           </div>
         )}
       </div>
 
-      {/* CTA fixa — apenas para pagar com cartão salvo selecionado */}
+      {/* CTA fixa — pagar com cartão salvo selecionado, em 1 toque sem CVV */}
       {showSavedCardCta && (
         <div
           style={{
@@ -345,7 +287,7 @@ export function CardPaymentScreen() {
               opacity: isProcessing ? 0.7 : 1,
             }}
           >
-            {isProcessing ? 'Processando...' : 'Pagar com este cartão'}
+            {isProcessing ? 'Processando…' : 'Pagar com 1 toque (sem CVV)'}
           </button>
         </div>
       )}
@@ -353,10 +295,9 @@ export function CardPaymentScreen() {
   )
 }
 
-function SectionLabel({ children, as = 'p' }: { children: React.ReactNode; as?: 'p' }) {
-  const Tag = as
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <Tag
+    <p
       style={{
         fontFamily: 'var(--font-body)',
         fontSize: 12.5,
@@ -367,6 +308,6 @@ function SectionLabel({ children, as = 'p' }: { children: React.ReactNode; as?: 
       }}
     >
       {children}
-    </Tag>
+    </p>
   )
 }

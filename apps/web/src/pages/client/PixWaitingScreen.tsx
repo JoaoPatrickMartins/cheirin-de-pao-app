@@ -5,8 +5,8 @@ import { usePaymentPolling } from '../../hooks/usePaymentPolling'
 
 interface PixState {
   paymentId: string
-  qrCodeBase64: string
-  qrCode: string
+  pixQrCodeUrl: string
+  pixCopyPaste: string
   comboQuantity: number
 }
 
@@ -22,12 +22,12 @@ export function PixWaitingScreen() {
     return null
   }
 
-  const { paymentId, qrCodeBase64, qrCode, comboQuantity } = state
+  const { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity } = state
   return (
     <PixWaitingContent
       paymentId={paymentId}
-      qrCodeBase64={qrCodeBase64}
-      qrCode={qrCode}
+      pixQrCodeUrl={pixQrCodeUrl}
+      pixCopyPaste={pixCopyPaste}
       comboQuantity={comboQuantity}
       onCreditUpdate={updateCreditBalance}
       onNavigate={navigate}
@@ -37,8 +37,8 @@ export function PixWaitingScreen() {
 
 interface ContentProps {
   paymentId: string
-  qrCodeBase64: string
-  qrCode: string
+  pixQrCodeUrl: string
+  pixCopyPaste: string
   comboQuantity: number
   onCreditUpdate: (balance: number) => void
   onNavigate: ReturnType<typeof useNavigate>
@@ -46,8 +46,8 @@ interface ContentProps {
 
 function PixWaitingContent({
   paymentId,
-  qrCodeBase64,
-  qrCode,
+  pixQrCodeUrl,
+  pixCopyPaste,
   comboQuantity,
   onCreditUpdate,
   onNavigate,
@@ -74,7 +74,7 @@ function PixWaitingContent({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(qrCode)
+      await navigator.clipboard.writeText(pixCopyPaste)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
@@ -110,9 +110,9 @@ function PixWaitingContent({
         Pix
       </h1>
 
-      {/* QR Code */}
+      {/* QR Code (URL PNG do Stripe) */}
       <img
-        src={`data:image/png;base64,${qrCodeBase64}`}
+        src={pixQrCodeUrl}
         width={200}
         height={200}
         style={{ borderRadius: 12 }}
@@ -133,7 +133,7 @@ function PixWaitingContent({
             color: 'var(--color-text-sec)',
           } as React.CSSProperties}
         >
-          {qrCode}
+          {pixCopyPaste}
         </p>
         <button
           onClick={handleCopy}
