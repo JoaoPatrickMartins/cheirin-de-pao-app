@@ -3,6 +3,7 @@ import * as OneSignal from '@onesignal/node-onesignal'
 import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
+import { PaymentsService } from '../payments/payments.service.js'
 import { nowHHMM, targetDeliveryDate, dayKeyOf, brtDayRange, type DayKey } from '../../lib/cutoff.js'
 
 // Dia da semana em UTC-3 (Brasília) → chave do WeeklyQty
@@ -55,10 +56,12 @@ function createOsClient() {
 export class SchedulesService {
   private repo: SchedulesRepository
   private notificationsService: NotificationsService
+  private payments: PaymentsService
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new SchedulesRepository(fastify)
     this.notificationsService = new NotificationsService(fastify)
+    this.payments = new PaymentsService(fastify)
   }
 
   private get prisma() {
@@ -120,8 +123,20 @@ export class SchedulesService {
         const user = await this.repo.findUserById(schedule.userId)
         if (!user) continue
 
-        if (user.creditBalance < qty) {
-          // Saldo insuficiente — push best-effort, segue para próximo schedule
+        let balance = user.creditBalance
+
+        // Saldo insuficiente: tenta a recarga automática (sem CVV) JUST-IN-TIME.
+        // chargeAutoRecharge é self-validating (só cobra se ativa + consentida + cartão padrão).
+        if (balance < qty) {
+          const result = await this.payments.chargeAutoRecharge(schedule.userId)
+          if (result.ok) {
+            const refreshed = await this.repo.findUserById(schedule.userId)
+            balance = refreshed?.creditBalance ?? balance
+          }
+        }
+
+        // Ainda insuficiente (recarga inativa/recusada): NÃO cria a order + avisa.
+        if (balance < qty) {
           if (user.oneSignalPlayerId) {
             try {
               const osClient = createOsClient()
@@ -129,7 +144,10 @@ export class SchedulesService {
               notification.app_id = process.env.ONESIGNAL_APP_ID!
               notification.include_subscription_ids = [user.oneSignalPlayerId]
               notification.headings = { pt: 'Cheirin de Pão' }
-              notification.contents = { pt: 'Créditos insuficientes para a entrega agendada' }
+              notification.contents = {
+                pt: 'Por falta de saldo não foi possível gerar seu pedido agendado. Recarregue seus créditos.',
+              }
+              notification.url = '/client/creditos'
               await osClient.createNotification(notification)
             } catch (pushErr) {
               this.fastify.log.warn(
@@ -423,82 +441,14 @@ export class SchedulesService {
     }
   }
 
-  async processAutoBuy() {
-    const users = await this.prisma.user.findMany({
-      where: {
-        autoRecharge: { isSet: true },
-      },
-    })
-
-    for (const user of users) {
-      if (!user.autoRecharge) continue
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const autoRecharge = user.autoRecharge as any
-
-      if (!autoRecharge.active) continue
-
-      try {
-        const schedule = await this.repo.findActiveByUserId(user.id)
-
-        let shouldBuy = false
-
-        if (autoRecharge.mode === 'acabar') {
-          // Limiar: saldo < consumo semanal (D-09: usa getConsumoSemanal para suportar multi-slot)
-          if (schedule) {
-            const consumoSemanal = getConsumoSemanal(schedule)
-            shouldBuy = user.creditBalance < consumoSemanal
-          }
-        } else if (autoRecharge.mode === 'semanal') {
-          // Verificar se hoje é o dia configurado
-          const todayFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/Sao_Paulo',
-            weekday: 'short',
-          })
-          const todayKey = DAY_OF_WEEK_MAP[todayFormatter.format(new Date())] ?? 'seg'
-          shouldBuy = todayKey === autoRecharge.weekday
-        }
-
-        if (!shouldBuy) continue
-
-        // Pix-first MVP: gerar QR Pix via prisma direto (simplificado para MVP)
-        // e enviar push para o cliente finalizar o pagamento
-        if (user.oneSignalPlayerId) {
-          try {
-            const osClient = createOsClient()
-            const notification = new OneSignal.Notification()
-            notification.app_id = process.env.ONESIGNAL_APP_ID!
-            notification.include_subscription_ids = [user.oneSignalPlayerId]
-            notification.headings = { pt: 'Cheirin de Pão — Reposição automática' }
-            notification.contents = { pt: 'Toque para finalizar sua compra automática de créditos.' }
-            notification.url = '/client/creditos'
-            await osClient.createNotification(notification)
-          } catch (pushErr) {
-            this.fastify.log.warn(
-              { userId: user.id, err: pushErr },
-              '[schedules] falha ao enviar push de compra automática',
-            )
-          }
-        }
-      } catch (err) {
-        // D-13: Se falhar, enviar push de erro e não retentar
-        this.fastify.log.error({ userId: user.id, err }, '[schedules] processAutoBuy falhou')
-        if (user.oneSignalPlayerId) {
-          try {
-            const osClient = createOsClient()
-            const notification = new OneSignal.Notification()
-            notification.app_id = process.env.ONESIGNAL_APP_ID!
-            notification.include_subscription_ids = [user.oneSignalPlayerId]
-            notification.headings = { pt: 'Cheirin de Pão' }
-            notification.contents = {
-              pt: 'Não conseguimos gerar sua cobrança automática — verifique seu saldo',
-            }
-            await osClient.createNotification(notification)
-          } catch (_) {
-            // Falha silenciosa no fallback de push
-          }
-        }
-      }
-    }
+  /**
+   * DESCONTINUADO. A recarga automática agora é JUST-IN-TIME no corte
+   * (createOrdersForCondoSlot cobra o cartão padrão sem CVV via Stripe no momento da order).
+   * O antigo fluxo (push para finalizar / modo "semanal") foi removido e não é mais agendado.
+   * Mantido como no-op para não quebrar chamadas legadas.
+   */
+  async processAutoBuy(): Promise<void> {
+    return
   }
 
   // CRED-09: Notifica clientes sem auto-recharge quando o saldo está abaixo do consumo semanal.

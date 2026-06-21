@@ -46,7 +46,22 @@ export class SavedCardsController {
     }
   }
 
-  // POST /users/me/cards — CARD-07: cadastro avulso de cartão (sem cobrança)
+  // POST /users/me/cards/setup-intent — inicia o cadastro de cartão (Stripe SetupIntent)
+  async setupIntent(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const result = await this.service.createSetupIntent(userId)
+      return reply.status(200).send(result)
+    } catch (err) {
+      request.log.error({ err }, 'saved-cards: erro ao iniciar cadastro')
+      if (isBusinessError(err)) {
+        return reply.status(err.status).send({ error: err.error })
+      }
+      return reply.status(500).send({ error: 'Erro ao iniciar cadastro de cartão.' })
+    }
+  }
+
+  // POST /users/me/cards — CARD-07: persiste o cartão após confirmação no front (Elements)
   async create(request: FastifyRequest, reply: FastifyReply) {
     let body: ReturnType<typeof CreateSavedCardSchema.parse>
     try {
@@ -60,7 +75,7 @@ export class SavedCardsController {
 
     try {
       const userId = request.user!.id
-      const card = await this.service.addCard({ userId, token: body.token })
+      const card = await this.service.addCard({ userId, paymentMethodId: body.paymentMethodId })
       return reply.status(201).send(card)
     } catch (err) {
       request.log.error({ err }, 'saved-cards: erro ao cadastrar')

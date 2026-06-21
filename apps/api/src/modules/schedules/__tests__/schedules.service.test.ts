@@ -387,56 +387,19 @@ describe('SchedulesService', () => {
     })
   })
 
-  describe('processAutoBuy [CRED-08/10]', () => {
-    beforeEach(() => {
-      vi.clearAllMocks()
-      vi.useRealTimers()
-    })
+  describe('processAutoBuy (descontinuado — recarga agora é no corte)', () => {
+    beforeEach(() => vi.clearAllMocks())
 
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('CRED-08 — weekday respeitado: NÃO compra quando autoRecharge.weekday não coincide com o dia atual', async () => {
-      // 2024-01-09T15:00:00Z = terça-feira 12:00 BRT (America/Sao_Paulo = UTC-3)
-      vi.useFakeTimers()
-      vi.setSystemTime(new Date('2024-01-09T15:00:00Z'))
-
+    it('é no-op: não envia push nem dispara cobrança', async () => {
       const user: UserShape = {
-        id: 'user-cred08',
-        creditBalance: 2,
-        condominiumId: 'condo-1',
-        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' }, // seg ≠ ter
-        oneSignalPlayerId: 'player-cred08',
-      }
-
-      const fastify = createMockFastify({ users: { 'user-cred08': user } })
-      ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
-
-      const createNotificationSpy = vi.fn().mockResolvedValue({})
-      vi.mocked(OneSignalModule.DefaultApi).mockImplementation(function () {
-        return { createNotification: createNotificationSpy }
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.processAutoBuy()
-
-      // Weekday não coincide (seg vs ter) — não deve enviar push de compra automática
-      expect(createNotificationSpy).not.toHaveBeenCalled()
-    })
-
-    it('CRED-10 — modo semanal verificado: NÃO compra quando autoRecharge.mode !== "semanal"', async () => {
-      // mode='mensal' não é tratado em processAutoBuy (apenas 'acabar' e 'semanal')
-      // shouldBuy permanece false → nenhuma ação de compra
-      const user: UserShape = {
-        id: 'user-cred10-mode',
+        id: 'user-noop',
         creditBalance: 0,
         condominiumId: 'condo-1',
-        autoRecharge: { active: true, mode: 'mensal', weekday: 'seg', comboId: 'combo-1' },
-        oneSignalPlayerId: 'player-cred10-mode',
+        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' },
+        oneSignalPlayerId: 'player-noop',
       }
 
-      const fastify = createMockFastify({ users: { 'user-cred10-mode': user } })
+      const fastify = createMockFastify({ users: { 'user-noop': user } })
       ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
 
       const createNotificationSpy = vi.fn().mockResolvedValue({})
@@ -447,41 +410,7 @@ describe('SchedulesService', () => {
       const service = new SchedulesService(fastify)
       await service.processAutoBuy()
 
-      // mode='mensal' → shouldBuy=false → nenhum push enviado
       expect(createNotificationSpy).not.toHaveBeenCalled()
-    })
-
-    it('CRED-08/10 — push de confirmação enviado após compra automática bem-sucedida (semanal + weekday correto)', async () => {
-      // 2024-01-08T15:00:00Z = segunda-feira 12:00 BRT (America/Sao_Paulo = UTC-3)
-      vi.useFakeTimers()
-      vi.setSystemTime(new Date('2024-01-08T15:00:00Z'))
-
-      const user: UserShape = {
-        id: 'user-cred08-push',
-        creditBalance: 2,
-        condominiumId: 'condo-1',
-        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' }, // seg === seg ✓
-        oneSignalPlayerId: 'player-cred08-push',
-      }
-
-      const fastify = createMockFastify({ users: { 'user-cred08-push': user } })
-      ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
-
-      const createNotificationSpy = vi.fn().mockResolvedValue({})
-      vi.mocked(OneSignalModule.DefaultApi).mockImplementation(function () {
-        return { createNotification: createNotificationSpy }
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.processAutoBuy()
-
-      // Weekday correto (seg === seg) → push de compra automática DEVE ser enviado
-      expect(createNotificationSpy).toHaveBeenCalledOnce()
-      expect(createNotificationSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: '/client/creditos',
-        }),
-      )
     })
   })
 

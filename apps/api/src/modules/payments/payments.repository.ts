@@ -14,6 +14,7 @@ export class PaymentsRepository {
     method: 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD'
     status: PaymentStatus
     mercadoPagoId?: string
+    stripePaymentIntentId?: string
     comboId?: string
     customQuantity?: number
   }) {
@@ -30,6 +31,10 @@ export class PaymentsRepository {
 
   findPaymentByMercadoPagoId(mpId: string) {
     return this.prisma.payment.findUnique({ where: { mercadoPagoId: mpId } })
+  }
+
+  findPaymentByStripePaymentIntentId(stripePaymentIntentId: string) {
+    return this.prisma.payment.findUnique({ where: { stripePaymentIntentId } })
   }
 
   async creditUserBalance(userId: string, quantity: number, paymentId: string) {

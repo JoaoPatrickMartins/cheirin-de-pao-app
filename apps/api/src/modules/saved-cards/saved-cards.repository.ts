@@ -15,13 +15,17 @@ export class SavedCardsRepository {
     return this.prisma.savedCard.findUnique({ where: { id } })
   }
 
+  findByStripePaymentMethodId(stripePaymentMethodId: string) {
+    return this.prisma.savedCard.findFirst({ where: { stripePaymentMethodId } })
+  }
+
   countByUser(userId: string) {
     return this.prisma.savedCard.count({ where: { userId } })
   }
 
   create(data: {
     userId: string
-    mpCardId: string
+    stripePaymentMethodId: string
     brand: string
     lastFour: string
     expiresAt: string

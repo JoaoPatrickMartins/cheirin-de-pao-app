@@ -14,21 +14,14 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   const schedulesService = new SchedulesService(fastify)
 
   // Cron 1 — meia-noite diário (America/Sao_Paulo)
-  // Processa compra automática + notificações de saldo baixo.
-  // OBS: a criação de Orders NÃO acontece mais aqui — agora é feita no cutoffTime de cada slot
-  // (cron 'cutoff-orders' por minuto), para alinhar a "confirmação" da agenda ao horário de corte.
-  // node-cron v4: TaskOptions não tem 'scheduled' — tasks são iniciadas automaticamente por padrão
+  // Notificações de saldo baixo (para quem NÃO tem recarga automática).
+  // OBS: a recarga automática NÃO acontece mais aqui — agora é JUST-IN-TIME no cutoffTime
+  // de cada slot (cron 'cutoff-orders'), cobrando o cartão sem CVV no momento da order.
+  // O antigo processAutoBuy (push para finalizar / modo semanal) foi descontinuado.
   cron.schedule(
     '0 0 * * *',
     async () => {
-      fastify.log.info('[cron] iniciando processAutoBuy + sendLowCreditNotifications')
-      try {
-        await schedulesService.processAutoBuy()
-        fastify.log.info('[cron] processAutoBuy concluído')
-      } catch (err) {
-        fastify.log.error({ err }, '[cron] erro em processAutoBuy — servidor mantido ativo')
-      }
-
+      fastify.log.info('[cron] iniciando sendLowCreditNotifications')
       try {
         await schedulesService.sendLowCreditNotifications()
         fastify.log.info('[cron] sendLowCreditNotifications concluído')

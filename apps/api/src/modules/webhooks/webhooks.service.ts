@@ -1,94 +1,80 @@
 import { FastifyInstance } from 'fastify'
-import { createHmac } from 'node:crypto'
-import { MercadoPagoConfig, Payment } from 'mercadopago'
+import type Stripe from 'stripe'
 import { PaymentsRepository } from '../payments/payments.repository.js'
-
-export interface WebhookBody {
-  action: string
-  data: { id: string }
-}
+import { StripeService } from '../payments/stripe.service.js'
 
 export class WebhooksService {
   private repo: PaymentsRepository
-  private paymentApi: Payment
+  private stripe: StripeService
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new PaymentsRepository(fastify)
-    const client = new MercadoPagoConfig({
-      accessToken: process.env.MP_ACCESS_TOKEN!,
-      options: { timeout: 5000 },
-    })
-    this.paymentApi = new Payment(client)
+    this.stripe = new StripeService(fastify)
   }
 
-  validateSignature(xSignature: string, xRequestId: string, dataId: string): boolean {
-    if (!xSignature) return false
-    const secret = process.env.MP_WEBHOOK_SECRET
-    if (!secret) return false
-    try {
-      const parts = Object.fromEntries(
-        xSignature.split(',').map((p) => {
-          const idx = p.indexOf('=')
-          return [p.slice(0, idx), p.slice(idx + 1)]
-        }),
-      )
-      const { ts, v1 } = parts
-      if (!ts || !v1) return false
-      const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`
-      const computed = createHmac('sha256', secret).update(manifest).digest('hex')
-      return computed === v1
-    } catch {
-      return false
-    }
+  // Valida a assinatura do Stripe e desserializa o evento a partir do corpo CRU.
+  constructEvent(rawBody: Buffer | string, signature: string): Stripe.Event {
+    return this.stripe.constructWebhookEvent(rawBody, signature)
   }
 
   /**
-   * Reconcilia um pagamento a partir do ID do Mercado Pago.
-   *
-   * CRÍTICO: consulta o status REAL no MP antes de creditar. O webhook
-   * payment.created/updated dispara para QUALQUER status (rejeitado, cancelado,
-   * pendente, etc.) — creditar sem confirmar geraria crédito indevido.
-   *
-   * - approved              → credita e marca PAID
-   * - rejected | cancelled  → marca FAILED (não credita)
-   * - demais (pending/...)  → mantém PENDING (aguarda próxima notificação)
-   *
-   * Idempotente: se o pagamento local já está PAID, não consulta o MP nem credita.
+   * Processa eventos do Stripe.
+   * - payment_intent.succeeded       → credita (idempotente) e marca PAID
+   * - payment_intent.payment_failed  → marca FAILED
+   * - charge.refunded                → marca REFUNDED
+   * Demais eventos são ignorados (200 para o Stripe não retentar).
    */
-  async reconcilePayment(mpPaymentId: string): Promise<void> {
-    const payment = await this.repo.findPaymentByMercadoPagoId(mpPaymentId)
-    if (!payment) return
-    if (payment.status === 'PAID') return
-
-    const mpStatus = await this.fetchMercadoPagoStatus(mpPaymentId)
-
-    if (mpStatus === 'approved') {
-      const quantity = payment.customQuantity ?? (await this.getComboQuantity(payment.comboId))
-      if (!quantity) return
-      await this.repo.creditUserBalance(payment.userId, quantity, payment.id)
-      await this.repo.updatePaymentStatus(payment.id, 'PAID')
-      return
-    }
-
-    if (mpStatus === 'rejected' || mpStatus === 'cancelled') {
-      await this.repo.updatePaymentStatus(payment.id, 'FAILED')
+  async processEvent(event: Stripe.Event): Promise<void> {
+    switch (event.type) {
+      case 'payment_intent.succeeded': {
+        const pi = event.data.object as Stripe.PaymentIntent
+        await this.creditFromPaymentIntent(pi.id)
+        break
+      }
+      case 'payment_intent.payment_failed': {
+        const pi = event.data.object as Stripe.PaymentIntent
+        const payment = await this.repo.findPaymentByStripePaymentIntentId(pi.id)
+        if (payment && payment.status === 'PENDING') {
+          await this.repo.updatePaymentStatus(payment.id, 'FAILED')
+        }
+        break
+      }
+      case 'charge.refunded': {
+        const charge = event.data.object as Stripe.Charge
+        const piId =
+          typeof charge.payment_intent === 'string'
+            ? charge.payment_intent
+            : charge.payment_intent?.id
+        if (piId) {
+          const payment = await this.repo.findPaymentByStripePaymentIntentId(piId)
+          if (payment && payment.status !== 'REFUNDED') {
+            await this.repo.updatePaymentStatus(payment.id, 'REFUNDED')
+          }
+        }
+        break
+      }
+      default:
+        break
     }
   }
 
-  private async fetchMercadoPagoStatus(mpPaymentId: string): Promise<string | undefined> {
-    const mpPayment = await this.paymentApi.get({ id: mpPaymentId })
-    return (mpPayment as { status?: string }).status
+  // Idempotente: se já está PAID, não credita de novo (protege contra duplicidade
+  // entre o crédito síncrono do off_session e este webhook).
+  private async creditFromPaymentIntent(paymentIntentId: string): Promise<void> {
+    const payment = await this.repo.findPaymentByStripePaymentIntentId(paymentIntentId)
+    if (!payment) return
+    if (payment.status === 'PAID') return
+
+    const quantity = payment.customQuantity ?? (await this.getComboQuantity(payment.comboId))
+    if (!quantity) return
+
+    await this.repo.creditUserBalance(payment.userId, quantity, payment.id)
+    await this.repo.updatePaymentStatus(payment.id, 'PAID')
   }
 
   private async getComboQuantity(comboId: string | null): Promise<number | null> {
     if (!comboId) return null
     const combo = await this.fastify.prisma.combo.findUnique({ where: { id: comboId } })
     return combo?.quantity ?? null
-  }
-
-  async processPayment(body: WebhookBody): Promise<void> {
-    if (body.action !== 'payment.created' && body.action !== 'payment.updated') return
-    if (!body.data?.id) return
-    await this.reconcilePayment(body.data.id)
   }
 }

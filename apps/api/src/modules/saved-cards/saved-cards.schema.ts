@@ -15,19 +15,11 @@ export const SetDefaultBodySchema = z.object({
 export type SetDefaultBody = z.infer<typeof SetDefaultBodySchema>
 
 // ── Create Card Body ──────────────────────────────────────────────────────────
-// CARD-07: cadastro avulso de cartão (sem cobrança). O token vem do Brick do MP;
-// os demais campos são opcionais — os dados persistidos (brand/lastFour/expiry)
-// são lidos da resposta do CustomerCard.create, não do cliente.
+// CARD-07: persiste o cartão após o front confirmar o SetupIntent via Stripe Elements.
+// Recebe o PaymentMethod (pm_...) já anexado ao Customer; brand/lastFour/expiry são
+// lidos do PaymentMethod no Stripe, nunca do cliente.
 export const CreateSavedCardSchema = z.object({
-  token: z.string().min(1, 'Token do cartão obrigatório'),
-  paymentMethodId: z.string().optional(),
-  issuerId: z.string().optional(),
-  payerIdentification: z
-    .object({
-      type: z.string(),
-      number: z.string(),
-    })
-    .optional(),
+  paymentMethodId: z.string().min(1, 'paymentMethodId obrigatório'),
 })
 
 export type CreateSavedCardBody = z.infer<typeof CreateSavedCardSchema>
