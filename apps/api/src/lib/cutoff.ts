@@ -97,3 +97,11 @@ export function isPastCutoffForDelivery(
 export function isSlotCutoffPast(cutoffTime: string, now: Date = new Date()): boolean {
   return nowHHMM(now) >= cutoffTime
 }
+
+/**
+ * Data "YYYY-MM-DD" (BRT) da PRÓXIMA entrega de um slot: hoje se o horário ainda está
+ * à frente agora, senão amanhã. Ex.: tarde 15:30 às 20:46 → amanhã; manhã 06:30 → amanhã.
+ */
+export function nextDeliveryDateStr(slotTime: string, now: Date = new Date()): string {
+  return brtDateStr(now, slotTime > nowHHMM(now) ? 0 : 1)
+}

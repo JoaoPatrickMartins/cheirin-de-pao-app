@@ -92,6 +92,11 @@ export class OrdersService {
     }
 
     // T-04-03-04: Reserva atômica — verifica saldo, debita e cria Order/CreditTransaction
+    // Descrição amigável para o extrato (sem ID interno): "Pedido avulso · N pães · DD/MM"
+    const paesLabel = data.quantity === 1 ? '1 pão' : `${data.quantity} pães`
+    const [, mesStr, diaStr] = dateStr.split('-')
+    const avulsoDesc = `Pedido avulso · ${paesLabel} · ${diaStr}/${mesStr}`
+
     const order = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: userId } })
 
@@ -123,7 +128,7 @@ export class OrdersService {
           type: 'DELIVERY',
           quantity: -data.quantity,
           referenceId: newOrder.id,
-          description: `Pedido avulso #${newOrder.id}`,
+          description: avulsoDesc,
         },
       })
 

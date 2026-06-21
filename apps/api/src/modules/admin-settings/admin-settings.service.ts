@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
-import { isSlotCutoffPast } from '../../lib/cutoff.js'
+import { isPastCutoffForDelivery, nextDeliveryDateStr, brtDateStr } from '../../lib/cutoff.js'
 
 /**
  * AdminSettingsService — gerencia configurações globais (horário de corte + avulso).
@@ -82,26 +82,30 @@ export class AdminSettingsService {
   }
 
   /**
-   * Status de corte POR SLOT do condomínio do cliente.
-   * Substitui o corte global no banner — cada slot tem seu próprio cutoffTime.
-   * `isPast`: o corte do slot para o ciclo atual já passou (hora BRT atual >= cutoffTime).
+   * Status de corte POR SLOT do condomínio do cliente, pela PRÓXIMA ocorrência de entrega.
+   * `locked`: o corte da próxima entrega daquele slot já passou (não dá mais p/ pedir nela).
+   *   - manhã (06:30/corte 22:00): fica locked das 22:00 até a entrega 06:30 do dia seguinte.
+   *   - tarde (15:30/corte 10:00): fica locked das 10:00 até a entrega 15:30 do mesmo dia.
+   * `deliveryWhen`: "hoje" | "amanhã" — quando é a próxima entrega desse slot.
    */
   async getCutoffStatusByCondo(condominiumId: string): Promise<{
-    slots: Array<{ name: string; time: string; cutoffTime: string; isPast: boolean }>
+    slots: Array<{ name: string; time: string; cutoffTime: string; locked: boolean; deliveryWhen: string }>
   }> {
     const condo = await this.prisma.condominium.findUnique({
       where: { id: condominiumId },
       select: { deliverySlots: true },
     })
     const now = new Date()
+    const today = brtDateStr(now, 0)
+    const tomorrow = brtDateStr(now, 1)
     const slots = (condo?.deliverySlots ?? [])
       .filter((s) => s.isActive)
-      .map((s) => ({
-        name: s.name,
-        time: s.time,
-        cutoffTime: s.cutoffTime,
-        isPast: isSlotCutoffPast(s.cutoffTime, now),
-      }))
+      .map((s) => {
+        const deliveryStr = nextDeliveryDateStr(s.time, now)
+        const locked = isPastCutoffForDelivery(s.time, s.cutoffTime, deliveryStr, now)
+        const deliveryWhen = deliveryStr === today ? 'hoje' : deliveryStr === tomorrow ? 'amanhã' : deliveryStr
+        return { name: s.name, time: s.time, cutoffTime: s.cutoffTime, locked, deliveryWhen }
+      })
     return { slots }
   }
 

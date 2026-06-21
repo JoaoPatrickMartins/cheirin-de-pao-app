@@ -6,9 +6,18 @@ import { Icon } from '../../components/brand/Icon'
 
 interface CreditTransaction {
   id: string
-  type: 'PURCHASE' | 'CONSUMPTION'
-  quantity: number
+  type: string
+  quantity: number // com sinal: positivo = entrada, negativo = saída
+  description?: string | null
   createdAt: string
+}
+
+// Rótulo amigável por tipo, usado quando a transação não tem `description`
+const TYPE_LABEL: Record<string, string> = {
+  PURCHASE: 'Compra de créditos',
+  DELIVERY: 'Entrega',
+  ADMIN_GRANT: 'Crédito concedido',
+  DELIVERY_DONE: 'Entrega realizada',
 }
 
 export function CreditHistoryScreen() {
@@ -119,87 +128,135 @@ export function CreditHistoryScreen() {
         )}
 
         {!isLoading && !error && transactions.length === 0 && (
-          <p
+          <div
             style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 14,
-              color: 'var(--color-text-ter)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
               textAlign: 'center',
-              marginTop: 40,
+              gap: 10,
+              marginTop: 56,
+              padding: '0 24px',
             }}
           >
-            Nenhuma transação ainda.
-          </p>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                background: 'var(--color-surface-2)',
+                display: 'grid',
+                placeItems: 'center',
+              }}
+            >
+              <Icon name="coin" size={26} color="var(--color-accent)" />
+            </div>
+            <p
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontWeight: 700,
+                fontSize: 17,
+                color: 'var(--color-text)',
+                margin: 0,
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Nada por aqui ainda
+            </p>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 13.5,
+                color: 'var(--color-text-sec)',
+                margin: 0,
+                lineHeight: 1.45,
+              }}
+            >
+              Suas compras e entregas de créditos vão aparecer aqui assim que rolar a primeira. 🥖
+            </p>
+          </div>
         )}
 
         {!isLoading && !error && transactions.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {transactions.map((tx) => (
-              <div
-                key={tx.id}
-                style={{
-                  background: 'var(--color-surface)',
-                  borderRadius: 'var(--radius-card)',
-                  padding: '14px 16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  boxShadow: 'var(--shadow-soft)',
-                }}
-              >
+            {transactions.map((tx) => {
+              const isCredit = tx.quantity >= 0
+              return (
                 <div
+                  key={tx.id}
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
-                    background: tx.type === 'PURCHASE' ? 'var(--color-gold-soft)' : 'var(--color-surface-2)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    flexShrink: 0,
+                    background: 'var(--color-surface)',
+                    borderRadius: 'var(--radius-card)',
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    boxShadow: 'var(--shadow-soft)',
                   }}
                 >
-                  <Icon
-                    name={tx.type === 'PURCHASE' ? 'arrowU' : 'chevD'}
-                    size={18}
-                    color={tx.type === 'PURCHASE' ? 'var(--color-gold)' : 'var(--color-accent)'}
-                    stroke={2.2}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
                   <div
                     style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 14,
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      background: isCredit ? 'var(--color-gold-soft)' : 'var(--color-surface-2)',
+                      display: 'grid',
+                      placeItems: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'grid',
+                        placeItems: 'center',
+                        transform: isCredit ? undefined : 'rotate(180deg)',
+                      }}
+                    >
+                      <Icon
+                        name="arrowU"
+                        size={18}
+                        color={isCredit ? 'var(--color-gold)' : 'var(--color-accent)'}
+                        stroke={2.2}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: 'var(--color-text)',
+                      }}
+                    >
+                      {tx.description || TYPE_LABEL[tx.type] || 'Movimentação'}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 12,
+                        color: 'var(--color-text-ter)',
+                        marginTop: 2,
+                      }}
+                    >
+                      {formatDate(tx.createdAt)}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-display)',
                       fontWeight: 700,
-                      color: 'var(--color-text)',
+                      fontSize: 16,
+                      color: isCredit ? 'var(--color-gold)' : 'var(--color-accent)',
+                      letterSpacing: '-0.02em',
+                      flexShrink: 0,
                     }}
                   >
-                    {tx.type === 'PURCHASE' ? 'Compra de créditos' : 'Entrega'}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 12,
-                      color: 'var(--color-text-ter)',
-                      marginTop: 2,
-                    }}
-                  >
-                    {formatDate(tx.createdAt)}
+                    {`${isCredit ? '+' : '−'}${Math.abs(tx.quantity)}`}
                   </div>
                 </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontWeight: 700,
-                    fontSize: 16,
-                    color: tx.type === 'PURCHASE' ? 'var(--color-gold)' : 'var(--color-accent)',
-                    letterSpacing: '-0.02em',
-                  }}
-                >
-                  {tx.type === 'PURCHASE' ? `+${tx.quantity}` : `-${tx.quantity}`}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

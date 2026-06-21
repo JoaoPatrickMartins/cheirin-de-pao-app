@@ -61,24 +61,19 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
         description: 'Retorna o histórico completo de movimentação de créditos do cliente autenticado. Inclui créditos adicionados por pagamentos aprovados e créditos debitados por pedidos. Ordenado do mais recente para o mais antigo.',
         security: [{ bearerAuth: [] }],
         response: {
+          // O controller retorna um ARRAY de transações (creditTransaction.findMany).
+          // Schema precisa ser 'array' — com 'object' o fast-json-stringify devolvia {} (página em branco).
           200: {
-            type: 'object',
-            description: 'Histórico de créditos com saldo atual.',
-            properties: {
-              balance: { type: 'integer', description: 'Saldo atual de créditos (pãezinhos disponíveis).' },
-              transactions: {
-                type: 'array',
-                description: 'Lista de transações ordenadas do mais recente.',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string', description: 'ID da transação.' },
-                    type: { type: 'string', description: 'Tipo: "credit" (entrada) ou "debit" (saída).' },
-                    amount: { type: 'integer', description: 'Quantidade de créditos movimentados (sempre positivo).' },
-                    description: { type: 'string', description: 'Descrição legível da transação (ex: "Compra Combo 10 Pãezinhos").' },
-                    createdAt: { type: 'string', description: 'Data/hora da transação (ISO 8601).' },
-                  },
-                },
+            type: 'array',
+            description: 'Transações de crédito do cliente, da mais recente para a mais antiga.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID da transação.' },
+                type: { type: 'string', description: 'Tipo: PURCHASE, DELIVERY, ADMIN_GRANT, etc.' },
+                quantity: { type: 'integer', description: 'Quantidade movimentada (positivo = entrada, negativo = saída).' },
+                description: { type: 'string', nullable: true, description: 'Descrição legível, quando disponível.' },
+                createdAt: { type: 'string', description: 'Data/hora da transação (ISO 8601).' },
               },
             },
           },

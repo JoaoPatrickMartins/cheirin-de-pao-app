@@ -60,8 +60,8 @@ export function HomeScreen() {
   // fallbackToNext: quando não há entrega hoje, mostra a próxima entrega futura
   const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const { unreadCount } = useNotif()
-  // Slots cujo corte já passou (ciclo atual encerrado) — por slot do condomínio do cliente
-  const [closedSlots, setClosedSlots] = useState<Array<{ name: string; cutoffTime: string }>>([])
+  // Slots cuja PRÓXIMA entrega já está fechada (corte passou) — por slot do condomínio
+  const [closedSlots, setClosedSlots] = useState<Array<{ name: string; deliveryWhen: string }>>([])
 
   // Mantém o saldo sincronizado com o servidor (refresh de página + troca de aba)
   useCreditBalanceSync()
@@ -91,8 +91,12 @@ export function HomeScreen() {
     // Status de corte por slot do condomínio do cliente (autenticado)
     apiFetch('/settings/cutoff-status')
       .then((res) => (res.ok ? res.json() : { slots: [] }))
-      .then((data: { slots?: Array<{ name: string; cutoffTime: string; isPast: boolean }> }) => {
-        setClosedSlots((data.slots ?? []).filter((s) => s.isPast).map((s) => ({ name: s.name, cutoffTime: s.cutoffTime })))
+      .then((data: { slots?: Array<{ name: string; locked: boolean; deliveryWhen: string }> }) => {
+        setClosedSlots(
+          (data.slots ?? [])
+            .filter((s) => s.locked)
+            .map((s) => ({ name: s.name, deliveryWhen: s.deliveryWhen })),
+        )
       })
       .catch(() => {
         // Falha silenciosa — não exibe banner em caso de erro de rede
@@ -118,34 +122,6 @@ export function HomeScreen() {
         gap: 14,
       }}
     >
-      {/* Banner de corte por slot — exibido para cada slot cujo prazo já encerrou */}
-      {closedSlots.length > 0 && (
-        <div
-          style={{
-            background: 'var(--color-surface-2)',
-            border: '1.5px solid var(--color-accent)',
-            borderRadius: 10,
-            margin: '12px 16px 0',
-            padding: '12px 16px',
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-          }}
-        >
-          <Icon name="clock" size={18} color="var(--color-gold)" />
-          <span
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 13.5,
-              fontWeight: 600,
-              color: 'var(--color-text)',
-            }}
-          >
-            {`Prazo encerrado: ${closedSlots.map((s) => SLOT_LABEL[s.name] ?? s.name).join(' e ')}`}
-          </span>
-        </div>
-      )}
-
       {/* Greeting + Bell */}
       <div
         style={{
@@ -214,6 +190,62 @@ export function HomeScreen() {
           )}
         </button>
       </div>
+
+      {/* Aviso leve de prazo — abaixo do header; a próxima entrega do slot já fechou */}
+      {closedSlots.length > 0 && (
+        <div
+          style={{
+            background: 'var(--color-surface-2)',
+            border: '1.5px solid var(--color-accent)',
+            borderRadius: 12,
+            padding: '12px 14px',
+            display: 'flex',
+            gap: 11,
+            alignItems: 'flex-start',
+          }}
+        >
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 9,
+              background: 'var(--color-surface)',
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+              marginTop: 1,
+            }}
+          >
+            <Icon name="clock" size={17} color="var(--color-gold)" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 14.5,
+                fontWeight: 700,
+                color: 'var(--color-text)',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Eita, foi por pouquin!
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: 'var(--color-text-sec)',
+                lineHeight: 1.4,
+              }}
+            >
+              {`${closedSlots
+                .map((s) => `A ${SLOT_LABEL[s.name] ?? s.name} de ${s.deliveryWhen} já fechou.`)
+                .join(' ')} Os próximos dias seguem tudo certin pra agendar! 🥖`}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Credit Balance Card */}
       <CreditBalanceCard

@@ -397,7 +397,7 @@ export class SchedulesService {
           const notification = new OneSignal.Notification()
           notification.app_id = process.env.ONESIGNAL_APP_ID!
           notification.include_subscription_ids = [user.oneSignalPlayerId]
-          notification.headings = { pt: 'Entrega amanhã 🍞' }
+          notification.headings = { pt: 'Entrega amanhã 🥖' }
           // D-10: incluir horário no texto quando disponível; nunca interpolar null (T-14-03-03)
           const timeStr = order.deliveryTime ? ` às ${order.deliveryTime}` : ''
           notification.contents = { pt: `Lembrete: ${order.quantity} pães${timeStr} amanhã.` }
@@ -416,7 +416,7 @@ export class SchedulesService {
       await this.notificationsService.createAndTrim({
         userId: order.userId,
         type: 'DELIVERY_EVE',
-        title: 'Entrega amanhã 🍞',
+        title: 'Entrega amanhã 🥖',
         body: `Lembrete: ${order.quantity} pães${timeStr} amanhã.`,
         actionRoute: '/client/pedidos',
       })
