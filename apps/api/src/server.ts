@@ -31,6 +31,7 @@ import { clientProfileRoute } from './modules/client-profile/client-profile.rout
 import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
+import { seedDefaultsIfAbsent } from './bootstrap/defaults-seed.js'
 
 const fastify = Fastify({ logger: true })
 
@@ -156,6 +157,9 @@ const start = async () => {
 
     // Bootstrap — seed admin user from env vars if no ADMIN role exists
     await seedAdminIfAbsent(fastify.prisma)
+
+    // Bootstrap — garante defaults (preço avulso, limite e combo padrão) quando o admin não configurou
+    await seedDefaultsIfAbsent(fastify.prisma)
 
     // Authenticate plugin — decorateRequest('user') + fastify.authenticate preHandler decorator
     // IMPORTANT: registered AFTER prismaPlugin (needs fastify.prisma) and BEFORE routes

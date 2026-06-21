@@ -39,12 +39,14 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
       description: 'Retorna o preço unitário do pão avulso e o limite máximo de pãezinhos por pedido avulso. O preço avulso é sempre maior que o preço por unidade de qualquer combo. Configurável pelo admin.',
       security: [{ bearerAuth: [] }],
       response: {
+        // Campos precisam bater com o que o service retorna (avulsoUnit/avulsoLimite),
+        // senão o fast-json-stringify descarta tudo e devolve {} → tela quebra no front.
         200: {
           type: 'object',
           description: 'Configuração de preço avulso.',
           properties: {
-            unitPrice: { type: 'number', description: 'Preço unitário do pão avulso em reais.' },
-            limit: { type: 'integer', description: 'Quantidade máxima de pãezinhos permitida por pedido avulso.' },
+            avulsoUnit: { type: 'number', description: 'Preço unitário do pão avulso em reais.' },
+            avulsoLimite: { type: 'integer', description: 'Quantidade máxima de pãezinhos permitida por pedido avulso.' },
           },
         },
       },

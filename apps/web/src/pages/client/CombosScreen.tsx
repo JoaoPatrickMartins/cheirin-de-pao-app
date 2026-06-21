@@ -21,8 +21,8 @@ interface Pricing {
   avulsoUnit: number
 }
 
-const formatBRL = (val: number) =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const formatBRL = (val: number | undefined | null) =>
+  (val ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export function CombosScreen() {
   const navigate = useNavigate()
