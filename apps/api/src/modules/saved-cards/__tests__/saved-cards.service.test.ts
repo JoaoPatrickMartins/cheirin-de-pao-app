@@ -242,8 +242,30 @@ describe('SavedCardsService [CARD-01, CARD-04, CARD-05, CARD-06]', () => {
 
       expect(mockCustomerCardDelete).toHaveBeenCalledWith({
         customerId: 'mp-cust-1',
-        id: 'mp-card-1',
+        cardId: 'mp-card-1',
       })
+      expect(fastify.prisma.savedCard.delete).toHaveBeenCalledWith({ where: { id: 'card-1', userId } })
+    })
+
+    it('remove o registro local quando o cartão já não existe no MP (404 not_found)', async () => {
+      const fastify = createMockFastify()
+      const service = createService(fastify)
+      const userId = 'user-1'
+      ;(fastify.prisma.savedCard.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: 'card-1',
+        userId,
+        mpCardId: 'mp-card-1',
+      })
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: userId,
+        mpCustomerId: 'mp-cust-1',
+      })
+      // MP responde 404 — cartão órfão; deve seguir e apagar localmente
+      mockCustomerCardDelete.mockRejectedValueOnce({ status: 404, error: 'not_found', message: 'card not found' })
+      ;(fastify.prisma.savedCard.delete as ReturnType<typeof vi.fn>).mockResolvedValueOnce({})
+
+      await service.removeCard('card-1', userId)
+
       expect(fastify.prisma.savedCard.delete).toHaveBeenCalledWith({ where: { id: 'card-1', userId } })
     })
 

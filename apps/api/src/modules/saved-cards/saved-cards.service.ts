@@ -88,10 +88,17 @@ export class SavedCardsService {
         customerId: user.mpCustomerId,
         cardId: card.mpCardId,
       })
-    } catch {
-      // Log sanitizado — nunca expor campos internos da resposta MP em logs externos
-      this.fastify.log.error({ mpCardId: card.mpCardId }, 'MP card removal failed')
-      throw { error: 'Não foi possível remover o cartão no Mercado Pago. Tente novamente.', status: 502 }
+    } catch (err) {
+      // Se o cartão já não existe no MP (404), ele já está removido do lado deles —
+      // seguimos para apagar o registro local em vez de deixar um cartão órfão e
+      // impossível de remover. Lemos apenas o status; nenhum campo interno é exposto.
+      const status = (err as { status?: number } | null)?.status
+      if (status !== 404) {
+        // Log sanitizado — nunca expor campos internos da resposta MP em logs externos
+        this.fastify.log.error({ mpCardId: card.mpCardId }, 'MP card removal failed')
+        throw { error: 'Não foi possível remover o cartão no Mercado Pago. Tente novamente.', status: 502 }
+      }
+      this.fastify.log.warn({ mpCardId: card.mpCardId }, 'MP card already absent (404) — removing local record only')
     }
 
     // WR-04: passa userId para que o repositório inclua no predicado do delete (defesa em profundidade)

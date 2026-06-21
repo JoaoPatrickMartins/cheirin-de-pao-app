@@ -2,7 +2,7 @@
  * apiFetch — centralized fetch wrapper
  *
  * Injects on every request:
- *   - Content-Type: application/json
+ *   - Content-Type: application/json  (only when the request has a body)
  *   - X-Device-Id: localStorage device_id (generated via crypto.randomUUID() on first use)
  *   - Authorization: Bearer <token>  (only when auth_token exists in localStorage)
  *
@@ -42,7 +42,10 @@ export function apiFetch(path: string, options: RequestInit = {}): Promise<Respo
   const token = getAuthToken()
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    // Só declara JSON quando há corpo. Requisições sem body (ex.: DELETE) com
+    // Content-Type: application/json fazem o Fastify rejeitar com 400
+    // FST_ERR_CTP_EMPTY_JSON_BODY antes mesmo de chegar à rota.
+    ...(options.body != null ? { 'Content-Type': 'application/json' } : {}),
     'X-Device-Id': deviceId,
     ...(options.headers as Record<string, string> | undefined),
   }
