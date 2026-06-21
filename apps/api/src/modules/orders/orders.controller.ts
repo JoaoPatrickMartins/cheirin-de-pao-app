@@ -70,6 +70,22 @@ export class OrdersController {
   }
 
   /**
+   * GET /orders/next — retorna a próxima entrega futura (de amanhã em diante).
+   * Fallback do card da Home quando não há entrega hoje. 404 se não houver futura.
+   */
+  async getNextOrder(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const order = await this.service.getNextOrder(userId)
+      if (!order) return reply.status(404).send({ error: 'Nenhuma entrega futura' })
+      return reply.status(200).send(order)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * GET /orders/history?days=30 — retorna histórico dos últimos N dias.
    *
    * T-05-05: userId extraído de request.user.id (JWT) — nunca de query params.

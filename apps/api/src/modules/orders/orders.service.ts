@@ -151,6 +151,23 @@ export class OrdersService {
   }
 
   /**
+   * Retorna a PRÓXIMA entrega futura do usuário (de amanhã em diante), considerando BRT.
+   * Usado como fallback no card da Home quando não há entrega hoje.
+   * Exclui CANCELLED/DELIVERED; ordena por data ascendente (a mais próxima primeiro).
+   */
+  async getNextOrder(userId: string) {
+    const { end } = getTodayRange() // fim do dia BRT de hoje → gt = amanhã em diante
+    return this.prisma.order.findFirst({
+      where: {
+        userId,
+        scheduledDate: { gt: end },
+        status: { in: ['SCHEDULED', 'OUT_FOR_DELIVERY'] },
+      },
+      orderBy: { scheduledDate: 'asc' },
+    })
+  }
+
+  /**
    * Retorna o histórico de pedidos dos últimos N dias para o usuário.
    *
    * T-05-05: userId vem do JWT — preHandler: [fastify.authenticate] na rota.

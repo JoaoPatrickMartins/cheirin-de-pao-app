@@ -41,6 +41,13 @@ function getGreeting(): string {
   return 'Boa noite'
 }
 
+// "Seg 22" a partir da data ISO de uma entrega futura
+function formatDeliveryDay(iso: string): string {
+  const d = new Date(iso)
+  const key = DAY_KEY_MAP[d.getDay()]
+  return `${DAY_ABBR[key]} ${d.getDate()}`
+}
+
 interface QuickAction {
   label: string
   icon: keyof typeof import('../../components/brand/Icon').Ic
@@ -50,7 +57,8 @@ interface QuickAction {
 export function HomeScreen() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { order } = useOrderTracking()
+  // fallbackToNext: quando não há entrega hoje, mostra a próxima entrega futura
+  const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const { unreadCount } = useNotif()
   // Slots cujo corte já passou (ciclo atual encerrado) — por slot do condomínio do cliente
   const [closedSlots, setClosedSlots] = useState<Array<{ name: string; cutoffTime: string }>>([])
@@ -284,11 +292,13 @@ export function HomeScreen() {
                     margin: '0 0 2px',
                   }}
                 >
-                  {order.status === 'SCHEDULED'
-                    ? 'AGENDADO'
-                    : order.status === 'OUT_FOR_DELIVERY'
-                      ? 'SAINDO DO FORNO'
-                      : 'ENTREGUE'}
+                  {!isToday
+                    ? 'PRÓXIMA ENTREGA'
+                    : order.status === 'SCHEDULED'
+                      ? 'AGENDADO'
+                      : order.status === 'OUT_FOR_DELIVERY'
+                        ? 'SAINDO DO FORNO'
+                        : 'ENTREGUE'}
                 </p>
                 <p
                   style={{
@@ -301,7 +311,11 @@ export function HomeScreen() {
                   }}
                 >
                   {order.quantity === 1 ? '1 pãozinho' : `${order.quantity} pãezinhos`}
-                  {order.status === 'SCHEDULED' ? ' · Hoje' : ''}
+                  {isToday
+                    ? order.status === 'SCHEDULED'
+                      ? ' · Hoje'
+                      : ''
+                    : ` · ${formatDeliveryDay(order.scheduledDate)}`}
                 </p>
               </div>
             </div>

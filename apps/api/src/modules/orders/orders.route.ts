@@ -73,6 +73,33 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
   )
 
   fastify.get(
+    '/orders/next',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['orders'],
+        summary: 'Próxima entrega futura',
+        description: 'Retorna a próxima entrega agendada do cliente (de amanhã em diante), a mais próxima primeiro. Usado pelo card da Home quando não há entrega hoje. Retorna 404 se não houver entrega futura.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            description: 'Próxima entrega futura.',
+            properties: {
+              id: { type: 'string', description: 'ID do pedido (MongoDB ObjectId).' },
+              quantity: { type: 'integer', description: 'Quantidade de pãezinhos do pedido.' },
+              status: { type: 'string', description: 'Status: "SCHEDULED" ou "OUT_FOR_DELIVERY".' },
+              scheduledDate: { type: 'string', description: 'Data da próxima entrega (ISO 8601).' },
+              deliveryTime: { type: 'string', description: 'Horário do slot (HH:MM), quando disponível.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getNextOrder.bind(ctrl),
+  )
+
+  fastify.get(
     '/orders/history',
     {
       preHandler: [fastify.authenticate],
