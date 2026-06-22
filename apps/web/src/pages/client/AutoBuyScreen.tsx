@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
+import ComboCard from '../../components/client/ComboCard'
 
 interface Combo {
   id: string
@@ -10,6 +11,8 @@ interface Combo {
   quantity: number
   price: number
   isActive: boolean
+  tag?: string
+  antes?: number
 }
 
 const formatBRL = (val: number) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -219,55 +222,17 @@ export function AutoBuyScreen() {
         {isOn && (
           <div>
             <SectionLabel>QUAL COMBO RECARREGAR?</SectionLabel>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {isLoading && <SkeletonRow />}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {isLoading && [0, 1, 2].map((i) => <SkeletonRow key={i} />)}
               {!isLoading &&
-                combos.map((combo) => {
-                  const active = selectedComboId === combo.id
-                  return (
-                    <button
-                      key={combo.id}
-                      onClick={() => setSelectedComboId(combo.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        width: '100%',
-                        textAlign: 'left',
-                        background: 'var(--color-surface)',
-                        border: active ? '2px solid var(--color-accent)' : '1.5px solid var(--color-border)',
-                        borderRadius: 'var(--radius-card)',
-                        padding: '14px 16px',
-                        cursor: 'pointer',
-                        boxShadow: active ? 'var(--shadow-soft)' : 'none',
-                        transition: 'border 120ms ease',
-                      }}
-                    >
-                      <span style={{ minWidth: 0 }}>
-                        <span
-                          style={{
-                            display: 'block',
-                            fontFamily: 'var(--font-display)',
-                            fontWeight: 600,
-                            fontSize: 15,
-                            color: 'var(--color-text)',
-                          }}
-                        >
-                          {combo.name}
-                        </span>
-                        <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)' }}>
-                          {combo.quantity} pães
-                        </span>
-                      </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--color-accent)' }}>
-                          {formatBRL(combo.price)}
-                        </span>
-                        <Radio on={active} />
-                      </span>
-                    </button>
-                  )
-                })}
+                combos.map((combo) => (
+                  <ComboCard
+                    key={combo.id}
+                    combo={combo}
+                    selected={selectedComboId === combo.id}
+                    onSelect={() => setSelectedComboId(combo.id)}
+                  />
+                ))}
             </div>
           </div>
         )}
@@ -369,22 +334,6 @@ function Toggle({ on, onToggle, disabled }: { on: boolean; onToggle: () => void;
   )
 }
 
-function Radio({ on }: { on: boolean }) {
-  return (
-    <span
-      style={{
-        width: 22,
-        height: 22,
-        borderRadius: '50%',
-        border: on ? '6px solid var(--color-accent)' : '2px solid var(--color-border)',
-        boxSizing: 'border-box',
-        flexShrink: 0,
-        transition: 'border .12s',
-      }}
-    />
-  )
-}
-
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p
@@ -404,6 +353,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function SkeletonRow() {
   return (
-    <div style={{ height: 64, borderRadius: 'var(--radius-card)', background: 'var(--color-surface-2)', opacity: 0.6 }} />
+    <div style={{ height: 90, borderRadius: 22, background: 'var(--color-surface-2)' }} />
   )
 }
