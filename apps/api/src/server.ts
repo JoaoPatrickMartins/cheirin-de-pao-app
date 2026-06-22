@@ -38,12 +38,12 @@ const fastify = Fastify({ logger: true })
 // Environment variable validation schema (registered FIRST before other plugins)
 const envSchema = {
   type: 'object',
-  required: ['DATABASE_URL', 'MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'MP_PUBLIC_KEY'],
+  required: ['DATABASE_URL', 'STRIPE_SECRET_KEY'],
   properties: {
     DATABASE_URL: { type: 'string' },
-    MP_ACCESS_TOKEN: { type: 'string' },
-    MP_WEBHOOK_SECRET: { type: 'string' },
-    MP_PUBLIC_KEY: { type: 'string' },
+    STRIPE_SECRET_KEY: { type: 'string' },
+    STRIPE_PUBLISHABLE_KEY: { type: 'string', default: '' },
+    STRIPE_WEBHOOK_SECRET: { type: 'string', default: '' },
     API_PORT: { type: 'integer', default: 3001 },
     API_HOST: { type: 'string', default: '0.0.0.0' },
     // Phase 2 additions:
@@ -119,9 +119,9 @@ const start = async () => {
           { name: 'health', description: 'Status da API' },
           { name: 'auth', description: 'Autenticação e cadastro' },
           { name: 'condominiums', description: 'Condomínios disponíveis' },
-          { name: 'payments', description: 'Pagamentos Pix e cartão (Mercado Pago)' },
+          { name: 'payments', description: 'Pagamentos Pix e cartão (Stripe)' },
           { name: 'credits', description: 'Saldo e histórico de créditos' },
-          { name: 'webhooks', description: 'Webhooks externos (Mercado Pago)' },
+          { name: 'webhooks', description: 'Webhooks externos (Stripe)' },
           { name: 'schedules', description: 'Agenda semanal recorrente' },
           { name: 'orders', description: 'Pedidos avulsos e rastreamento' },
           { name: 'notifications', description: 'Notificações push e in-app' },

@@ -190,7 +190,7 @@ export function CardsScreen() {
           >
             <AddCardForm
               submitLabel="Salvar cartão"
-              note="Dados do cartão protegidos pelo Mercado Pago. Nenhuma cobrança é feita ao salvar."
+              note="Cartão protegido pelo Stripe. Nenhuma cobrança é feita ao salvar — apenas para suas próximas compras serem em 1 toque, sem CVV."
               onSubmit={handleAddCard}
             />
           </div>

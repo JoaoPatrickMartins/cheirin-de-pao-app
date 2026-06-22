@@ -1,35 +1,26 @@
 import { FastifyInstance } from 'fastify'
-import { MercadoPagoConfig, PaymentRefund } from 'mercadopago'
 import { AdminPaymentsRepository } from './admin-payments.repository.js'
+import { StripeService } from '../payments/stripe.service.js'
 
 /**
- * AdminPaymentsService — lista de pagamentos e estorno via Mercado Pago.
+ * AdminPaymentsService — lista de pagamentos e estorno via Stripe.
  *
  * PAY-03: lista de pagamentos com status
- * PAY-04: estorno via PaymentRefund.total() + $transaction atomica
+ * PAY-04: estorno (refund total do PaymentIntent) + $transaction atomica
  *
  * Segurança:
  * - T-07-05-01: role check ADMIN no controller
- * - T-07-05-02: verificar status=PAID antes de chamar MP; $transaction atomica
- * - T-07-05-03: findUnique com 404 antes de chamar MP
+ * - T-07-05-02: verificar status=PAID antes de estornar; $transaction atomica
+ * - T-07-05-03: findUnique com 404 antes de chamar o Stripe
  * - T-07-05-06: creditsToDebit calculado no server (D-04, D-05)
- *
- * CRITICO: usar PaymentRefund (NAO Payment) com metodo .total()
- * Pitfall 2 de 07-RESEARCH.md.
  */
 export class AdminPaymentsService {
   private repo: AdminPaymentsRepository
-  private mpClient: MercadoPagoConfig
-  private refundApi: PaymentRefund
+  private stripe: StripeService
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new AdminPaymentsRepository(fastify)
-    this.mpClient = new MercadoPagoConfig({
-      accessToken: process.env.MP_ACCESS_TOKEN!,
-      options: { timeout: 5000 },
-    })
-    // CRITICO: PaymentRefund, NAO Payment (Pitfall 2)
-    this.refundApi = new PaymentRefund(this.mpClient)
+    this.stripe = new StripeService(fastify)
   }
 
   private get prisma() {
@@ -76,13 +67,13 @@ export class AdminPaymentsService {
   }
 
   /**
-   * refund — processa estorno do pagamento via Mercado Pago + $transaction atomica.
+   * refund — processa estorno do pagamento via Stripe + $transaction atomica.
    *
-   * Fluxo (6 passos do PLAN.md):
+   * Fluxo:
    * 1. Buscar Payment por id, 404 se não existir (T-07-05-03)
    * 2. Verificar status === 'PAID' — 400 se diferente (T-07-05-02)
-   * 3. Verificar mercadoPagoId não nulo — 400 se nulo (T-07-05-03)
-   * 4. Chamar refundApi.total({ payment_id })
+   * 3. Verificar stripePaymentIntentId não nulo — 400 se nulo (T-07-05-03)
+   * 4. Chamar stripe.refund(paymentIntentId) (estorno TOTAL)
    * 5. Calcular creditsToDebit = Math.min(paesQty, user.creditBalance) (D-05)
    * 6. $transaction: update Payment + create CreditTransaction + user.decrement (T-07-05-02)
    */
@@ -101,13 +92,13 @@ export class AdminPaymentsService {
       }
     }
 
-    // 3. Verificar mercadoPagoId não nulo (T-07-05-03)
-    if (!payment.mercadoPagoId) {
-      throw { statusCode: 400, message: 'Pagamento sem ID do Mercado Pago — não pode ser estornado' }
+    // 3. Verificar stripePaymentIntentId não nulo (T-07-05-03)
+    if (!payment.stripePaymentIntentId) {
+      throw { statusCode: 400, message: 'Pagamento sem ID do Stripe — não pode ser estornado' }
     }
 
-    // 4. Chamar MP PaymentRefund.total() (PAY-04, D-04: estorno TOTAL)
-    await this.refundApi.total({ payment_id: payment.mercadoPagoId })
+    // 4. Estorno TOTAL no Stripe (PAY-04, D-04)
+    await this.stripe.refund(payment.stripePaymentIntentId)
 
     // 5. Calcular creditsToDebit (D-05: debitar apenas créditos disponíveis)
     const userId = payment.userId

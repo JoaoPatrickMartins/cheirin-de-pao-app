@@ -16,7 +16,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/bricolage-grotesque": "5.2.10",
     "@fontsource/hanken-grotesk": "5.2.8",
-    "@mercadopago/sdk-react": "^1.0.7",
     "@stripe/react-stripe-js": "^6.6.0",
     "@stripe/stripe-js": "^9.8.0",
     "leaflet": "^1.9.4",

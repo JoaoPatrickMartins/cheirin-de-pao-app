@@ -124,34 +124,6 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.updateAutoRecharge.bind(ctrl),
   )
-
-  fastify.put(
-    '/users/me/card-token',
-    {
-      preHandler: [fastify.authenticate],
-      schema: {
-        tags: ['credits'],
-        summary: 'Salvar token de cartão',
-        description: 'Salva o token de cartão do cliente para uso em recargas automáticas futuras. O token deve ser gerado pelo Mercado Pago Bricks — nunca dados brutos do cartão. O token é armazenado de forma segura e usado apenas em cobranças automáticas autorizadas.',
-        security: [{ bearerAuth: [] }],
-        body: {
-          type: 'object',
-          required: ['token'],
-          properties: {
-            token: { type: 'string', description: 'Token de cartão gerado pelo Mercado Pago Bricks. Representa o cartão salvo para cobranças recorrentes.' },
-          },
-        },
-        response: {
-          200: {
-            type: 'object',
-            description: 'Token salvo com sucesso.',
-            properties: {
-              message: { type: 'string', description: 'Confirmação de salvamento do token.' },
-            },
-          },
-        },
-      },
-    },
-    ctrl.updateCardToken.bind(ctrl),
-  )
+  // (Removido) PUT /users/me/card-token — endpoint legado do MVP MP (token de cartão).
+  // A recarga automática agora usa o cartão padrão salvo (Stripe), sem token armazenado.
 }

@@ -84,7 +84,7 @@ export class AdminPaymentsController {
   /**
    * POST /admin/payments/:id/refund
    *
-   * Estorna um pagamento via Mercado Pago + debita créditos.
+   * Estorna um pagamento via Stripe + debita créditos.
    * Apenas ADMIN pode acessar (T-07-05-01).
    * Erro da API MP capturado separadamente → 502 (não 500).
    */
@@ -115,11 +115,11 @@ export class AdminPaymentsController {
       if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
 
-      // Erro da API do Mercado Pago — 502 (não erro interno nosso)
+      // Erro da API do Stripe — 502 (não erro interno nosso)
       if (e.isMpError) {
-        this.fastify.log.error({ err }, '[refund] erro na API do Mercado Pago')
+        this.fastify.log.error({ err }, '[refund] erro na API do Stripe')
         return reply.status(502).send({
-          error: 'Erro ao processar estorno no Mercado Pago. Tente novamente.',
+          error: 'Erro ao processar estorno no Stripe. Tente novamente.',
         })
       }
 

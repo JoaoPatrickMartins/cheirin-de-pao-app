@@ -10,6 +10,7 @@ interface CardState {
   comboId?: string
   customQuantity?: number
   amount: number
+  quantity?: number
 }
 
 export function CardPaymentScreen() {
@@ -53,7 +54,8 @@ export function CardPaymentScreen() {
   }, [])
 
   const hasSavedCards = savedCards.length > 0
-  const goToSuccess = () => navigate('/client/creditos/sucesso', { state: { quantity: customQuantity ?? 1 } })
+  const goToSuccess = () =>
+    navigate('/client/creditos/sucesso', { state: { quantity: state.quantity ?? customQuantity ?? 1 } })
 
   // Cobra um cartão salvo SEM CVV (off_session / 1 toque)
   const payWithSavedCard = async (savedCardId: string): Promise<string | null> => {

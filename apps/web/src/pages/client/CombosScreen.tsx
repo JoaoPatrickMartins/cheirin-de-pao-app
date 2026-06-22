@@ -73,12 +73,11 @@ export function CombosScreen() {
     setError(null)
     try {
       if (paymentMethod === 'card') {
-        const amount =
-          tab === 'combos' && selectedCombo
-            ? selectedCombo.price
-            : (pricing?.avulsoUnit ?? 0) * customQty
+        const isCombo = tab === 'combos' && selectedCombo
+        const amount = isCombo ? selectedCombo.price : (pricing?.avulsoUnit ?? 0) * customQty
+        const quantity = isCombo ? selectedCombo.quantity : customQty
         navigate('/client/creditos/cartao', {
-          state: { comboId: selectedCombo?.id, customQuantity: customQty, amount },
+          state: { comboId: selectedCombo?.id, customQuantity: isCombo ? undefined : customQty, amount, quantity },
         })
         return
       }

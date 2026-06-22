@@ -11,7 +11,7 @@ function zodMessage(err: ZodError): string {
 
 /**
  * Guard idêntico ao de payments.controller.ts — distingue erros de negócio
- * (nossos, com { error, status }) de erros do SDK do Mercado Pago.
+ * (nossos, com { error, status }) de erros do SDK do Stripe.
  * Nunca vaza detalhes internos do MP ao cliente.
  */
 function isBusinessError(err: unknown): err is { error: string; status: number } {
