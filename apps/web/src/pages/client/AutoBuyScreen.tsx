@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../../components/brand/Icon'
+import { BreadMark } from '../../components/brand/BreadMark'
 
 interface Combo {
   id: string
@@ -134,39 +135,72 @@ export function AutoBuyScreen() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px 120px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {/* Card mestre — liga/desliga + resumo */}
+        {/* Card mestre — identidade espresso (igual ao card de créditos da Home) */}
         <div
           style={{
-            background: isOn
-              ? 'linear-gradient(135deg, var(--color-accent) 0%, var(--color-espresso) 100%)'
-              : 'var(--color-surface)',
             borderRadius: 'var(--radius-card)',
-            padding: 20,
+            overflow: 'hidden',
             boxShadow: 'var(--shadow-soft)',
-            border: isOn ? 'none' : '1px solid var(--color-border-2)',
-            transition: 'background 200ms ease',
+            background: 'linear-gradient(135deg, #1E1207, #2E1D0D)',
+            position: 'relative',
+            padding: '22px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          {/* Watermark do pão */}
+          <div style={{ position: 'absolute', bottom: -54, right: -34, opacity: 0.1, pointerEvents: 'none' }}>
+            <BreadMark size={200} color="#E3AC3F" />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, position: 'relative' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p
                 style={{
-                  fontFamily: 'var(--font-display)',
-                  fontWeight: 700,
-                  fontSize: 17,
-                  margin: '0 0 4px',
-                  color: isOn ? '#fff' : 'var(--color-text)',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: '#C7B595',
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  margin: '0 0 7px',
                 }}
               >
-                {isOn ? 'Recarga automática ativada' : 'Recarga automática'}
+                Recarga automática
               </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '0 0 9px' }}>
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: '50%',
+                    background: isOn ? '#E3AC3F' : 'rgba(255,255,255,0.28)',
+                    boxShadow: isOn ? '0 0 0 4px rgba(227,172,63,0.18)' : 'none',
+                    flexShrink: 0,
+                    transition: 'background .2s, box-shadow .2s',
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 800,
+                    fontSize: 24,
+                    color: '#FAF5EC',
+                    lineHeight: 1,
+                    letterSpacing: '-0.02em',
+                  }}
+                >
+                  {isOn ? 'Ativada' : 'Desativada'}
+                </span>
+              </div>
+
               <p
                 style={{
                   fontFamily: 'var(--font-body)',
-                  fontSize: 13,
-                  lineHeight: 1.45,
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
                   margin: 0,
-                  color: isOn ? 'rgba(255,255,255,0.9)' : 'var(--color-text-sec)',
+                  color: '#9A876B',
+                  maxWidth: '94%',
                 }}
               >
                 Quando o saldo não cobrir uma entrega agendada, recarregamos sozinho no seu
@@ -310,7 +344,7 @@ function Toggle({ on, onToggle, disabled }: { on: boolean; onToggle: () => void;
         position: 'relative',
         flexShrink: 0,
         cursor: disabled ? 'default' : 'pointer',
-        background: on ? 'rgba(255,255,255,0.35)' : 'var(--color-border)',
+        background: on ? '#E3AC3F' : 'rgba(255,255,255,0.22)',
         transition: 'background .2s',
       }}
     >
@@ -323,7 +357,7 @@ function Toggle({ on, onToggle, disabled }: { on: boolean; onToggle: () => void;
           height: 24,
           borderRadius: '50%',
           background: '#fff',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
           transition: 'left .2s',
         }}
       />
