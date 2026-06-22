@@ -202,10 +202,6 @@ export function CombosScreen() {
           </p>
         )}
 
-        <div style={{ margin: '4px 0 16px' }}>
-          <AutoRechargeBanner />
-        </div>
-
         {isLoading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[0, 1, 2].map((i) => (
@@ -350,6 +346,11 @@ export function CombosScreen() {
             </div>
           </div>
         )}
+
+        {/* Compra automática — rodapé (read-only; configura no menu) */}
+        <div style={{ marginTop: 18 }}>
+          <AutoRechargeBanner />
+        </div>
       </div>
 
       {/* Fixed CTA bar above tab bar */}

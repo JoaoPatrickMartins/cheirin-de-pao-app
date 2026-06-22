@@ -215,11 +215,6 @@ export function ScheduleScreen() {
           paddingBottom: 90,
         }}
       >
-        {/* Compra automática — destaque (read-only; configura no menu) */}
-        <div style={{ marginBottom: 16 }}>
-          <AutoRechargeBanner variant="hero" />
-        </div>
-
         {/* Subtexto introdutório — condicional por modo */}
         <p
           style={{
@@ -455,6 +450,11 @@ export function ScheduleScreen() {
             )}
           </>
         )}
+
+        {/* Compra automática — destaque (acima do reconfigurar; read-only, configura no menu) */}
+        <div style={{ marginTop: 16 }}>
+          <AutoRechargeBanner />
+        </div>
 
         {/* Lembrete de reconfigurar — secundário (menos peso visual) */}
         <div
