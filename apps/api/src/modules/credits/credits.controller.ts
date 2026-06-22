@@ -60,7 +60,9 @@ export class CreditsController {
     try {
       await this.fastify.prisma.user.update({
         where: { id: request.user!.id },
-        data: { autoRecharge: body },
+        // Ativar a recarga é um ato de consentimento (a tela informa isso) → registra
+        // offSessionConsentAt, exigido por chargeAutoRecharge para cobrar sem CVV.
+        data: { autoRecharge: body, ...(body.active ? { offSessionConsentAt: new Date() } : {}) },
       })
       return reply.status(200).send({ ok: true })
     } catch (err) {
