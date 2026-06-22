@@ -62,6 +62,7 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
               quantity: { type: 'integer', description: 'Quantidade de pãezinhos do pedido.' },
               status: { type: 'string', description: 'Status atual: "SCHEDULED" (programado), "OUT_FOR_DELIVERY" (a caminho), "DELIVERED" (entregue).' },
               scheduledDate: { type: 'string', description: 'Data do pedido (hoje).' },
+              deliveryTime: { type: 'string', description: 'Horário do slot (HH:MM), quando disponível.' },
               courierName: { type: 'string', description: 'Nome do entregador atribuído (quando disponível).' },
               deliveredAt: { type: 'string', description: 'Hora de entrega confirmada pelo entregador (ISO 8601), quando disponível.' },
             },

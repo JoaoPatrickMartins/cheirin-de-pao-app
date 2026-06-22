@@ -13,6 +13,16 @@ interface HistoryOrder {
   type: 'SCHEDULED' | 'SINGLE'
 }
 
+interface CondoSlot {
+  name: string
+  time: string
+  cutoffTime: string
+  isActive: boolean
+}
+
+// Rótulos amigáveis dos slots do condomínio (mesmo padrão da Home)
+const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
+
 const STATUSES = ['SCHEDULED', 'OUT_FOR_DELIVERY', 'DELIVERED'] as const
 
 type StepKey = typeof STATUSES[number]
@@ -132,7 +142,21 @@ function StatusPill({ status }: { status: string }) {
   return <Pill tone="neutral">Agendado</Pill>
 }
 
-function HeroCard({ order }: { order: TodayOrder }) {
+function HeroCard({
+  order,
+  isToday,
+  slotLabel,
+}: {
+  order: TodayOrder
+  isToday: boolean
+  slotLabel?: string
+}) {
+  // Linha de slot + horário previsto. Pedidos avulsos não gravam deliveryTime,
+  // então caímos numa copy neutra de acordo com a origem (hoje vs. próxima).
+  const slotTime = [slotLabel, order.deliveryTime ? `previsto ${order.deliveryTime}` : null]
+    .filter(Boolean)
+    .join(' · ')
+  const subtitle = slotTime || (isToday ? 'Entrega no seu condomínio' : 'Sua próxima entrega')
   return (
     <div
       style={{
@@ -189,7 +213,7 @@ function HeroCard({ order }: { order: TodayOrder }) {
           margin: '4px 0 0',
         }}
       >
-        Entrega no seu condomínio
+        {subtitle}
       </p>
     </div>
   )
@@ -297,9 +321,20 @@ function Timeline({ order }: { order: TodayOrder }) {
 
 export function TrackingScreen() {
   const navigate = useNavigate()
-  const { order } = useOrderTracking()
+  // fallbackToNext: mostra a próxima entrega agendada mesmo antes da meia-noite
+  // (mesmo comportamento do card da Home).
+  const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const [history, setHistory] = useState<HistoryOrder[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [slots, setSlots] = useState<CondoSlot[]>([])
+
+  useEffect(() => {
+    // Slots do condomínio para resolver o nome real (manhã/tarde) pelo deliveryTime
+    apiFetch('/client/condominium/slots')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: CondoSlot[]) => setSlots(Array.isArray(data) ? data : []))
+      .catch(() => setSlots([]))
+  }, [])
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -318,6 +353,11 @@ export function TrackingScreen() {
   }, [])
 
   const visibleHistory = history.filter((o) => o.status !== 'CANCELLED')
+
+  // Nome do slot (manhã/tarde) cruzando o horário do pedido com os slots do condomínio
+  const slotLabel = order?.deliveryTime
+    ? SLOT_LABEL[slots.find((s) => s.time === order.deliveryTime)?.name ?? '']
+    : undefined
 
   return (
     <div
@@ -367,11 +407,11 @@ export function TrackingScreen() {
       </div>
 
       <div style={{ padding: '0 20px 24px' }}>
-        {order && <HeroCard order={order} />}
+        {order && <HeroCard order={order} isToday={isToday} slotLabel={slotLabel} />}
         {order && <Timeline order={order} />}
 
-        {/* Card do entregador — placeholder estático (Fase 6) */}
-        {order && (
+        {/* Card do entregador — só quando a entrega já saiu (sem telefone, Fase 6) */}
+        {order && order.status === 'OUT_FOR_DELIVERY' && (
           <div
             style={{
               display: 'flex',
@@ -420,23 +460,6 @@ export function TrackingScreen() {
                 A definir
               </p>
             </div>
-            <button
-              aria-label="Ligar para o entregador"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                background: 'var(--color-gold-soft)',
-                border: 'none',
-                display: 'grid',
-                placeItems: 'center',
-                cursor: 'pointer',
-                flexShrink: 0,
-                padding: 2,
-              }}
-            >
-              <Icon name="phone" size={19} color="var(--color-accent)" />
-            </button>
           </div>
         )}
 
