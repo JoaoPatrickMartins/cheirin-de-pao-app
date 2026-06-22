@@ -7,13 +7,15 @@ interface ProfileMenuRowProps {
   description?: string
   onClick: () => void
   danger?: boolean
+  /** Pílula de status à direita (ex.: "Ativada"). */
+  badge?: string
 }
 
 /**
  * Linha de menu do hub de Perfil — ícone + label (+ descrição opcional) + chevron.
  * Variante `danger` (vermelho, sem chevron) usada para ações como "Sair".
  */
-export function ProfileMenuRow({ icon, label, description, onClick, danger = false }: ProfileMenuRowProps) {
+export function ProfileMenuRow({ icon, label, description, onClick, danger = false, badge }: ProfileMenuRowProps) {
   const color = danger ? '#C0392B' : 'var(--color-text)'
   return (
     <button
@@ -72,6 +74,22 @@ export function ProfileMenuRow({ icon, label, description, onClick, danger = fal
           </p>
         )}
       </div>
+      {badge && (
+        <span
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 11.5,
+            fontWeight: 700,
+            color: 'var(--color-good)',
+            background: 'var(--color-good-soft)',
+            borderRadius: 999,
+            padding: '3px 9px',
+            flexShrink: 0,
+          }}
+        >
+          {badge}
+        </span>
+      )}
       {!danger && <Icon name="chevR" size={20} color="var(--color-text-ter)" />}
     </button>
   )

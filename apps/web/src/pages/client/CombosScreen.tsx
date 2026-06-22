@@ -5,6 +5,7 @@ import { apiFetch } from '../../lib/apiFetch'
 import ComboCard from '../../components/client/ComboCard'
 import QuantityStepper from '../../components/client/QuantityStepper'
 import BannerInsuficiente from '../../components/client/BannerInsuficiente'
+import { AutoRechargeBanner } from '../../components/client/AutoRechargeBanner'
 
 interface Combo {
   id: string
@@ -200,6 +201,10 @@ export function CombosScreen() {
             {error}
           </p>
         )}
+
+        <div style={{ margin: '4px 0 16px' }}>
+          <AutoRechargeBanner />
+        </div>
 
         {isLoading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

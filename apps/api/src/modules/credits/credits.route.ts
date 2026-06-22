@@ -85,6 +85,32 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.getCreditHistory.bind(ctrl),
   )
 
+  fastify.get(
+    '/users/me/auto-recharge',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['credits'],
+        summary: 'Status da recarga automática',
+        description: 'Retorna o estado atual da recarga automática (ativa/inativa + combo), para badges de status e pré-preenchimento da tela de configuração.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              active: { type: 'boolean' },
+              comboId: { type: 'string', nullable: true },
+              comboName: { type: 'string', nullable: true },
+              comboQuantity: { type: 'integer', nullable: true },
+              price: { type: 'number', nullable: true },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getAutoRecharge.bind(ctrl),
+  )
+
   fastify.put(
     '/users/me/auto-recharge',
     {
@@ -92,7 +118,7 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['credits'],
         summary: 'Configurar recarga automática',
-        description: 'Configura a recarga automática de créditos do cliente. Mode "acabar" dispara recarga quando o saldo chega a zero. Mode "semanal" dispara toda semana no weekday configurado. Requer que o cliente tenha um card-token salvo para cobranças automáticas.',
+        description: 'Liga/desliga e configura a recarga automática (campo active + comboId). A recarga é cobrada sem CVV no cartão padrão, no corte da agenda, quando o saldo não cobre a entrega.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',

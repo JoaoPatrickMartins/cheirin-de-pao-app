@@ -69,6 +69,31 @@ export class CreditsController {
     }
   }
 
+  // GET /users/me/auto-recharge — status atual (para badges e pré-preenchimento da tela)
+  async getAutoRecharge(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const user = await this.fastify.prisma.user.findUnique({
+        where: { id: request.user!.id },
+        select: { autoRecharge: true },
+      })
+      const ar = (user?.autoRecharge ?? null) as { active?: boolean; comboId?: string } | null
+      let combo = null
+      if (ar?.comboId) {
+        combo = await this.fastify.prisma.combo.findUnique({ where: { id: ar.comboId } })
+      }
+      return reply.status(200).send({
+        active: !!ar?.active,
+        comboId: ar?.comboId ?? null,
+        comboName: combo?.name ?? null,
+        comboQuantity: combo?.quantity ?? null,
+        price: combo?.price ?? null,
+      })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
   async updateCardToken(request: FastifyRequest, reply: FastifyReply) {
     let body: ReturnType<typeof CardTokenSchema.parse>
     try {

@@ -1,11 +1,19 @@
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
+import { useAutoRecharge } from '../../hooks/useAutoRecharge'
 import { ProfileAvatar } from '../../components/client/ProfileAvatar'
 import { ProfileMenuRow } from '../../components/client/ProfileMenuRow'
 
 export function SettingsScreen() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { status: autoRecharge } = useAutoRecharge()
+
+  const autoRechargeDesc = autoRecharge
+    ? autoRecharge.active
+      ? `Ativada${autoRecharge.comboName ? ` · ${autoRecharge.comboName}` : ''}`
+      : 'Desativada'
+    : 'Recarregue sozinho quando faltar saldo'
 
   return (
     <div
@@ -107,6 +115,14 @@ export function SettingsScreen() {
             label="Meus cartões"
             description="Cartões salvos para suas compras"
             onClick={() => navigate('/client/perfil/cartoes')}
+          />
+          <div style={{ height: 1, background: 'var(--color-border-2)', margin: '0 4px' }} />
+          <ProfileMenuRow
+            icon="repeat"
+            label="Compra automática"
+            description={autoRechargeDesc}
+            badge={autoRecharge?.active ? 'Ativada' : undefined}
+            onClick={() => navigate('/client/creditos/recorrente')}
           />
         </div>
 

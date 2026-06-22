@@ -16,6 +16,7 @@ import { Icon } from '../../components/brand/Icon'
 import StepperInline from '../../components/client/StepperInline'
 import DeliveryTimeChips, { DeliverySlot } from '../../components/client/DeliveryTimeChips'
 import BannerCobertura from '../../components/client/BannerCobertura'
+import { AutoRechargeBanner } from '../../components/client/AutoRechargeBanner'
 import { apiFetch } from '../../lib/apiFetch'
 
 // Dados dos 7 dias da semana
@@ -214,6 +215,11 @@ export function ScheduleScreen() {
           paddingBottom: 90,
         }}
       >
+        {/* Compra automática — destaque (read-only; configura no menu) */}
+        <div style={{ marginBottom: 16 }}>
+          <AutoRechargeBanner variant="hero" />
+        </div>
+
         {/* Subtexto introdutório — condicional por modo */}
         <p
           style={{
@@ -450,43 +456,29 @@ export function ScheduleScreen() {
           </>
         )}
 
-        {/* Card "Lembrar de reconfigurar" */}
+        {/* Lembrete de reconfigurar — secundário (menos peso visual) */}
         <div
           style={{
-            background: 'var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
+            background: 'transparent',
+            borderRadius: 14,
             border: '1px solid var(--color-border-2)',
-            padding: 16,
+            padding: '10px 14px',
             marginTop: 16,
             display: 'flex',
             alignItems: 'center',
-            gap: 13,
+            gap: 11,
           }}
         >
-          {/* Ícone container */}
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 12,
-              background: 'var(--color-surface-2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <Icon name="repeat" size={20} color="var(--color-accent)" />
-          </div>
+          <Icon name="bell" size={16} color="var(--color-text-ter)" />
 
           {/* Textos */}
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <p
               style={{
                 fontFamily: 'var(--font-body)',
-                fontWeight: 700,
-                fontSize: 14.5,
-                color: 'var(--color-text)',
+                fontWeight: 600,
+                fontSize: 13,
+                color: 'var(--color-text-sec)',
                 margin: 0,
               }}
             >
@@ -495,22 +487,22 @@ export function ScheduleScreen() {
             <p
               style={{
                 fontFamily: 'var(--font-body)',
-                fontSize: 12,
+                fontSize: 11.5,
                 color: 'var(--color-text-ter)',
-                margin: '2px 0 0 0',
+                margin: '1px 0 0 0',
               }}
             >
               Aviso no domingo à noite p/ ajustar a semana
             </p>
           </div>
 
-          {/* Switch toggle */}
+          {/* Switch toggle (menor) */}
           <button
             onClick={() => setNotifyReconfigure(!notifyReconfigure)}
             aria-label={notifyReconfigure ? 'desativar lembrete' : 'ativar lembrete'}
             style={{
-              width: 48,
-              height: 28,
+              width: 42,
+              height: 24,
               borderRadius: 999,
               border: 'none',
               background: notifyReconfigure ? 'var(--color-gold)' : 'var(--color-border)',
@@ -525,9 +517,9 @@ export function ScheduleScreen() {
               style={{
                 position: 'absolute',
                 top: 3,
-                left: notifyReconfigure ? 23 : 3,
-                width: 22,
-                height: 22,
+                left: notifyReconfigure ? 21 : 3,
+                width: 18,
+                height: 18,
                 borderRadius: '50%',
                 background: notifyReconfigure ? 'var(--color-espresso)' : 'var(--color-surface)',
                 transition: 'left .2s',
