@@ -31,18 +31,19 @@ import { clientProfileRoute } from './modules/client-profile/client-profile.rout
 import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
+import { seedDefaultsIfAbsent } from './bootstrap/defaults-seed.js'
 
 const fastify = Fastify({ logger: true })
 
 // Environment variable validation schema (registered FIRST before other plugins)
 const envSchema = {
   type: 'object',
-  required: ['DATABASE_URL', 'MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'MP_PUBLIC_KEY'],
+  required: ['DATABASE_URL', 'STRIPE_SECRET_KEY'],
   properties: {
     DATABASE_URL: { type: 'string' },
-    MP_ACCESS_TOKEN: { type: 'string' },
-    MP_WEBHOOK_SECRET: { type: 'string' },
-    MP_PUBLIC_KEY: { type: 'string' },
+    STRIPE_SECRET_KEY: { type: 'string' },
+    STRIPE_PUBLISHABLE_KEY: { type: 'string', default: '' },
+    STRIPE_WEBHOOK_SECRET: { type: 'string', default: '' },
     API_PORT: { type: 'integer', default: 3001 },
     API_HOST: { type: 'string', default: '0.0.0.0' },
     // Phase 2 additions:
@@ -76,6 +77,9 @@ const start = async () => {
     // Em produção: CORS_ORIGIN=https://app.cheirindepao.com.br
     await fastify.register(cors, {
       origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+      // @fastify/cors v11 usa default 'GET,HEAD,POST' (CORS-safelisted) e bloqueia
+      // PUT/PATCH/DELETE no preflight — precisamos declarar os métodos explicitamente
+      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     })
 
     // OpenAPI / Swagger — registrar ANTES das rotas
@@ -115,9 +119,9 @@ const start = async () => {
           { name: 'health', description: 'Status da API' },
           { name: 'auth', description: 'Autenticação e cadastro' },
           { name: 'condominiums', description: 'Condomínios disponíveis' },
-          { name: 'payments', description: 'Pagamentos Pix e cartão (Mercado Pago)' },
+          { name: 'payments', description: 'Pagamentos Pix e cartão (Stripe)' },
           { name: 'credits', description: 'Saldo e histórico de créditos' },
-          { name: 'webhooks', description: 'Webhooks externos (Mercado Pago)' },
+          { name: 'webhooks', description: 'Webhooks externos (Stripe)' },
           { name: 'schedules', description: 'Agenda semanal recorrente' },
           { name: 'orders', description: 'Pedidos avulsos e rastreamento' },
           { name: 'notifications', description: 'Notificações push e in-app' },
@@ -153,6 +157,9 @@ const start = async () => {
 
     // Bootstrap — seed admin user from env vars if no ADMIN role exists
     await seedAdminIfAbsent(fastify.prisma)
+
+    // Bootstrap — garante defaults (preço avulso, limite e combo padrão) quando o admin não configurou
+    await seedDefaultsIfAbsent(fastify.prisma)
 
     // Authenticate plugin — decorateRequest('user') + fastify.authenticate preHandler decorator
     // IMPORTANT: registered AFTER prismaPlugin (needs fastify.prisma) and BEFORE routes

@@ -387,56 +387,19 @@ describe('SchedulesService', () => {
     })
   })
 
-  describe('processAutoBuy [CRED-08/10]', () => {
-    beforeEach(() => {
-      vi.clearAllMocks()
-      vi.useRealTimers()
-    })
+  describe('processAutoBuy (descontinuado — recarga agora é no corte)', () => {
+    beforeEach(() => vi.clearAllMocks())
 
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('CRED-08 — weekday respeitado: NÃO compra quando autoRecharge.weekday não coincide com o dia atual', async () => {
-      // 2024-01-09T15:00:00Z = terça-feira 12:00 BRT (America/Sao_Paulo = UTC-3)
-      vi.useFakeTimers()
-      vi.setSystemTime(new Date('2024-01-09T15:00:00Z'))
-
+    it('é no-op: não envia push nem dispara cobrança', async () => {
       const user: UserShape = {
-        id: 'user-cred08',
-        creditBalance: 2,
-        condominiumId: 'condo-1',
-        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' }, // seg ≠ ter
-        oneSignalPlayerId: 'player-cred08',
-      }
-
-      const fastify = createMockFastify({ users: { 'user-cred08': user } })
-      ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
-
-      const createNotificationSpy = vi.fn().mockResolvedValue({})
-      vi.mocked(OneSignalModule.DefaultApi).mockImplementation(function () {
-        return { createNotification: createNotificationSpy }
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.processAutoBuy()
-
-      // Weekday não coincide (seg vs ter) — não deve enviar push de compra automática
-      expect(createNotificationSpy).not.toHaveBeenCalled()
-    })
-
-    it('CRED-10 — modo semanal verificado: NÃO compra quando autoRecharge.mode !== "semanal"', async () => {
-      // mode='mensal' não é tratado em processAutoBuy (apenas 'acabar' e 'semanal')
-      // shouldBuy permanece false → nenhuma ação de compra
-      const user: UserShape = {
-        id: 'user-cred10-mode',
+        id: 'user-noop',
         creditBalance: 0,
         condominiumId: 'condo-1',
-        autoRecharge: { active: true, mode: 'mensal', weekday: 'seg', comboId: 'combo-1' },
-        oneSignalPlayerId: 'player-cred10-mode',
+        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' },
+        oneSignalPlayerId: 'player-noop',
       }
 
-      const fastify = createMockFastify({ users: { 'user-cred10-mode': user } })
+      const fastify = createMockFastify({ users: { 'user-noop': user } })
       ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
 
       const createNotificationSpy = vi.fn().mockResolvedValue({})
@@ -447,41 +410,7 @@ describe('SchedulesService', () => {
       const service = new SchedulesService(fastify)
       await service.processAutoBuy()
 
-      // mode='mensal' → shouldBuy=false → nenhum push enviado
       expect(createNotificationSpy).not.toHaveBeenCalled()
-    })
-
-    it('CRED-08/10 — push de confirmação enviado após compra automática bem-sucedida (semanal + weekday correto)', async () => {
-      // 2024-01-08T15:00:00Z = segunda-feira 12:00 BRT (America/Sao_Paulo = UTC-3)
-      vi.useFakeTimers()
-      vi.setSystemTime(new Date('2024-01-08T15:00:00Z'))
-
-      const user: UserShape = {
-        id: 'user-cred08-push',
-        creditBalance: 2,
-        condominiumId: 'condo-1',
-        autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' }, // seg === seg ✓
-        oneSignalPlayerId: 'player-cred08-push',
-      }
-
-      const fastify = createMockFastify({ users: { 'user-cred08-push': user } })
-      ;(fastify.prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([user])
-
-      const createNotificationSpy = vi.fn().mockResolvedValue({})
-      vi.mocked(OneSignalModule.DefaultApi).mockImplementation(function () {
-        return { createNotification: createNotificationSpy }
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.processAutoBuy()
-
-      // Weekday correto (seg === seg) → push de compra automática DEVE ser enviado
-      expect(createNotificationSpy).toHaveBeenCalledOnce()
-      expect(createNotificationSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: '/client/creditos',
-        }),
-      )
     })
   })
 
@@ -1060,6 +989,141 @@ describe('SchedulesService', () => {
 
       // creditBalance=50 >= consumoSemanal=42 → NÃO deve enviar push nem persistir Notification
       expect(createAndTrimMock2).not.toHaveBeenCalled()
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // createOrdersAtCutoff — criação de orders no corte de cada slot (Regra A)
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('createOrdersAtCutoff [corte por slot]', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+      vi.useRealTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // Mock dedicado com condominium.findMany + order.findFirst (idempotência)
+    function mockFastifyCutoff(opts: {
+      condominiums: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ name: string; time: string; cutoffTime: string; isActive: boolean }> }>
+      schedules: ScheduleShape[]
+      users: Record<string, UserShape>
+      existingOrder?: boolean
+      createOrderFn?: ReturnType<typeof vi.fn>
+    }) {
+      const createOrderFn = opts.createOrderFn ?? vi.fn().mockResolvedValue({ id: 'o-1' })
+      const transactionFn = vi.fn().mockImplementation(async (cb: (tx: object) => Promise<void>) =>
+        cb({
+          order: { create: createOrderFn },
+          user: { update: vi.fn().mockResolvedValue({}) },
+          creditTransaction: { create: vi.fn().mockResolvedValue({}) },
+        }),
+      )
+      const fastify = {
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        prisma: {
+          condominium: { findMany: vi.fn().mockResolvedValue(opts.condominiums) },
+          schedule: { findMany: vi.fn().mockResolvedValue(opts.schedules) },
+          order: {
+            findFirst: vi.fn().mockResolvedValue(opts.existingOrder ? { id: 'existing' } : null),
+          },
+          user: {
+            findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
+              Promise.resolve(opts.users[where.id] ?? null),
+            ),
+          },
+          $transaction: transactionFn,
+        },
+      } as unknown as FastifyInstance
+      return { fastify, createOrderFn }
+    }
+
+    const tardeCondo = {
+      id: 'condo-1',
+      name: 'Cond Teste',
+      isActive: true,
+      deliverySlots: [
+        { name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true },
+        { name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true },
+      ],
+    }
+
+    const multiSchedule: ScheduleShape = {
+      id: 'sched-cut-1',
+      userId: 'user-cut-1',
+      condominiumId: 'condo-1',
+      isActive: true,
+      weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+      deliveryTime: '06:30',
+      notifyReconfigure: false,
+      days: {
+        '06:30': { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
+        '15:30': { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 },
+      },
+    }
+
+    it('no corte da tarde (10:00), cria order do slot 15:30 para HOJE (Regra A) com condominiumId', async () => {
+      // 2026-06-22T13:00:00Z = segunda 10:00 BRT → casa cutoff da tarde (10:00)
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T13:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      // Só a tarde casa o corte (10:00); manhã (22:00) não → exatamente 1 order
+      expect(createOrderFn).toHaveBeenCalledTimes(1)
+      expect(createOrderFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'user-cut-1',
+            deliveryTime: '15:30',
+            condominiumId: 'condo-1',
+            quantity: 1, // seg do slot 15:30
+            type: 'SCHEDULED',
+          }),
+        }),
+      )
+    })
+
+    it('idempotente: NÃO recria se já existe order para o slot/dia', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T13:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+        existingOrder: true,
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      expect(createOrderFn).not.toHaveBeenCalled()
+    })
+
+    it('NÃO cria order para slot cujo cutoffTime não casa com a hora atual', async () => {
+      // 09:00 BRT — nenhum slot tem corte 09:00
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T12:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      expect(createOrderFn).not.toHaveBeenCalled()
     })
   })
 })

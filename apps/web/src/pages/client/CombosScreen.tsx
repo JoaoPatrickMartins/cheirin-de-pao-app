@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import ComboCard from '../../components/client/ComboCard'
@@ -21,13 +21,16 @@ interface Pricing {
   avulsoUnit: number
 }
 
-const formatBRL = (val: number) =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const formatBRL = (val: number | undefined | null) =>
+  (val ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export function CombosScreen() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
-  const [tab, setTab] = useState<'combos' | 'avulso'>('combos')
+  const [tab, setTab] = useState<'combos' | 'avulso'>(
+    searchParams.get('tab') === 'avulso' ? 'avulso' : 'combos',
+  )
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [combos, setCombos] = useState<Combo[]>([])
@@ -70,12 +73,11 @@ export function CombosScreen() {
     setError(null)
     try {
       if (paymentMethod === 'card') {
-        const amount =
-          tab === 'combos' && selectedCombo
-            ? selectedCombo.price
-            : (pricing?.avulsoUnit ?? 0) * customQty
+        const isCombo = tab === 'combos' && selectedCombo
+        const amount = isCombo ? selectedCombo.price : (pricing?.avulsoUnit ?? 0) * customQty
+        const quantity = isCombo ? selectedCombo.quantity : customQty
         navigate('/client/creditos/cartao', {
-          state: { comboId: selectedCombo?.id, customQuantity: customQty, amount },
+          state: { comboId: selectedCombo?.id, customQuantity: isCombo ? undefined : customQty, amount, quantity },
         })
         return
       }
@@ -91,15 +93,15 @@ export function CombosScreen() {
       })
 
       if (res.ok) {
-        const { paymentId, qr_code_base64: qrCodeBase64, qr_code: qrCode } =
+        const { paymentId, pixCopyPaste, pixQrCodeUrl } =
           (await res.json()) as {
             paymentId: string
-            qr_code_base64: string
-            qr_code: string
+            pixCopyPaste: string
+            pixQrCodeUrl: string
           }
         const comboQuantity = selectedCombo?.quantity ?? customQty
         navigate('/client/creditos/pix', {
-          state: { paymentId, qrCodeBase64, qrCode, comboQuantity },
+          state: { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity },
         })
       } else {
         const err = (await res.json()) as { error?: string }
@@ -185,7 +187,7 @@ export function CombosScreen() {
                 transition: 'background .15s, box-shadow .15s',
               }}
             >
-              {t === 'combos' ? 'Combos' : 'Compra personalizada'}
+              {t === 'combos' ? 'Combos' : 'Avulso'}
             </button>
           ))}
         </div>

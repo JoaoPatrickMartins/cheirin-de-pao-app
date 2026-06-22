@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
 import { SavedCardsService } from './saved-cards.service.js'
-import { SavedCardParamsSchema, SetDefaultBodySchema } from './saved-cards.schema.js'
+import { SavedCardParamsSchema, SetDefaultBodySchema, CreateSavedCardSchema } from './saved-cards.schema.js'
 
 type ZodIssue = { message: string }
 
@@ -11,7 +11,7 @@ function zodMessage(err: ZodError): string {
 
 /**
  * Guard idêntico ao de payments.controller.ts — distingue erros de negócio
- * (nossos, com { error, status }) de erros do SDK do Mercado Pago.
+ * (nossos, com { error, status }) de erros do SDK do Stripe.
  * Nunca vaza detalhes internos do MP ao cliente.
  */
 function isBusinessError(err: unknown): err is { error: string; status: number } {
@@ -43,6 +43,46 @@ export class SavedCardsController {
         return reply.status(err.status).send({ error: err.error })
       }
       return reply.status(500).send({ error: 'Erro ao listar cartões.' })
+    }
+  }
+
+  // POST /users/me/cards/setup-intent — inicia o cadastro de cartão (Stripe SetupIntent)
+  async setupIntent(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const result = await this.service.createSetupIntent(userId)
+      return reply.status(200).send(result)
+    } catch (err) {
+      request.log.error({ err }, 'saved-cards: erro ao iniciar cadastro')
+      if (isBusinessError(err)) {
+        return reply.status(err.status).send({ error: err.error })
+      }
+      return reply.status(500).send({ error: 'Erro ao iniciar cadastro de cartão.' })
+    }
+  }
+
+  // POST /users/me/cards — CARD-07: persiste o cartão após confirmação no front (Elements)
+  async create(request: FastifyRequest, reply: FastifyReply) {
+    let body: ReturnType<typeof CreateSavedCardSchema.parse>
+    try {
+      body = CreateSavedCardSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      const userId = request.user!.id
+      const card = await this.service.addCard({ userId, paymentMethodId: body.paymentMethodId })
+      return reply.status(201).send(card)
+    } catch (err) {
+      request.log.error({ err }, 'saved-cards: erro ao cadastrar')
+      if (isBusinessError(err)) {
+        return reply.status(err.status).send({ error: err.error })
+      }
+      return reply.status(500).send({ error: 'Erro ao cadastrar cartão.' })
     }
   }
 

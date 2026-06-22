@@ -380,7 +380,9 @@ export function AutoBuyScreen() {
               margin: 0,
             }}
           >
-            Cobramos no Pix salvo. Você recebe um aviso a cada compra automática.
+            A recarga é cobrada automaticamente no seu cartão padrão, sem CVV, quando o saldo
+            não cobrir uma entrega agendada. Você precisa de um cartão salvo e recebe um aviso a
+            cada cobrança. Ative apenas se concordar com cobranças automáticas nesse cartão.
           </p>
         </>
       )}

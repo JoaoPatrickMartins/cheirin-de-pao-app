@@ -126,6 +126,9 @@ model User {
   cardTokenMp        String?
   oneSignalPlayerId  String?
   mpCustomerId       String?
+  stripeCustomerId   String?
+  // Consentimento explícito para cobranças sem CVV (off_session / card-on-file)
+  offSessionConsentAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }
@@ -288,7 +291,11 @@ model Payment {
   amount        Float
   method        PaymentMethod
   status        PaymentStatus
-  mercadoPagoId  String?       @unique
+  // Legados/Stripe: SEM @unique — índice único do Mongo rejeita múltiplos nulls
+  // (todo pagamento Stripe tem mercadoPagoId null; pagamentos MP antigos têm
+  // stripePaymentIntentId ausente). Idempotência é garantida na aplicação.
+  mercadoPagoId  String?
+  stripePaymentIntentId String?
   comboId        String?       @db.ObjectId
   customQuantity Int?
   createdAt      DateTime      @default(now())
@@ -331,11 +338,12 @@ model OtpCode {
   createdAt DateTime  @default(now())
 }
 
-// 18. SavedCard — cartões salvos do cliente no Mercado Pago
+// 18. SavedCard — cartões salvos do cliente (Stripe PaymentMethod; mpCardId legado)
 model SavedCard {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
-  mpCardId  String
+  mpCardId  String?
+  stripePaymentMethodId String?
   brand     String
   lastFour  String
   expiresAt String

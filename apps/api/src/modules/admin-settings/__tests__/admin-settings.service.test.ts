@@ -1,7 +1,18 @@
 // AdminSettingsService unit tests — Fase 7 / Plano 07-02 (Wave 1 — implementação real)
 // Requirements: ADMO-01 (horário de corte), ADMG-04 (config compra personalizada)
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { AdminSettingsService } from '../admin-settings.service.js'
+
+// Mock do OneSignal — evita chamadas de rede reais no processCutoff
+vi.mock('@onesignal/node-onesignal', () => ({
+  createConfiguration: vi.fn().mockReturnValue({}),
+  DefaultApi: vi.fn().mockImplementation(function () {
+    return { createNotification: vi.fn().mockResolvedValue({}) }
+  }),
+  Notification: vi.fn().mockImplementation(function () {
+    return { app_id: '', include_subscription_ids: [], headings: {}, contents: {} }
+  }),
+}))
 
 // ── makeFastifyMock ───────────────────────────────────────────────────────────
 function makeFastifyMock(overrides: {
@@ -10,6 +21,7 @@ function makeFastifyMock(overrides: {
   settingAvulsoUnit?: { key: string; value: string } | null
   users?: Array<{ id: string; oneSignalPlayerId: string | null }>
   orders?: Array<{ id: string; userId: string; scheduledDate: Date }>
+  condominiums?: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ name: string; time: string; cutoffTime: string; isActive: boolean }> }>
 } = {}) {
   const {
     setting = { key: 'cutoffTime', value: '20:00' },
@@ -17,6 +29,7 @@ function makeFastifyMock(overrides: {
     settingAvulsoUnit = { key: 'avulsoUnit', value: '1.50' },
     users = [],
     orders = [],
+    condominiums = [],
   } = overrides
 
   const settingFindUnique = vi.fn().mockImplementation(({ where }: { where: { key: string } }) => {
@@ -38,6 +51,9 @@ function makeFastifyMock(overrides: {
     },
     order: {
       findMany: vi.fn().mockResolvedValue(orders),
+    },
+    condominium: {
+      findMany: vi.fn().mockResolvedValue(condominiums),
     },
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-1' }),
@@ -156,19 +172,35 @@ describe('AdminSettingsService', () => {
   })
 
   describe('processCutoff', () => {
+    // Condomínio com slot cujo corte (20:00) casa a hora BRT fixada nos testes
+    const condoComCorte = {
+      id: 'condo-1',
+      name: 'Cond Teste',
+      isActive: true,
+      deliverySlots: [{ name: 'manha', time: '06:30', cutoffTime: '20:00', isActive: true }],
+    }
+
+    beforeEach(() => {
+      // 2026-06-22T23:00:00Z = 20:00 BRT → casa o cutoffTime '20:00' do slot
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T23:00:00Z'))
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     it('não tenta enviar push se não há usuários CLIENT com oneSignalPlayerId', async () => {
       const { fastify, prisma } = makeFastifyMock({
-        setting: { key: 'cutoffTime', value: '20:00' },
+        condominiums: [condoComCorte],
         users: [],
       })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSettingsService(fastify as any)
-
-      vi.spyOn(Date.prototype, 'toLocaleTimeString').mockReturnValue('20:00')
-
       await service.processCutoff()
 
+      // O slot da manhã (corte 20:00) casa a hora atual → busca clientes do condomínio
+      expect(prisma.condominium.findMany).toHaveBeenCalled()
       expect(prisma.user.findMany).toHaveBeenCalled()
     })
 
@@ -177,7 +209,7 @@ describe('AdminSettingsService', () => {
       tomorrow.setDate(tomorrow.getDate() + 1)
 
       const { fastify, prisma } = makeFastifyMock({
-        setting: { key: 'cutoffTime', value: '20:00' },
+        condominiums: [condoComCorte],
         users: [
           { id: 'user-1', oneSignalPlayerId: 'player-1' },
           { id: 'user-2', oneSignalPlayerId: 'player-2' },
@@ -185,14 +217,27 @@ describe('AdminSettingsService', () => {
         orders: [{ id: 'order-1', userId: 'user-1', scheduledDate: tomorrow }],
       })
 
-      vi.spyOn(Date.prototype, 'toLocaleTimeString').mockReturnValue('20:00')
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSettingsService(fastify as any)
       await service.processCutoff()
 
       // user-1 tem order amanhã, apenas user-2 deveria receber push
       expect(prisma.order.findMany).toHaveBeenCalled()
+    })
+
+    it('não busca clientes quando nenhum slot casa o horário de corte atual', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        // corte 09:00 — não casa as 20:00 BRT fixadas
+        condominiums: [{ ...condoComCorte, deliverySlots: [{ name: 'manha', time: '06:30', cutoffTime: '09:00', isActive: true }] }],
+        users: [{ id: 'user-1', oneSignalPlayerId: 'player-1' }],
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.processCutoff()
+
+      expect(prisma.condominium.findMany).toHaveBeenCalled()
+      expect(prisma.user.findMany).not.toHaveBeenCalled()
     })
   })
 })

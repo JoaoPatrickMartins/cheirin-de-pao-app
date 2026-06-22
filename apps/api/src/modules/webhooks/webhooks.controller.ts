@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { WebhooksService, WebhookBody } from './webhooks.service.js'
+import { WebhooksService } from './webhooks.service.js'
 
 export class WebhooksController {
   private service: WebhooksService
@@ -8,24 +8,27 @@ export class WebhooksController {
     this.service = new WebhooksService(fastify)
   }
 
-  async handleWebhook(request: FastifyRequest, reply: FastifyReply) {
-    const xSignature = request.headers['x-signature'] as string
-    const xRequestId = request.headers['x-request-id'] as string
-    const dataId = (request.query as Record<string, string>)['data.id']
-
-    if (!xSignature || !xRequestId || !dataId) {
-      return reply.status(400).send({ error: 'Headers ou parâmetros obrigatórios ausentes' })
+  // POST /webhooks/stripe — rota pública. Autenticidade via assinatura Stripe (corpo cru).
+  async handleStripe(request: FastifyRequest, reply: FastifyReply) {
+    const signature = request.headers['stripe-signature'] as string | undefined
+    if (!signature) {
+      return reply.status(400).send({ error: 'Assinatura ausente' })
     }
 
-    if (!this.service.validateSignature(xSignature, xRequestId, dataId)) {
-      return reply.status(401).send({ error: 'Assinatura inválida' })
+    let event
+    try {
+      // request.body é um Buffer (parser raw escopado neste plugin)
+      event = this.service.constructEvent(request.body as Buffer, signature)
+    } catch (err) {
+      this.fastify.log.warn({ err }, 'stripe webhook: assinatura inválida')
+      return reply.status(400).send({ error: 'Assinatura inválida' })
     }
 
     try {
-      await this.service.processPayment(request.body as WebhookBody)
-      return reply.status(200).send({ ok: true })
+      await this.service.processEvent(event)
+      return reply.status(200).send({ received: true })
     } catch (err) {
-      this.fastify.log.error(err)
+      this.fastify.log.error({ err }, 'stripe webhook: erro ao processar')
       return reply.status(500).send({ error: 'Erro ao processar webhook' })
     }
   }

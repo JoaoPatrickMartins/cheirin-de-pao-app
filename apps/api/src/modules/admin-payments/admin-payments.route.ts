@@ -37,7 +37,7 @@ export const adminPaymentsRoute: FastifyPluginAsync = async (fastify) => {
                 status: { type: 'string', description: 'Status: "pending", "approved", "rejected", "cancelled", "refunded".' },
                 clientName: { type: 'string', description: 'Nome do cliente que efetuou o pagamento.' },
                 createdAt: { type: 'string', description: 'Data/hora do pagamento (ISO 8601).' },
-                mpPaymentId: { type: 'string', description: 'ID do pagamento no Mercado Pago para referência externa.' },
+                mpPaymentId: { type: 'string', description: 'ID do pagamento no Stripe para referência externa.' },
               },
             },
           },
@@ -72,7 +72,7 @@ export const adminPaymentsRoute: FastifyPluginAsync = async (fastify) => {
               amount: { type: 'number', description: 'Valor em reais.' },
               method: { type: 'string', description: 'Método de pagamento.' },
               status: { type: 'string', description: 'Status atual.' },
-              mpPaymentId: { type: 'string', description: 'ID no Mercado Pago.' },
+              mpPaymentId: { type: 'string', description: 'ID no Stripe.' },
               creditsAdded: { type: 'integer', description: 'Créditos adicionados ao cliente por este pagamento.' },
               client: {
                 type: 'object',
@@ -107,7 +107,7 @@ export const adminPaymentsRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — payments'],
         summary: 'Estornar pagamento (admin)',
-        description: 'Realiza o estorno de um pagamento via Mercado Pago e debita os créditos correspondentes do cliente. Apenas pagamentos com status "approved" podem ser estornados. Após o estorno: status muda para "refunded", créditos são debitados do cliente (se suficientes) e o MP processa o reembolso. Operação irreversível. Restrito a ADMIN.',
+        description: 'Realiza o estorno de um pagamento via Stripe e debita os créditos correspondentes do cliente. Apenas pagamentos com status "approved" podem ser estornados. Após o estorno: status muda para "refunded", créditos são debitados do cliente (se suficientes) e o MP processa o reembolso. Operação irreversível. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         params: {
           type: 'object',

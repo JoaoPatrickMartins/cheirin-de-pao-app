@@ -11,7 +11,7 @@ function zodMessage(err: ZodError): string {
 
 /**
  * Erros de negócio que ESTE serviço lança têm a forma { error, status } e
- * mensagem em português segura para exibir ao cliente. Já o SDK do Mercado Pago,
+ * mensagem em português segura para exibir ao cliente. Já o SDK do Stripe,
  * em respostas não-2xx, lança o corpo JSON cru da API (com `message`/`cause`).
  * Este guard distingue os dois para NUNCA vazar o erro interno do MP ao usuário.
  */
@@ -56,13 +56,13 @@ export class PaymentsController {
       const result = await this.service.createPix({ ...body, userId })
       return reply.status(201).send(result)
     } catch (err) {
-      // Loga o erro completo — inclui a resposta detalhada do Mercado Pago (message/cause)
+      // Loga o erro completo — inclui a resposta detalhada do Stripe (message/cause)
       this.fastify.log.error({ err }, 'pagamento: erro ao processar')
       // Erros de negócio (nossos): mensagem em PT, segura para exibir
       if (isBusinessError(err)) {
         return reply.status(err.status).send({ error: err.error })
       }
-      // Erro inesperado (ex.: SDK do Mercado Pago) — não vaza detalhe interno ao cliente
+      // Erro inesperado (ex.: SDK do Stripe) — não vaza detalhe interno ao cliente
       return reply.status(500).send({ error: 'Não foi possível processar o pagamento. Tente novamente.' })
     }
   }
@@ -82,13 +82,13 @@ export class PaymentsController {
       const result = await this.service.createCard({ ...body, userId })
       return reply.status(201).send(result)
     } catch (err) {
-      // Loga o erro completo — inclui a resposta detalhada do Mercado Pago (message/cause)
+      // Loga o erro completo — inclui a resposta detalhada do Stripe (message/cause)
       this.fastify.log.error({ err }, 'pagamento: erro ao processar')
       // Erros de negócio (nossos): mensagem em PT, segura para exibir
       if (isBusinessError(err)) {
         return reply.status(err.status).send({ error: err.error })
       }
-      // Erro inesperado (ex.: SDK do Mercado Pago) — não vaza detalhe interno ao cliente
+      // Erro inesperado (ex.: SDK do Stripe) — não vaza detalhe interno ao cliente
       return reply.status(500).send({ error: 'Não foi possível processar o pagamento. Tente novamente.' })
     }
   }
@@ -108,13 +108,13 @@ export class PaymentsController {
       const result = await this.service.getStatus(params.id, userId)
       return reply.status(200).send(result)
     } catch (err) {
-      // Loga o erro completo — inclui a resposta detalhada do Mercado Pago (message/cause)
+      // Loga o erro completo — inclui a resposta detalhada do Stripe (message/cause)
       this.fastify.log.error({ err }, 'pagamento: erro ao processar')
       // Erros de negócio (nossos): mensagem em PT, segura para exibir
       if (isBusinessError(err)) {
         return reply.status(err.status).send({ error: err.error })
       }
-      // Erro inesperado (ex.: SDK do Mercado Pago) — não vaza detalhe interno ao cliente
+      // Erro inesperado (ex.: SDK do Stripe) — não vaza detalhe interno ao cliente
       return reply.status(500).send({ error: 'Não foi possível processar o pagamento. Tente novamente.' })
     }
   }

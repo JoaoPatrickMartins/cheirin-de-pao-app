@@ -25,12 +25,23 @@ export class AdminSettingsController {
 
   /**
    * GET /settings/cutoff-status
-   * Endpoint público — retorna { isCutoff: boolean, cutoffTime: string }.
-   * Sem role check — qualquer cliente pode verificar o status de corte.
+   * Autenticado — retorna o status de corte POR SLOT do condomínio do cliente:
+   * { slots: [{ name, time, cutoffTime, isPast }] }. Sem condomínio → slots vazio.
    */
-  async cutoffStatus(_request: FastifyRequest, reply: FastifyReply) {
+  async cutoffStatus(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const data = await this.service.getCutoffStatus()
+      const userId = request.user?.id
+      if (!userId) return reply.status(401).send({ error: 'Não autorizado' })
+
+      const user = await this.fastify.prisma.user.findUnique({
+        where: { id: userId },
+        select: { condominiumId: true },
+      })
+      if (!user?.condominiumId) {
+        return reply.status(200).send({ slots: [] })
+      }
+
+      const data = await this.service.getCutoffStatusByCondo(user.condominiumId)
       return reply.status(200).send(data)
     } catch (err) {
       this.fastify.log.error(err)

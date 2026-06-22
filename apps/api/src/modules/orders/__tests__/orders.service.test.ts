@@ -257,4 +257,21 @@ describe('OrdersService', () => {
     expect(diffFromBefore).toBeGreaterThanOrEqual(expectedMs - 1000)
     expect(diffFromAfter).toBeLessThanOrEqual(expectedMs + 1000)
   })
+
+  it('getNextOrder busca a próxima entrega futura (gt fim de hoje, status SCHEDULED/OUT_FOR_DELIVERY, asc)', async () => {
+    const future = { id: 'order-next', quantity: 2, status: 'SCHEDULED', scheduledDate: new Date() }
+    const { fastify, txOrder } = makeFastifyMock({ orderFindFirst: future })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    const result = await service.getNextOrder('user-01')
+
+    expect(result).toEqual(future)
+    const call = txOrder.findFirst.mock.calls[0][0]
+    expect(call.where.status).toEqual({ in: ['SCHEDULED', 'OUT_FOR_DELIVERY'] })
+    expect(call.where.scheduledDate.gt).toBeInstanceOf(Date)
+    expect(call.orderBy).toEqual({ scheduledDate: 'asc' })
+  })
 })

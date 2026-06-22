@@ -11,7 +11,7 @@ export const paymentsRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['payments'],
         summary: 'Criar pagamento Pix',
-        description: 'Cria um pagamento via Pix no Mercado Pago. Retorna o QR Code para exibição ao cliente. O cliente aguarda a confirmação via webhook do MP. Os créditos são adicionados automaticamente APENAS após o webhook "approved" do Mercado Pago — nunca antes. Informe comboId OU customQuantity, nunca ambos.',
+        description: 'Cria um pagamento via Pix no Stripe. Retorna o QR Code para exibição ao cliente. O cliente aguarda a confirmação via webhook do Stripe. Os créditos são adicionados automaticamente APENAS após o webhook "approved" do Stripe — nunca antes. Informe comboId OU customQuantity, nunca ambos.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
@@ -24,12 +24,13 @@ export const paymentsRoute: FastifyPluginAsync = async (fastify) => {
         response: {
           201: {
             type: 'object',
-            description: 'Pagamento Pix criado. Exiba o qrCode ao cliente para que ele efetue o pagamento.',
+            description: 'Pagamento Pix criado. Exiba o QR/copia-e-cola ao cliente; crédito ocorre via webhook do Stripe.',
             properties: {
               paymentId: { type: 'string', description: 'ID interno do pagamento (MongoDB ObjectId). Usar em /payments/:id/status.' },
-              status: { type: 'string', description: 'Status inicial do pagamento: sempre "pending" para Pix até webhook confirmar.' },
-              qrCode: { type: 'string', description: 'String do QR Code Pix no padrão EMV. Renderizar com biblioteca de QR Code no frontend.' },
-              qrCodeBase64: { type: 'string', description: 'QR Code em formato Base64 para exibição direta como imagem.' },
+              status: { type: 'string', description: 'Status inicial: "pending" até o webhook do Stripe confirmar.' },
+              pixCopyPaste: { type: 'string', description: 'Código Pix copia-e-cola (EMV).' },
+              pixQrCodeUrl: { type: 'string', description: 'URL da imagem PNG do QR Code (Stripe).' },
+              expiresAt: { type: 'integer', description: 'Expiração do QR (epoch), ou null.' },
             },
           },
         },
@@ -44,26 +45,15 @@ export const paymentsRoute: FastifyPluginAsync = async (fastify) => {
       preHandler: [fastify.authenticate],
       schema: {
         tags: ['payments'],
-        summary: 'Criar pagamento por cartão',
-        description: 'Cria um pagamento via cartão de crédito/débito usando o Mercado Pago Bricks. O token do cartão deve ser gerado pelo MP Bricks no frontend — nunca enviar dados brutos do cartão. O status pode ser "approved" imediatamente ou "pending" para análise antifraude. Créditos são adicionados apenas quando status = "approved".',
+        summary: 'Criar pagamento por cartão (Stripe)',
+        description: 'Dois fluxos: (1) savedCardId → cobrança off_session SEM CVV no cartão salvo (1 toque / recarga), aprovação síncrona; (2) sem savedCardId → cria um PaymentIntent e devolve clientSecret para o front confirmar via Stripe Elements. Informe comboId OU customQuantity.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['token', 'installments', 'issuerId', 'paymentMethodId', 'payerEmail', 'payerIdentification'],
+          // Validação real (comboId OU customQuantity) é feita pela camada Zod no controller.
           properties: {
-            token: { type: 'string', description: 'Token único do cartão gerado pelo Mercado Pago Bricks no frontend. Válido por uso único.' },
-            installments: { type: 'integer', minimum: 1, description: 'Número de parcelas (1 a 12).' },
-            issuerId: { type: 'string', description: 'ID da bandeira/emissor do cartão retornado pelo MP Bricks.' },
-            paymentMethodId: { type: 'string', description: 'Método de pagamento (ex: visa, mastercard, pix). Retornado pelo MP Bricks.' },
-            payerEmail: { type: 'string', format: 'email', description: 'E-mail do pagador para confirmação pelo MP.' },
-            payerIdentification: {
-              type: 'object',
-              description: 'Documento de identificação do pagador.',
-              properties: {
-                type: { type: 'string', description: 'Tipo do documento (CPF ou CNPJ).' },
-                number: { type: 'string', description: 'Número do documento sem pontuação.' },
-              },
-            },
+            savedCardId: { type: 'string', description: 'ID de um cartão salvo do cliente → cobrança off_session sem CVV. Se ausente, cria PaymentIntent para cartão novo.' },
+            saveCard: { type: 'boolean', description: 'No fluxo de cartão novo, marca o cartão para uso futuro (off_session).' },
             comboId: { type: 'string', description: 'ID do combo a comprar. Mutuamente exclusivo com customQuantity.' },
             customQuantity: { type: 'integer', minimum: 1, description: 'Quantidade avulsa de pãezinhos. Mutuamente exclusivo com comboId.' },
           },
@@ -71,11 +61,11 @@ export const paymentsRoute: FastifyPluginAsync = async (fastify) => {
         response: {
           201: {
             type: 'object',
-            description: 'Pagamento por cartão criado. Verifique o status para saber se foi aprovado imediatamente.',
+            description: 'Cartão salvo: status "approved"/"pending". Cartão novo: devolve clientSecret para confirmar no front.',
             properties: {
               paymentId: { type: 'string', description: 'ID interno do pagamento (MongoDB ObjectId).' },
-              status: { type: 'string', description: 'Status do pagamento: "approved" (créditos já adicionados), "pending" (em análise), "rejected" (recusado).' },
-              mpPaymentId: { type: 'string', description: 'ID do pagamento no Mercado Pago para referência.' },
+              status: { type: 'string', description: 'Status: "approved" (créditos adicionados) ou "pending".' },
+              clientSecret: { type: 'string', description: 'Apenas no fluxo de cartão novo: usar com Stripe Elements para confirmar o PaymentIntent.' },
             },
           },
         },

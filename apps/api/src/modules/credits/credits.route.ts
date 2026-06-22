@@ -39,12 +39,14 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
       description: 'Retorna o preço unitário do pão avulso e o limite máximo de pãezinhos por pedido avulso. O preço avulso é sempre maior que o preço por unidade de qualquer combo. Configurável pelo admin.',
       security: [{ bearerAuth: [] }],
       response: {
+        // Campos precisam bater com o que o service retorna (avulsoUnit/avulsoLimite),
+        // senão o fast-json-stringify descarta tudo e devolve {} → tela quebra no front.
         200: {
           type: 'object',
           description: 'Configuração de preço avulso.',
           properties: {
-            unitPrice: { type: 'number', description: 'Preço unitário do pão avulso em reais.' },
-            limit: { type: 'integer', description: 'Quantidade máxima de pãezinhos permitida por pedido avulso.' },
+            avulsoUnit: { type: 'number', description: 'Preço unitário do pão avulso em reais.' },
+            avulsoLimite: { type: 'integer', description: 'Quantidade máxima de pãezinhos permitida por pedido avulso.' },
           },
         },
       },
@@ -61,24 +63,19 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
         description: 'Retorna o histórico completo de movimentação de créditos do cliente autenticado. Inclui créditos adicionados por pagamentos aprovados e créditos debitados por pedidos. Ordenado do mais recente para o mais antigo.',
         security: [{ bearerAuth: [] }],
         response: {
+          // O controller retorna um ARRAY de transações (creditTransaction.findMany).
+          // Schema precisa ser 'array' — com 'object' o fast-json-stringify devolvia {} (página em branco).
           200: {
-            type: 'object',
-            description: 'Histórico de créditos com saldo atual.',
-            properties: {
-              balance: { type: 'integer', description: 'Saldo atual de créditos (pãezinhos disponíveis).' },
-              transactions: {
-                type: 'array',
-                description: 'Lista de transações ordenadas do mais recente.',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string', description: 'ID da transação.' },
-                    type: { type: 'string', description: 'Tipo: "credit" (entrada) ou "debit" (saída).' },
-                    amount: { type: 'integer', description: 'Quantidade de créditos movimentados (sempre positivo).' },
-                    description: { type: 'string', description: 'Descrição legível da transação (ex: "Compra Combo 10 Pãezinhos").' },
-                    createdAt: { type: 'string', description: 'Data/hora da transação (ISO 8601).' },
-                  },
-                },
+            type: 'array',
+            description: 'Transações de crédito do cliente, da mais recente para a mais antiga.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID da transação.' },
+                type: { type: 'string', description: 'Tipo: PURCHASE, DELIVERY, ADMIN_GRANT, etc.' },
+                quantity: { type: 'integer', description: 'Quantidade movimentada (positivo = entrada, negativo = saída).' },
+                description: { type: 'string', nullable: true, description: 'Descrição legível, quando disponível.' },
+                createdAt: { type: 'string', description: 'Data/hora da transação (ISO 8601).' },
               },
             },
           },
@@ -127,34 +124,6 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.updateAutoRecharge.bind(ctrl),
   )
-
-  fastify.put(
-    '/users/me/card-token',
-    {
-      preHandler: [fastify.authenticate],
-      schema: {
-        tags: ['credits'],
-        summary: 'Salvar token de cartão',
-        description: 'Salva o token de cartão do cliente para uso em recargas automáticas futuras. O token deve ser gerado pelo Mercado Pago Bricks — nunca dados brutos do cartão. O token é armazenado de forma segura e usado apenas em cobranças automáticas autorizadas.',
-        security: [{ bearerAuth: [] }],
-        body: {
-          type: 'object',
-          required: ['token'],
-          properties: {
-            token: { type: 'string', description: 'Token de cartão gerado pelo Mercado Pago Bricks. Representa o cartão salvo para cobranças recorrentes.' },
-          },
-        },
-        response: {
-          200: {
-            type: 'object',
-            description: 'Token salvo com sucesso.',
-            properties: {
-              message: { type: 'string', description: 'Confirmação de salvamento do token.' },
-            },
-          },
-        },
-      },
-    },
-    ctrl.updateCardToken.bind(ctrl),
-  )
+  // (Removido) PUT /users/me/card-token — endpoint legado do MVP MP (token de cartão).
+  // A recarga automática agora usa o cartão padrão salvo (Stripe), sem token armazenado.
 }

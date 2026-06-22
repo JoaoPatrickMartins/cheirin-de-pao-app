@@ -8,8 +8,9 @@ import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
 import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
 import BannerInsuficiente from '../../components/client/BannerInsuficiente'
+import { apiFetch } from '../../lib/apiFetch'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
 
 // Mapa de índice do dia da semana (getDay()) para chave de WeeklyQty
 const DAY_KEY_MAP: Record<number, keyof ReturnType<typeof useSchedule>['weeklyQty']> = {
@@ -40,6 +41,13 @@ function getGreeting(): string {
   return 'Boa noite'
 }
 
+// "Seg 22" a partir da data ISO de uma entrega futura
+function formatDeliveryDay(iso: string): string {
+  const d = new Date(iso)
+  const key = DAY_KEY_MAP[d.getDay()]
+  return `${DAY_ABBR[key]} ${d.getDate()}`
+}
+
 interface QuickAction {
   label: string
   icon: keyof typeof import('../../components/brand/Icon').Ic
@@ -49,17 +57,20 @@ interface QuickAction {
 export function HomeScreen() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { order } = useOrderTracking()
+  // fallbackToNext: quando não há entrega hoje, mostra a próxima entrega futura
+  const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const { unreadCount } = useNotif()
-  const [isCutoff, setIsCutoff] = useState(false)
+  // Slots cuja PRÓXIMA entrega já está fechada (corte passou) — por slot do condomínio
+  const [closedSlots, setClosedSlots] = useState<Array<{ name: string; deliveryWhen: string }>>([])
 
   // Mantém o saldo sincronizado com o servidor (refresh de página + troca de aba)
   useCreditBalanceSync()
 
   const creditBalance = user?.creditBalance ?? 0
 
-  // Dados reais de agendamento para NextDays (GET /schedules/me via useSchedule)
-  const { weeklyQty, isLoading: scheduleLoading } = useSchedule(creditBalance)
+  // Dados reais de agendamento para NextDays (GET /schedules/me via useSchedule).
+  // dailyQty soma todos os slots (multi-slot) ou usa weeklyQty (single-slot).
+  const { dailyQty, isLoading: scheduleLoading } = useSchedule(creditBalance)
 
   // Próximos 5 dias a partir de amanhã (BRT)
   const nextDays = Array.from({ length: 5 }, (_, i) => {
@@ -69,23 +80,27 @@ export function HomeScreen() {
     return {
       abbr: DAY_ABBR[key],
       dayNum: d.getDate(),
-      qty: weeklyQty?.[key] ?? 0,
+      qty: dailyQty?.[key] ?? 0,
       key,
     }
   })
 
-  const hasSchedule = Object.values(weeklyQty).some((v) => v > 0)
+  const hasSchedule = Object.values(dailyQty).some((v) => v > 0)
 
   useEffect(() => {
-    // Verificar status de corte ao montar — endpoint público, sem token
-    fetch(`${API_BASE_URL}/settings/cutoff-status`)
-      .then((res) => res.json())
-      .then((data: { isCutoff?: boolean }) => {
-        setIsCutoff(data.isCutoff === true)
+    // Status de corte por slot do condomínio do cliente (autenticado)
+    apiFetch('/settings/cutoff-status')
+      .then((res) => (res.ok ? res.json() : { slots: [] }))
+      .then((data: { slots?: Array<{ name: string; locked: boolean; deliveryWhen: string }> }) => {
+        setClosedSlots(
+          (data.slots ?? [])
+            .filter((s) => s.locked)
+            .map((s) => ({ name: s.name, deliveryWhen: s.deliveryWhen })),
+        )
       })
       .catch(() => {
         // Falha silenciosa — não exibe banner em caso de erro de rede
-        setIsCutoff(false)
+        setClosedSlots([])
       })
   }, [])
 
@@ -93,10 +108,9 @@ export function HomeScreen() {
   const greeting = getGreeting()
 
   const quickActions: QuickAction[] = [
-    { label: 'Comprar créditos', icon: 'coin',     path: '/client/creditos'        },
-    { label: 'Minha agenda',     icon: 'calendar', path: '/client/agenda'          },
-    { label: 'Histórico',        icon: 'clock',    path: '/client/creditos/extrato' },
-    { label: 'Configurações',    icon: 'settings', path: '/client/settings'        },
+    { label: 'Comprar créditos',     icon: 'coin',     path: '/client/creditos'            },
+    { label: 'Avulso',               icon: 'edit',     path: '/client/creditos?tab=avulso' },
+    { label: 'Minha agenda',         icon: 'calendar', path: '/client/agenda'              },
   ]
 
   return (
@@ -108,34 +122,6 @@ export function HomeScreen() {
         gap: 14,
       }}
     >
-      {/* Banner de corte — exibido quando o prazo de agendamento foi encerrado */}
-      {isCutoff && (
-        <div
-          style={{
-            background: 'var(--color-surface-2)',
-            border: '1.5px solid var(--color-accent)',
-            borderRadius: 10,
-            margin: '12px 16px 0',
-            padding: '12px 16px',
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-          }}
-        >
-          <Icon name="clock" size={18} color="var(--color-gold)" />
-          <span
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 13.5,
-              fontWeight: 600,
-              color: 'var(--color-text)',
-            }}
-          >
-            Prazo de agendamento encerrado para amanhã
-          </span>
-        </div>
-      )}
-
       {/* Greeting + Bell */}
       <div
         style={{
@@ -204,6 +190,62 @@ export function HomeScreen() {
           )}
         </button>
       </div>
+
+      {/* Aviso leve de prazo — abaixo do header; a próxima entrega do slot já fechou */}
+      {closedSlots.length > 0 && (
+        <div
+          style={{
+            background: 'var(--color-surface-2)',
+            border: '1.5px solid var(--color-accent)',
+            borderRadius: 12,
+            padding: '12px 14px',
+            display: 'flex',
+            gap: 11,
+            alignItems: 'flex-start',
+          }}
+        >
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 9,
+              background: 'var(--color-surface)',
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+              marginTop: 1,
+            }}
+          >
+            <Icon name="clock" size={17} color="var(--color-gold)" />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 14.5,
+                fontWeight: 700,
+                color: 'var(--color-text)',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              Eita, foi por pouquin!
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: 'var(--color-text-sec)',
+                lineHeight: 1.4,
+              }}
+            >
+              {`${closedSlots
+                .map((s) => `A ${SLOT_LABEL[s.name] ?? s.name} de ${s.deliveryWhen} já fechou.`)
+                .join(' ')} Os próximos dias seguem tudo certin pra agendar! 🥖`}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Credit Balance Card */}
       <CreditBalanceCard
@@ -282,11 +324,13 @@ export function HomeScreen() {
                     margin: '0 0 2px',
                   }}
                 >
-                  {order.status === 'SCHEDULED'
-                    ? 'AGENDADO'
-                    : order.status === 'OUT_FOR_DELIVERY'
-                      ? 'SAINDO DO FORNO'
-                      : 'ENTREGUE'}
+                  {!isToday
+                    ? 'PRÓXIMA ENTREGA'
+                    : order.status === 'SCHEDULED'
+                      ? 'AGENDADO'
+                      : order.status === 'OUT_FOR_DELIVERY'
+                        ? 'SAINDO DO FORNO'
+                        : 'ENTREGUE'}
                 </p>
                 <p
                   style={{
@@ -299,7 +343,11 @@ export function HomeScreen() {
                   }}
                 >
                   {order.quantity === 1 ? '1 pãozinho' : `${order.quantity} pãezinhos`}
-                  {order.status === 'SCHEDULED' ? ' · Hoje' : ''}
+                  {isToday
+                    ? order.status === 'SCHEDULED'
+                      ? ' · Hoje'
+                      : ''
+                    : ` · ${formatDeliveryDay(order.scheduledDate)}`}
                 </p>
               </div>
             </div>

@@ -1,25 +1,14 @@
 import { FastifyInstance } from 'fastify'
-import { MercadoPagoConfig, Payment, Customer, CustomerCard, CardToken } from 'mercadopago'
 import { PaymentsRepository } from './payments.repository.js'
+import { StripeService } from './stripe.service.js'
 
 export class PaymentsService {
   private repo: PaymentsRepository
-  private mpClient: MercadoPagoConfig
-  private paymentApi: Payment
-  private customerApi: Customer
-  private customerCardApi: CustomerCard
-  private cardTokenApi: CardToken
+  private stripe: StripeService
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new PaymentsRepository(fastify)
-    this.mpClient = new MercadoPagoConfig({
-      accessToken: process.env.MP_ACCESS_TOKEN!,
-      options: { timeout: 5000 },
-    })
-    this.paymentApi = new Payment(this.mpClient)
-    this.customerApi = new Customer(this.mpClient)
-    this.customerCardApi = new CustomerCard(this.mpClient)
-    this.cardTokenApi = new CardToken(this.mpClient)
+    this.stripe = new StripeService(fastify)
   }
 
   private get prisma() {
@@ -35,233 +24,152 @@ export class PaymentsService {
       const combo = await this.prisma.combo.findUnique({ where: { id: comboId } })
       if (!combo) throw { error: 'Combo não encontrado', status: 404 }
       const amount = Math.round(combo.price * 100) / 100
-      return {
-        amount,
-        quantity: combo.quantity,
-        description: `Compra ${combo.name} — Cheirin de Pão`,
-      }
+      return { amount, quantity: combo.quantity, description: `Compra ${combo.name} — Cheirin de Pão` }
     }
-
     if (customQuantity) {
       const setting = await this.prisma.setting.findUnique({ where: { key: 'avulsoUnit' } })
       if (!setting) throw { error: 'Configuração de preço avulso não encontrada', status: 500 }
       const unitPrice = parseFloat(setting.value)
       const amount = Math.round(unitPrice * customQuantity * 100) / 100
-      return {
-        amount,
-        quantity: customQuantity,
-        description: `Compra avulsa de ${customQuantity} pão(es) — Cheirin de Pão`,
-      }
+      return { amount, quantity: customQuantity, description: `Compra avulsa de ${customQuantity} pão(es) — Cheirin de Pão` }
     }
-
     throw { error: 'comboId ou customQuantity obrigatório', status: 400 }
   }
 
+  private metadata(userId: string, comboId?: string, customQuantity?: number): Record<string, string> {
+    const m: Record<string, string> = { userId }
+    if (comboId) m.comboId = comboId
+    if (customQuantity) m.customQuantity = String(customQuantity)
+    return m
+  }
+
+  // ── Pix ──────────────────────────────────────────────────────────────────
   async createPix(params: { comboId?: string; customQuantity?: number; userId: string }) {
     const { comboId, customQuantity, userId } = params
+    const { amount, description } = await this.resolveAmount(comboId, customQuantity)
+    const customerId = await this.stripe.getOrCreateCustomer(userId)
 
-    const user = await this.prisma.user.findUnique({ where: { id: userId } })
-    if (!user) throw { error: 'Usuário não encontrado', status: 404 }
-
-    const { amount, quantity, description } = await this.resolveAmount(comboId, customQuantity)
-
-    const response = await this.paymentApi.create({
-      body: {
-        transaction_amount: amount,
-        description,
-        payment_method_id: 'pix',
-        payer: { email: user.email ?? `${user.id}@cheirin.app` },
-      },
+    const { paymentIntent, qrCode, qrCodeImageUrl, expiresAt } = await this.stripe.createPixPayment({
+      customerId,
+      amount,
+      description,
+      metadata: this.metadata(userId, comboId, customQuantity),
     })
 
-    const mercadoPagoId = String(response.id)
     const payment = await this.repo.createPayment({
       userId,
       amount,
       method: 'PIX',
       status: 'PENDING',
-      mercadoPagoId,
+      stripePaymentIntentId: paymentIntent.id,
       comboId,
       customQuantity,
     })
 
-    const txData = response.point_of_interaction?.transaction_data
     return {
       paymentId: payment.id,
-      qr_code_base64: txData?.qr_code_base64 ?? '',
-      qr_code: txData?.qr_code ?? '',
+      status: 'pending' as const,
+      pixCopyPaste: qrCode,
+      pixQrCodeUrl: qrCodeImageUrl,
+      expiresAt,
     }
   }
 
-  // ── getOrCreateMpCustomer ─────────────────────────────────────────────────
-  // Idempotente: verifica DB → busca MP → cria (T-12-06: nunca cria duplicata)
-  // WR-01: lança erro se usuário não existir (null-safety — user? não é suficiente)
-  private async getOrCreateMpCustomer(userId: string, userEmail: string): Promise<string> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } })
-    if (!user) throw { error: 'Usuário não encontrado', status: 404 }
-    if (user.mpCustomerId) return user.mpCustomerId
-
-    const email = userEmail ?? `${userId}@cheirin.app`
-    const searchResult = await this.customerApi.search({ options: { email } })
-    const existing = searchResult?.results?.[0]
-    if (existing?.id) {
-      await this.prisma.user.update({ where: { id: userId }, data: { mpCustomerId: existing.id } })
-      return existing.id
-    }
-
-    const created = await this.customerApi.create({ body: { email } })
-    if (!created?.id) throw { error: 'Falha ao criar cliente no Mercado Pago', status: 502 }
-    await this.prisma.user.update({ where: { id: userId }, data: { mpCustomerId: created.id } })
-    return created.id
-  }
-
+  // ── Cartão ─────────────────────────────────────────────────────────────────
+  // savedCardId  → cobrança off_session (SEM CVV), aprovação síncrona → crédito imediato.
+  // cartão novo  → cria PaymentIntent e devolve clientSecret para o front confirmar (Elements).
   async createCard(params: {
-    token?: string
     savedCardId?: string
-    securityCode?: string
     saveCard?: boolean
-    installments?: number
-    issuerId?: string
-    paymentMethodId?: string
-    payerEmail?: string
-    payerIdentification?: { type: string; number: string }
     comboId?: string
     customQuantity?: number
     userId: string
   }) {
-    const {
-      token: rawToken,
-      savedCardId,
-      securityCode,
-      saveCard = false,
-      installments = 1,
-      issuerId,
-      paymentMethodId,
-      payerEmail,
-      payerIdentification,
-      comboId,
-      customQuantity,
-      userId,
-    } = params
-
-    const user = await this.prisma.user.findUnique({ where: { id: userId } })
-    if (!user) throw { error: 'Usuário não encontrado', status: 404 }
-
+    const { savedCardId, saveCard = false, comboId, customQuantity, userId } = params
     const { amount, quantity, description } = await this.resolveAmount(comboId, customQuantity)
+    const customerId = await this.stripe.getOrCreateCustomer(userId)
 
-    let paymentToken: string | undefined = rawToken
-    let savedCard: { userId: string; mpCardId: string; brand: string } | null = null
-
-    // ── Fluxo com cartão salvo (CARD-06) ──────────────────────────────────
+    // ── Cartão salvo: off_session, sem CVV ──────────────────────────────────
     if (savedCardId) {
-      savedCard = await this.prisma.savedCard.findUnique({ where: { id: savedCardId } })
-      // T-12-01: IDOR — 404 mesmo se cartão existe mas é de outro usuário
-      if (!savedCard || savedCard.userId !== userId) {
-        throw { error: 'Cartão não encontrado', status: 404 }
-      }
-      if (!user.mpCustomerId) {
-        throw { error: 'Perfil de pagamento não encontrado. Realize uma compra nova primeiro.', status: 400 }
-      }
-      // CVV (securityCode) processado AQUI e descartado — nunca vai para Payment.create (T-12-02)
-      const tokenResponse = await this.cardTokenApi.create({
-        body: {
-          card_id: savedCard.mpCardId,
-          customer_id: user.mpCustomerId,
-          security_code: securityCode,
-        },
-      })
-      if (!tokenResponse?.id) {
-        throw { error: 'Falha ao gerar token do cartão', status: 502 }
-      }
-      paymentToken = tokenResponse.id
-    }
+      const card = await this.prisma.savedCard.findUnique({ where: { id: savedCardId } })
+      // IDOR: 404 mesmo se existe mas é de outro usuário
+      if (!card || card.userId !== userId) throw { error: 'Cartão não encontrado', status: 404 }
+      if (!card.stripePaymentMethodId) throw { error: 'Cartão sem vínculo de pagamento', status: 400 }
 
-    if (!paymentToken) {
-      throw { error: 'Token de pagamento inválido', status: 400 }
-    }
-
-    const response = await this.paymentApi.create({
-      body: {
-        transaction_amount: amount,
+      const intent = await this.stripe.chargeOffSession({
+        customerId,
+        paymentMethodId: card.stripePaymentMethodId,
+        amount,
         description,
-        token: paymentToken,
-        installments,
-        // payment_method_id é OBRIGATÓRIO pelo MP para cartão (ex.: "master", "visa").
-        // O Brick fornece em formData.payment_method_id; sem ele o MP retorna internal_error.
-        // WR-05: usa brand do cartão salvo como fallback quando savedCardId está presente
-        payment_method_id: paymentMethodId ?? (savedCardId ? savedCard?.brand : undefined),
-        issuer_id: issuerId ? parseInt(issuerId) : undefined,
-        // Prioriza o e-mail informado no checkout; cai para o do cadastro e, por fim, um sintético.
-        // identification (CPF) vem do Brick — exigido pelo MP em produção no Brasil.
-        payer: {
-          email: payerEmail ?? user.email ?? `${user.id}@cheirin.app`,
-          identification: payerIdentification,
-        },
-      },
-    })
+        metadata: this.metadata(userId, comboId, customQuantity),
+      })
 
-    const mercadoPagoId = String(response.id)
+      const payment = await this.repo.createPayment({
+        userId,
+        amount,
+        method: 'CREDIT_CARD',
+        status: 'PENDING',
+        stripePaymentIntentId: intent.id,
+        comboId,
+        customQuantity,
+      })
+
+      // Cartão é aprovado de forma síncrona → credita já (webhook é rede de segurança,
+      // que ignora pagamentos já PAID — sem risco de crédito em dobro).
+      if (intent.status === 'succeeded') {
+        await this.repo.creditUserBalance(userId, quantity, payment.id)
+        await this.repo.updatePaymentStatus(payment.id, 'PAID')
+        return { paymentId: payment.id, status: 'approved' as const }
+      }
+      // 'processing' (raro p/ cartão) → aguarda webhook
+      return { paymentId: payment.id, status: 'pending' as const }
+    }
+
+    // ── Cartão novo: PaymentIntent + clientSecret (confirmação no front via Elements) ─
+    const intent = await this.stripe.createCardIntent({
+      customerId,
+      amount,
+      description,
+      saveCard,
+      metadata: this.metadata(userId, comboId, customQuantity),
+    })
     const payment = await this.repo.createPayment({
       userId,
       amount,
       method: 'CREDIT_CARD',
       status: 'PENDING',
-      mercadoPagoId,
+      stripePaymentIntentId: intent.id,
       comboId,
       customQuantity,
     })
+    return { paymentId: payment.id, status: 'pending' as const, clientSecret: intent.client_secret }
+  }
 
-    // ── Salvar cartão após pagamento bem-sucedido (CARD-02) ───────────────
-    // T-12-04: Customer.createCard e savedCard.create SOMENTE após Payment.create bem-sucedido
-    // T-12-03: verifica count < 3 antes de salvar
-    if (saveCard && rawToken && !savedCardId) {
-      const mpCustomerId = await this.getOrCreateMpCustomer(
-        userId,
-        payerEmail ?? user.email ?? `${userId}@cheirin.app`
-      )
-      const count = await this.prisma.savedCard.count({ where: { userId } })
-      if (count < 3) {
-        const mpCard = await this.customerCardApi.create({
-          customerId: mpCustomerId,
-          body: { token: rawToken },
-        })
-        if (mpCard?.id) {
-          // CR-01: recontagem pós-criação no MP para evitar race condition no limite de 3 cartões.
-          // Dois requests concorrentes passariam pelo count < 3 inicial; este segundo count
-          // garante que somente o primeiro a salvar vence — o excedente remove o cartão no MP
-          // e retorna sem persistir (pagamento já efetuado com sucesso).
-          const currentCount = await this.prisma.savedCard.count({ where: { userId } })
-          if (currentCount >= 3) {
-            // Rollback no MP — cartão criado mas limite atingido por request concorrente
-            try {
-              await this.customerCardApi.remove({ customerId: mpCustomerId, id: mpCard.id })
-            } catch {
-              this.fastify.log.error({ mpCardId: mpCard.id }, 'MP rollback failed after concurrent limit exceeded')
-            }
-            return { paymentId: payment.id }
-          }
+  /**
+   * Recarga automática (sem CVV) usada no corte da agenda.
+   * Cobra o combo configurado em autoRecharge no cartão padrão via off_session e
+   * credita sincronamente. Self-validating: retorna ok=false (com motivo) se a recarga
+   * estiver inativa, sem consentimento, sem cartão padrão, ou se o cartão recusar.
+   */
+  async chargeAutoRecharge(userId: string): Promise<{ ok: boolean; reason?: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (!user) return { ok: false, reason: 'user' }
 
-          const isDefault = currentCount === 0
-          const brand = ((mpCard as { payment_method?: { id?: string } }).payment_method?.id ?? '').toLowerCase()
-          const lastFour = (mpCard as { last_four_digits?: string }).last_four_digits ?? ''
-          const expMonth = String((mpCard as { expiration_month?: number }).expiration_month ?? '').padStart(2, '0')
-          const expYear = String((mpCard as { expiration_year?: number }).expiration_year ?? '')
-          const expiresAt = expYear && expMonth ? `${expYear}-${expMonth}` : ''
-          await this.prisma.savedCard.create({
-            data: {
-              userId,
-              mpCardId: mpCard.id,
-              brand,
-              lastFour,
-              expiresAt,
-              isDefault,
-            },
-          })
-        }
-      }
+    const ar = user.autoRecharge as { active?: boolean; comboId?: string } | null
+    if (!ar?.active || !ar.comboId) return { ok: false, reason: 'inactive' }
+    // Consentimento explícito é obrigatório para cobrar sem CVV (off_session)
+    if (!user.offSessionConsentAt) return { ok: false, reason: 'consent' }
+
+    const card = await this.prisma.savedCard.findFirst({ where: { userId, isDefault: true } })
+    if (!card?.stripePaymentMethodId) return { ok: false, reason: 'no_card' }
+
+    try {
+      const res = await this.createCard({ savedCardId: card.id, comboId: ar.comboId, userId })
+      return { ok: res.status === 'approved' }
+    } catch (err) {
+      this.fastify.log.warn({ userId, err }, '[auto-recharge] cobrança recusada')
+      return { ok: false, reason: 'declined' }
     }
-
-    return { paymentId: payment.id }
   }
 
   async getStatus(paymentId: string, userId: string): Promise<{
@@ -272,16 +180,13 @@ export class PaymentsService {
     if (!payment || payment.userId !== userId) {
       throw { error: 'Pagamento não encontrado', status: 404 }
     }
-
     if (payment.status === 'PAID') {
       const user = await this.prisma.user.findUnique({ where: { id: userId } })
       return { status: 'approved', creditBalance: user?.creditBalance ?? 0 }
     }
-
     if (payment.status === 'FAILED' || payment.status === 'REFUNDED') {
       return { status: 'rejected' }
     }
-
     return { status: 'pending' }
   }
 }

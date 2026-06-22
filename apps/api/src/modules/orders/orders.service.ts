@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { CreateOrderBody } from './orders.schema.js'
+import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr } from '../../lib/cutoff.js'
 
 /**
  * Fuso horário do Brasil (UTC-3) para cálculo do "amanhã".
@@ -7,21 +8,6 @@ import { CreateOrderBody } from './orders.schema.js'
  * A validação de "amanhã" usa UTC-3 para alinhar com o timezone dos clientes.
  */
 const BRAZIL_OFFSET_HOURS = 3
-
-/** Retorna a data de "amanhã" em UTC-3 (meia-noite local) */
-function getTomorrowUTC3(): Date {
-  const nowUTC = Date.now()
-  // Ajusta para UTC-3
-  const nowBrazil = nowUTC - BRAZIL_OFFSET_HOURS * 60 * 60 * 1000
-  const todayBrazil = new Date(nowBrazil)
-  // Extrai data local (Y, M, D)
-  const year = todayBrazil.getUTCFullYear()
-  const month = todayBrazil.getUTCMonth()
-  const day = todayBrazil.getUTCDate()
-  // Meia-noite de amanhã em UTC-3 = meia-noite do próximo dia UTC-3
-  // Convertido de volta para UTC: meia-noite UTC-3 = 03:00 UTC
-  return new Date(Date.UTC(year, month, day + 1, BRAZIL_OFFSET_HOURS, 0, 0, 0))
-}
 
 /**
  * Retorna o intervalo de "hoje" em UTC-3 como par de datas UTC.
@@ -73,15 +59,44 @@ export class OrdersService {
    * @throws { statusCode: 400, message: 'Créditos insuficientes' } se saldo < quantity
    */
   async createSingleOrder(userId: string, data: CreateOrderBody) {
-    const scheduledDate = new Date(data.scheduledDate)
-    const tomorrow = getTomorrowUTC3()
-
-    // T-04-03-02: Rejeita datas no passado ou hoje
-    if (scheduledDate < tomorrow) {
+    // T-04-03-02: Rejeita datas no passado ou hoje — compara "YYYY-MM-DD" ao amanhã BRT
+    // (comparação por string evita off-by-one de fuso que rejeitava o próprio "amanhã").
+    const dateStr = data.scheduledDate.slice(0, 10)
+    const tomorrowStr = brtDateStr(new Date(), 1)
+    if (dateStr < tomorrowStr) {
       throw { statusCode: 400, message: 'Data inválida' }
+    }
+    // Armazena ao meio-dia BRT do dia escolhido (cai na janela correta de hoje/histórico)
+    const scheduledDate = brtNoonFromStr(dateStr)
+
+    // Enforçar horário de corte por slot: a data só é aceita enquanto houver ao menos
+    // um slot do condomínio ainda aberto para entrega naquela data (corte não passou).
+    const ownerCondo = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { condominiumId: true },
+    })
+    if (ownerCondo?.condominiumId) {
+      const condo = await this.prisma.condominium.findUnique({
+        where: { id: ownerCondo.condominiumId },
+        select: { deliverySlots: true },
+      })
+      const activeSlots = (condo?.deliverySlots ?? []).filter((s) => s.isActive)
+      if (activeSlots.length > 0) {
+        const stillOpen = activeSlots.some(
+          (s) => !isPastCutoffForDelivery(s.time, s.cutoffTime, data.scheduledDate),
+        )
+        if (!stillOpen) {
+          throw { statusCode: 400, message: 'Prazo de pedido encerrado para esta data' }
+        }
+      }
     }
 
     // T-04-03-04: Reserva atômica — verifica saldo, debita e cria Order/CreditTransaction
+    // Descrição amigável para o extrato (sem ID interno): "Pedido avulso · N pães · DD/MM"
+    const paesLabel = data.quantity === 1 ? '1 pão' : `${data.quantity} pães`
+    const [, mesStr, diaStr] = dateStr.split('-')
+    const avulsoDesc = `Pedido avulso · ${paesLabel} · ${diaStr}/${mesStr}`
+
     const order = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: userId } })
 
@@ -113,7 +128,7 @@ export class OrdersService {
           type: 'DELIVERY',
           quantity: -data.quantity,
           referenceId: newOrder.id,
-          description: `Pedido avulso #${newOrder.id}`,
+          description: avulsoDesc,
         },
       })
 
@@ -137,6 +152,23 @@ export class OrdersService {
         scheduledDate: { gte: start, lte: end },
         status: { not: 'CANCELLED' },
       },
+    })
+  }
+
+  /**
+   * Retorna a PRÓXIMA entrega futura do usuário (de amanhã em diante), considerando BRT.
+   * Usado como fallback no card da Home quando não há entrega hoje.
+   * Exclui CANCELLED/DELIVERED; ordena por data ascendente (a mais próxima primeiro).
+   */
+  async getNextOrder(userId: string) {
+    const { end } = getTodayRange() // fim do dia BRT de hoje → gt = amanhã em diante
+    return this.prisma.order.findFirst({
+      where: {
+        userId,
+        scheduledDate: { gt: end },
+        status: { in: ['SCHEDULED', 'OUT_FOR_DELIVERY'] },
+      },
+      orderBy: { scheduledDate: 'asc' },
     })
   }
 
