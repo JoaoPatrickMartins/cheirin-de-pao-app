@@ -15,7 +15,6 @@ import { useSchedule, WeeklyQty } from '../../hooks/useSchedule'
 import { Icon } from '../../components/brand/Icon'
 import StepperInline from '../../components/client/StepperInline'
 import DeliveryTimeChips, { DeliverySlot } from '../../components/client/DeliveryTimeChips'
-import BannerCobertura from '../../components/client/BannerCobertura'
 import { AutoRechargeBanner } from '../../components/client/AutoRechargeBanner'
 import { apiFetch } from '../../lib/apiFetch'
 
@@ -51,7 +50,6 @@ export function ScheduleScreen() {
     isLoading,
     isSaving,
     consumoSemanal,
-    cobre,
   } = useSchedule(creditBalance)
 
   const [slots, setSlots] = useState<DeliverySlot[]>([])
@@ -529,14 +527,6 @@ export function ScheduleScreen() {
           </button>
         </div>
 
-        {/* BannerCobertura */}
-        <BannerCobertura
-          semana={consumoSemanal}
-          saldo={creditBalance}
-          cobre={cobre}
-          onCombos={() => navigate('/client/creditos')}
-          onAutoBuy={() => navigate('/client/creditos/recorrente')}
-        />
       </div>
 
       {/* Footer fixo */}

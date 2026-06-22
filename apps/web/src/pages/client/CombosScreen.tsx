@@ -195,7 +195,7 @@ export function CombosScreen() {
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, padding: '0 20px', paddingBottom: 116, overflowY: 'auto' }}>
+      <div style={{ flex: 1, padding: '0 20px', paddingBottom: 116, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         {error && (
           <p style={{ color: 'var(--color-accent)', fontSize: 14, marginBottom: 12 }}>
             {error}
@@ -347,8 +347,8 @@ export function CombosScreen() {
           </div>
         )}
 
-        {/* Compra automática — rodapé (read-only; configura no menu) */}
-        <div style={{ marginTop: 18 }}>
+        {/* Compra automática — empurrada para o rodapé, com respiro acima da barra fixa */}
+        <div style={{ marginTop: 'auto', paddingTop: 28, marginBottom: 10 }}>
           <AutoRechargeBanner />
         </div>
       </div>
