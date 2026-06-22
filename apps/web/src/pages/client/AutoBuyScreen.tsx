@@ -135,21 +135,25 @@ export function AutoBuyScreen() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px 120px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {/* Card mestre — identidade espresso (igual ao card de créditos da Home) */}
+        {/* Card mestre — neutro quando desativado; espresso premium (identidade da Home) quando ativado */}
         <div
           style={{
             borderRadius: 'var(--radius-card)',
             overflow: 'hidden',
             boxShadow: 'var(--shadow-soft)',
-            background: 'linear-gradient(135deg, #1E1207, #2E1D0D)',
+            background: isOn ? 'linear-gradient(135deg, #1E1207, #2E1D0D)' : 'var(--color-surface)',
+            border: isOn ? 'none' : '1px solid var(--color-border-2)',
             position: 'relative',
             padding: '22px',
+            transition: 'background .25s ease',
           }}
         >
-          {/* Watermark do pão */}
-          <div style={{ position: 'absolute', bottom: -54, right: -34, opacity: 0.1, pointerEvents: 'none' }}>
-            <BreadMark size={200} color="#E3AC3F" />
-          </div>
+          {/* Watermark do pão — só no estado ativado (espresso) */}
+          {isOn && (
+            <div style={{ position: 'absolute', bottom: -54, right: -34, opacity: 0.1, pointerEvents: 'none' }}>
+              <BreadMark size={200} color="#E3AC3F" />
+            </div>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, position: 'relative' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -158,7 +162,7 @@ export function AutoBuyScreen() {
                   fontFamily: 'var(--font-body)',
                   fontSize: 12.5,
                   fontWeight: 600,
-                  color: '#C7B595',
+                  color: isOn ? '#C7B595' : 'var(--color-text-ter)',
                   letterSpacing: '0.04em',
                   textTransform: 'uppercase',
                   margin: '0 0 7px',
@@ -173,7 +177,7 @@ export function AutoBuyScreen() {
                     width: 9,
                     height: 9,
                     borderRadius: '50%',
-                    background: isOn ? '#E3AC3F' : 'rgba(255,255,255,0.28)',
+                    background: isOn ? '#E3AC3F' : 'var(--color-border)',
                     boxShadow: isOn ? '0 0 0 4px rgba(227,172,63,0.18)' : 'none',
                     flexShrink: 0,
                     transition: 'background .2s, box-shadow .2s',
@@ -184,7 +188,7 @@ export function AutoBuyScreen() {
                     fontFamily: 'var(--font-display)',
                     fontWeight: 800,
                     fontSize: 24,
-                    color: '#FAF5EC',
+                    color: isOn ? '#FAF5EC' : 'var(--color-text)',
                     lineHeight: 1,
                     letterSpacing: '-0.02em',
                   }}
@@ -199,7 +203,7 @@ export function AutoBuyScreen() {
                   fontSize: 12.5,
                   lineHeight: 1.5,
                   margin: 0,
-                  color: '#9A876B',
+                  color: isOn ? '#9A876B' : 'var(--color-text-sec)',
                   maxWidth: '94%',
                 }}
               >
@@ -344,7 +348,7 @@ function Toggle({ on, onToggle, disabled }: { on: boolean; onToggle: () => void;
         position: 'relative',
         flexShrink: 0,
         cursor: disabled ? 'default' : 'pointer',
-        background: on ? '#E3AC3F' : 'rgba(255,255,255,0.22)',
+        background: on ? '#E3AC3F' : 'var(--color-border)',
         transition: 'background .2s',
       }}
     >
