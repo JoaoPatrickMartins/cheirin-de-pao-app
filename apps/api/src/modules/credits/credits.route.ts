@@ -122,27 +122,18 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['mode', 'comboId'],
+          required: ['active'],
           properties: {
-            mode: { type: 'string', enum: ['acabar', 'semanal'], description: '"acabar": recarga automática quando créditos acabam. "semanal": recarga em dia fixo da semana.' },
-            weekday: { type: 'integer', minimum: 0, maximum: 6, description: 'Dia da semana para recarga (0=domingo, 6=sábado). Obrigatório quando mode="semanal".' },
-            comboId: { type: 'string', description: 'ID do combo a comprar automaticamente na recarga.' },
+            active: { type: 'boolean', description: 'Liga/desliga a recarga automática.' },
+            comboId: { type: 'string', description: 'Combo a recarregar. Obrigatório ao ativar.' },
           },
         },
         response: {
           200: {
             type: 'object',
-            description: 'Configuração de recarga automática salva.',
+            description: 'Configuração salva.',
             properties: {
-              autoRecharge: {
-                type: 'object',
-                description: 'Configuração atual de recarga automática.',
-                properties: {
-                  mode: { type: 'string', description: 'Modo configurado: "acabar" ou "semanal".' },
-                  weekday: { type: 'integer', description: 'Dia da semana (quando mode=semanal).' },
-                  comboId: { type: 'string', description: 'ID do combo configurado.' },
-                },
-              },
+              ok: { type: 'boolean' },
             },
           },
         },
