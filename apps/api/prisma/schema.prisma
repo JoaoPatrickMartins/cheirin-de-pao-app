@@ -291,8 +291,11 @@ model Payment {
   amount        Float
   method        PaymentMethod
   status        PaymentStatus
-  mercadoPagoId  String?       @unique
-  stripePaymentIntentId String? @unique
+  // Legados/Stripe: SEM @unique — índice único do Mongo rejeita múltiplos nulls
+  // (todo pagamento Stripe tem mercadoPagoId null; pagamentos MP antigos têm
+  // stripePaymentIntentId ausente). Idempotência é garantida na aplicação.
+  mercadoPagoId  String?
+  stripePaymentIntentId String?
   comboId        String?       @db.ObjectId
   customQuantity Int?
   createdAt      DateTime      @default(now())

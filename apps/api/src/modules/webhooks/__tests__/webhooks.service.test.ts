@@ -18,7 +18,7 @@ type Mock = ReturnType<typeof vi.fn>
 function createMockFastify(): FastifyInstance {
   return {
     prisma: {
-      payment: { findUnique: vi.fn(), update: vi.fn() },
+      payment: { findFirst: vi.fn(), update: vi.fn() },
       user: { update: vi.fn() },
       creditTransaction: { create: vi.fn() },
       combo: { findUnique: vi.fn() },
@@ -35,7 +35,7 @@ describe('WebhooksService (Stripe).processEvent', () => {
 
   it('payment_intent.succeeded → credita e marca PAID (combo)', async () => {
     const fastify = createMockFastify()
-    ;(fastify.prisma.payment.findUnique as Mock).mockResolvedValueOnce({
+    ;(fastify.prisma.payment.findFirst as Mock).mockResolvedValueOnce({
       id: 'pay-1', userId: 'user-1', status: 'PENDING', comboId: 'combo-1', customQuantity: null,
     })
     ;(fastify.prisma.combo.findUnique as Mock).mockResolvedValueOnce({ id: 'combo-1', quantity: 30 })
@@ -51,7 +51,7 @@ describe('WebhooksService (Stripe).processEvent', () => {
 
   it('payment_intent.succeeded → idempotente: não credita se já PAID', async () => {
     const fastify = createMockFastify()
-    ;(fastify.prisma.payment.findUnique as Mock).mockResolvedValueOnce({ id: 'pay-1', status: 'PAID' })
+    ;(fastify.prisma.payment.findFirst as Mock).mockResolvedValueOnce({ id: 'pay-1', status: 'PAID' })
 
     const service = new WebhooksService(fastify)
     await service.processEvent(evt('payment_intent.succeeded', { id: 'pi_1' }))
@@ -62,7 +62,7 @@ describe('WebhooksService (Stripe).processEvent', () => {
 
   it('payment_intent.succeeded → no-op se pagamento não existe', async () => {
     const fastify = createMockFastify()
-    ;(fastify.prisma.payment.findUnique as Mock).mockResolvedValueOnce(null)
+    ;(fastify.prisma.payment.findFirst as Mock).mockResolvedValueOnce(null)
 
     const service = new WebhooksService(fastify)
     await service.processEvent(evt('payment_intent.succeeded', { id: 'pi_x' }))
@@ -72,7 +72,7 @@ describe('WebhooksService (Stripe).processEvent', () => {
 
   it('payment_intent.payment_failed → marca FAILED quando PENDING', async () => {
     const fastify = createMockFastify()
-    ;(fastify.prisma.payment.findUnique as Mock).mockResolvedValueOnce({ id: 'pay-2', status: 'PENDING' })
+    ;(fastify.prisma.payment.findFirst as Mock).mockResolvedValueOnce({ id: 'pay-2', status: 'PENDING' })
     ;(fastify.prisma.payment.update as Mock).mockResolvedValueOnce({})
 
     const service = new WebhooksService(fastify)
@@ -83,7 +83,7 @@ describe('WebhooksService (Stripe).processEvent', () => {
 
   it('charge.refunded → marca REFUNDED', async () => {
     const fastify = createMockFastify()
-    ;(fastify.prisma.payment.findUnique as Mock).mockResolvedValueOnce({ id: 'pay-3', status: 'PAID' })
+    ;(fastify.prisma.payment.findFirst as Mock).mockResolvedValueOnce({ id: 'pay-3', status: 'PAID' })
     ;(fastify.prisma.payment.update as Mock).mockResolvedValueOnce({})
 
     const service = new WebhooksService(fastify)
@@ -96,6 +96,6 @@ describe('WebhooksService (Stripe).processEvent', () => {
     const fastify = createMockFastify()
     const service = new WebhooksService(fastify)
     await service.processEvent(evt('invoice.paid', {}))
-    expect(fastify.prisma.payment.findUnique).not.toHaveBeenCalled()
+    expect(fastify.prisma.payment.findFirst).not.toHaveBeenCalled()
   })
 })

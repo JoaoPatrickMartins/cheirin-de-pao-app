@@ -30,11 +30,11 @@ export class PaymentsRepository {
   }
 
   findPaymentByMercadoPagoId(mpId: string) {
-    return this.prisma.payment.findUnique({ where: { mercadoPagoId: mpId } })
+    return this.prisma.payment.findFirst({ where: { mercadoPagoId: mpId } })
   }
 
   findPaymentByStripePaymentIntentId(stripePaymentIntentId: string) {
-    return this.prisma.payment.findUnique({ where: { stripePaymentIntentId } })
+    return this.prisma.payment.findFirst({ where: { stripePaymentIntentId } })
   }
 
   async creditUserBalance(userId: string, quantity: number, paymentId: string) {
