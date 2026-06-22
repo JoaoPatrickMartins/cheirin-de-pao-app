@@ -280,7 +280,7 @@ export function CardPaymentScreen() {
               minHeight: 52,
               borderRadius: 'var(--radius-btn)',
               border: 'none',
-              background: 'var(--color-accent)',
+              background: 'var(--color-espresso)',
               color: 'var(--color-primary-btn-text)',
               fontFamily: 'var(--font-display)',
               fontWeight: 600,

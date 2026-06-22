@@ -314,7 +314,7 @@ export function AutoBuyScreen() {
             minHeight: 52,
             borderRadius: 'var(--radius-btn)',
             border: 'none',
-            background: saved ? 'var(--color-good)' : 'var(--color-accent)',
+            background: saved ? 'var(--color-good)' : 'var(--color-espresso)',
             color: 'var(--color-primary-btn-text)',
             fontFamily: 'var(--font-display)',
             fontWeight: 600,

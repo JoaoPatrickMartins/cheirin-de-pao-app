@@ -180,7 +180,7 @@ function PixWaitingContent({
               padding: '10px 24px',
               borderRadius: 'var(--radius-btn)',
               border: 'none',
-              background: 'var(--color-accent)',
+              background: 'var(--color-espresso)',
               color: 'var(--color-primary-btn-text)',
               fontFamily: 'var(--font-body)',
               fontWeight: 600,
