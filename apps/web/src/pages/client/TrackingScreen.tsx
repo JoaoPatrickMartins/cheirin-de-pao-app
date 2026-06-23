@@ -43,7 +43,7 @@ const STEPS: { key: StepKey; label: string; desc: string }[] = [
   {
     key: 'DELIVERED',
     label: 'Entregue',
-    desc: 'Pãezinhos na sua porta. Bom dia!',
+    desc: 'Pãezinhos quentinhos na sua porta.',
   },
 ]
 
@@ -216,6 +216,11 @@ function HeroCard({
 }
 
 function Timeline({ order }: { order: TodayOrder }) {
+  // Cumprimento da etapa "Entregue" conforme o horário do slot (manhã/tarde/noite).
+  const hour = order.deliveryTime ? parseInt(order.deliveryTime.split(':')[0], 10) : null
+  const greeting =
+    hour === null ? 'Aproveite!' : hour < 12 ? 'Bom dia!' : hour < 18 ? 'Boa tarde!' : 'Boa noite!'
+
   return (
     <div role="list" style={{ paddingLeft: 6, position: 'relative', marginBottom: 18 }}>
       {STEPS.map((step, i) => {
@@ -305,7 +310,7 @@ function Timeline({ order }: { order: TodayOrder }) {
                   lineHeight: 1.45,
                 }}
               >
-                {step.desc}
+                {step.key === 'DELIVERED' ? `${step.desc} ${greeting}` : step.desc}
               </p>
             </div>
           </div>
