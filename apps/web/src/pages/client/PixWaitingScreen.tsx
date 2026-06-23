@@ -2,12 +2,16 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { usePaymentPolling } from '../../hooks/usePaymentPolling'
+import { finalizePendingOrder, type PendingOrder } from '../../lib/finalizePendingOrder'
 
 interface PixState {
   paymentId: string
   pixQrCodeUrl: string
   pixCopyPaste: string
   comboQuantity: number
+  /** Quando presente, o pagamento cobre a diferença de um Pedido único:
+   *  ao aprovar, o pedido é criado automaticamente. */
+  pendingOrder?: PendingOrder
 }
 
 export function PixWaitingScreen() {
@@ -22,13 +26,14 @@ export function PixWaitingScreen() {
     return null
   }
 
-  const { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity } = state
+  const { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity, pendingOrder } = state
   return (
     <PixWaitingContent
       paymentId={paymentId}
       pixQrCodeUrl={pixQrCodeUrl}
       pixCopyPaste={pixCopyPaste}
       comboQuantity={comboQuantity}
+      pendingOrder={pendingOrder}
       onCreditUpdate={updateCreditBalance}
       onNavigate={navigate}
     />
@@ -40,6 +45,7 @@ interface ContentProps {
   pixQrCodeUrl: string
   pixCopyPaste: string
   comboQuantity: number
+  pendingOrder?: PendingOrder
   onCreditUpdate: (balance: number) => void
   onNavigate: ReturnType<typeof useNavigate>
 }
@@ -49,16 +55,38 @@ function PixWaitingContent({
   pixQrCodeUrl,
   pixCopyPaste,
   comboQuantity,
+  pendingOrder,
   onCreditUpdate,
   onNavigate,
 }: ContentProps) {
   const [copied, setCopied] = useState(false)
   const [isApproved, setIsApproved] = useState(false)
   const [isRejected, setIsRejected] = useState(false)
+  const [finalizeError, setFinalizeError] = useState<string | null>(null)
 
-  const handleApproved = (creditBalance: number) => {
+  const handleApproved = async (creditBalance: number) => {
     onCreditUpdate(creditBalance)
     setIsApproved(true)
+
+    // Pedido único: cria a entrega agora que a diferença foi creditada.
+    if (pendingOrder) {
+      const result = await finalizePendingOrder(pendingOrder)
+      if (result.ok) {
+        if (result.creditBalance !== undefined) onCreditUpdate(result.creditBalance)
+        onNavigate('/client/creditos/sucesso', {
+          state: {
+            kind: 'order',
+            quantity: pendingOrder.quantity,
+            scheduledDate: pendingOrder.scheduledDate,
+            deliveryTime: pendingOrder.deliveryTime,
+          },
+        })
+      } else {
+        setFinalizeError(result.message ?? 'Não foi possível agendar o pedido.')
+      }
+      return
+    }
+
     onNavigate('/client/creditos/sucesso', { state: { quantity: comboQuantity } })
   }
 
@@ -156,7 +184,42 @@ function PixWaitingContent({
       </div>
 
       {/* Status area */}
-      {isRejected ? (
+      {finalizeError ? (
+        <div
+          style={{
+            width: '100%',
+            background: 'var(--color-gold-soft)',
+            border: '1.5px solid var(--color-gold)',
+            borderRadius: 16,
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)', margin: 0 }}>
+            {finalizeError}
+          </p>
+          <button
+            onClick={() => onNavigate('/client/agenda/pedido-unico')}
+            style={{
+              minHeight: 44,
+              padding: '10px 20px',
+              borderRadius: 'var(--radius-btn)',
+              border: 'none',
+              background: 'var(--color-gold)',
+              color: 'var(--color-espresso)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: 'pointer',
+              alignSelf: 'flex-start',
+            }}
+          >
+            Tentar agendar
+          </button>
+        </div>
+      ) : isRejected ? (
         <div
           style={{
             width: '100%',

@@ -7,7 +7,7 @@ import { useOrderTracking } from '../../hooks/useOrderTracking'
 import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
 import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
-import BannerInsuficiente from '../../components/client/BannerInsuficiente'
+import { useAutoRecharge } from '../../hooks/useAutoRecharge'
 import { apiFetch } from '../../lib/apiFetch'
 
 const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
@@ -71,6 +71,9 @@ export function HomeScreen() {
   // Dados reais de agendamento para NextDays (GET /schedules/me via useSchedule).
   // dailyQty soma todos os slots (multi-slot) ou usa weeklyQty (single-slot).
   const { dailyQty, isLoading: scheduleLoading } = useSchedule(creditBalance)
+
+  // Status da recarga automática — quando ativa, o saldo zerado não é risco (o sistema recarrega).
+  const { status: autoRecharge, loading: autoRechargeLoading } = useAutoRecharge()
 
   // Próximos 5 dias a partir de amanhã (BRT)
   const nextDays = Array.from({ length: 5 }, (_, i) => {
@@ -384,15 +387,55 @@ export function HomeScreen() {
         )}
       </div>
 
-      {/* BannerInsuficiente (CRED-09 frontend) — exibido quando creditBalance === 0 */}
-      {creditBalance === 0 && (
-        <BannerInsuficiente
-          saldo={0}
-          requerido={1}
-          onComprar={() => navigate('/client/creditos')}
-          onAjustar={() => {}}
-          hideAjustar={true}
-        />
+      {/* Aviso de risco — só quando há agenda ativa, saldo zerado e SEM recarga automática
+          (com recarga ligada o sistema cobre; sem agenda o card de saldo já basta). Fala a
+          consequência ("perder entregas"), não o estado do saldo. */}
+      {hasSchedule && creditBalance === 0 && !autoRechargeLoading && !autoRecharge?.active && (
+        <div
+          style={{
+            background: 'var(--color-gold-soft)',
+            border: '1.5px solid var(--color-gold)',
+            borderRadius: 16,
+            padding: 14,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <Icon name="alert" size={20} color="var(--color-accent)" />
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 14,
+                color: 'var(--color-text)',
+                margin: 0,
+                lineHeight: 1.45,
+              }}
+            >
+              Sua agenda está ativa, mas você está <strong>sem créditos</strong>. Adicione
+              créditos para não perder as próximas entregas. 🥖
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/client/creditos')}
+            style={{
+              alignSelf: 'flex-start',
+              minHeight: 44,
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-btn)',
+              border: 'none',
+              background: 'var(--color-gold)',
+              color: 'var(--color-espresso)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            Comprar créditos
+          </button>
+        </div>
       )}
 
       {/* Quick Actions */}

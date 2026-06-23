@@ -25,6 +25,7 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             quantity: { type: 'integer', minimum: 1, maximum: 20, description: 'Quantidade de pãezinhos para o pedido avulso (1–20).' },
             scheduledDate: { type: 'string', format: 'date', description: 'Data de entrega no formato ISO (YYYY-MM-DD). Deve ser futura e antes do cutoff do dia.' },
+            deliveryTime: { type: 'string', description: 'Horário do slot de entrega escolhido ("HH:MM"). Deve corresponder a um slot ativo do condomínio cujo corte ainda não passou para a data.' },
           },
         },
         response: {
@@ -126,6 +127,7 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
                 quantity: { type: 'integer', description: 'Quantidade de pãezinhos.' },
                 status: { type: 'string', description: 'Status: "SCHEDULED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED".' },
                 scheduledDate: { type: 'string', description: 'Data de entrega programada.' },
+                deliveryTime: { type: 'string', description: 'Horário do slot (HH:MM), quando disponível.' },
                 type: { type: 'string', description: 'Tipo: "SCHEDULE" (da agenda) ou "SINGLE" (avulso).' },
                 deliveredAt: { type: 'string', description: 'Data/hora de entrega confirmada, se entregue.' },
               },

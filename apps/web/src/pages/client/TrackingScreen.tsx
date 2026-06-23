@@ -10,6 +10,7 @@ interface HistoryOrder {
   status: 'SCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED'
   quantity: number
   scheduledDate: string
+  deliveryTime?: string
   type: 'SCHEDULED' | 'SINGLE'
 }
 
@@ -22,6 +23,7 @@ interface CondoSlot {
 
 // Rótulos amigáveis dos slots do condomínio (mesmo padrão da Home)
 const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
+const SLOT_EMOJI: Record<string, string> = { manha: '☀️', tarde: '🌙' }
 
 const STATUSES = ['SCHEDULED', 'OUT_FOR_DELIVERY', 'DELIVERED'] as const
 
@@ -85,13 +87,7 @@ function formatHistoryDate(dateStr: string): string {
   }).format(new Date(dateStr))
 }
 
-function formatHistoryTime(dateStr: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'America/Sao_Paulo',
-  }).format(new Date(dateStr))
-}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 interface PillProps {
   children: React.ReactNode
@@ -520,8 +516,17 @@ export function TrackingScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {visibleHistory.map((o) => {
               const dateLabel = formatHistoryDate(o.scheduledDate)
-              const timeLabel = formatHistoryTime(o.scheduledDate)
+              const slotName = o.deliveryTime
+                ? slots.find((s) => s.time === o.deliveryTime)?.name
+                : undefined
+              const slotEmoji = slotName ? SLOT_EMOJI[slotName] : ''
+              const slotName2 = slotName ? SLOT_LABEL[slotName] : undefined
+              // "☀️ Manhã · 06:30" — ou só o horário se o slot não for reconhecido
+              const slotText = o.deliveryTime
+                ? `${slotEmoji ? slotEmoji + ' ' : ''}${slotName2 ? cap(slotName2) + ' · ' : ''}${o.deliveryTime}`
+                : null
               const typeLabel = o.type === 'SINGLE' ? 'Pedido único' : 'Agendamento'
+              const qtyText = o.quantity === 1 ? '1 pão' : `${o.quantity} pães`
               return (
                 <div
                   key={o.id}
@@ -531,6 +536,7 @@ export function TrackingScreen() {
                     gap: 13,
                     padding: 14,
                     background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border-2)',
                     borderRadius: 'var(--radius-card)',
                     alignItems: 'center',
                   }}
@@ -552,7 +558,7 @@ export function TrackingScreen() {
                       color="var(--color-accent)"
                     />
                   </div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <p
                       style={{
                         fontFamily: 'var(--font-body)',
@@ -564,15 +570,28 @@ export function TrackingScreen() {
                     >
                       {dateLabel}
                     </p>
+                    {slotText && (
+                      <p
+                        style={{
+                          fontFamily: 'var(--font-body)',
+                          fontWeight: 600,
+                          fontSize: 13,
+                          color: 'var(--color-text-sec)',
+                          margin: '2px 0 0',
+                        }}
+                      >
+                        {slotText}
+                      </p>
+                    )}
                     <p
                       style={{
                         fontFamily: 'var(--font-body)',
-                        fontSize: 12.5,
+                        fontSize: 12,
                         color: 'var(--color-text-ter)',
                         margin: '1px 0 0',
                       }}
                     >
-                      {typeLabel} · {timeLabel} · {o.quantity} pães
+                      {typeLabel} · {qtyText}
                     </p>
                   </div>
                   <StatusPill status={o.status} />

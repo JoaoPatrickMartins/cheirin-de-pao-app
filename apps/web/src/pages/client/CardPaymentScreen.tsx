@@ -1,23 +1,29 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { apiFetch } from '../../lib/apiFetch'
+import { useAuth } from '../../hooks/useAuth'
 import { Icon } from '../../components/brand/Icon'
 import { SavedCardsList } from '../../components/client/SavedCardsList'
 import { AddCardForm } from '../../components/client/AddCardForm'
 import type { SavedCard } from '../../components/client/SavedCardItem'
+import { finalizePendingOrder, type PendingOrder } from '../../lib/finalizePendingOrder'
 
 interface CardState {
   comboId?: string
   customQuantity?: number
   amount: number
   quantity?: number
+  /** Quando presente, o pagamento cobre a diferença de um Pedido único:
+   *  ao aprovar, o pedido é criado automaticamente. */
+  pendingOrder?: PendingOrder
 }
 
 export function CardPaymentScreen() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { updateCreditBalance } = useAuth()
   const state = (location.state as CardState | null) ?? { amount: 0 }
-  const { comboId, customQuantity } = state
+  const { comboId, customQuantity, pendingOrder } = state
 
   const [savedCards, setSavedCards] = useState<SavedCard[]>([])
   const [loadingCards, setLoadingCards] = useState(true)
@@ -64,6 +70,23 @@ export function CardPaymentScreen() {
       body: JSON.stringify({ savedCardId, comboId, customQuantity }),
     })
     if (res.ok) {
+      // Pedido único: cria a entrega agora que a diferença foi creditada.
+      if (pendingOrder) {
+        const result = await finalizePendingOrder(pendingOrder)
+        if (result.ok) {
+          if (result.creditBalance !== undefined) updateCreditBalance(result.creditBalance)
+          navigate('/client/creditos/sucesso', {
+            state: {
+              kind: 'order',
+              quantity: pendingOrder.quantity,
+              scheduledDate: pendingOrder.scheduledDate,
+              deliveryTime: pendingOrder.deliveryTime,
+            },
+          })
+          return null
+        }
+        return result.message ?? 'Não foi possível agendar o pedido.'
+      }
       goToSuccess()
       return null
     }
