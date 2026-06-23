@@ -17,10 +17,26 @@ const TIPO_TABS = [
   { key: 'BLOCKS' as CondoTipo, label: 'Blocos/Torres' },
 ]
 
+// ------------------------------------------------------------------ máscaras
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+/** Formata CEP para 00000-000. */
+function maskCEP(value: string): string {
+  const d = onlyDigits(value).slice(0, 8)
+  return d.replace(/^(\d{5})(\d)/, '$1-$2')
+}
+
 // ------------------------------------------------------------------ componente
 export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
   const [nome, setNome] = useState('')
-  const [endereco, setEndereco] = useState('')
+  const [rua, setRua] = useState('')
+  const [numero, setNumero] = useState('')
+  const [complemento, setComplemento] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [estado, setEstado] = useState('')
+  const [cep, setCep] = useState('')
   const [tipo, setTipo] = useState<CondoTipo>('SINGLE_ENTRANCE')
   const [numBlocos, setNumBlocos] = useState('1')
   const [isSaving, setIsSaving] = useState(false)
@@ -35,12 +51,24 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
         if (res.ok) {
           const data = (await res.json()) as {
             name: string
-            address?: string | null
+            address?: {
+              street?: string | null
+              number?: string | null
+              complement?: string | null
+              city?: string | null
+              state?: string | null
+              zip?: string | null
+            } | null
             type: CondoTipo
             numBlocks?: number | null
           }
           setNome(data.name)
-          setEndereco(data.address ?? '')
+          setRua(data.address?.street ?? '')
+          setNumero(data.address?.number ?? '')
+          setComplemento(data.address?.complement ?? '')
+          setCidade(data.address?.city ?? '')
+          setEstado(data.address?.state ?? '')
+          setCep(maskCEP(data.address?.zip ?? ''))
           setTipo(data.type)
           setNumBlocos(String(data.numBlocks ?? 1))
         }
@@ -59,7 +87,14 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
     try {
       const body = {
         name: nome.trim(),
-        ...(endereco.trim() ? { address: endereco.trim() } : {}),
+        address: {
+          street: rua.trim(),
+          number: numero.trim(),
+          ...(complemento.trim() ? { complement: complemento.trim() } : {}),
+          city: cidade.trim(),
+          state: estado.trim().toUpperCase(),
+          zip: onlyDigits(cep),
+        },
         type: tipo,
         ...(tipo === 'BLOCKS' ? { numBlocks: Number(numBlocos) } : {}),
       }
@@ -80,7 +115,13 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
     }
   }
 
-  const isValid = nome.trim() !== ''
+  const isValid =
+    nome.trim() !== '' &&
+    rua.trim() !== '' &&
+    numero.trim() !== '' &&
+    cidade.trim() !== '' &&
+    estado.trim().length === 2 &&
+    cep.trim() !== ''
 
   if (isLoading) {
     return (
@@ -155,13 +196,79 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
           placeholder="Ex.: Residencial das Flores"
         />
 
+        {/* Endereço */}
+        <div
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'var(--color-text-sec)',
+            letterSpacing: '0.02em',
+            textTransform: 'uppercase',
+            marginTop: 4,
+          }}
+        >
+          Endereço
+        </div>
+
         <FormField
-          label="Endereço"
+          label="Rua"
           icon="pin"
-          value={endereco}
-          onChange={setEndereco}
-          placeholder="Rua, número, bairro"
+          value={rua}
+          onChange={setRua}
+          placeholder="Rua das Flores"
         />
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="Número"
+              icon="home"
+              value={numero}
+              onChange={setNumero}
+              placeholder="123"
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="Complemento"
+              icon="edit"
+              value={complemento}
+              onChange={setComplemento}
+              placeholder="Portaria, ponto de referência"
+            />
+          </div>
+        </div>
+
+        <FormField
+          label="Cidade"
+          icon="building"
+          value={cidade}
+          onChange={setCidade}
+          placeholder="São Paulo"
+        />
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="Estado (UF)"
+              icon="pin"
+              value={estado}
+              onChange={(v) => setEstado(v.toUpperCase().slice(0, 2))}
+              placeholder="SP"
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="CEP"
+              icon="mail"
+              type="tel"
+              value={cep}
+              onChange={(v) => setCep(maskCEP(v))}
+              placeholder="00000-000"
+            />
+          </div>
+        </div>
 
         {/* Tipo */}
         <div>
