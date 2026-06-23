@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useOrderTracking, TodayOrder } from '../../hooks/useOrderTracking'
 import { apiFetch } from '../../lib/apiFetch'
-import { Icon } from '../../components/brand/Icon'
+import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
 
 interface HistoryOrder {
@@ -91,16 +91,23 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 interface PillProps {
   children: React.ReactNode
-  tone: 'good' | 'neutral'
+  tone: 'good' | 'neutral' | 'scheduled' | 'transit' | 'delivered'
   dot?: boolean
+  iconName?: keyof typeof Ic
   ariaLive?: 'polite' | 'off'
 }
 
-function Pill({ children, tone, dot, ariaLive }: PillProps) {
+function Pill({ children, tone, dot, iconName, ariaLive }: PillProps) {
   const toneStyles: Record<string, React.CSSProperties> = {
+    // tons suaves usados na timeline ("agora")
     good: { background: 'var(--color-good-soft)', color: 'var(--color-good)' },
     neutral: { background: 'var(--color-surface-2)', color: 'var(--color-text-sec)' },
+    // status do histórico — fundo claro + texto escuro da MESMA família de cor (estilo "agora")
+    scheduled: { background: 'var(--color-surface-2)', color: 'var(--color-text-sec)' },
+    transit: { background: 'var(--color-gold-soft)', color: 'var(--color-accent)' },
+    delivered: { background: 'var(--color-good-soft)', color: 'var(--color-good)' },
   }
+  const fg = toneStyles[tone].color as string
   return (
     <div
       aria-live={ariaLive}
@@ -122,10 +129,13 @@ function Pill({ children, tone, dot, ariaLive }: PillProps) {
             width: 6,
             height: 6,
             borderRadius: '50%',
-            background: 'var(--color-good)',
+            background: fg,
             flexShrink: 0,
           }}
         />
+      )}
+      {iconName && (
+        <Icon name={iconName} size={13} color={fg} stroke={2.6} aria-hidden="true" />
       )}
       {children}
     </div>
@@ -133,9 +143,9 @@ function Pill({ children, tone, dot, ariaLive }: PillProps) {
 }
 
 function StatusPill({ status }: { status: string }) {
-  if (status === 'OUT_FOR_DELIVERY') return <Pill tone="good" dot>A caminho</Pill>
-  if (status === 'DELIVERED') return <Pill tone="neutral">Entregue</Pill>
-  return <Pill tone="neutral">Agendado</Pill>
+  if (status === 'OUT_FOR_DELIVERY') return <Pill tone="transit" dot>A caminho</Pill>
+  if (status === 'DELIVERED') return <Pill tone="delivered" iconName="check">Entregue</Pill>
+  return <Pill tone="scheduled" iconName="clock">Agendado</Pill>
 }
 
 function HeroCard({
