@@ -184,7 +184,7 @@ const start = async () => {
     await fastify.register(ordersRoute)         // POST /orders — pedido avulso (SCHED-01)
     await fastify.register(notificationsRoute)  // POST /users/push-token (D-09)
     await fastify.register(adminOrdersRoute)    // PATCH /admin/orders/:id/status (ACOMP-01) + GET /admin/dashboard (07-06)
-    await fastify.register(adminSettingsRoute)       // Phase 7 — GET/PATCH /admin/settings/cutoff + /avulso (07-02)
+    await fastify.register(adminSettingsRoute)       // Phase 7 — GET/PATCH /admin/settings/slots + /avulso (07-02)
     await fastify.register(adminCondominiumsRoute)   // Phase 7 — CRUD /admin/condominiums (07-02)
     await fastify.register(adminCombosRoute)         // Phase 7 — CRUD /admin/combos + /promotion (07-02)
     await fastify.register(adminSuppliersRoute)      // Phase 7 — CRUD /admin/suppliers (07-03)

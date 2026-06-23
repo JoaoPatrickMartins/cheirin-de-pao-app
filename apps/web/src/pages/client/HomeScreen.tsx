@@ -61,7 +61,7 @@ export function HomeScreen() {
   const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const { unreadCount } = useNotif()
   // Slots cuja PRÓXIMA entrega já está fechada (corte passou) — por slot do condomínio
-  const [closedSlots, setClosedSlots] = useState<Array<{ name: string; deliveryWhen: string }>>([])
+  const [closedSlots, setClosedSlots] = useState<Array<{ name: string; label?: string; deliveryWhen: string }>>([])
 
   // Mantém o saldo sincronizado com o servidor (refresh de página + troca de aba)
   useCreditBalanceSync()
@@ -94,11 +94,11 @@ export function HomeScreen() {
     // Status de corte por slot do condomínio do cliente (autenticado)
     apiFetch('/settings/cutoff-status')
       .then((res) => (res.ok ? res.json() : { slots: [] }))
-      .then((data: { slots?: Array<{ name: string; locked: boolean; deliveryWhen: string }> }) => {
+      .then((data: { slots?: Array<{ name: string; label?: string; locked: boolean; deliveryWhen: string }> }) => {
         setClosedSlots(
           (data.slots ?? [])
             .filter((s) => s.locked)
-            .map((s) => ({ name: s.name, deliveryWhen: s.deliveryWhen })),
+            .map((s) => ({ name: s.name, label: s.label, deliveryWhen: s.deliveryWhen })),
         )
       })
       .catch(() => {
@@ -243,7 +243,7 @@ export function HomeScreen() {
               }}
             >
               {`${closedSlots
-                .map((s) => `A ${SLOT_LABEL[s.name] ?? s.name} de ${s.deliveryWhen} já fechou.`)
+                .map((s) => `A ${(s.label ?? SLOT_LABEL[s.name] ?? s.name).toLowerCase()} de ${s.deliveryWhen} já fechou.`)
                 .join(' ')} Os próximos dias seguem tudo certin pra agendar! 🥖`}
             </span>
           </div>

@@ -11,17 +11,30 @@ interface HistoryOrder {
   quantity: number
   scheduledDate: string
   deliveryTime?: string
+  slotId?: string
   type: 'SCHEDULED' | 'SINGLE'
 }
 
+// Casa um pedido ao slot do condomínio: por slotId (Etapa B) com fallback ao horário (legado).
+function matchSlot(order: { slotId?: string; deliveryTime?: string }, slots: CondoSlot[]): CondoSlot | undefined {
+  if (order.slotId) {
+    const bySlot = slots.find((s) => (s.slotId ?? s.name) === order.slotId)
+    if (bySlot) return bySlot
+  }
+  return order.deliveryTime ? slots.find((s) => s.time === order.deliveryTime) : undefined
+}
+
 interface CondoSlot {
+  slotId?: string
   name: string
+  label?: string
+  emoji?: string
   time: string
   cutoffTime: string
   isActive: boolean
 }
 
-// Rótulos amigáveis dos slots do condomínio (mesmo padrão da Home)
+// Fallback de rótulos/emoji caso a API não traga label/emoji (slots legados)
 const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
 const SLOT_EMOJI: Record<string, string> = { manha: '☀️', tarde: '🌙' }
 
@@ -152,14 +165,16 @@ function HeroCard({
   order,
   isToday,
   slotLabel,
+  displayTime,
 }: {
   order: TodayOrder
   isToday: boolean
   slotLabel?: string
+  displayTime?: string
 }) {
-  // Linha de slot + horário previsto. Pedidos avulsos não gravam deliveryTime,
-  // então caímos numa copy neutra de acordo com a origem (hoje vs. próxima).
-  const slotTime = [slotLabel, order.deliveryTime ? `previsto ${order.deliveryTime}` : null]
+  // Linha de slot + horário previsto. `displayTime` vem do slot ATUAL (dinâmico) quando o
+  // slot é reconhecido; senão cai no snapshot do pedido. Avulsos sem slot caem em copy neutra.
+  const slotTime = [slotLabel, displayTime ? `previsto ${displayTime}` : null]
     .filter(Boolean)
     .join(' · ')
   const subtitle = slotTime || (isToday ? 'Entrega no seu condomínio' : 'Sua próxima entrega')
@@ -365,10 +380,13 @@ export function TrackingScreen() {
 
   const visibleHistory = history.filter((o) => o.status !== 'CANCELLED')
 
-  // Nome do slot (manhã/tarde) cruzando o horário do pedido com os slots do condomínio
-  const slotLabel = order?.deliveryTime
-    ? SLOT_LABEL[slots.find((s) => s.time === order.deliveryTime)?.name ?? '']
+  // Nome do slot (manhã/tarde) cruzando o pedido (por slotId; fallback horário) com os slots
+  const heroSlot = order ? matchSlot(order, slots) : undefined
+  const slotLabel = heroSlot
+    ? (heroSlot.label ?? SLOT_LABEL[heroSlot.name] ?? heroSlot.name).toLowerCase()
     : undefined
+  // Horário exibido: do slot ATUAL (dinâmico) quando reconhecido; senão snapshot do pedido.
+  const heroTime = heroSlot?.time ?? order?.deliveryTime
 
   return (
     <div
@@ -418,7 +436,7 @@ export function TrackingScreen() {
       </div>
 
       <div style={{ padding: '0 20px 24px' }}>
-        {order && <HeroCard order={order} isToday={isToday} slotLabel={slotLabel} />}
+        {order && <HeroCard order={order} isToday={isToday} slotLabel={slotLabel} displayTime={heroTime} />}
         {order && <Timeline order={order} />}
 
         {/* Card do entregador — só quando a entrega já saiu (sem telefone, Fase 6) */}
@@ -531,14 +549,14 @@ export function TrackingScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {visibleHistory.map((o) => {
               const dateLabel = formatHistoryDate(o.scheduledDate)
-              const slotName = o.deliveryTime
-                ? slots.find((s) => s.time === o.deliveryTime)?.name
-                : undefined
-              const slotEmoji = slotName ? SLOT_EMOJI[slotName] : ''
-              const slotName2 = slotName ? SLOT_LABEL[slotName] : undefined
-              // "☀️ Manhã · 06:30" — ou só o horário se o slot não for reconhecido
-              const slotText = o.deliveryTime
-                ? `${slotEmoji ? slotEmoji + ' ' : ''}${slotName2 ? cap(slotName2) + ' · ' : ''}${o.deliveryTime}`
+              const matched = matchSlot(o, slots)
+              const slotEmoji = matched ? matched.emoji ?? SLOT_EMOJI[matched.name] ?? '' : ''
+              const slotName2 = matched ? matched.label ?? SLOT_LABEL[matched.name] : undefined
+              // Horário do slot ATUAL (dinâmico) quando reconhecido; senão o snapshot do pedido.
+              const displayTime = matched?.time ?? o.deliveryTime
+              // "☀️ Manhã · 06:00" — ou só o horário se o slot não for reconhecido
+              const slotText = displayTime
+                ? `${slotEmoji ? slotEmoji + ' ' : ''}${slotName2 ? cap(slotName2) + ' · ' : ''}${displayTime}`
                 : null
               const typeLabel = o.type === 'SINGLE' ? 'Pedido único' : 'Agendamento'
               const qtyText = o.quantity === 1 ? '1 pão' : `${o.quantity} pães`

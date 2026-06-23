@@ -34,10 +34,12 @@ export class AdminSupplierOrdersService {
    * getDraft — retorna lista de condomínios com totais de pães para o dia seguinte (BRT).
    *
    * Busca Orders com scheduledDate = amanhã, status != CANCELLED.
-   * Agrupa por condominiumId somando quantity.
-   * Retorna array { condominiumId, condominiumName, quantity }[] ordenado por nome.
+   * Agrupa por condominiumId somando quantity e contando entregas.
+   * Retorna array { condominiumId, name, deliveryCount, totalBreads }[] ordenado por nome.
    */
-  async getDraft(): Promise<Array<{ condominiumId: string; condominiumName: string; quantity: number }>> {
+  async getDraft(): Promise<
+    Array<{ condominiumId: string; name: string; deliveryCount: number; totalBreads: number }>
+  > {
     // Calcular amanhã em BRT (UTC-3)
     const now = new Date()
     // Ajuste simples: adicionar 1 dia ao início do dia em UTC-3
@@ -64,30 +66,38 @@ export class AdminSupplierOrdersService {
       },
     })
 
-    // Agrupar por condominiumId
-    const grouped = new Map<string, number>()
+    // Agrupar por condominiumId — soma de pães e contagem de entregas
+    const grouped = new Map<string, { totalBreads: number; deliveryCount: number }>()
     for (const order of orders) {
       if (!order.condominiumId) continue
-      const current = grouped.get(order.condominiumId) ?? 0
-      grouped.set(order.condominiumId, current + order.quantity)
+      const current = grouped.get(order.condominiumId) ?? { totalBreads: 0, deliveryCount: 0 }
+      current.totalBreads += order.quantity
+      current.deliveryCount += 1
+      grouped.set(order.condominiumId, current)
     }
 
     // Buscar nomes dos condomínios
-    const result: Array<{ condominiumId: string; condominiumName: string; quantity: number }> = []
-    for (const [condominiumId, quantity] of grouped) {
+    const result: Array<{
+      condominiumId: string
+      name: string
+      deliveryCount: number
+      totalBreads: number
+    }> = []
+    for (const [condominiumId, { totalBreads, deliveryCount }] of grouped) {
       const condo = await this.prisma.condominium.findUnique({
         where: { id: condominiumId },
         select: { name: true },
       })
       result.push({
         condominiumId,
-        condominiumName: condo?.name ?? condominiumId,
-        quantity,
+        name: condo?.name ?? condominiumId,
+        deliveryCount,
+        totalBreads,
       })
     }
 
     // Ordenar por nome
-    return result.sort((a, b) => a.condominiumName.localeCompare(b.condominiumName, 'pt-BR'))
+    return result.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   }
 
   /**

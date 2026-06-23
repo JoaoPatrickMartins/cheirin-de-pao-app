@@ -3,6 +3,7 @@ import { AdminHead } from '../../../components/admin/AdminHead'
 import { Icon } from '../../../components/brand/Icon'
 import { AdminCombos } from '../gestao/AdminCombos'
 import { AdminAvulso } from '../gestao/AdminAvulso'
+import { AdminCortes } from '../gestao/AdminCortes'
 import { AdminFornecedores } from '../gestao/AdminFornecedores'
 import { AdminEntregadores } from '../gestao/AdminEntregadores'
 import { AdminCondos } from '../gestao/AdminCondos'
@@ -14,6 +15,7 @@ type AdminGestaoSub =
   | null
   | 'combos'
   | 'avulso'
+  | 'cortes'
   | 'fornecedores'
   | 'entregadores'
   | 'condos'
@@ -30,6 +32,7 @@ interface HubItem {
 const HUB_ITEMS: HubItem[] = [
   { key: 'combos', icon: 'bag', titulo: 'Combos e promoções', descricao: 'Criar, editar, descontos' },
   { key: 'avulso', icon: 'coin', titulo: 'Compra personalizada', descricao: 'Limite e preço por pão' },
+  { key: 'cortes', icon: 'clock', titulo: 'Horários de corte', descricao: 'Prazo de pedido por turno' },
   { key: 'fornecedores', icon: 'factory', titulo: 'Fornecedores', descricao: 'Padarias e preço do pão' },
   { key: 'entregadores', icon: 'truck', titulo: 'Entregadores', descricao: 'Equipe e disponibilidade' },
   { key: 'condos', icon: 'building', titulo: 'Condomínios', descricao: 'Locais atendidos' },
@@ -45,6 +48,7 @@ export function AdminGestao() {
 
   if (sub === 'combos') return <AdminCombos onBack={onBack} />
   if (sub === 'avulso') return <AdminAvulso onBack={onBack} />
+  if (sub === 'cortes') return <AdminCortes onBack={onBack} />
   if (sub === 'fornecedores') return <AdminFornecedores onBack={onBack} />
   if (sub === 'entregadores') return <AdminEntregadores onBack={onBack} />
   if (sub === 'condos') return <AdminCondos onBack={onBack} />

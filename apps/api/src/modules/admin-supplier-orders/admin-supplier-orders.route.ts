@@ -33,21 +33,15 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
         security: [{ bearerAuth: [] }],
         response: {
           200: {
-            type: 'object',
-            description: 'Prévia do pedido para amanhã.',
-            properties: {
-              date: { type: 'string', description: 'Data do pedido (amanhã).' },
-              totalBreads: { type: 'integer', description: 'Total de pãezinhos necessários para amanhã.' },
-              breakdown: {
-                type: 'array',
-                description: 'Detalhamento por condomínio.',
-                items: {
-                  type: 'object',
-                  properties: {
-                    condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                    quantity: { type: 'integer', description: 'Pãezinhos necessários neste condomínio.' },
-                  },
-                },
+            type: 'array',
+            description: 'Prévia consolidada por condomínio para amanhã.',
+            items: {
+              type: 'object',
+              properties: {
+                condominiumId: { type: 'string', description: 'ID do condomínio.' },
+                name: { type: 'string', description: 'Nome do condomínio.' },
+                deliveryCount: { type: 'integer', description: 'Número de entregas agendadas neste condomínio.' },
+                totalBreads: { type: 'integer', description: 'Total de pãezinhos necessários neste condomínio.' },
               },
             },
           },

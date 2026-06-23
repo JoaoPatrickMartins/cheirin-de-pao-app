@@ -1,16 +1,30 @@
 import { z } from 'zod'
 
 /**
- * UpdateCutoffSchema — valida o horário de corte.
- * T-07-02-02: regex impede valores malformados antes do upsert.
+ * UpdateSlotsSchema — valida as edições da config global de slots.
+ *
+ * Editável: time (horário de entrega), cutoffTime, label, emoji, isActive (por slotId).
+ * A partir da Etapa B `time` é editável — a junção de agendas/pedidos usa `slotId`.
+ * `name`/`slotId` permanecem imutáveis (identidade).
  */
-export const UpdateCutoffSchema = z.object({
-  cutoffTime: z
-    .string()
-    .regex(/^\d{2}:\d{2}$/, 'Formato inválido. Use HH:MM.'),
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+
+export const UpdateSlotsSchema = z.object({
+  slots: z
+    .array(
+      z.object({
+        slotId: z.string().min(1, 'slotId obrigatório'),
+        time: z.string().regex(HHMM, 'Formato inválido. Use HH:MM.').optional(),
+        cutoffTime: z.string().regex(HHMM, 'Formato inválido. Use HH:MM.').optional(),
+        label: z.string().min(1).max(40).optional(),
+        emoji: z.string().max(8).optional(),
+        isActive: z.boolean().optional(),
+      }),
+    )
+    .min(1, 'Informe ao menos um slot'),
 })
 
-export type UpdateCutoffBody = z.infer<typeof UpdateCutoffSchema>
+export type UpdateSlotsBody = z.infer<typeof UpdateSlotsSchema>
 
 /**
  * UpdateAvulsoSchema — valida a configuração de compra avulsa.

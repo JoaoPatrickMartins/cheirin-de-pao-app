@@ -19,11 +19,14 @@ import { brtDateStr, isPastCutoffForDelivery } from '../../lib/cutoff'
 
 interface DeliverySlot {
   name: string
+  label?: string
+  emoji?: string
   time: string
   cutoffTime: string
   isActive: boolean
 }
 
+// Fallback caso a API não traga label/emoji (slots legados)
 const SLOT_LABEL: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 
 const formatBRL = (val: number) =>
@@ -516,8 +519,8 @@ export function SingleScreen() {
                           lineHeight: 1.2,
                         }}
                       >
-                        {SLOT_EMOJI[slot.name] ? `${SLOT_EMOJI[slot.name]} ` : ''}
-                        {SLOT_LABEL[slot.name] ?? slot.name}
+                        {(slot.emoji ?? SLOT_EMOJI[slot.name]) ? `${slot.emoji ?? SLOT_EMOJI[slot.name]} ` : ''}
+                        {slot.label ?? SLOT_LABEL[slot.name] ?? slot.name}
                       </span>
                       <span
                         style={{

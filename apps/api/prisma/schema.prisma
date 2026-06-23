@@ -23,9 +23,12 @@ type Address {
 }
 
 type DeliverySlot {
-  name        String  // "manha" | "tarde"
-  time        String  // "06:30"
-  cutoffTime  String  // "22:00"
+  slotId      String? // identificador estável interno (ex.: "manha" | "tarde") — chave de referência futura
+  name        String  // legado/identidade atual; mantido igual ao slotId
+  label       String? // rótulo de exibição (ex.: "Manhã") — editável
+  emoji       String? // emoji de exibição (ex.: "☀️") — editável
+  time        String  // "06:30" — chave de junção (agendas/pedidos); read-only na Etapa A
+  cutoffTime  String  // "22:00" — editável
   isActive    Boolean
 }
 
@@ -219,7 +222,8 @@ model Order {
   deliveryListId String?     @db.ObjectId
   courierId      String?     @db.ObjectId
   condominiumId  String?     @db.ObjectId
-  deliveryTime   String?
+  slotId         String?     // identificador estável do slot (chave de junção; Etapa B)
+  deliveryTime   String?     // snapshot do horário de entrega no momento do pedido (exibição)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 }

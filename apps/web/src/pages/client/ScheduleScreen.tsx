@@ -55,9 +55,11 @@ export function ScheduleScreen() {
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
-  // D-05: isMultiSlot quando há 2+ slots ativos no condomínio
+  // Etapa B: a agenda (days) é indexada por slotId. Chave estável do slot:
+  const keyOf = (s: DeliverySlot) => s.slotId ?? s.name
+  // Usa o layout por-slot sempre que houver ao menos 1 slot ativo (1 ou 2 turnos).
   const activeSlots = slots.filter((s) => s.isActive)
-  const isMultiSlot = activeSlots.length >= 2
+  const isMultiSlot = activeSlots.length >= 1
 
   useEffect(() => {
     const fetchSlots = async () => {
@@ -71,12 +73,12 @@ export function ScheduleScreen() {
           // evitando uma corrida com o load() do GET /schedules/me que sobrescrevia a agenda
           // salva com zeros ao recarregar/trocar de aba.
           const activos = data.filter((s) => s.isActive)
-          if (activos.length >= 2) {
+          if (activos.length >= 1) {
             setDays((prev) => {
               if (Object.keys(prev).length > 0) return prev
               const initDays: Record<string, WeeklyQty> = {}
               activos.forEach((slot) => {
-                initDays[slot.time] = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+                initDays[slot.slotId ?? slot.name] = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
               })
               return initDays
             })
@@ -256,7 +258,7 @@ export function ScheduleScreen() {
           ) : (
             <div>
               {activeSlots.map((slot, idx) => (
-                <div key={slot.time} style={{ marginTop: idx > 0 ? 24 : 0 }}>
+                <div key={keyOf(slot)} style={{ marginTop: idx > 0 ? 24 : 0 }}>
                   {/* Separador entre seções (exceto a primeira) */}
                   {idx > 0 && (
                     <div
@@ -288,14 +290,15 @@ export function ScheduleScreen() {
                         letterSpacing: '-0.02em',
                       }}
                     >
-                      {slot.name === 'manha' ? '☀️ Manhã' : '🌙 Tarde'} · {slot.time}
+                      {slot.emoji ?? (slot.name === 'manha' ? '☀️' : '🌙')}{' '}
+                      {slot.label ?? (slot.name === 'manha' ? 'Manhã' : 'Tarde')} · {slot.time}
                     </span>
                   </div>
 
                   {/* 7 day-rows para este slot */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {DAYS.map(({ label, key }) => {
-                      const v = (days[slot.time] ?? DEFAULT_WEEKLY_QTY)[key]
+                      const v = (days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY)[key]
                       return (
                         <div
                           key={key}
@@ -346,7 +349,7 @@ export function ScheduleScreen() {
                             onChange={(newV) =>
                               setDays({
                                 ...days,
-                                [slot.time]: { ...(days[slot.time] ?? DEFAULT_WEEKLY_QTY), [key]: newV },
+                                [keyOf(slot)]: { ...(days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY), [key]: newV },
                               })
                             }
                           />

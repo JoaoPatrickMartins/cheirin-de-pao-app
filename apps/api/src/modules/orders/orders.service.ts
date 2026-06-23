@@ -75,6 +75,7 @@ export class OrdersService {
     // valida o corte DAQUELE slot para a data; senão (legado) aceita se houver ao menos
     // um slot ainda aberto. O slot resolvido é gravado em Order.deliveryTime.
     let deliveryTime: string | undefined = data.deliveryTime
+    let slotId: string | undefined
     const ownerCondo = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { condominiumId: true },
@@ -97,6 +98,7 @@ export class OrdersService {
           throw { statusCode: 400, message: 'Prazo de pedido encerrado para este horário' }
         }
         deliveryTime = slot.time
+        slotId = slot.slotId ?? slot.name
       } else {
         const stillOpen = activeSlots.some(
           (s) => !isPastCutoffForDelivery(s.time, s.cutoffTime, data.scheduledDate),
@@ -138,6 +140,7 @@ export class OrdersService {
           quantity: data.quantity,
           scheduledDate,
           ...(deliveryTime ? { deliveryTime } : {}),
+          ...(slotId ? { slotId } : {}),
         },
       })
 

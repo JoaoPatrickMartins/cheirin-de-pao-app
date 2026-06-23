@@ -40,7 +40,19 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
               revenueToday: { type: 'number', description: 'Receita total do dia em reais (pagamentos aprovados com date=hoje).' },
               clientsCount: { type: 'integer', description: 'Total de clientes ativos cadastrados no sistema.' },
               condominiumsCount: { type: 'integer', description: 'Total de condomínios ativos.' },
-              cutoffTime: { type: 'string', description: 'Horário de corte de pedidos configurado (HH:MM).' },
+              deliverySlots: {
+                type: 'array',
+                description: 'Slots de entrega ativos (config global), cada um com seu horário de corte.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    slotId: { type: 'string', description: 'Identificador do slot.' },
+                    label: { type: 'string', description: 'Rótulo de exibição (ex.: "Manhã").' },
+                    time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
+                    cutoffTime: { type: 'string', description: 'Horário de corte do slot (HH:MM).' },
+                  },
+                },
+              },
               revenueByType: {
                 type: 'object',
                 description: 'Breakdown de receita por método de pagamento.',

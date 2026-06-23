@@ -144,115 +144,6 @@ describe('SchedulesService', () => {
     })
   })
 
-  describe('createDailyOrders', () => {
-    it('cria Order com type SCHEDULED quando saldo suficiente', async () => {
-      const schedule: ScheduleShape = {
-        id: 'sched-1',
-        userId: 'user-1',
-        condominiumId: 'condo-1',
-        isActive: true,
-        weeklyQty: { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
-        deliveryTime: '07:00',
-        notifyReconfigure: false,
-      }
-
-      const user: UserShape = {
-        id: 'user-1',
-        creditBalance: 10,
-        condominiumId: 'condo-1',
-        autoRecharge: null,
-        oneSignalPlayerId: null,
-      }
-
-      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-1' })
-      const fastify = createMockFastify({
-        schedules: [schedule],
-        users: { 'user-1': user },
-        createOrderFn,
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.createDailyOrders()
-
-      expect(createOrderFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            userId: 'user-1',
-            type: 'SCHEDULED',
-            status: 'SCHEDULED',
-          }),
-        }),
-      )
-    })
-
-    it('NÃO cria Order quando weeklyQty do dia === 0', async () => {
-      const schedule: ScheduleShape = {
-        id: 'sched-1',
-        userId: 'user-1',
-        condominiumId: 'condo-1',
-        isActive: true,
-        // Todos os dias com quantidade 0
-        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
-        deliveryTime: '07:00',
-        notifyReconfigure: false,
-      }
-
-      const user: UserShape = {
-        id: 'user-1',
-        creditBalance: 10,
-        condominiumId: 'condo-1',
-        autoRecharge: null,
-        oneSignalPlayerId: null,
-      }
-
-      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-1' })
-      const fastify = createMockFastify({
-        schedules: [schedule],
-        users: { 'user-1': user },
-        createOrderFn,
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.createDailyOrders()
-
-      // Com weeklyQty zerado para todos os dias, nenhuma order deve ser criada
-      expect(createOrderFn).not.toHaveBeenCalled()
-    })
-
-    it('NÃO cria Order quando creditBalance < quantidade (envia push ao invés)', async () => {
-      const schedule: ScheduleShape = {
-        id: 'sched-1',
-        userId: 'user-1',
-        condominiumId: 'condo-1',
-        isActive: true,
-        weeklyQty: { seg: 5, ter: 5, qua: 5, qui: 5, sex: 5, sab: 5, dom: 5 },
-        deliveryTime: '07:00',
-        notifyReconfigure: false,
-      }
-
-      const user: UserShape = {
-        id: 'user-1',
-        creditBalance: 1, // muito baixo — 5 pãezinhos necessários
-        condominiumId: 'condo-1',
-        autoRecharge: null,
-        oneSignalPlayerId: 'player-123',
-      }
-
-      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-1' })
-      const fastify = createMockFastify({
-        schedules: [schedule],
-        users: { 'user-1': user },
-        createOrderFn,
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.createDailyOrders()
-
-      // Order NÃO deve ser criado
-      expect(createOrderFn).not.toHaveBeenCalled()
-    })
-  })
-
   describe('sendEveReminders', () => {
     beforeEach(() => {
       vi.clearAllMocks()
@@ -595,141 +486,6 @@ describe('SchedulesService', () => {
   // Implementação multi-slot será adicionada no Plano 03 desta fase.
   // ─────────────────────────────────────────────────────────────────────────────
 
-  describe('createDailyOrders [MSCHED-02 multi-slot]', () => {
-    beforeEach(() => {
-      vi.clearAllMocks()
-    })
-
-    it('createDailyOrders_multiSlot_cria2Orders_quandoAmbosSlotsTêmQty', async () => {
-      // schedule.days com 2 slots: 06:30 (qty=2 todos os dias) e 15:30 (qty=1 todos os dias)
-      const schedule: ScheduleShape = {
-        id: 'sched-multi-1',
-        userId: 'user-multi-1',
-        condominiumId: 'condo-1',
-        isActive: true,
-        // weeklyQty placeholder — não usado no modo multi-slot
-        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
-        deliveryTime: '06:30',
-        notifyReconfigure: false,
-        days: {
-          '06:30': { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
-          '15:30': { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 },
-        },
-      }
-
-      const user: UserShape = {
-        id: 'user-multi-1',
-        creditBalance: 20, // suficiente para ambos os slots (2+1=3 por dia)
-        condominiumId: 'condo-1',
-        autoRecharge: null,
-        oneSignalPlayerId: null,
-      }
-
-      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-multi' })
-      const fastify = createMockFastify({
-        schedules: [schedule],
-        users: { 'user-multi-1': user },
-        createOrderFn,
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.createDailyOrders()
-
-      // Esperado: 2 orders criados — um por slot (06:30 e 15:30)
-      expect(createOrderFn).toHaveBeenCalledTimes(2)
-      expect(createOrderFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ deliveryTime: '06:30' }),
-        }),
-      )
-      expect(createOrderFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ deliveryTime: '15:30' }),
-        }),
-      )
-    })
-
-    it('createDailyOrders_multiSlot_criaApenasOrdersManhã_quandoTardeInsuficiente', async () => {
-      // Manhã qty=2 (saldo 3 >= 2 ✓), Tarde qty=5 (saldo após manhã = 1 < 5 ✗)
-      const schedule: ScheduleShape = {
-        id: 'sched-multi-2',
-        userId: 'user-multi-2',
-        condominiumId: 'condo-1',
-        isActive: true,
-        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
-        deliveryTime: '06:30',
-        notifyReconfigure: false,
-        days: {
-          '06:30': { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
-          '15:30': { seg: 5, ter: 5, qua: 5, qui: 5, sex: 5, sab: 5, dom: 5 },
-        },
-      }
-
-      const user: UserShape = {
-        id: 'user-multi-2',
-        creditBalance: 3, // suficiente para manhã (qty=2) mas insuficiente para tarde (qty=5)
-        condominiumId: 'condo-1',
-        autoRecharge: null,
-        oneSignalPlayerId: null,
-      }
-
-      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-manha-only' })
-      const fastify = createMockFastify({
-        schedules: [schedule],
-        users: { 'user-multi-2': user },
-        createOrderFn,
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.createDailyOrders()
-
-      // Esperado: apenas 1 order criado (manhã 06:30)
-      expect(createOrderFn).toHaveBeenCalledTimes(1)
-      expect(createOrderFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ deliveryTime: '06:30' }),
-        }),
-      )
-    })
-
-    it('createDailyOrders_legado_continuaFuncionando_quandoDaysNulo', async () => {
-      // Modo legado: schedule.days = null → usa weeklyQty sem deliveryTime no order
-      const schedule: ScheduleShape = {
-        id: 'sched-legado-1',
-        userId: 'user-legado-1',
-        condominiumId: 'condo-1',
-        isActive: true,
-        weeklyQty: { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
-        deliveryTime: '07:00',
-        notifyReconfigure: false,
-        days: null, // modo legado explícito
-      }
-
-      const user: UserShape = {
-        id: 'user-legado-1',
-        creditBalance: 10,
-        condominiumId: 'condo-1',
-        autoRecharge: null,
-        oneSignalPlayerId: null,
-      }
-
-      const createOrderFn = vi.fn().mockResolvedValue({ id: 'order-legado' })
-      const fastify = createMockFastify({
-        schedules: [schedule],
-        users: { 'user-legado-1': user },
-        createOrderFn,
-      })
-
-      const service = new SchedulesService(fastify)
-      await service.createDailyOrders()
-
-      // Esperado: 1 order criado sem deliveryTime (ou deliveryTime undefined/absent)
-      expect(createOrderFn).toHaveBeenCalledTimes(1)
-      // No modo legado, deliveryTime NÃO deve ser passado para o order
-      const callArgs = createOrderFn.mock.calls[0][0]
-      expect(callArgs.data).not.toHaveProperty('deliveryTime')
-    })
-  })
 
   describe('getConsumoSemanal [MSCHED-04]', () => {
     beforeEach(() => {
@@ -1044,8 +800,8 @@ describe('SchedulesService', () => {
       name: 'Cond Teste',
       isActive: true,
       deliverySlots: [
-        { name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true },
-        { name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true },
+        { slotId: 'manha', name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true },
+        { slotId: 'tarde', name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true },
       ],
     }
 
@@ -1057,9 +813,10 @@ describe('SchedulesService', () => {
       weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
       deliveryTime: '06:30',
       notifyReconfigure: false,
+      // Etapa B: days indexado por slotId
       days: {
-        '06:30': { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
-        '15:30': { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 },
+        manha: { seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 },
+        tarde: { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 },
       },
     }
 
@@ -1083,6 +840,7 @@ describe('SchedulesService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             userId: 'user-cut-1',
+            slotId: 'tarde',
             deliveryTime: '15:30',
             condominiumId: 'condo-1',
             quantity: 1, // seg do slot 15:30

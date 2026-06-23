@@ -6,34 +6,6 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import { nowHHMM, targetDeliveryDate, dayKeyOf, brtDayRange, type DayKey } from '../../lib/cutoff.js'
 
-// Dia da semana em UTC-3 (Brasília) → chave do WeeklyQty
-const DAY_OF_WEEK_MAP: Record<string, keyof WeeklyQty> = {
-  Mon: 'seg',
-  Tue: 'ter',
-  Wed: 'qua',
-  Thu: 'qui',
-  Fri: 'sex',
-  Sat: 'sab',
-  Sun: 'dom',
-}
-
-function getTomorrowDayKey(): keyof WeeklyQty {
-  // Calcular o dia de amanhã no timezone America/Sao_Paulo
-  const now = new Date()
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Sao_Paulo',
-    weekday: 'short',
-  })
-  const weekday = formatter.format(tomorrow) // 'Mon', 'Tue', etc.
-  return DAY_OF_WEEK_MAP[weekday] ?? 'seg'
-}
-
-function getTomorrowDate(): Date {
-  const now = new Date()
-  return new Date(now.getTime() + 24 * 60 * 60 * 1000)
-}
-
 // D-09: Helper puro que calcula consumo semanal total independente de modo (multi-slot ou legado)
 function getConsumoSemanal(schedule: { days: unknown; weeklyQty: unknown }): number {
   if (schedule.days) {
@@ -84,7 +56,7 @@ export class SchedulesService {
    */
   async createOrdersForCondoSlot(
     condominiumId: string,
-    slotTime: string,
+    slot: { slotId: string; time: string },
     dayKey: DayKey,
     deliveryDate: Date,
   ): Promise<void> {
@@ -96,22 +68,16 @@ export class SchedulesService {
 
     for (const schedule of schedules) {
       try {
-        // Quantidade deste slot para o dia da semana alvo
-        let qty = 0
-        if (schedule.days) {
-          const days = schedule.days as Record<string, WeeklyQty>
-          qty = days[slotTime]?.[dayKey] ?? 0
-        } else if (schedule.deliveryTime === slotTime) {
-          // Legado: weeklyQty só conta para o slot cujo time bate com o deliveryTime salvo
-          qty = (schedule.weeklyQty as WeeklyQty)?.[dayKey] ?? 0
-        }
+        // Quantidade deste slot para o dia da semana alvo — agenda indexada por slotId.
+        const days = (schedule.days as Record<string, WeeklyQty> | null) ?? {}
+        const qty = days[slot.slotId]?.[dayKey] ?? 0
         if (qty === 0) continue
 
-        // Idempotência — não duplica se o cron reexecutar no mesmo minuto/dia
+        // Idempotência — não duplica se o cron reexecutar no mesmo minuto/dia (por slotId)
         const existing = await this.prisma.order.findFirst({
           where: {
             userId: schedule.userId,
-            deliveryTime: slotTime,
+            slotId: slot.slotId,
             type: 'SCHEDULED',
             status: { not: 'CANCELLED' },
             scheduledDate: { gte: start, lte: end },
@@ -167,7 +133,8 @@ export class SchedulesService {
               quantity: qty,
               scheduledDate: deliveryDate,
               status: 'SCHEDULED',
-              deliveryTime: slotTime,
+              slotId: slot.slotId,
+              deliveryTime: slot.time,
               condominiumId,
             },
           })
@@ -180,7 +147,7 @@ export class SchedulesService {
               userId: schedule.userId,
               type: 'DELIVERY',
               quantity: -qty,
-              description: `Entrega agendada para ${dateLabel} às ${slotTime}`,
+              description: `Entrega agendada para ${dateLabel} às ${slot.time}`,
             },
           })
         })
@@ -205,150 +172,13 @@ export class SchedulesService {
     for (const condo of condominiums) {
       for (const slot of condo.deliverySlots) {
         if (!slot.isActive || slot.cutoffTime !== hhmm) continue
+        const slotId = slot.slotId ?? slot.name
         const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime, now)
         const dayKey = dayKeyOf(deliveryDate)
         this.fastify.log.info(
           `[schedules] corte ${hhmm} — ${condo.name} / slot ${slot.name} (${slot.time}) → gerando orders p/ ${deliveryDate.toISOString().split('T')[0]}`,
         )
-        await this.createOrdersForCondoSlot(condo.id, slot.time, dayKey, deliveryDate)
-      }
-    }
-  }
-
-  async createDailyOrders() {
-    const schedules = await this.repo.findAllActive()
-    const dayKey = getTomorrowDayKey()
-    const scheduledDate = getTomorrowDate()
-
-    for (const schedule of schedules) {
-      try {
-        // D-08: Detectar modo multi-slot via schedule.days
-        if (schedule.days) {
-          // MODO MULTI-SLOT: iterar por slot — transação independente por slot (T-14-03-02)
-          const days = schedule.days as Record<string, WeeklyQty>
-          for (const [slotTime, weeklyQtyMap] of Object.entries(days)) {
-            const qty = weeklyQtyMap[dayKey] ?? 0
-            if (qty === 0) continue
-
-            // Busca fresh do usuário dentro de cada iteração de slot (saldo pode ter mudado após slot anterior)
-            const user = await this.repo.findUserById(schedule.userId)
-            if (!user) continue
-
-            if (user.creditBalance < qty) {
-              // Saldo insuficiente para este slot — enviar push de alerta e continuar para próximo slot
-              if (user.oneSignalPlayerId) {
-                try {
-                  const osClient = createOsClient()
-                  const notification = new OneSignal.Notification()
-                  notification.app_id = process.env.ONESIGNAL_APP_ID!
-                  notification.include_subscription_ids = [user.oneSignalPlayerId]
-                  notification.headings = { pt: 'Cheirin de Pão' }
-                  notification.contents = { pt: 'Créditos insuficientes para a entrega de amanhã' }
-                  await osClient.createNotification(notification)
-                } catch (pushErr) {
-                  this.fastify.log.warn(
-                    { userId: schedule.userId, err: pushErr },
-                    '[schedules] falha ao enviar push de crédito insuficiente',
-                  )
-                }
-              }
-              continue
-            }
-
-            // Saldo suficiente — transação independente para este slot
-            await this.prisma.$transaction(async (tx) => {
-              await tx.order.create({
-                data: {
-                  userId: schedule.userId,
-                  type: 'SCHEDULED',
-                  quantity: qty,
-                  scheduledDate,
-                  status: 'SCHEDULED',
-                  deliveryTime: slotTime,
-                },
-              })
-
-              await tx.user.update({
-                where: { id: schedule.userId },
-                data: { creditBalance: { decrement: qty } },
-              })
-
-              await tx.creditTransaction.create({
-                data: {
-                  userId: schedule.userId,
-                  type: 'DELIVERY',
-                  quantity: -qty,
-                  description: `Entrega agendada para ${scheduledDate.toISOString().split('T')[0]} às ${slotTime}`,
-                },
-              })
-            })
-          }
-          continue // pular o bloco legado abaixo
-        }
-
-        // MODO LEGADO: código original inalterado
-        const weeklyQty = schedule.weeklyQty as WeeklyQty
-        const qty = weeklyQty[dayKey] ?? 0
-
-        if (qty === 0) {
-          continue
-        }
-
-        const user = await this.repo.findUserById(schedule.userId)
-        if (!user) continue
-
-        if (user.creditBalance < qty) {
-          // Saldo insuficiente — enviar push de alerta
-          if (user.oneSignalPlayerId) {
-            try {
-              const osClient = createOsClient()
-              const notification = new OneSignal.Notification()
-              notification.app_id = process.env.ONESIGNAL_APP_ID!
-              notification.include_subscription_ids = [user.oneSignalPlayerId]
-              notification.headings = { pt: 'Cheirin de Pão' }
-              notification.contents = { pt: 'Créditos insuficientes para a entrega de amanhã' }
-              await osClient.createNotification(notification)
-            } catch (pushErr) {
-              this.fastify.log.warn(
-                { userId: schedule.userId, err: pushErr },
-                '[schedules] falha ao enviar push de crédito insuficiente',
-              )
-            }
-          }
-          continue
-        }
-
-        // Saldo suficiente — criar Order + decrementar creditBalance + CreditTransaction
-        await this.prisma.$transaction(async (tx) => {
-          await tx.order.create({
-            data: {
-              userId: schedule.userId,
-              type: 'SCHEDULED',
-              quantity: qty,
-              scheduledDate,
-              status: 'SCHEDULED',
-            },
-          })
-
-          await tx.user.update({
-            where: { id: schedule.userId },
-            data: { creditBalance: { decrement: qty } },
-          })
-
-          await tx.creditTransaction.create({
-            data: {
-              userId: schedule.userId,
-              type: 'DELIVERY',
-              quantity: -qty,
-              description: `Entrega agendada para ${scheduledDate.toISOString().split('T')[0]}`,
-            },
-          })
-        })
-      } catch (err) {
-        this.fastify.log.error(
-          { scheduleId: schedule.id, err },
-          '[schedules] erro ao processar schedule para criação de order',
-        )
+        await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate)
       }
     }
   }

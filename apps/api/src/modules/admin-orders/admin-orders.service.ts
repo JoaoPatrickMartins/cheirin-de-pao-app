@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { NotificationType } from '@prisma/client'
+import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 
 /**
  * Mapa de transições de estado válidas para pedidos.
@@ -176,14 +177,14 @@ export class AdminOrdersService {
    * Retorna KPIs do painel admin para o dia atual (BRT).
    *
    * T-07-06-01: preHandler authenticate + role check ADMIN garantem que apenas admins acessam.
-   * KPIs: breadsTodayCount, revenueToday, clientsCount, condominiumsCount, cutoffTime, revenueByType.
+   * KPIs: breadsTodayCount, revenueToday, clientsCount, condominiumsCount, deliverySlots, revenueByType.
    */
   async getDashboard(): Promise<{
     breadsTodayCount: number
     revenueToday: number
     clientsCount: number
     condominiumsCount: number
-    cutoffTime: string
+    deliverySlots: Array<{ slotId: string; label: string; time: string; cutoffTime: string }>
     revenueByType: { combos: number; avulso: number }
   }> {
     // Calcular início e fim do dia em BRT (UTC-3)
@@ -194,7 +195,7 @@ export class AdminOrdersService {
     const startOfDayBrt = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 3, 0, 0, 0)) // BRT = UTC-3, então início do dia BRT = 03:00 UTC
     const endOfDayBrt = new Date(startOfDayBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
 
-    const [orderAgg, paymentAgg, clientsCount, condominiumsCount, cutoffSetting, comboPaidPayments, avulsoPaidPayments] =
+    const [orderAgg, paymentAgg, clientsCount, condominiumsCount, deliverySlotsConfig, comboPaidPayments, avulsoPaidPayments] =
       await Promise.all([
         // breadsTodayCount
         this.prisma.order.aggregate({
@@ -220,8 +221,8 @@ export class AdminOrdersService {
         this.prisma.condominium.count({
           where: { isActive: true },
         }),
-        // cutoffTime (Setting)
-        this.prisma.setting.findUnique({ where: { key: 'cutoffTime' } }),
+        // deliverySlots (config global — cutoffTime por slot)
+        getGlobalDeliverySlots(this.prisma),
         // revenueByType — combos (comboId != null)
         this.prisma.payment.findMany({
           where: {
@@ -250,7 +251,9 @@ export class AdminOrdersService {
       revenueToday: (paymentAgg._sum?.amount as number | null) ?? 0,
       clientsCount,
       condominiumsCount,
-      cutoffTime: cutoffSetting?.value ?? '20:00',
+      deliverySlots: deliverySlotsConfig
+        .filter((s) => s.isActive)
+        .map((s) => ({ slotId: s.slotId, label: s.label, time: s.time, cutoffTime: s.cutoffTime })),
       revenueByType: { combos: combosRevenue, avulso: avulsoRevenue },
     }
   }

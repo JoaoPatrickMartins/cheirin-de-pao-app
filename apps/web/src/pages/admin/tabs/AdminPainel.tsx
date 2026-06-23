@@ -13,7 +13,7 @@ interface DashboardData {
   revenueToday: number
   clientsCount: number
   condominiumsCount: number
-  cutoffTime: string
+  deliverySlots: Array<{ slotId: string; label: string; time: string; cutoffTime: string }>
   revenueByType: {
     combos: number
     avulso: number
@@ -197,7 +197,9 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
                       lineHeight: 1.2,
                     }}
                   >
-                    CORTE {data?.cutoffTime ?? '20:00'} · ABERTO
+                    {data && data.deliverySlots.length > 0
+                      ? `CORTE · ${data.deliverySlots.map((s) => `${s.label} ${s.cutoffTime}`).join(' · ')}`
+                      : 'CORTE · ABERTO'}
                   </p>
                   <p
                     style={{

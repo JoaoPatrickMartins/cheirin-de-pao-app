@@ -1,11 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { AdminCondominiumsRepository } from './admin-condominiums.repository.js'
 import { CreateCondominiumBody, UpdateCondominiumBody, SlotUpdateBody } from './admin-condominiums.schema.js'
-
-const DEFAULT_SLOTS = [
-  { name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true },
-  { name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true },
-]
+import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 
 /**
  * AdminCondominiumsService — lógica de negócio para CRUD de condomínios.
@@ -28,10 +24,11 @@ export class AdminCondominiumsService {
   }
 
   /**
-   * Cria um novo condomínio com slots padrão (manhã e tarde) pré-injetados.
+   * Cria um novo condomínio herdando os slots da config global (fonte da verdade).
    */
   async create(data: CreateCondominiumBody) {
-    return this.repository.create({ ...data, deliverySlots: DEFAULT_SLOTS })
+    const deliverySlots = await getGlobalDeliverySlots(this.fastify.prisma)
+    return this.repository.create({ ...data, deliverySlots })
   }
 
   /**

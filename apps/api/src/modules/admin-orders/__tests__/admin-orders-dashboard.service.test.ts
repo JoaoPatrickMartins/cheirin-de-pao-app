@@ -11,7 +11,7 @@ function makeDashboardFastifyMock(overrides: Record<string, any> = {}) {
     paymentAggregate = { _sum: { amount: 180.5 } },
     clientCount = 15,
     condominiumCount = 3,
-    cutoffSetting = { key: 'cutoffTime', value: '20:00' },
+    deliverySlotsSetting = null,
     comboPaidPayments = [],
     avulsoPaidPayments = [],
   } = overrides
@@ -42,7 +42,9 @@ function makeDashboardFastifyMock(overrides: Record<string, any> = {}) {
       findMany: vi.fn().mockResolvedValue([]),
     },
     setting: {
-      findUnique: vi.fn().mockResolvedValue(cutoffSetting),
+      findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) =>
+        Promise.resolve(where.key === 'deliverySlots' ? deliverySlotsSetting : null),
+      ),
     },
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-new' }),
@@ -142,26 +144,32 @@ describe('AdminOrdersService.getDashboard', () => {
     expect(result.condominiumsCount).toBe(3)
   })
 
-  it('retorna cutoffTime do Setting quando configurado', async () => {
+  it('retorna deliverySlots da config global persistida (com cutoffTime por slot)', async () => {
+    const custom = [
+      { slotId: 'manha', name: 'manha', label: 'Manhã', emoji: '☀️', time: '06:30', cutoffTime: '21:30', isActive: true },
+      { slotId: 'tarde', name: 'tarde', label: 'Tarde', emoji: '🌙', time: '15:30', cutoffTime: '09:00', isActive: true },
+    ]
     const { fastify } = makeDashboardFastifyMock({
-      cutoffSetting: { key: 'cutoffTime', value: '19:30' },
+      deliverySlotsSetting: { key: 'deliverySlots', value: JSON.stringify(custom) },
     })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDashboard()
 
-    expect(result.cutoffTime).toBe('19:30')
+    expect(result.deliverySlots).toHaveLength(2)
+    expect(result.deliverySlots.find((s) => s.slotId === 'manha')!.cutoffTime).toBe('21:30')
   })
 
-  it('retorna cutoffTime default 20:00 quando Setting nao existe', async () => {
-    const { fastify } = makeDashboardFastifyMock({ cutoffSetting: null })
+  it('retorna deliverySlots default (manha 22:00 / tarde 10:00) quando config global nao existe', async () => {
+    const { fastify } = makeDashboardFastifyMock({ deliverySlotsSetting: null })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDashboard()
 
-    expect(result.cutoffTime).toBe('20:00')
+    expect(result.deliverySlots.find((s) => s.slotId === 'manha')!.cutoffTime).toBe('22:00')
+    expect(result.deliverySlots.find((s) => s.slotId === 'tarde')!.cutoffTime).toBe('10:00')
   })
 
   it('retorna estrutura com revenueByType com combos e avulso', async () => {

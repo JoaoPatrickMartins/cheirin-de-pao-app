@@ -23,9 +23,11 @@ interface Supplier {
   isPrincipal: boolean
 }
 
-interface CutoffSettings {
+interface SlotCutoff {
+  slotId: string
+  label: string
+  time: string
   cutoffTime: string
-  isOpen: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +183,7 @@ export function AdminPedido() {
 
   // Dados do draft
   const [draftData, setDraftData] = useState<CondoDraft[] | null>(null)
-  const [cutoff, setCutoff] = useState<CutoffSettings | null>(null)
+  const [slots, setSlots] = useState<SlotCutoff[] | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   // Step 1 — quantidades ajustadas
@@ -206,15 +208,16 @@ export function AdminPedido() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [draftRes, cutoffRes] = await Promise.all([
+        const [draftRes, slotsRes] = await Promise.all([
           apiFetch('/admin/supplier-orders/draft'),
-          apiFetch('/admin/settings/cutoff'),
+          apiFetch('/admin/settings/slots'),
         ])
         if (draftRes.ok) {
           setDraftData((await draftRes.json()) as CondoDraft[])
         }
-        if (cutoffRes.ok) {
-          setCutoff((await cutoffRes.json()) as CutoffSettings)
+        if (slotsRes.ok) {
+          const data = (await slotsRes.json()) as { slots: SlotCutoff[] }
+          setSlots(data.slots)
         }
       } catch {
         // falha silenciosa
@@ -394,7 +397,7 @@ export function AdminPedido() {
                         margin: '0 0 2px',
                       }}
                     >
-                      Horário de corte · {cutoff?.cutoffTime ?? '20:00'}
+                      Horários de corte
                     </p>
                     <p
                       style={{
@@ -404,7 +407,9 @@ export function AdminPedido() {
                         margin: 0,
                       }}
                     >
-                      Após o corte, pedidos do dia são bloqueados
+                      {slots && slots.length > 0
+                        ? slots.map((s) => `${s.label} ${s.cutoffTime}`).join(' · ')
+                        : 'Após o corte, pedidos do dia são bloqueados'}
                     </p>
                   </div>
                   {/* Pill Aberto/Encerrado */}
@@ -414,8 +419,8 @@ export function AdminPedido() {
                       alignItems: 'center',
                       padding: '4px 10px',
                       borderRadius: 99,
-                      background: cutoff?.isOpen !== false ? 'var(--color-good-soft)' : 'var(--color-surface-2)',
-                      color: cutoff?.isOpen !== false ? 'var(--color-good)' : 'var(--color-text-sec)',
+                      background: 'var(--color-good-soft)',
+                      color: 'var(--color-good)',
                       fontFamily: 'var(--font-body)',
                       fontSize: 12,
                       fontWeight: 700,
@@ -423,7 +428,7 @@ export function AdminPedido() {
                       flexShrink: 0,
                     }}
                   >
-                    {cutoff?.isOpen !== false ? 'Aberto' : 'Encerrado'}
+                    Aberto
                   </span>
                 </div>
 

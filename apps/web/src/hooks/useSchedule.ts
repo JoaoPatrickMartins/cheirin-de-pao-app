@@ -133,8 +133,11 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
   const saveSchedule = async (activeSlots: DeliverySlot[]): Promise<{ ok: boolean; error?: string }> => {
     setIsSaving(true)
     try {
-      const isMulti = activeSlots.filter((s) => s.isActive).length >= 2
-      const body = isMulti
+      // Etapa B: a agenda é sempre persistida como `days` indexado por slotId quando há
+      // ao menos 1 slot ativo. O formato legado (weeklyQty+deliveryTime) só é usado como
+      // fallback para condomínios sem slots configurados.
+      const hasSlots = activeSlots.filter((s) => s.isActive).length >= 1
+      const body = hasSlots
         ? { days, notifyReconfigure }
         : { weeklyQty, deliveryTime, notifyReconfigure }
 
