@@ -29,6 +29,7 @@ function createMockFastify(): FastifyInstance {
       user: { findUnique: vi.fn(), update: vi.fn() },
       creditTransaction: { create: vi.fn() },
       combo: { findUnique: vi.fn() },
+      promotion: { findFirst: vi.fn().mockResolvedValue(null) },
       setting: { findUnique: vi.fn() },
       savedCard: { findUnique: vi.fn() },
       $transaction: vi.fn(),
@@ -58,6 +59,26 @@ describe('PaymentsService (Stripe)', () => {
       )
       expect(result.paymentId).toBe('payment-1')
       expect(result.pixCopyPaste).toBe('COPIA_E_COLA')
+    })
+
+    it('cobra o preço com desconto quando o combo está em promoção ativa', async () => {
+      const fastify = createMockFastify()
+      ;(fastify.prisma.combo.findUnique as Mock).mockResolvedValueOnce({ id: 'combo-1', name: 'Combo Novo', quantity: 100, price: 99.9 })
+      ;(fastify.prisma.promotion.findFirst as Mock).mockResolvedValueOnce({ comboId: 'combo-1', discountType: 'PERCENT', discountValue: 15, isActive: true })
+      mockGetOrCreateCustomer.mockResolvedValueOnce('cus_1')
+      mockCreatePixPayment.mockResolvedValueOnce({
+        paymentIntent: { id: 'pi_1' }, qrCode: 'X', qrCodeImageUrl: 'https://qr.png', expiresAt: 123,
+      })
+      ;(fastify.prisma.payment.create as Mock).mockResolvedValueOnce({ id: 'payment-1', status: 'PENDING' })
+
+      const service = new PaymentsService(fastify)
+      await service.createPix({ comboId: 'combo-1', userId: 'user-1' })
+
+      // 99,90 - 15% = 84,92
+      expect(mockCreatePixPayment).toHaveBeenCalledWith(expect.objectContaining({ amount: 84.92 }))
+      expect(fastify.prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: 84.92 }) }),
+      )
     })
   })
 

@@ -24,6 +24,7 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
               price: { type: 'number', description: 'Preço total do combo em reais.' },
               tag: { type: 'string', description: 'Tag promocional opcional (ex: "Mais Popular", "Melhor Custo-Benefício").' },
               isOnPromotion: { type: 'boolean', description: 'true se o combo está em promoção ativa.' },
+              antes: { type: 'number', description: 'Preço original (antes do desconto). Presente apenas quando isOnPromotion=true; usado para o preço riscado.' },
             },
           },
         },

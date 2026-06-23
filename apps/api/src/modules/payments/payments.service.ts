@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { PaymentsRepository } from './payments.repository.js'
 import { StripeService } from './stripe.service.js'
+import { effectiveComboPrice } from '../../lib/combo-pricing.js'
 
 export class PaymentsService {
   private repo: PaymentsRepository
@@ -23,7 +24,12 @@ export class PaymentsService {
     if (comboId) {
       const combo = await this.prisma.combo.findUnique({ where: { id: comboId } })
       if (!combo) throw { error: 'Combo não encontrado', status: 404 }
-      const amount = Math.round(combo.price * 100) / 100
+      // Aplica a promoção ativa (se houver) para cobrar exatamente o preço exibido.
+      const promo = await this.prisma.promotion.findFirst({
+        where: { comboId, isActive: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      const amount = effectiveComboPrice(combo.price, promo)
       return { amount, quantity: combo.quantity, description: `Compra ${combo.name} — Cheirin de Pão` }
     }
     if (customQuantity) {

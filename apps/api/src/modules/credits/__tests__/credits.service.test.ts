@@ -9,6 +9,7 @@ function createMockFastify(overrides: Record<string, unknown> = {}): FastifyInst
   return {
     prisma: {
       combo: { findMany: vi.fn() },
+      promotion: { findMany: vi.fn().mockResolvedValue([]) },
       setting: { findMany: vi.fn(), findUnique: vi.fn() },
       user: { findUnique: vi.fn(), update: vi.fn() },
       creditTransaction: { create: vi.fn(), findMany: vi.fn() },
@@ -56,6 +57,32 @@ describe('CreditsService [CRED-03, CRED-04]', () => {
       const result = await service.getUnitPrice()
 
       expect(result.avulsoUnit).toBe(1.75)
+    })
+  })
+
+  describe('listCombos (promoção)', () => {
+    it('aplica desconto: price = preço com desconto e antes = preço original', async () => {
+      const mockFastify = createMockFastify()
+      ;(mockFastify.prisma.combo.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { id: 'combo-1', name: 'Combo Novo', quantity: 100, price: 99.9, tag: null, isActive: true },
+        { id: 'combo-2', name: 'Combo Básico', quantity: 20, price: 29.9, tag: 'Mais popular', isActive: true },
+      ])
+      ;(mockFastify.prisma.promotion.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { comboId: 'combo-1', discountType: 'PERCENT', discountValue: 15, isActive: true },
+      ])
+
+      const service = new CreditsService(mockFastify)
+      const result = await service.listCombos()
+
+      const promo = result.find((c) => c.id === 'combo-1')!
+      expect(promo.price).toBe(84.92)
+      expect(promo.antes).toBe(99.9)
+      expect(promo.isOnPromotion).toBe(true)
+
+      const semPromo = result.find((c) => c.id === 'combo-2')!
+      expect(semPromo.price).toBe(29.9)
+      expect(semPromo.isOnPromotion).toBe(false)
+      expect(semPromo).not.toHaveProperty('antes')
     })
   })
 
