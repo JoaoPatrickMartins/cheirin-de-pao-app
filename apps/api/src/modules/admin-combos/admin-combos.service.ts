@@ -29,7 +29,16 @@ export class AdminCombosService {
     const combosWithPromotion = await Promise.all(
       combos.map(async (combo: { id: string }) => {
         const activePromotion = await this.repository.findActivePromotion(combo.id)
-        return { ...combo, activePromotion: activePromotion ?? null }
+        // Mapeia a Promotion crua para o shape `discount` consumido pelo frontend.
+        const discount = activePromotion
+          ? {
+              type: activePromotion.discountType,
+              value: activePromotion.discountValue,
+              expiresAt: activePromotion.endsAt,
+              active: activePromotion.isActive,
+            }
+          : null
+        return { ...combo, discount }
       }),
     )
 

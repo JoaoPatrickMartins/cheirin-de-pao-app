@@ -37,9 +37,10 @@ interface KpiCardProps {
   value: string | number
   label: string
   pill?: { text: string; tone: 'good' | 'gold' | 'neutral' }
+  sub?: string
 }
 
-export function KpiCard({ icon, value, label, pill }: KpiCardProps) {
+export function KpiCard({ icon, value, label, pill, sub }: KpiCardProps) {
   return (
     <div
       style={{
@@ -89,6 +90,22 @@ export function KpiCard({ icon, value, label, pill }: KpiCardProps) {
       >
         {label}
       </p>
+
+      {/* Linha secundária opcional (ex.: previstos pela agenda) */}
+      {sub && (
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 11.5,
+            fontWeight: 600,
+            color: 'var(--color-accent)',
+            margin: '4px 0 0',
+            lineHeight: 1.2,
+          }}
+        >
+          {sub}
+        </p>
+      )}
     </div>
   )
 }

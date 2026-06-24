@@ -132,6 +132,8 @@ export class OrdersService {
       })
 
       // Criar Order (type SINGLE, status SCHEDULED)
+      // condominiumId herdado do usuário — necessário para o agrupamento por
+      // condomínio no painel admin (delivery-status / divisão de entregas).
       const newOrder = await tx.order.create({
         data: {
           userId,
@@ -141,6 +143,7 @@ export class OrdersService {
           scheduledDate,
           ...(deliveryTime ? { deliveryTime } : {}),
           ...(slotId ? { slotId } : {}),
+          ...(user.condominiumId ? { condominiumId: user.condominiumId } : {}),
         },
       })
 

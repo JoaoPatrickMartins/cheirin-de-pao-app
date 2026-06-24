@@ -67,15 +67,18 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
   }, [period])
 
   // Montar dados do BarChart a partir de byCondominium
-  const barData =
-    data?.byCondominium.slice(0, 7).map((c, i, arr) => ({
-      label: c.condominiumName.slice(0, 4),
-      value: c.total,
-      highlight: i === Math.min(arr.length - 2, arr.length - 1),
-    })) ?? []
+  const condominiums = data?.byCondominium ?? []
 
-  const maxCondo = data ? Math.max(...(data.byCondominium.map((c) => c.total) || [1]), 1) : 1
-  const totalTipo = data ? data.byType.combos + data.byType.avulso : 0
+  const barData = condominiums.slice(0, 7).map((c, i, arr) => ({
+    label: (c.condominiumName ?? '—').slice(0, 4),
+    value: c.total,
+    highlight: i === Math.min(arr.length - 2, arr.length - 1),
+  }))
+
+  const maxCondo = Math.max(...condominiums.map((c) => c.total), 1)
+  const combosTotal = data?.byType?.combos ?? 0
+  const avulsoTotal = data?.byType?.avulso ?? 0
+  const totalTipo = combosTotal + avulsoTotal
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -165,7 +168,7 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                   margin: '0 0 16px',
                 }}
               >
-                {formatBRL(data.total)}
+                {formatBRL(data.total ?? 0)}
               </p>
               <BarChart data={barData.length > 0 ? barData : [{ label: '—', value: 0 }]} height={80} />
             </div>
@@ -206,7 +209,7 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                   <>
                     <div
                       style={{
-                        width: `${(data.byType.combos / totalTipo) * 100}%`,
+                        width: `${(combosTotal / totalTipo) * 100}%`,
                         background: 'var(--color-gold)',
                         transition: 'width 0.3s ease',
                       }}
@@ -232,7 +235,7 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                     </span>
                   </div>
                   <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
-                    {formatBRL(data.byType.combos)}
+                    {formatBRL(combosTotal)}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -243,14 +246,14 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                     </span>
                   </div>
                   <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
-                    {formatBRL(data.byType.avulso)}
+                    {formatBRL(avulsoTotal)}
                   </span>
                 </div>
               </div>
             </div>
 
             {/* Card por condomínio */}
-            {data.byCondominium.length > 0 && (
+            {condominiums.length > 0 && (
               <div
                 style={{
                   background: 'var(--color-surface)',
@@ -272,7 +275,7 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {data.byCondominium.map((c) => (
+                  {condominiums.map((c) => (
                     <div key={c.condominiumId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span

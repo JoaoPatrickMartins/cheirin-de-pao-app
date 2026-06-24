@@ -34,31 +34,24 @@ export const adminFinancialRoute: FastifyPluginAsync = async (fastify) => {
             type: 'object',
             description: 'Relatório financeiro do período.',
             properties: {
-              period: { type: 'string', description: 'Período consultado: "day", "week" ou "month".' },
-              revenue: { type: 'number', description: 'Receita total do período em reais.' },
-              breakdown: {
+              total: { type: 'number', description: 'Receita total do período em reais.' },
+              byType: {
                 type: 'object',
-                description: 'Breakdown detalhado da receita.',
+                description: 'Receita por tipo de compra.',
                 properties: {
-                  byType: {
-                    type: 'object',
-                    description: 'Receita por método de pagamento.',
-                    properties: {
-                      pix: { type: 'number', description: 'Receita via Pix no período.' },
-                      card: { type: 'number', description: 'Receita via cartão no período.' },
-                    },
-                  },
-                  byCondominium: {
-                    type: 'array',
-                    description: 'Receita por condomínio.',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        condominiumId: { type: 'string', description: 'ID do condomínio.' },
-                        condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                        revenue: { type: 'number', description: 'Receita gerada por clientes deste condomínio no período.' },
-                      },
-                    },
+                  combos: { type: 'number', description: 'Receita via combos no período.' },
+                  avulso: { type: 'number', description: 'Receita via compra avulsa/personalizada no período.' },
+                },
+              },
+              byCondominium: {
+                type: 'array',
+                description: 'Receita por condomínio.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    condominiumId: { type: 'string', description: 'ID do condomínio.' },
+                    condominiumName: { type: 'string', description: 'Nome do condomínio.' },
+                    total: { type: 'number', description: 'Receita gerada por clientes deste condomínio no período.' },
                   },
                 },
               },

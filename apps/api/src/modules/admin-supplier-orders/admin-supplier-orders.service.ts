@@ -7,6 +7,8 @@ import { AdminSupplierOrdersRepository } from './admin-supplier-orders.repositor
 import { generatePdf } from './pdf-generator.js'
 import { generateExcel } from './excel-generator.js'
 import type { SupplierOrderData } from './pdf-generator.js'
+import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
+import { projectScheduleForDate } from '../../lib/schedule-projection.js'
 
 /**
  * AdminSupplierOrdersService — lógica do fluxo de pedido ao fornecedor.
@@ -38,35 +40,35 @@ export class AdminSupplierOrdersService {
    * Retorna array { condominiumId, name, deliveryCount, totalBreads }[] ordenado por nome.
    */
   async getDraft(): Promise<
-    Array<{ condominiumId: string; name: string; deliveryCount: number; totalBreads: number }>
+    Array<{
+      condominiumId: string
+      name: string
+      deliveryCount: number
+      totalBreads: number
+      projectedBreads: number
+      projectedDeliveries: number
+    }>
   > {
-    // Calcular amanhã em BRT (UTC-3)
+    // Amanhã em BRT — usa helpers de cutoff (corrige bug de cálculo por dia UTC, que
+    // entre 21:00–23:59 BRT apontava para o dia errado, inclusive no corte das 22:00).
     const now = new Date()
-    // Ajuste simples: adicionar 1 dia ao início do dia em UTC-3
-    const tomorrowBrt = new Date(now)
-    tomorrowBrt.setUTCHours(0, 0, 0, 0)
-    tomorrowBrt.setUTCDate(tomorrowBrt.getUTCDate() + 1)
-    // BRT = UTC-3 → início do dia BRT = 03:00 UTC
-    const startOfTomorrow = new Date(tomorrowBrt.getTime() + 3 * 3600 * 1000)
-    const endOfTomorrow = new Date(startOfTomorrow.getTime() + 24 * 3600 * 1000 - 1)
+    const tomorrowNoonBrt = brtNoonFromStr(brtDateStr(now, 1))
+    const { start: startOfTomorrow, end: endOfTomorrow } = brtDayRange(tomorrowNoonBrt)
 
-    // Buscar orders para amanhã (não canceladas)
+    // Pedidos JÁ materializados para amanhã (não cancelados)
     const orders = await this.prisma.order.findMany({
       where: {
-        scheduledDate: {
-          gte: startOfTomorrow,
-          lte: endOfTomorrow,
-        },
+        scheduledDate: { gte: startOfTomorrow, lte: endOfTomorrow },
         status: { not: 'CANCELLED' },
         condominiumId: { not: null },
       },
-      select: {
-        condominiumId: true,
-        quantity: true,
-      },
+      select: { condominiumId: true, quantity: true },
     })
 
-    // Agrupar por condominiumId — soma de pães e contagem de entregas
+    // Previstos pela agenda (ainda não materializados) para amanhã
+    const projection = await projectScheduleForDate(this.prisma, tomorrowNoonBrt)
+
+    // Agrupar materializados por condominiumId
     const grouped = new Map<string, { totalBreads: number; deliveryCount: number }>()
     for (const order of orders) {
       if (!order.condominiumId) continue
@@ -76,14 +78,20 @@ export class AdminSupplierOrdersService {
       grouped.set(order.condominiumId, current)
     }
 
-    // Buscar nomes dos condomínios
+    // União das chaves: condomínios com pedidos materializados E/OU previstos
+    const condoIds = new Set<string>([...grouped.keys(), ...projection.byCondo.keys()])
+
     const result: Array<{
       condominiumId: string
       name: string
       deliveryCount: number
       totalBreads: number
+      projectedBreads: number
+      projectedDeliveries: number
     }> = []
-    for (const [condominiumId, { totalBreads, deliveryCount }] of grouped) {
+    for (const condominiumId of condoIds) {
+      const mat = grouped.get(condominiumId) ?? { totalBreads: 0, deliveryCount: 0 }
+      const proj = projection.byCondo.get(condominiumId) ?? { projectedBreads: 0, projectedDeliveries: 0 }
       const condo = await this.prisma.condominium.findUnique({
         where: { id: condominiumId },
         select: { name: true },
@@ -91,8 +99,10 @@ export class AdminSupplierOrdersService {
       result.push({
         condominiumId,
         name: condo?.name ?? condominiumId,
-        deliveryCount,
-        totalBreads,
+        deliveryCount: mat.deliveryCount,
+        totalBreads: mat.totalBreads,
+        projectedBreads: proj.projectedBreads,
+        projectedDeliveries: proj.projectedDeliveries,
       })
     }
 

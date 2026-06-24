@@ -14,6 +14,8 @@ interface CondoDraft {
   name: string
   deliveryCount: number
   totalBreads: number
+  projectedBreads: number
+  projectedDeliveries: number
 }
 
 interface Supplier {
@@ -525,18 +527,33 @@ export function AdminPedido() {
                             }}
                           >
                             {condo.deliveryCount} entregas
+                            {condo.projectedDeliveries > 0 ? ` · +${condo.projectedDeliveries} previstas` : ''}
                           </p>
                         </div>
-                        <span
-                          style={{
-                            fontFamily: 'var(--font-display)',
-                            fontSize: 18,
-                            fontWeight: 800,
-                            color: 'var(--color-text)',
-                          }}
-                        >
-                          {condo.totalBreads}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-display)',
+                              fontSize: 18,
+                              fontWeight: 800,
+                              color: 'var(--color-text)',
+                            }}
+                          >
+                            {condo.totalBreads}
+                          </span>
+                          {condo.projectedBreads > 0 && (
+                            <span
+                              style={{
+                                fontFamily: 'var(--font-body)',
+                                fontSize: 11.5,
+                                fontWeight: 700,
+                                color: 'var(--color-accent)',
+                              }}
+                            >
+                              +{condo.projectedBreads} previstos
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

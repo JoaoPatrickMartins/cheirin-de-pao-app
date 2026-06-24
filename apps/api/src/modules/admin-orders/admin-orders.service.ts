@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { NotificationType } from '@prisma/client'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
+import { dayKeyOf, type DayKey } from '../../lib/cutoff.js'
+import { projectScheduleForDate } from '../../lib/schedule-projection.js'
 
 /**
  * Mapa de transições de estado válidas para pedidos.
@@ -181,8 +183,15 @@ export class AdminOrdersService {
    */
   async getDashboard(): Promise<{
     breadsTodayCount: number
+    breadsTodayProjected: number
+    breadsTomorrowCount: number
+    breadsTomorrowProjected: number
+    breadsByWeekday: number[]
     revenueToday: number
+    breadsTodayTrendPct: number
+    revenueTrendPct: number
     clientsCount: number
+    clientsNewCount: number
     condominiumsCount: number
     deliverySlots: Array<{ slotId: string; label: string; time: string; cutoffTime: string }>
     revenueByType: { combos: number; avulso: number }
@@ -194,62 +203,122 @@ export class AdminOrdersService {
     const [day, month, year] = nowBrtString.split('/')
     const startOfDayBrt = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 3, 0, 0, 0)) // BRT = UTC-3, então início do dia BRT = 03:00 UTC
     const endOfDayBrt = new Date(startOfDayBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
+    // Janela de amanhã BRT (para o card "Pedido de amanhã")
+    const startOfTomorrowBrt = new Date(startOfDayBrt.getTime() + 24 * 60 * 60 * 1000)
+    const endOfTomorrowBrt = new Date(startOfTomorrowBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
+    // Janela de ontem BRT (para os deltas reais dos badges)
+    const startOfYesterdayBrt = new Date(startOfDayBrt.getTime() - 24 * 60 * 60 * 1000)
+    const endOfYesterdayBrt = new Date(startOfDayBrt.getTime() - 1)
+    // Meio-dia BRT de hoje/amanhã (seguro p/ projeção da agenda — cai dentro do dia)
+    const todayNoonBrt = new Date(startOfDayBrt.getTime() + 12 * 60 * 60 * 1000)
+    const tomorrowNoonBrt = new Date(todayNoonBrt.getTime() + 24 * 60 * 60 * 1000)
+    // Semana corrente (segunda→domingo) em BRT, para o gráfico "Fornadas por dia"
+    const dow = startOfDayBrt.getUTCDay() // 0=Dom..6=Sáb (mesmo dia BRT às 03:00 UTC)
+    const daysFromMonday = (dow + 6) % 7
+    const weekStart = new Date(startOfDayBrt.getTime() - daysFromMonday * 24 * 60 * 60 * 1000)
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+    // 7 dias atrás (para "novos clientes")
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-    const [orderAgg, paymentAgg, clientsCount, condominiumsCount, deliverySlotsConfig, comboPaidPayments, avulsoPaidPayments] =
-      await Promise.all([
-        // breadsTodayCount
-        this.prisma.order.aggregate({
-          _sum: { quantity: true },
-          where: {
-            scheduledDate: { gte: startOfDayBrt, lte: endOfDayBrt },
-            status: { not: 'CANCELLED' },
-          },
-        }),
-        // revenueToday
-        this.prisma.payment.aggregate({
-          _sum: { amount: true },
-          where: {
-            status: 'PAID',
-            createdAt: { gte: startOfDayBrt, lte: endOfDayBrt },
-          },
-        }),
-        // clientsCount
-        this.prisma.user.count({
-          where: { role: 'CLIENT', isBlocked: false },
-        }),
-        // condominiumsCount
-        this.prisma.condominium.count({
-          where: { isActive: true },
-        }),
-        // deliverySlots (config global — cutoffTime por slot)
-        getGlobalDeliverySlots(this.prisma),
-        // revenueByType — combos (comboId != null)
-        this.prisma.payment.findMany({
-          where: {
-            status: 'PAID',
-            createdAt: { gte: startOfDayBrt, lte: endOfDayBrt },
-            comboId: { not: null },
-          },
-          select: { amount: true },
-        }),
-        // revenueByType — avulso (comboId == null)
-        this.prisma.payment.findMany({
-          where: {
-            status: 'PAID',
-            createdAt: { gte: startOfDayBrt, lte: endOfDayBrt },
-            comboId: null,
-          },
-          select: { amount: true },
-        }),
-      ])
+    const [
+      orderAgg,
+      orderTomorrowAgg,
+      orderYesterdayAgg,
+      paymentAgg,
+      paymentYesterdayAgg,
+      clientsCount,
+      clientsNewCount,
+      condominiumsCount,
+      deliverySlotsConfig,
+      comboPaidPayments,
+      avulsoPaidPayments,
+      weekOrders,
+      projToday,
+      projTomorrow,
+    ] = await Promise.all([
+      // breadsTodayCount
+      this.prisma.order.aggregate({
+        _sum: { quantity: true },
+        where: { scheduledDate: { gte: startOfDayBrt, lte: endOfDayBrt }, status: { not: 'CANCELLED' } },
+      }),
+      // breadsTomorrowCount — base do card "Pedido de amanhã"
+      this.prisma.order.aggregate({
+        _sum: { quantity: true },
+        where: { scheduledDate: { gte: startOfTomorrowBrt, lte: endOfTomorrowBrt }, status: { not: 'CANCELLED' } },
+      }),
+      // breads de ontem (delta do card "Pães hoje")
+      this.prisma.order.aggregate({
+        _sum: { quantity: true },
+        where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { not: 'CANCELLED' } },
+      }),
+      // revenueToday
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: { status: 'PAID', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt } },
+      }),
+      // revenue de ontem (delta do card "Receita do dia")
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: { status: 'PAID', createdAt: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt } },
+      }),
+      // clientsCount
+      this.prisma.user.count({ where: { role: 'CLIENT', isBlocked: false } }),
+      // clientsNewCount — novos clientes nos últimos 7 dias (delta do card "Clientes")
+      this.prisma.user.count({ where: { role: 'CLIENT', createdAt: { gte: sevenDaysAgo } } }),
+      // condominiumsCount
+      this.prisma.condominium.count({ where: { isActive: true } }),
+      // deliverySlots (config global — cutoffTime por slot)
+      getGlobalDeliverySlots(this.prisma),
+      // revenueByType — combos (comboId != null)
+      this.prisma.payment.findMany({
+        where: { status: 'PAID', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt }, comboId: { not: null } },
+        select: { amount: true },
+      }),
+      // revenueByType — avulso (customQuantity != null)
+      // NB: usamos customQuantity em vez de `comboId: null` porque pagamentos avulsos
+      // são criados SEM o campo comboId (unset no Mongo), e `comboId: null` no Prisma
+      // não casa com campos ausentes — só com null explícito.
+      this.prisma.payment.findMany({
+        where: { status: 'PAID', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt }, customQuantity: { not: null } },
+        select: { amount: true },
+      }),
+      // pedidos da semana corrente (gráfico "Fornadas por dia")
+      this.prisma.order.findMany({
+        where: { scheduledDate: { gte: weekStart, lte: weekEnd }, status: { not: 'CANCELLED' } },
+        select: { scheduledDate: true, quantity: true },
+      }),
+      // projeção da agenda (previstos não materializados) — hoje e amanhã
+      projectScheduleForDate(this.prisma, todayNoonBrt),
+      projectScheduleForDate(this.prisma, tomorrowNoonBrt),
+    ])
 
     const combosRevenue = (comboPaidPayments as { amount: number }[]).reduce((s, p) => s + p.amount, 0)
     const avulsoRevenue = (avulsoPaidPayments as { amount: number }[]).reduce((s, p) => s + p.amount, 0)
 
+    // Série por dia da semana (seg..dom) a partir dos pedidos materializados da semana
+    const WEEKDAY_INDEX: Record<DayKey, number> = { seg: 0, ter: 1, qua: 2, qui: 3, sex: 4, sab: 5, dom: 6 }
+    const breadsByWeekday = [0, 0, 0, 0, 0, 0, 0]
+    for (const o of weekOrders as { scheduledDate: Date; quantity: number }[]) {
+      breadsByWeekday[WEEKDAY_INDEX[dayKeyOf(o.scheduledDate)]] += o.quantity
+    }
+
+    const breadsToday = (orderAgg._sum?.quantity as number | null) ?? 0
+    const breadsYesterday = (orderYesterdayAgg._sum?.quantity as number | null) ?? 0
+    const revenueToday = (paymentAgg._sum?.amount as number | null) ?? 0
+    const revenueYesterday = (paymentYesterdayAgg._sum?.amount as number | null) ?? 0
+    const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0)
+
     return {
-      breadsTodayCount: (orderAgg._sum?.quantity as number | null) ?? 0,
-      revenueToday: (paymentAgg._sum?.amount as number | null) ?? 0,
+      breadsTodayCount: breadsToday,
+      breadsTodayProjected: projToday.total,
+      breadsTomorrowCount: (orderTomorrowAgg._sum?.quantity as number | null) ?? 0,
+      breadsTomorrowProjected: projTomorrow.total,
+      breadsByWeekday,
+      revenueToday,
+      breadsTodayTrendPct: pct(breadsToday, breadsYesterday),
+      revenueTrendPct: pct(revenueToday, revenueYesterday),
       clientsCount,
+      clientsNewCount,
       condominiumsCount,
       deliverySlots: deliverySlotsConfig
         .filter((s) => s.isActive)

@@ -20,9 +20,9 @@ interface DeliveryStatus {
 }
 
 interface SupplierOrderHistory {
-  _id: string
+  id: string
   date: string
-  totalBreads: number
+  totalQuantity: number
   status: string
   delivered?: number
   total?: number
@@ -337,13 +337,13 @@ export function AdminEntregas() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {history.map((item) => {
           const delivered = item.delivered ?? 0
-          const total = item.total ?? item.totalBreads ?? 0
+          const total = item.total ?? item.totalQuantity ?? 0
           const pct = total > 0 ? Math.round((delivered / total) * 100) : 0
           const isComplete = pct >= 100
 
           return (
             <div
-              key={item._id}
+              key={item.id}
               style={{
                 background: 'var(--color-surface)',
                 borderRadius: 18,
