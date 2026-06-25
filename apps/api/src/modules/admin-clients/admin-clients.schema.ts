@@ -54,3 +54,15 @@ export const UpdateClientSchema = z
   })
   .refine((d) => Object.keys(d).length > 0, { message: 'Nenhum campo para atualizar' })
 export type UpdateClientBody = z.infer<typeof UpdateClientSchema>
+
+/** Body do cancelamento de pedido — refundCredits decide a devolução de créditos. */
+export const CancelOrderSchema = z.object({
+  refundCredits: z.boolean().optional().default(false),
+})
+export type CancelOrderBody = z.infer<typeof CancelOrderSchema>
+
+/** Body para pausar/retomar a agenda. */
+export const ScheduleActiveSchema = z.object({
+  isActive: z.boolean(),
+})
+export type ScheduleActiveBody = z.infer<typeof ScheduleActiveSchema>

@@ -185,7 +185,9 @@ export class AdminClientsService {
 
     const [schedule, recentOrders, condominium, paymentAgg, deliveredAgg, ordersCount] =
       await Promise.all([
-        this.prisma.schedule.findFirst({ where: { userId: id, isActive: true } }),
+        // Busca a agenda do cliente independente de isActive — para que agendas
+        // pausadas continuem visíveis no detalhe (e o admin possa retomá-las).
+        this.prisma.schedule.findFirst({ where: { userId: id } }),
         this.prisma.order.findMany({
           where: { userId: id, scheduledDate: { gte: since } },
           orderBy: { scheduledDate: 'desc' },
@@ -394,6 +396,125 @@ export class AdminClientsService {
       })),
       autoRecharge,
     }
+  }
+
+  /**
+   * Pedidos do cliente com dados de entrega (entregador, deliveredAt, confirmedAt).
+   * Inclui pedidos CANCELLED. Para auditoria de entregas e cancelamentos.
+   */
+  async getOrders(id: string, limit = 50) {
+    await this.assertClient(id)
+
+    const orders = await this.prisma.order.findMany({
+      where: { userId: id },
+      orderBy: { scheduledDate: 'desc' },
+      take: limit,
+    })
+
+    const orderIds = orders.map((o) => o.id)
+    const courierIds = [...new Set(orders.map((o) => o.courierId).filter((v): v is string => !!v))]
+
+    const [deliveries, couriers] = await Promise.all([
+      orderIds.length > 0
+        ? this.prisma.delivery.findMany({
+            where: { orderId: { in: orderIds } },
+            select: { orderId: true, deliveredAt: true, confirmedAt: true, status: true },
+          })
+        : Promise.resolve([]),
+      courierIds.length > 0
+        ? this.prisma.user.findMany({ where: { id: { in: courierIds } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+    ])
+
+    const delByOrder = new Map(deliveries.map((d) => [d.orderId, d]))
+    const courierName = new Map(couriers.map((c) => [c.id, c.name]))
+
+    return orders.map((o) => {
+      const d = delByOrder.get(o.id)
+      return {
+        id: o.id,
+        type: o.type,
+        quantity: o.quantity,
+        status: o.status,
+        scheduledDate: o.scheduledDate,
+        slotId: o.slotId ?? null,
+        deliveryTime: o.deliveryTime ?? null,
+        courierName: o.courierId ? courierName.get(o.courierId) ?? null : null,
+        deliveredAt: d?.deliveredAt ?? null,
+        confirmedAt: d?.confirmedAt ?? null,
+        deliveryStatus: d?.status ?? null,
+      }
+    })
+  }
+
+  /**
+   * Cancela um pedido SCHEDULED do cliente. O crédito é debitado na criação do
+   * pedido, então `refundCredits` controla se os créditos voltam ao cliente
+   * (reversão atômica + CreditTransaction REFUND auditável).
+   *
+   * @throws 404 se cliente/pedido não encontrado; 422 se pedido não é SCHEDULED
+   */
+  async cancelOrder(clientId: string, orderId: string, refundCredits: boolean, adminId: string) {
+    await this.assertClient(clientId)
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order || order.userId !== clientId) {
+      throw { statusCode: 404, message: 'Pedido não encontrado' }
+    }
+    if (order.status !== 'SCHEDULED') {
+      throw { statusCode: 422, message: 'Apenas pedidos agendados podem ser cancelados' }
+    }
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [
+      this.prisma.order.update({ where: { id: orderId }, data: { status: 'CANCELLED' } }),
+    ]
+    if (refundCredits) {
+      ops.push(
+        this.prisma.creditTransaction.create({
+          data: {
+            userId: clientId,
+            type: TransactionType.REFUND,
+            quantity: order.quantity,
+            referenceId: orderId,
+            description: `Cancelamento de pedido — ${order.quantity} crédito(s) devolvido(s)`,
+            adminId,
+          },
+        }),
+        this.prisma.user.update({
+          where: { id: clientId },
+          data: { creditBalance: { increment: order.quantity } },
+        }),
+      )
+    }
+    await this.prisma.$transaction(ops)
+
+    const user = await this.prisma.user.findUnique({ where: { id: clientId }, select: { creditBalance: true } })
+    return {
+      id: orderId,
+      status: 'CANCELLED',
+      refundedCredits: refundCredits ? order.quantity : 0,
+      creditBalance: user?.creditBalance ?? 0,
+    }
+  }
+
+  /**
+   * Ativa/pausa a agenda do cliente (isActive). Pausar interrompe a geração de
+   * pedidos futuros (a projeção só considera agendas isActive=true); NÃO cancela
+   * pedidos já criados.
+   *
+   * @throws 404 se cliente/agenda não encontrada
+   */
+  async setScheduleActive(clientId: string, isActive: boolean) {
+    await this.assertClient(clientId)
+    const schedule = await this.prisma.schedule.findFirst({ where: { userId: clientId } })
+    if (!schedule) {
+      throw { statusCode: 404, message: 'Agenda não encontrada' }
+    }
+    const updated = await this.prisma.schedule.update({
+      where: { id: schedule.id },
+      data: { isActive },
+    })
+    return { id: updated.id, isActive: updated.isActive }
   }
 
   /**

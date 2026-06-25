@@ -413,4 +413,123 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.paymentMethods.bind(ctrl),
   )
+
+  fastify.get(
+    '/admin/clients/:id/orders',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Pedidos do cliente com dados de entrega (admin)',
+        description: 'Retorna os pedidos do cliente (incluindo CANCELLED) com entregador, horário/slot e dados de entrega (deliveredAt, confirmedAt, status). Ordenado do mais recente. Para auditoria de entregas e cancelamentos. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' } },
+        },
+        querystring: {
+          type: 'object',
+          properties: { limit: { type: 'integer', minimum: 1, maximum: 200, description: 'Máximo de pedidos (padrão 50).' } },
+        },
+        response: {
+          200: {
+            type: 'array',
+            description: 'Pedidos do cliente (mais recentes primeiro).',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID do pedido.' },
+                type: { type: 'string', description: 'SINGLE | SCHEDULED.' },
+                quantity: { type: 'integer', description: 'Pães do pedido.' },
+                status: { type: 'string', description: 'SCHEDULED | OUT_FOR_DELIVERY | DELIVERED | CANCELLED.' },
+                scheduledDate: { type: 'string', description: 'Data programada (ISO 8601).' },
+                slotId: { type: 'string', nullable: true, description: 'Slot (manha | tarde).' },
+                deliveryTime: { type: 'string', nullable: true, description: 'Horário de entrega.' },
+                courierName: { type: 'string', nullable: true, description: 'Entregador designado.' },
+                deliveredAt: { type: 'string', nullable: true, description: 'Quando foi entregue (ISO 8601).' },
+                confirmedAt: { type: 'string', nullable: true, description: 'Quando a entrega foi confirmada (ISO 8601).' },
+                deliveryStatus: { type: 'string', nullable: true, description: 'PENDING | CONFIRMED (registro de entrega).' },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.orders.bind(ctrl),
+  )
+
+  fastify.post(
+    '/admin/clients/:id/orders/:orderId/cancel',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Cancelar pedido do cliente (admin)',
+        description: 'Cancela um pedido SCHEDULED. O crédito é debitado na criação do pedido; refundCredits=true devolve os créditos ao cliente (reversão atômica + CreditTransaction REFUND auditável). Pedidos OUT_FOR_DELIVERY/DELIVERED não podem ser cancelados (422). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id', 'orderId'],
+          properties: {
+            id: { type: 'string', description: 'ID do cliente.' },
+            orderId: { type: 'string', description: 'ID do pedido.' },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            refundCredits: { type: 'boolean', description: 'Se true, devolve os créditos ao cliente. Padrão: false.' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Pedido cancelado.',
+            properties: {
+              id: { type: 'string', description: 'ID do pedido.' },
+              status: { type: 'string', description: 'Novo status (CANCELLED).' },
+              refundedCredits: { type: 'integer', description: 'Créditos devolvidos (0 se não devolveu).' },
+              creditBalance: { type: 'integer', description: 'Saldo atual do cliente após a operação.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.cancelOrder.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/clients/:id/schedule',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Pausar/retomar agenda do cliente (admin)',
+        description: 'Ativa ou pausa a agenda semanal (isActive). Pausar interrompe a geração de pedidos futuros (a projeção só considera agendas ativas) — NÃO cancela pedidos já criados. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do cliente.' } },
+        },
+        body: {
+          type: 'object',
+          required: ['isActive'],
+          properties: { isActive: { type: 'boolean', description: 'true = ativa; false = pausa.' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Agenda atualizada.',
+            properties: {
+              id: { type: 'string', description: 'ID da agenda.' },
+              isActive: { type: 'boolean', description: 'Novo estado da agenda.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.setScheduleActive.bind(ctrl),
+  )
 }

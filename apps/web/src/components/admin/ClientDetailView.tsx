@@ -136,9 +136,9 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELLED: 'Cancelado',
 }
 
-/** Entradas {dia,qtd} agregadas da agenda ativa (suporta days multi-slot e weeklyQty). */
+/** Entradas {dia,qtd} agregadas da agenda (suporta days multi-slot e weeklyQty). */
 function agendaEntries(schedule?: ClienteSchedule | null): { dia: string; qty: number }[] {
-  if (!schedule || schedule.isActive === false) return []
+  if (!schedule) return []
   const acc: Record<string, number> = {}
   if (schedule.days && Object.keys(schedule.days).length > 0) {
     for (const wq of Object.values(schedule.days)) {
@@ -201,8 +201,9 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
-  // segmento Visão geral / Financeiro
-  const [aba, setAba] = useState<'geral' | 'financeiro'>('geral')
+  // segmento Visão geral / Pedidos / Financeiro
+  const [aba, setAba] = useState<'geral' | 'pedidos' | 'financeiro'>('geral')
+  const [scheduleToggling, setScheduleToggling] = useState(false)
 
   useEffect(() => {
     const fetchCliente = async () => {
@@ -346,6 +347,30 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
     }
   }
 
+  async function handleToggleSchedule() {
+    if (!cliente?.schedule || scheduleToggling) return
+    const next = !(cliente.schedule.isActive !== false)
+    setScheduleToggling(true)
+    try {
+      const res = await apiFetch(`/admin/clients/${cliente.id}/schedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: next }),
+      })
+      if (res.ok) {
+        const u = (await res.json()) as { isActive: boolean }
+        setCliente((prev) => (prev && prev.schedule ? { ...prev, schedule: { ...prev.schedule, isActive: u.isActive } } : prev))
+        showToast(u.isActive ? 'Agenda retomada' : 'Agenda pausada')
+      } else {
+        showToast('Falha ao atualizar agenda', false)
+      }
+    } catch {
+      showToast('Falha na conexão', false)
+    } finally {
+      setScheduleToggling(false)
+    }
+  }
+
   useEffect(() => {
     if (!showGrantModal && !showEditSheet) return
     const handler = (e: KeyboardEvent) => {
@@ -459,7 +484,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               background: 'var(--color-surface-2)', border: '1px solid var(--color-border-2)',
             }}
           >
-            {([['geral', 'Visão geral'], ['financeiro', 'Financeiro']] as const).map(([key, label]) => {
+            {([['geral', 'Visão geral'], ['pedidos', 'Pedidos'], ['financeiro', 'Financeiro']] as const).map(([key, label]) => {
               const ativo = aba === key
               return (
                 <button
@@ -485,6 +510,14 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               showToast={showToast}
               onRefunded={(credits) =>
                 setCliente((prev) => (prev ? { ...prev, creditBalance: Math.max(0, prev.creditBalance - credits) } : prev))
+              }
+            />
+          ) : aba === 'pedidos' ? (
+            <PedidosPanel
+              clienteId={cliente.id}
+              showToast={showToast}
+              onCreditChange={(delta) =>
+                setCliente((prev) => (prev ? { ...prev, creditBalance: Math.max(0, prev.creditBalance + delta) } : prev))
               }
             />
           ) : (
@@ -611,33 +644,67 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
           </div>
 
           {/* Agenda */}
-          <div style={{ ...cardStyle, padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: entradas.length ? 12 : 0 }}>
-              <Icon name="calendar" size={20} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
-              <span style={rowLabelStyle}>Agendamento semanal</span>
-              {entradas.length === 0 && <span style={rowValueStyle}>Sem agendamento</span>}
-            </div>
-            {entradas.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {entradas.map((e) => (
-                  <div
-                    key={e.dia}
+          {(() => {
+            const agendaAtiva = cliente.schedule ? cliente.schedule.isActive !== false : false
+            return (
+              <div style={{ ...cardStyle, padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: entradas.length ? 12 : 0 }}>
+                  <Icon name="calendar" size={20} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
+                  <span style={rowLabelStyle}>Agendamento semanal</span>
+                  {cliente.schedule ? (
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
+                        color: agendaAtiva ? 'var(--color-accent)' : 'var(--color-text-ter)',
+                        background: agendaAtiva ? 'var(--color-gold-soft)' : 'transparent',
+                        border: agendaAtiva ? 'none' : '1px solid var(--color-border-2)',
+                        borderRadius: 999, padding: '2px 8px',
+                      }}
+                    >
+                      {agendaAtiva ? 'Ativa' : 'Pausada'}
+                    </span>
+                  ) : (
+                    <span style={rowValueStyle}>Sem agendamento</span>
+                  )}
+                </div>
+                {entradas.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, opacity: agendaAtiva ? 1 : 0.5 }}>
+                    {entradas.map((e) => (
+                      <div
+                        key={e.dia}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-surface-2)',
+                          borderRadius: 10, padding: '6px 10px',
+                        }}
+                      >
+                        <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+                          {e.dia}
+                        </span>
+                        <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: 'var(--color-text)' }}>
+                          {e.qty}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {cliente.schedule && (
+                  <button
+                    onClick={() => { void handleToggleSchedule() }}
+                    disabled={scheduleToggling}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 6, background: 'var(--color-surface-2)',
-                      borderRadius: 10, padding: '6px 10px',
+                      marginTop: 12, width: '100%', minHeight: 40, borderRadius: 12,
+                      border: '1.5px solid var(--color-border)', background: 'transparent',
+                      fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700,
+                      color: 'var(--color-text)', cursor: scheduleToggling ? 'wait' : 'pointer',
+                      opacity: scheduleToggling ? 0.6 : 1,
                     }}
                   >
-                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
-                      {e.dia}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 800, color: 'var(--color-text)' }}>
-                      {e.qty}
-                    </span>
-                  </div>
-                ))}
+                    {agendaAtiva ? 'Pausar agenda' : 'Retomar agenda'}
+                  </button>
+                )}
               </div>
-            )}
-          </div>
+            )
+          })()}
 
           {/* Pedidos recentes (30 dias) */}
           {cliente.recentOrders && cliente.recentOrders.length > 0 && (
@@ -1324,5 +1391,240 @@ function StatusBadge({ status }: { status: string }) {
     >
       {PAY_STATUS[status] ?? status}
     </span>
+  )
+}
+
+// ------------------------------------------------------------------ Pedidos
+interface OrderRow {
+  id: string
+  type: string
+  quantity: number
+  status: string
+  scheduledDate: string
+  slotId: string | null
+  deliveryTime: string | null
+  courierName: string | null
+  deliveredAt: string | null
+  confirmedAt: string | null
+  deliveryStatus: string | null
+}
+
+function orderStatusColor(status: string): string {
+  if (status === 'DELIVERED') return 'var(--color-accent)'
+  if (status === 'CANCELLED') return 'var(--color-warn)'
+  if (status === 'OUT_FOR_DELIVERY') return 'var(--color-text-sec)'
+  return 'var(--color-text-ter)'
+}
+
+function PedidosPanel({
+  clienteId, showToast, onCreditChange,
+}: {
+  clienteId: string
+  showToast: (message: string, ok?: boolean) => void
+  onCreditChange: (delta: number) => void
+}) {
+  const [orders, setOrders] = useState<OrderRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [cancelTarget, setCancelTarget] = useState<OrderRow | null>(null)
+  const [refundOnCancel, setRefundOnCancel] = useState(true)
+  const [cancelling, setCancelling] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      try {
+        const res = await apiFetch(`/admin/clients/${clienteId}/orders`)
+        if (res.ok && !cancelled) setOrders((await res.json()) as OrderRow[])
+      } catch {
+        // silencioso
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [clienteId])
+
+  function openCancel(o: OrderRow) {
+    setRefundOnCancel(true)
+    setCancelTarget(o)
+  }
+
+  async function confirmCancel() {
+    if (!cancelTarget || cancelling) return
+    setCancelling(true)
+    try {
+      const res = await apiFetch(`/admin/clients/${clienteId}/orders/${cancelTarget.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refundCredits: refundOnCancel }),
+      })
+      if (res.ok) {
+        const data = (await res.json()) as { refundedCredits?: number }
+        const alvo = cancelTarget.id
+        setOrders((prev) => prev.map((o) => (o.id === alvo ? { ...o, status: 'CANCELLED' } : o)))
+        if (data.refundedCredits) onCreditChange(data.refundedCredits)
+        showToast(data.refundedCredits ? `Pedido cancelado · ${data.refundedCredits} crédito(s) devolvido(s)` : 'Pedido cancelado')
+        setCancelTarget(null)
+      } else {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        showToast(err?.error ?? 'Falha ao cancelar', false)
+      }
+    } catch {
+      showToast('Falha na conexão', false)
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+        <div
+          style={{
+            width: 26, height: 26, borderRadius: '50%',
+            border: '3px solid var(--color-border)', borderTopColor: 'var(--color-accent)',
+            animation: 'spin 0.8s linear infinite',
+          }}
+        />
+      </div>
+    )
+  }
+
+  if (orders.length === 0) {
+    return (
+      <div style={{ ...cardStyle, padding: '24px 16px', textAlign: 'center' }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-ter)', margin: 0 }}>
+          Nenhum pedido encontrado.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div style={{ ...cardStyle, padding: '14px 16px' }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+          Pedidos ({orders.length})
+        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
+          {orders.map((o, i) => {
+            const horario = o.deliveryTime || (o.slotId === 'manha' ? 'Manhã' : o.slotId === 'tarde' ? 'Tarde' : '')
+            const entregue = o.deliveredAt ? `entregue ${formatDataCurta(o.deliveredAt)}` : ''
+            const sub = [horario, o.courierName, entregue].filter(Boolean).join(' · ')
+            return (
+              <div
+                key={o.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)',
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                    {formatDataCurta(o.scheduledDate)} · {o.quantity} pães
+                  </p>
+                  {sub && (
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sub}
+                    </p>
+                  )}
+                </div>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700,
+                    color: orderStatusColor(o.status),
+                    background: o.status === 'DELIVERED' ? 'var(--color-gold-soft)' : 'transparent',
+                    border: o.status === 'DELIVERED' ? 'none' : '1px solid var(--color-border-2)',
+                    borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {STATUS_LABEL[o.status] ?? o.status}
+                </span>
+                {o.status === 'SCHEDULED' && (
+                  <button onClick={() => openCancel(o)} style={{ ...miniBtnStyle, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}>
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Dialog de cancelamento de pedido */}
+      {cancelTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex',
+            alignItems: 'flex-end', justifyContent: 'center', zIndex: 100,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setCancelTarget(null) }}
+        >
+          <div style={{ background: 'var(--color-surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 480 }}>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: 'var(--color-text)', margin: '0 0 8px' }}>
+              Cancelar pedido?
+            </h2>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-sec)', margin: '0 0 16px', lineHeight: 1.5 }}>
+              Pedido de {formatDataCurta(cancelTarget.scheduledDate)} · {cancelTarget.quantity} pães será marcado como cancelado.
+            </p>
+
+            {/* Toggle devolver créditos */}
+            <button
+              onClick={() => setRefundOnCancel((v) => !v)}
+              aria-pressed={refundOnCancel}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                padding: '12px 14px', borderRadius: 12, border: '1.5px solid var(--color-border)',
+                background: 'transparent', cursor: 'pointer', marginBottom: 24,
+              }}
+            >
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+                Devolver {cancelTarget.quantity} crédito(s) ao cliente
+              </span>
+              <span
+                style={{
+                  width: 44, height: 26, borderRadius: 999, flexShrink: 0, position: 'relative',
+                  background: refundOnCancel ? 'var(--color-accent)' : 'var(--color-border)', transition: 'background 0.15s',
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute', top: 3, left: refundOnCancel ? 21 : 3, width: 20, height: 20,
+                    borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                  }}
+                />
+              </span>
+            </button>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => setCancelTarget(null)}
+                style={{
+                  flex: 1, padding: '13px 0', borderRadius: 14, border: '1.5px solid var(--color-border)',
+                  background: 'transparent', fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700,
+                  color: 'var(--color-text)', cursor: 'pointer', minHeight: 44,
+                }}
+              >
+                Voltar
+              </button>
+              <button
+                onClick={() => { void confirmCancel() }}
+                disabled={cancelling}
+                style={{
+                  flex: 1, padding: '13px 0', borderRadius: 14, border: 'none', background: 'var(--color-warn)',
+                  fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: '#fff',
+                  cursor: cancelling ? 'wait' : 'pointer', opacity: cancelling ? 0.6 : 1, minHeight: 44,
+                }}
+              >
+                {cancelling ? '...' : 'Confirmar cancelamento'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

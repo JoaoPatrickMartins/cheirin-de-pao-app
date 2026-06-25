@@ -80,11 +80,17 @@ function makeFastifyMock(overrides: {
     },
     schedule: {
       findFirst: vi.fn().mockResolvedValue(schedule),
+      update: vi.fn().mockResolvedValue({ id: 'schedule-01', isActive: false }),
     },
     order: {
       findMany: vi.fn().mockResolvedValue(orders),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({ id: 'ord-1', status: 'CANCELLED' }),
       aggregate: vi.fn().mockResolvedValue({ _sum: { quantity: 0 }, _count: 0 }),
       count: vi.fn().mockResolvedValue(0),
+    },
+    delivery: {
+      findMany: vi.fn().mockResolvedValue([]),
     },
     payment: {
       aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }),
@@ -204,7 +210,7 @@ describe('AdminClientsService', () => {
       expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'user-01' } })
       expect(prisma.schedule.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 'user-01', isActive: true },
+          where: { userId: 'user-01' },
         }),
       )
       expect(prisma.order.findMany).toHaveBeenCalledWith(
@@ -362,6 +368,107 @@ describe('AdminClientsService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminClientsService(fastify as any)
       await expect(service.getPaymentMethods('x')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('getOrders', () => {
+    it('mescla dados de entrega (courier, deliveredAt) por pedido', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findMany.mockResolvedValueOnce([
+        { id: 'ord-1', userId: 'user-01', type: 'SCHEDULED', quantity: 2, status: 'DELIVERED', scheduledDate: new Date(), slotId: 'manha', deliveryTime: '06:30', courierId: 'cou-1' },
+      ])
+      prisma.delivery.findMany.mockResolvedValueOnce([
+        { orderId: 'ord-1', deliveredAt: new Date('2026-06-20'), confirmedAt: new Date('2026-06-20'), status: 'CONFIRMED' },
+      ])
+      prisma.user.findMany.mockResolvedValueOnce([{ id: 'cou-1', name: 'Entregador X' }])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.getOrders('user-01')
+
+      expect(result[0]).toMatchObject({
+        id: 'ord-1',
+        status: 'DELIVERED',
+        courierName: 'Entregador X',
+        deliveryStatus: 'CONFIRMED',
+      })
+      expect(result[0].deliveredAt).toBeTruthy()
+    })
+
+    it('lança { statusCode: 404 } quando não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.getOrders('x')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('cancelOrder', () => {
+    it('cancela pedido SCHEDULED e devolve créditos quando refundCredits=true', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'user-01', status: 'SCHEDULED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.cancelOrder('user-01', 'ord-1', true, 'admin-01')
+
+      expect(prisma.$transaction).toHaveBeenCalled()
+      // com refund: cria CreditTransaction REFUND + incrementa saldo
+      expect(prisma.creditTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantity: 2, adminId: 'admin-01' }) }),
+      )
+      expect(result).toMatchObject({ id: 'ord-1', status: 'CANCELLED', refundedCredits: 2 })
+    })
+
+    it('não cria transação de crédito quando refundCredits=false', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'user-01', status: 'SCHEDULED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.cancelOrder('user-01', 'ord-1', false, 'admin-01')
+
+      expect(prisma.creditTransaction.create).not.toHaveBeenCalled()
+      expect(result.refundedCredits).toBe(0)
+    })
+
+    it('lança 422 quando pedido não é SCHEDULED', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'user-01', status: 'DELIVERED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.cancelOrder('user-01', 'ord-1', true, 'admin-01')).rejects.toMatchObject({ statusCode: 422 })
+    })
+
+    it('lança 404 quando pedido pertence a outro cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'outro', status: 'SCHEDULED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.cancelOrder('user-01', 'ord-1', true, 'admin-01')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('setScheduleActive', () => {
+    it('pausa a agenda (isActive=false)', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.setScheduleActive('user-01', false)
+
+      expect(prisma.schedule.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'schedule-01' }, data: { isActive: false } }),
+      )
+      expect(result.isActive).toBe(false)
+    })
+
+    it('lança 404 quando não há agenda', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.schedule.findFirst.mockResolvedValueOnce(null)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.setScheduleActive('user-01', false)).rejects.toMatchObject({ statusCode: 404 })
     })
   })
 

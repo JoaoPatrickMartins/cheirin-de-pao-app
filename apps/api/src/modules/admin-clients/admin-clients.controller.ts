@@ -1,6 +1,12 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { ClientListQuerySchema, GrantCreditsSchema, UpdateClientSchema } from './admin-clients.schema.js'
+import {
+  ClientListQuerySchema,
+  GrantCreditsSchema,
+  UpdateClientSchema,
+  CancelOrderSchema,
+  ScheduleActiveSchema,
+} from './admin-clients.schema.js'
 import { AdminClientsService } from './admin-clients.service.js'
 
 type ZodIssue = { message: string }
@@ -155,6 +161,71 @@ export class AdminClientsController {
     const { id } = request.params as { id: string }
     try {
       const result = await this.service.getPaymentMethods(id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async orders(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    const { limit } = request.query as { limit?: string }
+    const take = Math.min(200, Math.max(1, Number(limit) || 50))
+    try {
+      const result = await this.service.getOrders(id, take)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async cancelOrder(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id, orderId } = request.params as { id: string; orderId: string }
+    let body: ReturnType<typeof CancelOrderSchema.parse>
+    try {
+      body = CancelOrderSchema.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+    }
+    try {
+      const result = await this.service.cancelOrder(id, orderId, body.refundCredits, request.user.id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 422) return reply.status(422).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async setScheduleActive(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    let body: ReturnType<typeof ScheduleActiveSchema.parse>
+    try {
+      body = ScheduleActiveSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+    }
+    try {
+      const result = await this.service.setScheduleActive(id, body.isActive)
       return reply.status(200).send(result)
     } catch (err) {
       this.fastify.log.error(err)
