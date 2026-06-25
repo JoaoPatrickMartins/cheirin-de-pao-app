@@ -106,6 +106,17 @@ function makeFastifyMock(overrides: {
     condominium: {
       findUnique: vi.fn().mockResolvedValue({ id: 'condo-01', name: 'Condomínio Teste' }),
     },
+    session: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({ id: 'sess-01', isRevoked: true }),
+    },
+    adminNote: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'note-01', userId: 'user-01', body: 'nota', createdAt: new Date() }),
+      delete: vi.fn().mockResolvedValue({ id: 'note-01' }),
+    },
     creditTransaction: {
       findFirst: vi.fn().mockResolvedValue(lastTransaction),
       findMany: vi.fn().mockResolvedValue(
@@ -472,6 +483,68 @@ describe('AdminClientsService', () => {
     })
   })
 
+  describe('sessões', () => {
+    it('lista sessões ativas (não revogadas, não expiradas)', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.getSessions('user-01')
+      expect(prisma.session.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ userId: 'user-01', isRevoked: false }) }),
+      )
+    })
+
+    it('revoga sessão do cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.session.findUnique.mockResolvedValueOnce({ id: 'sess-01', userId: 'user-01' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      const result = await service.revokeSession('user-01', 'sess-01')
+      expect(prisma.session.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'sess-01' }, data: { isRevoked: true } }),
+      )
+      expect(result.isRevoked).toBe(true)
+    })
+
+    it('lança 404 ao revogar sessão de outro cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.session.findUnique.mockResolvedValueOnce({ id: 'sess-01', userId: 'outro' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.revokeSession('user-01', 'sess-01')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('notas internas', () => {
+    it('cria nota com adminId', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.addNote('user-01', 'Cliente VIP', 'admin-01')
+      expect(prisma.adminNote.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { userId: 'user-01', adminId: 'admin-01', body: 'Cliente VIP' } }),
+      )
+    })
+
+    it('exclui nota do cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.adminNote.findUnique.mockResolvedValueOnce({ id: 'note-01', userId: 'user-01' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      const result = await service.deleteNote('user-01', 'note-01')
+      expect(prisma.adminNote.delete).toHaveBeenCalledWith({ where: { id: 'note-01' } })
+      expect(result.deleted).toBe(true)
+    })
+
+    it('lança 404 ao excluir nota de outro cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.adminNote.findUnique.mockResolvedValueOnce({ id: 'note-01', userId: 'outro' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.deleteNote('user-01', 'note-01')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
   describe('blockToggle', () => {
     it('altera User.isBlocked para true (bloquear)', async () => {
       const { fastify, prisma } = makeFastifyMock({
@@ -494,7 +567,35 @@ describe('AdminClientsService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'user-01' },
-          data: { isBlocked: true },
+          data: expect.objectContaining({ isBlocked: true }),
+        }),
+      )
+    })
+
+    it('grava motivo + quem/quando ao bloquear', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', 'Pagamento pendente', 'admin-01')
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ isBlocked: true, blockReason: 'Pagamento pendente', blockedById: 'admin-01' }),
+        }),
+      )
+    })
+
+    it('limpa o contexto de bloqueio ao desbloquear', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: true },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', undefined, 'admin-01')
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ isBlocked: false, blockReason: null, blockedAt: null, blockedById: null }),
         }),
       )
     })

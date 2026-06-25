@@ -105,6 +105,7 @@ export function AdminClientes() {
   const [condominios, setCondominios] = useState<Condo[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const isFiltrando = debouncedQ.trim() !== '' || statusFiltro !== 'all' || filtroCondominio !== null
   const hasMore = clientes.length < total
@@ -187,6 +188,49 @@ export function AdminClientes() {
       // falha silenciosa
     } finally {
       setIsLoadingMore(false)
+    }
+  }
+
+  // Exporta os clientes que casam com o filtro atual para CSV
+  async function exportCsv() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const params = new URLSearchParams()
+      if (filtroCondominio) params.set('condominiumId', filtroCondominio)
+      if (debouncedQ.trim()) params.set('q', debouncedQ.trim())
+      if (statusFiltro !== 'all') params.set('status', statusFiltro)
+      if (ordenacao !== 'name') params.set('sort', ordenacao)
+      params.set('page', '1')
+      params.set('limit', '1000')
+      const res = await apiFetch(`/admin/clients?${params.toString()}`)
+      if (!res.ok) return
+      const data = (await res.json()) as ClientesPage
+      const header = ['Nome', 'Condomínio', 'Apartamento', 'Bloco', 'Créditos', 'Bloqueado', 'Última compra', 'Cadastro']
+      const linhas = data.items.map((c) => [
+        c.name,
+        nomeCondominio(c.condominiumId),
+        c.apartment ?? '',
+        c.block ?? '',
+        String(c.creditBalance),
+        c.isBlocked ? 'Sim' : 'Não',
+        c.lastPurchaseAt ? c.lastPurchaseAt.slice(0, 10) : '',
+        c.createdAt ? c.createdAt.slice(0, 10) : '',
+      ])
+      const csv = [header, ...linhas]
+        .map((r) => r.map((f) => `"${String(f).replace(/"/g, '""')}"`).join(','))
+        .join('\n')
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `clientes-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      // falha silenciosa
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -291,6 +335,28 @@ export function AdminClientes() {
             stroke={2}
             color={ordenacao !== 'name' ? 'var(--color-accent)' : 'var(--color-text-sec)'}
           />
+        </button>
+
+        <button
+          onClick={() => { void exportCsv() }}
+          disabled={exporting}
+          aria-label="Exportar CSV"
+          style={{
+            width: 44,
+            height: 44,
+            flexShrink: 0,
+            borderRadius: 999,
+            border: '1.5px solid var(--color-border)',
+            background: 'var(--color-surface)',
+            cursor: exporting ? 'wait' : 'pointer',
+            opacity: exporting ? 0.6 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--color-text-sec)',
+          }}
+        >
+          <Icon name="download" size={20} stroke={2} color="var(--color-text-sec)" />
         </button>
       </div>
 

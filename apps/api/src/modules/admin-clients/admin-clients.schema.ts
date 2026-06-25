@@ -66,3 +66,15 @@ export const ScheduleActiveSchema = z.object({
   isActive: z.boolean(),
 })
 export type ScheduleActiveBody = z.infer<typeof ScheduleActiveSchema>
+
+/** Body opcional do bloqueio — motivo (usado ao bloquear; ignorado ao desbloquear). */
+export const BlockToggleSchema = z.object({
+  reason: z.string().max(500).optional(),
+})
+export type BlockToggleBody = z.infer<typeof BlockToggleSchema>
+
+/** Body para criar nota interna. */
+export const AddNoteSchema = z.object({
+  body: z.string().min(1, 'Nota vazia').max(2000, 'Nota muito longa'),
+})
+export type AddNoteBody = z.infer<typeof AddNoteSchema>

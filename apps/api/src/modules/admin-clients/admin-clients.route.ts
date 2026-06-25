@@ -103,6 +103,9 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
               block: { type: 'string', nullable: true, description: 'Bloco (se aplicável).' },
               creditBalance: { type: 'integer', description: 'Saldo atual de créditos.' },
               isBlocked: { type: 'boolean', description: 'Status de bloqueio.' },
+              blockReason: { type: 'string', nullable: true, description: 'Motivo do bloqueio atual.' },
+              blockedAt: { type: 'string', nullable: true, description: 'Quando foi bloqueado (ISO 8601).' },
+              blockedByName: { type: 'string', nullable: true, description: 'Admin que bloqueou.' },
               createdAt: { type: 'string', description: 'Data de cadastro / membro desde (ISO 8601).' },
               schedule: {
                 type: 'object',
@@ -216,13 +219,19 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — clients'],
         summary: 'Bloquear/desbloquear cliente (admin)',
-        description: 'Alterna o status de bloqueio do cliente (toggle). Clientes bloqueados: não conseguem autenticar (OTP rejeitado), pedidos existentes não são cancelados automaticamente. Use para suspender contas com problemas de pagamento ou comportamento inadequado. Restrito a ADMIN.',
+        description: 'Alterna o status de bloqueio do cliente (toggle). Ao bloquear, registra motivo + quem/quando (auditoria); ao desbloquear, limpa esse contexto. Clientes bloqueados não conseguem autenticar (OTP rejeitado). Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           required: ['id'],
           properties: {
             id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            reason: { type: 'string', maxLength: 500, description: 'Motivo do bloqueio (usado ao bloquear; ignorado ao desbloquear).' },
           },
         },
         response: {
@@ -232,6 +241,8 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               id: { type: 'string', description: 'ID do cliente.' },
               isBlocked: { type: 'boolean', description: 'Novo status de bloqueio após o toggle.' },
+              blockReason: { type: 'string', nullable: true, description: 'Motivo (se bloqueado).' },
+              blockedAt: { type: 'string', nullable: true, description: 'Quando foi bloqueado (ISO 8601).' },
             },
           },
         },
@@ -531,5 +542,152 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.setScheduleActive.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/clients/:id/sessions',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Sessões ativas do cliente (admin)',
+        description: 'Lista as sessões ativas (dispositivos logados) do cliente. Para monitoramento de segurança. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        response: {
+          200: {
+            type: 'array',
+            description: 'Sessões ativas.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID da sessão.' },
+                deviceId: { type: 'string', description: 'Identificador do dispositivo.' },
+                lastUsedAt: { type: 'string', description: 'Último uso (ISO 8601).' },
+                expiresAt: { type: 'string', description: 'Expiração (ISO 8601).' },
+                createdAt: { type: 'string', description: 'Início da sessão (ISO 8601).' },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.sessions.bind(ctrl),
+  )
+
+  fastify.delete(
+    '/admin/clients/:id/sessions/:sessionId',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Revogar sessão do cliente (forçar logout) (admin)',
+        description: 'Revoga uma sessão específica do cliente, forçando o logout daquele dispositivo. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id', 'sessionId'],
+          properties: { id: { type: 'string' }, sessionId: { type: 'string' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'ID da sessão revogada.' },
+              isRevoked: { type: 'boolean', description: 'true após revogação.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.revokeSession.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/clients/:id/notes',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Notas internas do cliente (admin)',
+        description: 'Lista as notas internas de suporte/CRM sobre o cliente (mais recentes primeiro), com o autor. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        response: {
+          200: {
+            type: 'array',
+            description: 'Notas internas.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID da nota.' },
+                body: { type: 'string', description: 'Texto da nota.' },
+                adminName: { type: 'string', nullable: true, description: 'Autor da nota.' },
+                createdAt: { type: 'string', description: 'Data (ISO 8601).' },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.notes.bind(ctrl),
+  )
+
+  fastify.post(
+    '/admin/clients/:id/notes',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Criar nota interna (admin)',
+        description: 'Cria uma nota interna de suporte/CRM sobre o cliente. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        body: {
+          type: 'object',
+          required: ['body'],
+          properties: { body: { type: 'string', minLength: 1, maxLength: 2000, description: 'Texto da nota.' } },
+        },
+        response: {
+          201: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'ID da nota criada.' },
+              body: { type: 'string', description: 'Texto da nota.' },
+              createdAt: { type: 'string', description: 'Data (ISO 8601).' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.addNote.bind(ctrl),
+  )
+
+  fastify.delete(
+    '/admin/clients/:id/notes/:noteId',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Excluir nota interna (admin)',
+        description: 'Exclui uma nota interna do cliente. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id', 'noteId'],
+          properties: { id: { type: 'string' }, noteId: { type: 'string' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'ID da nota excluída.' },
+              deleted: { type: 'boolean', description: 'true após exclusão.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.deleteNote.bind(ctrl),
   )
 }

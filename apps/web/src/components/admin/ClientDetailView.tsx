@@ -44,6 +44,9 @@ interface ClienteDetalhe {
   block?: string | null
   creditBalance: number
   isBlocked: boolean
+  blockReason?: string | null
+  blockedAt?: string | null
+  blockedByName?: string | null
   createdAt?: string | null
   schedule?: ClienteSchedule | null
   recentOrders?: ClienteOrder[]
@@ -201,9 +204,10 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
-  // segmento Visão geral / Pedidos / Financeiro
-  const [aba, setAba] = useState<'geral' | 'pedidos' | 'financeiro'>('geral')
+  // segmento Geral / Pedidos / Financeiro / Atividade
+  const [aba, setAba] = useState<'geral' | 'pedidos' | 'financeiro' | 'atividade'>('geral')
   const [scheduleToggling, setScheduleToggling] = useState(false)
+  const [blockReasonInput, setBlockReasonInput] = useState('')
 
   useEffect(() => {
     const fetchCliente = async () => {
@@ -264,11 +268,26 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
     setIsBlocking(true)
     setBlockError(null)
     try {
-      const res = await apiFetch(`/admin/clients/${cliente.id}/block`, { method: 'PATCH' })
+      const res = await apiFetch(`/admin/clients/${cliente.id}/block`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cliente.isBlocked ? {} : { reason: blockReasonInput.trim() || undefined }),
+      })
       if (res.ok) {
-        const updated = (await res.json()) as { id: string; isBlocked: boolean }
-        setCliente((prev) => (prev ? { ...prev, isBlocked: updated.isBlocked } : prev))
+        const updated = (await res.json()) as { id: string; isBlocked: boolean; blockReason?: string | null; blockedAt?: string | null }
+        setCliente((prev) =>
+          prev
+            ? {
+                ...prev,
+                isBlocked: updated.isBlocked,
+                blockReason: updated.blockReason ?? null,
+                blockedAt: updated.blockedAt ?? null,
+                blockedByName: updated.isBlocked ? prev.blockedByName : null,
+              }
+            : prev,
+        )
         setShowDialog(false)
+        setBlockReasonInput('')
       } else {
         setBlockError('Não foi possível alterar. Tente novamente.')
       }
@@ -475,6 +494,17 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
                 </span>
               </div>
             )}
+            {cliente.isBlocked && (cliente.blockReason || cliente.blockedAt || cliente.blockedByName) && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '8px 0 0', lineHeight: 1.4 }}>
+                {cliente.blockReason ? `"${cliente.blockReason}"` : 'Sem motivo registrado'}
+                {(cliente.blockedByName || cliente.blockedAt) && (
+                  <>
+                    <br />
+                    {[cliente.blockedByName, cliente.blockedAt ? formatDataCurta(cliente.blockedAt) : null].filter(Boolean).join(' · ')}
+                  </>
+                )}
+              </p>
+            )}
           </div>
 
           {/* Segmento Visão geral / Financeiro */}
@@ -484,7 +514,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               background: 'var(--color-surface-2)', border: '1px solid var(--color-border-2)',
             }}
           >
-            {([['geral', 'Visão geral'], ['pedidos', 'Pedidos'], ['financeiro', 'Financeiro']] as const).map(([key, label]) => {
+            {([['geral', 'Geral'], ['pedidos', 'Pedidos'], ['financeiro', 'Financeiro'], ['atividade', 'Atividade']] as const).map(([key, label]) => {
               const ativo = aba === key
               return (
                 <button
@@ -520,6 +550,8 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
                 setCliente((prev) => (prev ? { ...prev, creditBalance: Math.max(0, prev.creditBalance + delta) } : prev))
               }
             />
+          ) : aba === 'atividade' ? (
+            <TimelinePanel clienteId={cliente.id} />
           ) : (
           <>
           {/* Métricas */}
@@ -738,6 +770,12 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
             </div>
           )}
 
+          {/* Notas internas */}
+          <NotasCard clienteId={cliente.id} showToast={showToast} />
+
+          {/* Sessões / dispositivos */}
+          <SessoesCard clienteId={cliente.id} showToast={showToast} />
+
           {/* Botão bloquear / desbloquear */}
           <button
             onClick={() => setShowDialog(true)}
@@ -941,6 +979,21 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
                 ? 'O cliente voltará a poder fazer pedidos e acessar o app.'
                 : 'O cliente não poderá fazer pedidos ou acessar o app.'}
             </p>
+            {!cliente.isBlocked && (
+              <textarea
+                value={blockReasonInput}
+                onChange={(e) => setBlockReasonInput(e.target.value)}
+                placeholder="Motivo do bloqueio (opcional, p/ auditoria)"
+                rows={2}
+                maxLength={500}
+                style={{
+                  width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 12,
+                  border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
+                  fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)',
+                  resize: 'none', marginBottom: 16,
+                }}
+              />
+            )}
             {blockError && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-warn)', margin: '0 0 12px', textAlign: 'center' }}>
                 {blockError}
@@ -1626,5 +1679,236 @@ function PedidosPanel({
         </div>
       )}
     </>
+  )
+}
+
+// ------------------------------------------------------------------ Notas internas
+interface NoteItem { id: string; body: string; adminName: string | null; createdAt: string }
+
+function NotasCard({ clienteId, showToast }: { clienteId: string; showToast: (m: string, ok?: boolean) => void }) {
+  const [notes, setNotes] = useState<NoteItem[]>([])
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function load() {
+    try {
+      const res = await apiFetch(`/admin/clients/${clienteId}/notes`)
+      if (res.ok) setNotes((await res.json()) as NoteItem[])
+    } catch { /* silencioso */ }
+  }
+  useEffect(() => { void load() }, [clienteId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function add() {
+    const body = draft.trim()
+    if (!body || saving) return
+    setSaving(true)
+    try {
+      const res = await apiFetch(`/admin/clients/${clienteId}/notes`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }),
+      })
+      if (res.ok) { setDraft(''); showToast('Nota adicionada'); void load() }
+      else showToast('Falha ao salvar nota', false)
+    } catch { showToast('Falha na conexão', false) } finally { setSaving(false) }
+  }
+
+  async function remove(id: string) {
+    try {
+      const res = await apiFetch(`/admin/clients/${clienteId}/notes/${id}`, { method: 'DELETE' })
+      if (res.ok) { setNotes((p) => p.filter((n) => n.id !== id)); showToast('Nota excluída') }
+    } catch { showToast('Falha na conexão', false) }
+  }
+
+  return (
+    <div style={{ ...cardStyle, padding: '14px 16px' }}>
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+        Notas internas
+      </span>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void add() }}
+          placeholder="Adicionar nota…"
+          maxLength={2000}
+          style={{
+            flex: 1, minWidth: 0, padding: '10px 12px', borderRadius: 12, border: '1.5px solid var(--color-border)',
+            background: 'var(--color-surface)', fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)',
+          }}
+        />
+        <button
+          onClick={() => { void add() }}
+          disabled={!draft.trim() || saving}
+          style={{
+            flexShrink: 0, padding: '0 14px', minHeight: 40, borderRadius: 12, border: 'none',
+            background: 'var(--color-accent)', color: '#1E1207', fontFamily: 'var(--font-body)', fontSize: 14,
+            fontWeight: 700, cursor: !draft.trim() || saving ? 'not-allowed' : 'pointer', opacity: !draft.trim() ? 0.45 : 1,
+          }}
+        >
+          Salvar
+        </button>
+      </div>
+      {notes.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
+          {notes.map((n, i) => (
+            <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{n.body}</p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                  {[n.adminName, formatDataCurta(n.createdAt)].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              <button onClick={() => { void remove(n.id) }} aria-label="Excluir nota" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--color-text-ter)', flexShrink: 0 }}>
+                <Icon name="x" size={16} stroke={2} color="var(--color-text-ter)" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ Sessões
+interface SessionItem { id: string; deviceId: string; lastUsedAt: string; expiresAt: string; createdAt: string }
+
+function SessoesCard({ clienteId, showToast }: { clienteId: string; showToast: (m: string, ok?: boolean) => void }) {
+  const [sessions, setSessions] = useState<SessionItem[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  async function load() {
+    try {
+      const res = await apiFetch(`/admin/clients/${clienteId}/sessions`)
+      if (res.ok) setSessions((await res.json()) as SessionItem[])
+    } catch { /* silencioso */ } finally { setLoaded(true) }
+  }
+  useEffect(() => { void load() }, [clienteId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function revoke(id: string) {
+    try {
+      const res = await apiFetch(`/admin/clients/${clienteId}/sessions/${id}`, { method: 'DELETE' })
+      if (res.ok) { setSessions((p) => p.filter((s) => s.id !== id)); showToast('Sessão revogada') }
+    } catch { showToast('Falha na conexão', false) }
+  }
+
+  if (loaded && sessions.length === 0) return null
+
+  return (
+    <div style={{ ...cardStyle, padding: '14px 16px' }}>
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+        Dispositivos conectados
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
+        {sessions.map((s, i) => (
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)' }}>
+            <Icon name="phone" size={18} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.deviceId}
+              </p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                último uso {formatDataCurta(s.lastUsedAt)}
+              </p>
+            </div>
+            <button onClick={() => { void revoke(s.id) }} style={{ ...miniBtnStyle, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}>
+              Revogar
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ Timeline unificada
+interface TimelineEvent { date: string; kind: 'credit' | 'payment' | 'order'; icon: IconName; title: string; sub: string; value: string | null; valueColor: string }
+
+function TimelinePanel({ clienteId }: { clienteId: string }) {
+  const [events, setEvents] = useState<TimelineEvent[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    void (async () => {
+      try {
+        const [h, p, o] = await Promise.all([
+          apiFetch(`/admin/clients/${clienteId}/credit-history`),
+          apiFetch(`/admin/clients/${clienteId}/payments`),
+          apiFetch(`/admin/clients/${clienteId}/orders`),
+        ])
+        if (cancelled) return
+        const evs: TimelineEvent[] = []
+        if (h.ok) {
+          for (const t of (await h.json()) as CreditTx[]) {
+            const pos = t.quantity >= 0
+            evs.push({
+              date: t.createdAt, kind: 'credit', icon: 'wallet',
+              title: TX_LABEL[t.type] ?? t.type,
+              sub: [t.reason || t.description, t.adminName].filter(Boolean).join(' · '),
+              value: `${pos ? '+' : ''}${t.quantity}`, valueColor: pos ? 'var(--color-text)' : 'var(--color-warn)',
+            })
+          }
+        }
+        if (p.ok) {
+          for (const pay of (await p.json()) as PaymentItem[]) {
+            evs.push({
+              date: pay.createdAt, kind: 'payment', icon: 'coin',
+              title: `Pagamento · ${pay.label}`, sub: PAY_STATUS[pay.status] ?? pay.status,
+              value: formatCurrency(pay.amount), valueColor: 'var(--color-text)',
+            })
+          }
+        }
+        if (o.ok) {
+          for (const ord of (await o.json()) as OrderRow[]) {
+            evs.push({
+              date: ord.scheduledDate, kind: 'order', icon: 'bag',
+              title: `Pedido · ${ord.quantity} pães`, sub: STATUS_LABEL[ord.status] ?? ord.status,
+              value: null, valueColor: 'var(--color-text)',
+            })
+          }
+        }
+        evs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        setEvents(evs)
+      } catch { /* silencioso */ } finally { if (!cancelled) setLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [clienteId])
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+        <div style={{ width: 26, height: 26, borderRadius: '50%', border: '3px solid var(--color-border)', borderTopColor: 'var(--color-accent)', animation: 'spin 0.8s linear infinite' }} />
+      </div>
+    )
+  }
+  if (events.length === 0) {
+    return (
+      <div style={{ ...cardStyle, padding: '24px 16px', textAlign: 'center' }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-ter)', margin: 0 }}>Sem atividade.</p>
+      </div>
+    )
+  }
+  return (
+    <div style={{ ...cardStyle, padding: '14px 16px' }}>
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+        Atividade ({events.length})
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
+        {events.map((e, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)' }}>
+            <Icon name={e.icon} size={18} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {[e.sub, formatDataCurta(e.date)].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+            {e.value && (
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 800, color: e.valueColor }}>{e.value}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

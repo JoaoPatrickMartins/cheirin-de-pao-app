@@ -6,6 +6,8 @@ import {
   UpdateClientSchema,
   CancelOrderSchema,
   ScheduleActiveSchema,
+  BlockToggleSchema,
+  AddNoteSchema,
 } from './admin-clients.schema.js'
 import { AdminClientsService } from './admin-clients.service.js'
 
@@ -69,6 +71,7 @@ export class AdminClientsController {
       return reply.status(200).send({
         ...result.client,
         condominiumName: result.condominium?.name ?? null,
+        blockedByName: result.blockedByName,
         schedule: result.schedule,
         recentOrders: result.recentOrders,
         metrics: result.metrics,
@@ -273,8 +276,103 @@ export class AdminClientsController {
 
     const { id } = request.params as { id: string }
 
+    let body: ReturnType<typeof BlockToggleSchema.parse>
     try {
-      const result = await this.service.blockToggle(id)
+      body = BlockToggleSchema.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+    }
+
+    try {
+      const result = await this.service.blockToggle(id, body.reason, request.user.id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async sessions(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      const result = await this.service.getSessions(id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async revokeSession(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id, sessionId } = request.params as { id: string; sessionId: string }
+    try {
+      const result = await this.service.revokeSession(id, sessionId)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async notes(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      const result = await this.service.getNotes(id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async addNote(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    let body: ReturnType<typeof AddNoteSchema.parse>
+    try {
+      body = AddNoteSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+    }
+    try {
+      const result = await this.service.addNote(id, body.body, request.user.id)
+      return reply.status(201).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async deleteNote(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id, noteId } = request.params as { id: string; noteId: string }
+    try {
+      const result = await this.service.deleteNote(id, noteId)
       return reply.status(200).send(result)
     } catch (err) {
       this.fastify.log.error(err)

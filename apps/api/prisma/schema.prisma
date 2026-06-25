@@ -121,6 +121,10 @@ model User {
   cpf           String    @unique
   birthDate     DateTime?
   isBlocked     Boolean   @default(false)
+  // Contexto do bloqueio atual (auditoria) — preenchido ao bloquear, limpo ao desbloquear
+  blockReason   String?
+  blockedAt     DateTime?
+  blockedById   String?   @db.ObjectId
   condominiumId String?   @db.ObjectId
   apartment     String?
   block         String?
@@ -328,6 +332,15 @@ model Session {
   expiresAt  DateTime
   isRevoked  Boolean  @default(false)
   createdAt  DateTime @default(now())
+}
+
+// AdminNote — notas internas do admin sobre um cliente (suporte/CRM)
+model AdminNote {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  adminId   String   @db.ObjectId
+  body      String
+  createdAt DateTime @default(now())
 }
 
 // 17. OtpCode — one-time codes for login and registration

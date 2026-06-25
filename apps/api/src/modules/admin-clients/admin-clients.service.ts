@@ -220,12 +220,23 @@ export class AdminClientsService {
       weeklyBreads: sumScheduleWeekly(schedule),
     }
 
+    // Nome do admin que bloqueou (contexto de auditoria do bloqueio atual)
+    let blockedByName: string | null = null
+    if (user.blockedById) {
+      const admin = await this.prisma.user.findUnique({
+        where: { id: user.blockedById },
+        select: { name: true },
+      })
+      blockedByName = admin?.name ?? null
+    }
+
     return {
       client: user,
       schedule,
       recentOrders,
       condominium,
       metrics,
+      blockedByName,
     }
   }
 
@@ -517,6 +528,78 @@ export class AdminClientsService {
     return { id: updated.id, isActive: updated.isActive }
   }
 
+  /** Sessões ativas do cliente (não revogadas e não expiradas). */
+  async getSessions(clientId: string) {
+    await this.assertClient(clientId)
+    const sessions = await this.prisma.session.findMany({
+      where: { userId: clientId, isRevoked: false, expiresAt: { gt: new Date() } },
+      orderBy: { lastUsedAt: 'desc' },
+      select: { id: true, deviceId: true, lastUsedAt: true, expiresAt: true, createdAt: true },
+    })
+    return sessions
+  }
+
+  /**
+   * Revoga (força logout de) uma sessão do cliente.
+   * @throws 404 se a sessão não existir ou não pertencer ao cliente
+   */
+  async revokeSession(clientId: string, sessionId: string) {
+    await this.assertClient(clientId)
+    const session = await this.prisma.session.findUnique({ where: { id: sessionId } })
+    if (!session || session.userId !== clientId) {
+      throw { statusCode: 404, message: 'Sessão não encontrada' }
+    }
+    await this.prisma.session.update({ where: { id: sessionId }, data: { isRevoked: true } })
+    return { id: sessionId, isRevoked: true }
+  }
+
+  /** Notas internas do admin sobre o cliente (mais recentes primeiro, com autor). */
+  async getNotes(clientId: string) {
+    await this.assertClient(clientId)
+    const notes = await this.prisma.adminNote.findMany({
+      where: { userId: clientId },
+      orderBy: { createdAt: 'desc' },
+    })
+    const adminIds = [...new Set(notes.map((n) => n.adminId))]
+    const adminMap = new Map<string, string>()
+    if (adminIds.length > 0) {
+      const admins = await this.prisma.user.findMany({
+        where: { id: { in: adminIds } },
+        select: { id: true, name: true },
+      })
+      for (const a of admins) adminMap.set(a.id, a.name)
+    }
+    return notes.map((n) => ({
+      id: n.id,
+      body: n.body,
+      adminName: adminMap.get(n.adminId) ?? null,
+      createdAt: n.createdAt,
+    }))
+  }
+
+  /** Cria uma nota interna sobre o cliente. */
+  async addNote(clientId: string, body: string, adminId: string) {
+    await this.assertClient(clientId)
+    const note = await this.prisma.adminNote.create({
+      data: { userId: clientId, adminId, body },
+    })
+    return { id: note.id, body: note.body, createdAt: note.createdAt }
+  }
+
+  /**
+   * Exclui uma nota interna do cliente.
+   * @throws 404 se a nota não existir ou não pertencer ao cliente
+   */
+  async deleteNote(clientId: string, noteId: string) {
+    await this.assertClient(clientId)
+    const note = await this.prisma.adminNote.findUnique({ where: { id: noteId } })
+    if (!note || note.userId !== clientId) {
+      throw { statusCode: 404, message: 'Nota não encontrada' }
+    }
+    await this.prisma.adminNote.delete({ where: { id: noteId } })
+    return { id: noteId, deleted: true }
+  }
+
   /**
    * Alterna isBlocked de um cliente.
    *
@@ -524,19 +607,24 @@ export class AdminClientsService {
    *
    * @throws { statusCode: 404 } se user não encontrado ou não é CLIENT
    */
-  async blockToggle(id: string) {
+  async blockToggle(id: string, reason?: string, adminId?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } })
 
     if (!user || user.role !== 'CLIENT') {
       throw { statusCode: 404, message: 'Cliente não encontrado' }
     }
 
+    const willBlock = !user.isBlocked
     return this.prisma.user.update({
       where: { id },
-      data: { isBlocked: !user.isBlocked },
+      data: willBlock
+        ? { isBlocked: true, blockReason: reason ?? null, blockedAt: new Date(), blockedById: adminId ?? null }
+        : { isBlocked: false, blockReason: null, blockedAt: null, blockedById: null },
       select: {
         id: true,
         isBlocked: true,
+        blockReason: true,
+        blockedAt: true,
       },
     })
   }
