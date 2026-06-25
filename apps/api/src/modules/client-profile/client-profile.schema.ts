@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PhoneSchema } from '@cheirin-de-pao/shared'
 
 export const UpdateProfileSchema = z.object({
   name: z.string().min(2).optional(),
@@ -12,7 +13,7 @@ export type UpdateProfileBody = z.infer<typeof UpdateProfileSchema>
 
 export const ContactChangeRequestSchema = z
   .object({
-    phone: z.string().optional(),
+    phone: PhoneSchema.optional(),
     email: z.string().email().optional(),
   })
   .refine((d) => d.phone || d.email, { message: 'phone ou email obrigatório' })

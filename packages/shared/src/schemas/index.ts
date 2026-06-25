@@ -42,3 +42,20 @@ export const CpfSchema = z
   .transform((v) => v.replace(/\D/g, ''))
   .refine((v) => v.length === 11, { message: 'CPF deve ter 11 dígitos' })
   .refine((v) => validateCpfDigits(v), { message: 'CPF inválido' })
+
+/**
+ * Normaliza telefone para apenas dígitos (remove máscara, espaços, "+").
+ * Ex.: "+55 (11) 99000-1234" → "5511990001234"; "(11) 99000-1234" → "11990001234".
+ * Fonte única de verdade para escrita E busca de telefone — mantém login OTP
+ * (findUserByPhone) consistente com o que é armazenado.
+ */
+export function normalizePhone(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+// Phone schema — normaliza para dígitos e valida faixa BR (10–13 dígitos:
+// DDD+número, opcionalmente com código do país 55).
+export const PhoneSchema = z
+  .string()
+  .transform((v) => normalizePhone(v))
+  .refine((v) => v.length >= 10 && v.length <= 13, { message: 'Telefone inválido' })
