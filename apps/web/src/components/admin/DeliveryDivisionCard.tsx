@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   DndContext,
   PointerSensor,
   TouchSensor,
   useSensor,
   useSensors,
+  useDroppable,
   DragOverlay,
 } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
@@ -77,6 +78,33 @@ function SortableCondo({ condo, courierId }: SortableCondoProps) {
       >
         {condo.quantity} pães
       </span>
+    </div>
+  )
+}
+
+interface CourierDropZoneProps {
+  courierId: string
+  children: ReactNode
+}
+
+// Registra o card do entregador como alvo de soltar (droppable).
+// Necessário para conseguir arrastar condomínios para entregadores sem
+// nenhum condomínio — que não têm chips arrastáveis para servir de alvo.
+function CourierDropZone({ courierId, children }: CourierDropZoneProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: courierId })
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        background: 'var(--color-surface-2)',
+        borderRadius: 14,
+        padding: 12,
+        border: isOver ? '1.5px solid var(--color-accent)' : '1.5px solid transparent',
+        transition: 'border-color 0.15s ease',
+      }}
+    >
+      {children}
     </div>
   )
 }
@@ -224,15 +252,7 @@ export function DeliveryDivisionCard({
         <SortableContext items={allSortableIds} strategy={verticalListSortingStrategy}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {assignments.map((assignment) => (
-              <div
-                key={assignment.courierId}
-                id={assignment.courierId}
-                style={{
-                  background: 'var(--color-surface-2)',
-                  borderRadius: 14,
-                  padding: 12,
-                }}
-              >
+              <CourierDropZone key={assignment.courierId} courierId={assignment.courierId}>
                 {/* Entregador header */}
                 <div
                   style={{
@@ -317,7 +337,7 @@ export function DeliveryDivisionCard({
                     ))}
                   </div>
                 )}
-              </div>
+              </CourierDropZone>
             ))}
           </div>
         </SortableContext>

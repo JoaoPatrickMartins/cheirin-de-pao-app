@@ -478,8 +478,10 @@ export class AdminOrdersService {
       courierList[minIdx].total += condo.quantity
     }
 
-    // Retornar apenas entregadores com pelo menos um condomínio (se mais entregadores que condominios)
-    return courierList.filter((c) => c.condominiums.length > 0 || courierList.length === 1)
+    // Retornar todos os entregadores ativos — inclusive os sem condomínio sugerido.
+    // A sugestão greedy acima já balanceia a carga; manter os entregadores vazios
+    // permite que o admin reatribua condomínios manualmente (drag-and-drop no front).
+    return courierList
   }
 
   /**

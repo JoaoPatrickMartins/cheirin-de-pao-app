@@ -333,6 +333,27 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     expect(totalAll).toBe(25)
   })
 
+  it('retorna entregadores sem condominio quando ha mais entregadores que condominios', async () => {
+    const { fastify, prisma } = makeDashboardFastifyMock({})
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'c-01', name: 'Joao' },
+      { id: 'c-02', name: 'Maria' },
+    ])
+    // Apenas 1 condominio para 2 entregadores
+    prisma.order.findMany.mockResolvedValue([{ condominiumId: 'condo-A', quantity: 10 }])
+    prisma.condominium.findMany.mockResolvedValue([{ id: 'condo-A', name: 'Condo A' }])
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AdminOrdersService(fastify as any)
+    const result = await service.getDivisionSuggestion()
+
+    // Ambos os entregadores devem aparecer — o vazio serve de alvo p/ atribuicao manual
+    expect(result).toHaveLength(2)
+    const empty = result.find((c) => c.condominiums.length === 0)
+    expect(empty).toBeDefined()
+    expect(empty?.total).toBe(0)
+  })
+
   it('retorna 1 entregador com todos os condominios quando ha apenas 1 entregador', async () => {
     const { fastify, prisma } = makeDashboardFastifyMock({})
     prisma.user.findMany.mockResolvedValue([{ id: 'c-01', name: 'Unico' }])

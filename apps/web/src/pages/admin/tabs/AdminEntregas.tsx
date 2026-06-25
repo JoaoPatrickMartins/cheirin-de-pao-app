@@ -6,10 +6,20 @@ import { ProgressBar } from '../../../components/admin/ProgressBar'
 import {
   DeliveryDivisionCard,
   type Assignment,
+  type CondoItem,
 } from '../../../components/admin/DeliveryDivisionCard'
 import { Icon } from '../../../components/brand/Icon'
 
 type Segment = 'hoje' | 'historico'
+
+// Shape retornado por GET /admin/orders/division-suggestion.
+// O backend usa `condominiums`; o front trabalha com `condos`.
+interface DivisionSuggestionItem {
+  courierId: string
+  courierName: string
+  condominiums: CondoItem[]
+  total: number
+}
 
 interface DeliveryStatus {
   condominiumId: string
@@ -75,8 +85,13 @@ export function AdminEntregas() {
       // Buscar divisão sugerida
       const divRes = await apiFetch('/admin/orders/division-suggestion')
       if (divRes.ok) {
-        const divData = (await divRes.json()) as Assignment[]
-        setAssignments(divData)
+        const divData = (await divRes.json()) as DivisionSuggestionItem[]
+        const mapped: Assignment[] = divData.map((item) => ({
+          courierId: item.courierId,
+          courierName: item.courierName,
+          condos: item.condominiums ?? [],
+        }))
+        setAssignments(mapped)
       }
 
       // Buscar status de entregas do dia
