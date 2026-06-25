@@ -23,31 +23,45 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — clients'],
         summary: 'Listar clientes (admin)',
-        description: 'Retorna todos os clientes cadastrados. Filtrável por condomínio. Inclui status de bloqueio e saldo de créditos. Clientes bloqueados não podem fazer pedidos ou login. Restrito a ADMIN.',
+        description: 'Retorna clientes cadastrados com busca, filtro de status, ordenação e paginação. Inclui status de bloqueio e saldo de créditos. Clientes bloqueados não podem fazer pedidos ou login. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
           properties: {
             condominiumId: { type: 'string', description: 'Filtrar clientes por condomínio (MongoDB ObjectId). Omitir para listar todos.' },
+            q: { type: 'string', description: 'Busca por nome, e-mail, CPF ou telefone.' },
+            status: { type: 'string', enum: ['all', 'blocked', 'active', 'no-credits'], description: 'Filtro de status. Padrão: all.' },
+            sort: { type: 'string', enum: ['name', 'credits', 'lastPurchase', 'recent'], description: 'Ordenação. Padrão: name.' },
+            page: { type: 'integer', minimum: 1, description: 'Página (1-based). Padrão: 1.' },
+            limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Itens por página. Padrão: 20.' },
           },
         },
         response: {
           200: {
-            type: 'array',
-            description: 'Lista de clientes.',
-            items: {
-              type: 'object',
-              properties: {
-                id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
-                name: { type: 'string', description: 'Nome completo do cliente.' },
-                condominiumId: { type: 'string', nullable: true, description: 'ID do condomínio do cliente.' },
-                apartment: { type: 'string', nullable: true, description: 'Apartamento do cliente.' },
-                block: { type: 'string', nullable: true, description: 'Bloco do cliente (se aplicável).' },
-                creditBalance: { type: 'integer', description: 'Saldo atual de créditos (pãezinhos disponíveis).' },
-                isBlocked: { type: 'boolean', description: 'true se o cliente está bloqueado.' },
-                createdAt: { type: 'string', description: 'Data de cadastro (ISO 8601).' },
-                lastPurchaseAt: { type: 'string', nullable: true, description: 'Data da última compra (ISO 8601), ou null.' },
+            type: 'object',
+            description: 'Página de clientes com total para paginação.',
+            properties: {
+              items: {
+                type: 'array',
+                description: 'Clientes da página atual.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+                    name: { type: 'string', description: 'Nome completo do cliente.' },
+                    condominiumId: { type: 'string', nullable: true, description: 'ID do condomínio do cliente.' },
+                    apartment: { type: 'string', nullable: true, description: 'Apartamento do cliente.' },
+                    block: { type: 'string', nullable: true, description: 'Bloco do cliente (se aplicável).' },
+                    creditBalance: { type: 'integer', description: 'Saldo atual de créditos (pãezinhos disponíveis).' },
+                    isBlocked: { type: 'boolean', description: 'true se o cliente está bloqueado.' },
+                    createdAt: { type: 'string', description: 'Data de cadastro (ISO 8601).' },
+                    lastPurchaseAt: { type: 'string', nullable: true, description: 'Data da última compra (ISO 8601), ou null.' },
+                  },
+                },
               },
+              total: { type: 'integer', description: 'Total de clientes que casam com o filtro (antes da paginação).' },
+              page: { type: 'integer', description: 'Página atual.' },
+              limit: { type: 'integer', description: 'Itens por página.' },
             },
           },
         },
@@ -79,13 +93,17 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               id: { type: 'string', description: 'ID do cliente.' },
               name: { type: 'string', description: 'Nome completo.' },
-              phone: { type: 'string', nullable: true, description: 'Telefone.' },
+              phone: { type: 'string', nullable: true, description: 'Telefone (apenas dígitos).' },
               email: { type: 'string', nullable: true, description: 'E-mail.' },
+              cpf: { type: 'string', nullable: true, description: 'CPF (11 dígitos).' },
+              birthDate: { type: 'string', nullable: true, description: 'Data de nascimento (ISO 8601), ou null.' },
               condominiumId: { type: 'string', nullable: true, description: 'ID do condomínio.' },
+              condominiumName: { type: 'string', nullable: true, description: 'Nome do condomínio.' },
               apartment: { type: 'string', nullable: true, description: 'Apartamento.' },
               block: { type: 'string', nullable: true, description: 'Bloco (se aplicável).' },
               creditBalance: { type: 'integer', description: 'Saldo atual de créditos.' },
               isBlocked: { type: 'boolean', description: 'Status de bloqueio.' },
+              createdAt: { type: 'string', description: 'Data de cadastro / membro desde (ISO 8601).' },
               schedule: {
                 type: 'object',
                 nullable: true,
@@ -94,7 +112,14 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
                   weeklyQty: {
                     type: 'object',
                     additionalProperties: { type: 'integer' },
+                    nullable: true,
                     description: 'Pãezinhos por dia da semana (chave = dia, valor = quantidade).',
+                  },
+                  days: {
+                    type: 'object',
+                    additionalProperties: true,
+                    nullable: true,
+                    description: 'Agenda multi-slot: { slotId: { dia: quantidade } }.',
                   },
                   deliveryTime: { type: 'string', nullable: true, description: 'Horário de entrega configurado.' },
                   isActive: { type: 'boolean', description: 'Se a agenda está ativa.' },
@@ -113,12 +138,75 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
                   },
                 },
               },
+              metrics: {
+                type: 'object',
+                description: 'Métricas agregadas do cliente para auditoria.',
+                properties: {
+                  totalSpent: { type: 'number', description: 'Total gasto (R$) em pagamentos PAID.' },
+                  paymentsCount: { type: 'integer', description: 'Número de pagamentos confirmados.' },
+                  breadsDelivered: { type: 'integer', description: 'Total de pães entregues (pedidos DELIVERED).' },
+                  deliveredOrders: { type: 'integer', description: 'Número de pedidos entregues.' },
+                  ordersCount: { type: 'integer', description: 'Número total de pedidos.' },
+                  weeklyBreads: { type: 'integer', description: 'Pães por semana agendados na agenda ativa.' },
+                },
+              },
             },
           },
         },
       },
     },
     ctrl.getDetail.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/clients/:id',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Editar cadastro do cliente (admin)',
+        description: 'Atualiza dados cadastrais do cliente (nome, contato, CPF, nascimento, condomínio/apto/bloco). Telefone e CPF são normalizados. Conflitos de unicidade (telefone/e-mail/CPF) retornam 409. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 2, description: 'Nome completo.' },
+            phone: { type: 'string', description: 'Telefone (com ou sem máscara — será normalizado).' },
+            email: { type: 'string', description: 'E-mail.' },
+            cpf: { type: 'string', description: 'CPF (com ou sem máscara — será normalizado e validado).' },
+            birthDate: { type: 'string', description: 'Data de nascimento (ISO 8601) ou string vazia para limpar.' },
+            condominiumId: { type: 'string', description: 'ID do condomínio.' },
+            apartment: { type: 'string', description: 'Apartamento.' },
+            block: { type: 'string', description: 'Bloco (se aplicável).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Cadastro atualizado.',
+            properties: {
+              id: { type: 'string', description: 'ID do cliente.' },
+              name: { type: 'string', description: 'Nome completo.' },
+              phone: { type: 'string', nullable: true, description: 'Telefone (apenas dígitos).' },
+              email: { type: 'string', nullable: true, description: 'E-mail.' },
+              cpf: { type: 'string', nullable: true, description: 'CPF.' },
+              birthDate: { type: 'string', nullable: true, description: 'Data de nascimento (ISO 8601).' },
+              condominiumId: { type: 'string', nullable: true, description: 'ID do condomínio.' },
+              apartment: { type: 'string', nullable: true, description: 'Apartamento.' },
+              block: { type: 'string', nullable: true, description: 'Bloco.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.updateClient.bind(ctrl),
   )
 
   fastify.patch(
@@ -192,5 +280,137 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.grantCredits.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/clients/:id/credit-history',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Extrato de créditos do cliente (admin)',
+        description: 'Retorna o histórico de transações de crédito do cliente (compras, entregas, estornos, expirações e concessões manuais), com o admin responsável quando aplicável. Ordenado do mais recente. Para auditoria. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' } },
+        },
+        querystring: {
+          type: 'object',
+          properties: { limit: { type: 'integer', minimum: 1, maximum: 200, description: 'Máximo de transações (padrão 50).' } },
+        },
+        response: {
+          200: {
+            type: 'array',
+            description: 'Transações de crédito (mais recentes primeiro).',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID da transação.' },
+                type: { type: 'string', description: 'PURCHASE | DELIVERY | REFUND | EXPIRY | ADMIN_GRANT.' },
+                quantity: { type: 'integer', description: 'Variação de créditos (positiva = entrada, negativa = saída).' },
+                description: { type: 'string', nullable: true, description: 'Descrição legível.' },
+                reason: { type: 'string', nullable: true, description: 'Motivo (em ADMIN_GRANT).' },
+                referenceId: { type: 'string', nullable: true, description: 'ID de referência (Order/Payment).' },
+                adminName: { type: 'string', nullable: true, description: 'Nome do admin responsável (se aplicável).' },
+                createdAt: { type: 'string', description: 'Data/hora (ISO 8601).' },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.creditHistory.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/clients/:id/payments',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Pagamentos do cliente (admin)',
+        description: 'Retorna os pagamentos do cliente com status, método, valor e item comprado. `refundable=true` indica pagamentos estornáveis via POST /admin/payments/:id/refund. Ordenado do mais recente. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' } },
+        },
+        response: {
+          200: {
+            type: 'array',
+            description: 'Pagamentos do cliente (mais recentes primeiro).',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID do pagamento.' },
+                amount: { type: 'number', description: 'Valor (R$).' },
+                method: { type: 'string', description: 'PIX | CREDIT_CARD | DEBIT_CARD.' },
+                status: { type: 'string', description: 'PENDING | PAID | FAILED | REFUNDED.' },
+                label: { type: 'string', description: 'Combo comprado ou "Compra avulsa".' },
+                quantity: { type: 'integer', description: 'Pães comprados.' },
+                refundable: { type: 'boolean', description: 'true se pode ser estornado.' },
+                createdAt: { type: 'string', description: 'Data/hora (ISO 8601).' },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.payments.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/clients/:id/payment-methods',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Métodos de pagamento do cliente (admin)',
+        description: 'Retorna cartões salvos (read-only) e a configuração de auto-recarga do cliente. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Cartões salvos e auto-recarga.',
+            properties: {
+              cards: {
+                type: 'array',
+                description: 'Cartões salvos do cliente.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', description: 'ID do cartão.' },
+                    brand: { type: 'string', description: 'Bandeira.' },
+                    lastFour: { type: 'string', description: 'Últimos 4 dígitos.' },
+                    expiresAt: { type: 'string', description: 'Validade.' },
+                    isDefault: { type: 'boolean', description: 'Se é o cartão padrão.' },
+                  },
+                },
+              },
+              autoRecharge: {
+                type: 'object',
+                nullable: true,
+                description: 'Configuração de recarga automática (null se não configurada).',
+                properties: {
+                  active: { type: 'boolean', description: 'Se está ativa.' },
+                  mode: { type: 'string', nullable: true, description: 'acabar | semanal.' },
+                  weekday: { type: 'string', nullable: true, description: 'Dia da semana (modo semanal).' },
+                  comboName: { type: 'string', nullable: true, description: 'Combo da recarga.' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.paymentMethods.bind(ctrl),
   )
 }
