@@ -22,6 +22,11 @@ function makeDashboardFastifyMock(overrides: Record<string, any> = {}) {
       findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
+    // projectScheduleForDate (projeção de agenda) consulta schedule.findMany;
+    // [] => projeção retorna 0 e não interfere nos contadores materializados.
+    schedule: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     payment: {
       aggregate: vi.fn().mockResolvedValue(paymentAggregate),
       findMany: vi.fn().mockImplementation(({ where }: { where?: { comboId?: unknown } }) => {

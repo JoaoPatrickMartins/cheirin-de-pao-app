@@ -52,6 +52,10 @@ function makeFastifyMock(overrides: {
     order: {
       findMany: vi.fn().mockResolvedValue(order),
     },
+    // projectScheduleForDate (projeção de agenda) consulta schedule.findMany.
+    schedule: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
       if (typeof fn === 'function') {
         return fn({
