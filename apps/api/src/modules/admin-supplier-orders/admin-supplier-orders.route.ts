@@ -44,6 +44,20 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
                 totalBreads: { type: 'integer', description: 'Pães já materializados (pedidos existentes) neste condomínio.' },
                 projectedBreads: { type: 'integer', description: 'Pães previstos pela agenda, ainda não materializados.' },
                 projectedDeliveries: { type: 'integer', description: 'Entregas previstas pela agenda, ainda não materializadas.' },
+                riskCount: { type: 'integer', description: 'Clientes previstos em risco (bloqueados ou sem saldo) neste condomínio.' },
+                bySlot: {
+                  type: 'array',
+                  description: 'Quebra de pães por slot/turno (materializados + previstos).',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      slotId: { type: 'string' },
+                      label: { type: 'string' },
+                      breads: { type: 'integer' },
+                      deliveries: { type: 'integer' },
+                    },
+                  },
+                },
               },
             },
           },
@@ -51,6 +65,82 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.getDraft.bind(ctrl),
+  )
+
+  // 1b. Detalhe por condomínio — também ANTES de /:id (rota mais específica primeiro)
+  fastify.get(
+    '/admin/supplier-orders/draft/:condominiumId',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — supplier-orders'],
+        summary: 'Detalhe por condomínio da prévia do pedido (admin)',
+        description: 'Detalhamento por cliente das entregas de um condomínio para amanhã: cliente, ap/bloco, quantidade, slot, tipo (avulso/agenda), origem (confirmado/previsto) e flag de risco. Inclui quebra por slot e por tipo. Não persiste nada. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['condominiumId'],
+          properties: {
+            condominiumId: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Detalhe das entregas do condomínio para amanhã.',
+            properties: {
+              condominiumId: { type: 'string' },
+              name: { type: 'string' },
+              totalBreads: { type: 'integer', description: 'Pães totais (materializados + previstos).' },
+              materializedBreads: { type: 'integer', description: 'Pães já confirmados (pedidos existentes).' },
+              projectedBreads: { type: 'integer', description: 'Pães previstos pela agenda, ainda não materializados.' },
+              deliveryCount: { type: 'integer', description: 'Entregas confirmadas.' },
+              projectedDeliveries: { type: 'integer', description: 'Clientes com entrega prevista.' },
+              riskCount: { type: 'integer', description: 'Clientes previstos em risco (bloqueados ou sem saldo).' },
+              bySlot: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    slotId: { type: 'string' },
+                    label: { type: 'string' },
+                    breads: { type: 'integer' },
+                    deliveries: { type: 'integer' },
+                  },
+                },
+              },
+              byType: {
+                type: 'object',
+                properties: {
+                  single: { type: 'integer', description: 'Pães avulsos.' },
+                  scheduled: { type: 'integer', description: 'Pães de agenda.' },
+                },
+              },
+              deliveries: {
+                type: 'array',
+                description: 'Uma linha por entrega (materializada ou prevista).',
+                items: {
+                  type: 'object',
+                  properties: {
+                    userId: { type: 'string' },
+                    name: { type: 'string' },
+                    apartment: { type: 'string' },
+                    block: { type: 'string' },
+                    quantity: { type: 'integer' },
+                    slotId: { type: 'string' },
+                    slotLabel: { type: 'string' },
+                    type: { type: 'string', description: 'SINGLE (avulso) | SCHEDULED (agenda).' },
+                    source: { type: 'string', description: 'order (confirmado) | projected (previsto).' },
+                    risk: { type: 'string', description: "'' | 'no-credit' | 'blocked'." },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getCondominiumDetail.bind(ctrl),
   )
 
   // 2. Criar pedido

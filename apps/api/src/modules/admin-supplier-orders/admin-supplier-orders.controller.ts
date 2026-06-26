@@ -50,6 +50,28 @@ export class AdminSupplierOrdersController {
   }
 
   /**
+   * GET /admin/supplier-orders/draft/:condominiumId
+   *
+   * Detalhamento por cliente das entregas de um condomínio para amanhã.
+   * T-07-04-01: role check ADMIN
+   */
+  async getCondominiumDetail(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    const { condominiumId } = request.params as { condominiumId: string }
+
+    try {
+      const detail = await this.service.getCondominiumDetail(condominiumId)
+      return reply.status(200).send(detail)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * POST /admin/supplier-orders
    *
    * Cria PurchaseOrder DRAFT + items.

@@ -80,3 +80,67 @@ export async function projectScheduleForDate(
   }
   return { byCondo, total }
 }
+
+/** Uma linha de projeção pendente: o que a agenda de um usuário prevê para um slot, ainda não materializado. */
+export interface ProjectedRow {
+  userId: string
+  condominiumId: string
+  slotId: string
+  /** pães previstos pendentes (já descontado o que foi materializado para este usuário+slot) */
+  quantity: number
+}
+
+/**
+ * projectScheduleDetailForDate — versão detalhada (por usuário e por slot) da projeção da agenda.
+ *
+ * Diferente de projectScheduleForDate (que agrega por condomínio), retorna uma linha por
+ * (usuário, condomínio, slot) com a quantidade pendente — descontando o que já foi materializado
+ * para AQUELE usuário e AQUELE slot (granularidade fina: manhã pode estar materializada e tarde não).
+ *
+ * @param prisma client Prisma
+ * @param deliveryDate qualquer Date que caia no dia BRT alvo (usar meio-dia BRT é seguro)
+ */
+export async function projectScheduleDetailForDate(
+  prisma: PrismaClient,
+  deliveryDate: Date,
+): Promise<ProjectedRow[]> {
+  const weekday = dayKeyOf(deliveryDate)
+  const { start, end } = brtDayRange(deliveryDate)
+
+  const schedules = await prisma.schedule.findMany({
+    where: { isActive: true },
+    select: { userId: true, condominiumId: true, days: true },
+  })
+  if (schedules.length === 0) return []
+
+  // Já materializado da AGENDA (type=SCHEDULED) na data — para descontar por usuário+slot
+  const matOrders = await prisma.order.findMany({
+    where: {
+      type: 'SCHEDULED',
+      status: { not: 'CANCELLED' },
+      scheduledDate: { gte: start, lte: end },
+    },
+    select: { userId: true, slotId: true, quantity: true },
+  })
+  const matByUserSlot = new Map<string, number>()
+  for (const o of matOrders) {
+    const key = `${o.userId}|${o.slotId ?? ''}`
+    matByUserSlot.set(key, (matByUserSlot.get(key) ?? 0) + o.quantity)
+  }
+
+  const rows: ProjectedRow[] = []
+  for (const s of schedules) {
+    const days = (s.days as DaysMap | null) ?? {}
+    for (const slotKey of Object.keys(days)) {
+      const perDay = days[slotKey]
+      if (!perDay || typeof perDay !== 'object') continue
+      const qty = Number(perDay[weekday] ?? 0)
+      if (qty <= 0) continue
+      const mat = matByUserSlot.get(`${s.userId}|${slotKey}`) ?? 0
+      const pending = Math.max(0, qty - mat)
+      if (pending <= 0) continue
+      rows.push({ userId: s.userId, condominiumId: s.condominiumId, slotId: slotKey, quantity: pending })
+    }
+  }
+  return rows
+}

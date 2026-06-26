@@ -11,6 +11,8 @@ function makeFastifyMock(overrides: {
   supplier?: Record<string, unknown> | null
   condominium?: Record<string, unknown> | null
   order?: Record<string, unknown>[]
+  schedule?: Record<string, unknown>[]
+  users?: Record<string, unknown>[]
 } = {}) {
   const {
     purchaseOrder = {
@@ -24,10 +26,15 @@ function makeFastifyMock(overrides: {
       { id: 'item-01', purchaseOrderId: 'po-01', supplierId: 'sup-01', quantity: 100, unitPrice: 0.5 },
     ],
     supplier = { id: 'sup-01', name: 'Padaria Central', isPrincipal: true, pricePerUnit: 0.5 },
-    condominium = { id: 'condo-01', name: 'Residencial Aurora' },
+    condominium = { id: 'condo-01', name: 'Residencial Aurora', deliverySlots: [] },
     order = [
-      { id: 'ord-01', userId: 'user-01', quantity: 50, condominiumId: 'condo-01', scheduledDate: new Date() },
-      { id: 'ord-02', userId: 'user-02', quantity: 30, condominiumId: 'condo-01', scheduledDate: new Date() },
+      { id: 'ord-01', userId: 'user-01', quantity: 50, condominiumId: 'condo-01', scheduledDate: new Date(), type: 'SINGLE', slotId: 'manha' },
+      { id: 'ord-02', userId: 'user-02', quantity: 30, condominiumId: 'condo-01', scheduledDate: new Date(), type: 'SCHEDULED', slotId: 'tarde' },
+    ],
+    schedule = [],
+    users = [
+      { id: 'user-01', name: 'Ana Lima', apartment: '102', block: 'A', creditBalance: 100, isBlocked: false },
+      { id: 'user-02', name: 'Bruno Sá', apartment: '204', block: 'B', creditBalance: 100, isBlocked: false },
     ],
   } = overrides
 
@@ -48,13 +55,17 @@ function makeFastifyMock(overrides: {
     },
     condominium: {
       findUnique: vi.fn().mockResolvedValue(condominium),
+      findMany: vi.fn().mockResolvedValue(condominium ? [condominium] : []),
     },
     order: {
       findMany: vi.fn().mockResolvedValue(order),
     },
-    // projectScheduleForDate (projeção de agenda) consulta schedule.findMany.
+    user: {
+      findMany: vi.fn().mockResolvedValue(users),
+    },
+    // projectScheduleDetailForDate (projeção de agenda) consulta schedule.findMany.
     schedule: {
-      findMany: vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockResolvedValue(schedule),
     },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
       if (typeof fn === 'function') {
@@ -98,6 +109,85 @@ describe('AdminSupplierOrdersService', () => {
       const service = new AdminSupplierOrdersService(fastify as any)
       const result = await service.getDraft()
       expect(Array.isArray(result)).toBe(true)
+    })
+
+    it('inclui bySlot e riskCount por condominio', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const result = await service.getDraft()
+      const condo = result.find((c) => c.condominiumId === 'condo-01')!
+      expect(condo).toBeDefined()
+      // ord-01 (manha, 50) + ord-02 (tarde, 30) materializados
+      expect(condo.totalBreads).toBe(80)
+      expect(condo.deliveryCount).toBe(2)
+      expect(Array.isArray(condo.bySlot)).toBe(true)
+      const slots = Object.fromEntries(condo.bySlot.map((s) => [s.slotId, s.breads]))
+      expect(slots).toMatchObject({ manha: 50, tarde: 30 })
+      expect(condo.riskCount).toBe(0)
+    })
+
+    it('soma dos chips bySlot reconcilia com total (materializado + previsto)', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const result = await service.getDraft()
+      for (const condo of result) {
+        const slotSum = condo.bySlot.reduce((s, b) => s + b.breads, 0)
+        expect(slotSum).toBe(condo.totalBreads + condo.projectedBreads)
+      }
+    })
+  })
+
+  describe('getCondominiumDetail', () => {
+    it('retorna entregas detalhadas com tipo, origem e quebra por slot', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const detail = await service.getCondominiumDetail('condo-01')
+
+      expect(detail.name).toBe('Residencial Aurora')
+      expect(detail.materializedBreads).toBe(80)
+      expect(detail.deliveries).toHaveLength(2)
+      const ana = detail.deliveries.find((d) => d.name === 'Ana Lima')!
+      expect(ana).toMatchObject({ apartment: '102', block: 'A', type: 'SINGLE', source: 'order', risk: '' })
+      expect(detail.byType).toMatchObject({ single: 50, scheduled: 30 })
+    })
+
+    it('marca risco no-credit para previsto sem saldo suficiente', async () => {
+      const { fastify } = makeFastifyMock({
+        order: [],
+        schedule: [
+          { userId: 'user-03', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+        ],
+        users: [{ id: 'user-03', name: 'Rafael Pinto', apartment: '301', block: 'A', creditBalance: 2, isBlocked: false }],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const detail = await service.getCondominiumDetail('condo-01')
+
+      expect(detail.projectedBreads).toBe(8)
+      expect(detail.riskCount).toBe(1)
+      const raf = detail.deliveries.find((d) => d.name === 'Rafael Pinto')!
+      expect(raf.source).toBe('projected')
+      expect(raf.risk).toBe('no-credit')
+    })
+
+    it('marca risco blocked para cliente bloqueado', async () => {
+      const { fastify } = makeFastifyMock({
+        order: [],
+        schedule: [
+          { userId: 'user-04', condominiumId: 'condo-01', days: { tarde: { seg: 4, ter: 4, qua: 4, qui: 4, sex: 4, sab: 4, dom: 4 } } },
+        ],
+        users: [{ id: 'user-04', name: 'Tânia Freitas', apartment: '405', block: 'B', creditBalance: 999, isBlocked: true }],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const detail = await service.getCondominiumDetail('condo-01')
+
+      const tania = detail.deliveries.find((d) => d.name === 'Tânia Freitas')!
+      expect(tania.risk).toBe('blocked')
+      expect(detail.riskCount).toBe(1)
     })
   })
 

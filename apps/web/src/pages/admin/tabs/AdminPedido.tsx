@@ -4,10 +4,18 @@ import { AdminHead } from '../../../components/admin/AdminHead'
 import { StepBar } from '../../../components/admin/StepBar'
 import { Icon } from '../../../components/brand/Icon'
 import StepperInline from '../../../components/client/StepperInline'
+import { CondominiumOrderDetail } from '../../../components/admin/CondominiumOrderDetail'
 
 // ---------------------------------------------------------------------------
 // Tipos
 // ---------------------------------------------------------------------------
+
+interface SlotBreakdown {
+  slotId: string
+  label: string
+  breads: number
+  deliveries: number
+}
 
 interface CondoDraft {
   condominiumId: string
@@ -16,6 +24,8 @@ interface CondoDraft {
   totalBreads: number
   projectedBreads: number
   projectedDeliveries: number
+  bySlot: SlotBreakdown[]
+  riskCount: number
 }
 
 interface Supplier {
@@ -54,6 +64,50 @@ function formatDate(date: Date): string {
     month: 'long',
     timeZone: 'America/Sao_Paulo',
   }).format(date)
+}
+
+/** Cor do turno: manhã = dourado, tarde = âmbar; demais alternam. */
+export function slotColor(slotId: string): string {
+  if (slotId === 'manha') return 'var(--gold)'
+  if (slotId === 'tarde') return 'var(--accent)'
+  return 'var(--text-sec)'
+}
+
+/** Minutos desde a meia-noite BRT (agora). */
+function brtNowMinutes(): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: 'America/Sao_Paulo',
+  }).formatToParts(new Date())
+  const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
+  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
+  return h * 60 + m
+}
+
+function hhmmToMin(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return (h || 0) * 60 + (m || 0)
+}
+
+/**
+ * Próximo corte do dia: o slot com cutoffTime mais cedo ainda à frente do horário atual (BRT).
+ * Retorna o tempo restante formatado e o label do slot — ou status encerrado se todos passaram.
+ */
+function nextCutoff(slots: SlotCutoff[] | null): { open: boolean; label?: string; remaining?: string } {
+  if (!slots || slots.length === 0) return { open: true }
+  const now = brtNowMinutes()
+  const upcoming = slots
+    .map((s) => ({ label: s.label, min: hhmmToMin(s.cutoffTime) }))
+    .filter((s) => s.min > now)
+    .sort((a, b) => a.min - b.min)
+  if (upcoming.length === 0) return { open: false }
+  const diff = upcoming[0].min - now
+  const h = Math.floor(diff / 60)
+  const m = diff % 60
+  const remaining = h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}min`
+  return { open: true, label: upcoming[0].label, remaining }
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +242,15 @@ export function AdminPedido() {
   const [slots, setSlots] = useState<SlotCutoff[] | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
+  // Drill-down: condomínio selecionado para detalhamento por cliente
+  const [detailCondoId, setDetailCondoId] = useState<string | null>(null)
+
+  // Busca de condomínio (step 0)
+  const [query, setQuery] = useState('')
+
+  // Tick para atualizar a contagem regressiva do corte (a cada 30s)
+  const [, setTick] = useState(0)
+
   // Step 1 — quantidades ajustadas
   const [adjustedQts, setAdjustedQts] = useState<Record<string, number>>({})
 
@@ -230,11 +293,51 @@ export function AdminPedido() {
     void fetchData()
   }, [])
 
+  // Atualiza a contagem regressiva do corte a cada 30s
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
   // ---------------------------------------------------------------------------
   // Totais derivados
   // ---------------------------------------------------------------------------
 
   const draftTotal = draftData ? draftData.reduce((sum, c) => sum + c.totalBreads, 0) : 0
+
+  // Resumo global (KPIs + split de turno) — derivado do draft enriquecido
+  const summary = (() => {
+    const condos = draftData ?? []
+    const confirmed = condos.reduce((s, c) => s + c.totalBreads, 0)
+    const projected = condos.reduce((s, c) => s + c.projectedBreads, 0)
+    const deliveries = condos.reduce((s, c) => s + c.deliveryCount + c.projectedDeliveries, 0)
+    const risk = condos.reduce((s, c) => s + c.riskCount, 0)
+    const bySlot = new Map<string, { slotId: string; label: string; breads: number }>()
+    for (const c of condos) {
+      for (const b of c.bySlot) {
+        const cur = bySlot.get(b.slotId) ?? { slotId: b.slotId, label: b.label, breads: 0 }
+        cur.breads += b.breads
+        bySlot.set(b.slotId, cur)
+      }
+    }
+    const slotList = [...bySlot.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+    return {
+      confirmed,
+      projected,
+      deliveries,
+      risk,
+      condoCount: condos.length,
+      slotList,
+      slotTotal: slotList.reduce((s, x) => s + x.breads, 0),
+    }
+  })()
+
+  const cutoff = nextCutoff(slots)
+
+  // Lista filtrada pela busca
+  const filteredCondos = (draftData ?? []).filter((c) =>
+    query.trim() ? c.name.toLowerCase().includes(query.trim().toLowerCase()) : true,
+  )
 
   const adjustedTotal = draftData
     ? draftData.reduce((sum, c) => sum + (adjustedQts[c.condominiumId] ?? c.totalBreads), 0)
@@ -345,6 +448,13 @@ export function AdminPedido() {
 
   const tomorrowLabel = getTomorrowLabel()
 
+  // Drill-down em tela cheia — detalhamento por cliente do condomínio selecionado
+  if (detailCondoId) {
+    return (
+      <CondominiumOrderDetail condominiumId={detailCondoId} onBack={() => setDetailCondoId(null)} />
+    )
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <AdminHead sub={`Para amanhã · ${tomorrowLabel}`} titulo="Pedido ao fornecedor" />
@@ -413,16 +523,29 @@ export function AdminPedido() {
                         ? slots.map((s) => `${s.label} ${s.cutoffTime}`).join(' · ')
                         : 'Após o corte, pedidos do dia são bloqueados'}
                     </p>
+                    {cutoff.open && cutoff.remaining && (
+                      <p
+                        style={{
+                          fontFamily: 'var(--font-body)',
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          color: 'var(--color-accent)',
+                          margin: '3px 0 0',
+                        }}
+                      >
+                        Fecha em {cutoff.remaining} · corte {cutoff.label}
+                      </p>
+                    )}
                   </div>
-                  {/* Pill Aberto/Encerrado */}
+                  {/* Pill Aberto/Encerrado — derivado do horário atual (BRT) */}
                   <span
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       padding: '4px 10px',
                       borderRadius: 99,
-                      background: 'var(--color-good-soft)',
-                      color: 'var(--color-good)',
+                      background: cutoff.open ? 'var(--color-good-soft)' : 'var(--color-surface-2)',
+                      color: cutoff.open ? 'var(--color-good)' : 'var(--color-text-sec)',
                       fontFamily: 'var(--font-body)',
                       fontSize: 12,
                       fontWeight: 700,
@@ -430,9 +553,166 @@ export function AdminPedido() {
                       flexShrink: 0,
                     }}
                   >
-                    Aberto
+                    {cutoff.open ? 'Aberto' : 'Encerrado'}
                   </span>
                 </div>
+
+                {/* Resumo (KPIs + split de turno + risco) + busca */}
+                {draftData && draftData.length > 0 && (
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: 9,
+                        marginBottom: 14,
+                      }}
+                    >
+                      {[
+                        { v: summary.confirmed, k: 'confirmados', c: 'var(--color-text)' },
+                        { v: summary.projected, k: 'previstos', c: 'var(--color-accent)' },
+                        { v: summary.deliveries, k: 'entregas', c: 'var(--color-text)' },
+                      ].map((kpi) => (
+                        <div
+                          key={kpi.k}
+                          style={{
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border-2)',
+                            borderRadius: 14,
+                            padding: '11px 12px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontFamily: 'var(--font-display)',
+                              fontSize: 20,
+                              fontWeight: 800,
+                              letterSpacing: '-0.02em',
+                              fontVariantNumeric: 'tabular-nums',
+                              lineHeight: 1,
+                              color: kpi.c,
+                            }}
+                          >
+                            {kpi.v}
+                          </div>
+                          <div
+                            style={{
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 10.5,
+                              fontWeight: 600,
+                              color: 'var(--color-text-ter)',
+                              marginTop: 3,
+                            }}
+                          >
+                            {kpi.k}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Barra de split por turno */}
+                    {summary.slotTotal > 0 && (
+                      <>
+                        <div
+                          style={{
+                            display: 'flex',
+                            height: 8,
+                            borderRadius: 9,
+                            overflow: 'hidden',
+                            margin: '0 2px 8px',
+                            boxShadow: 'inset 0 0 0 1px var(--color-border-2)',
+                          }}
+                        >
+                          {summary.slotList.map((s) => (
+                            <div
+                              key={s.slotId}
+                              style={{
+                                width: `${(s.breads / summary.slotTotal) * 100}%`,
+                                background: slotColor(s.slotId),
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: 16,
+                            justifyContent: 'center',
+                            flexWrap: 'wrap',
+                            margin: '0 0 14px',
+                            fontFamily: 'var(--font-body)',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: 'var(--color-text-sec)',
+                          }}
+                        >
+                          {summary.slotList.map((s) => (
+                            <span key={s.slotId}>
+                              <i
+                                style={{
+                                  display: 'inline-block',
+                                  width: 9,
+                                  height: 9,
+                                  borderRadius: 3,
+                                  background: slotColor(s.slotId),
+                                  marginRight: 5,
+                                  verticalAlign: -1,
+                                }}
+                              />
+                              {s.label} {s.breads}
+                            </span>
+                          ))}
+                          {summary.risk > 0 && (
+                            <span style={{ color: 'var(--color-accent)' }}>
+                              <i
+                                style={{
+                                  display: 'inline-block',
+                                  width: 9,
+                                  height: 9,
+                                  borderRadius: 3,
+                                  background: 'var(--color-accent)',
+                                  marginRight: 5,
+                                  verticalAlign: -1,
+                                }}
+                              />
+                              {summary.risk} em risco
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Busca de condomínio */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 9,
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-border-2)',
+                        borderRadius: 14,
+                        padding: '10px 13px',
+                        marginBottom: 14,
+                      }}
+                    >
+                      <Icon name="search" size={16} color="var(--color-text-ter)" stroke={2} />
+                      <input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Buscar condomínio…"
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          outline: 'none',
+                          fontFamily: 'var(--font-body)',
+                          fontSize: 13.5,
+                          color: 'var(--color-text)',
+                          width: '100%',
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
 
                 {/* Label de seção */}
                 <p
@@ -473,11 +753,25 @@ export function AdminPedido() {
                       Nenhum cliente agendou entrega para amanhã.
                     </p>
                   </div>
+                ) : filteredCondos.length === 0 ? (
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: 13.5,
+                      color: 'var(--color-text-ter)',
+                      textAlign: 'center',
+                      padding: '20px 0',
+                      margin: 0,
+                    }}
+                  >
+                    Nenhum condomínio encontrado para “{query}”.
+                  </p>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {draftData.map((condo) => (
-                      <div
+                    {filteredCondos.map((condo) => (
+                      <button
                         key={condo.condominiumId}
+                        onClick={() => setDetailCondoId(condo.condominiumId)}
                         style={{
                           background: 'var(--color-surface)',
                           borderRadius: 16,
@@ -486,7 +780,12 @@ export function AdminPedido() {
                           display: 'flex',
                           alignItems: 'center',
                           gap: 12,
+                          width: '100%',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font-body)',
                         }}
+                        aria-label={`Ver detalhes de ${condo.name}`}
                       >
                         <div
                           style={{
@@ -510,7 +809,7 @@ export function AdminPedido() {
                               fontSize: 14.5,
                               fontWeight: 700,
                               color: 'var(--color-text)',
-                              margin: '0 0 2px',
+                              margin: '0 0 4px',
                               whiteSpace: 'nowrap',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -518,43 +817,86 @@ export function AdminPedido() {
                           >
                             {condo.name}
                           </p>
-                          <p
-                            style={{
-                              fontFamily: 'var(--font-body)',
-                              fontSize: 12,
-                              color: 'var(--color-text-ter)',
-                              margin: 0,
-                            }}
-                          >
-                            {condo.deliveryCount} entregas
-                            {condo.projectedDeliveries > 0 ? ` · +${condo.projectedDeliveries} previstas` : ''}
-                          </p>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {condo.bySlot.map((s) => (
+                              <span
+                                key={s.slotId}
+                                style={{
+                                  fontFamily: 'var(--font-body)',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  padding: '2px 8px',
+                                  borderRadius: 99,
+                                  background: 'var(--color-surface-2)',
+                                  color: 'var(--color-text-sec)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                <i
+                                  style={{
+                                    display: 'inline-block',
+                                    width: 7,
+                                    height: 7,
+                                    borderRadius: 2,
+                                    background: slotColor(s.slotId),
+                                    marginRight: 5,
+                                    verticalAlign: 0,
+                                  }}
+                                />
+                                {s.label} {s.breads}
+                              </span>
+                            ))}
+                            {condo.riskCount > 0 && (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  fontFamily: 'var(--font-body)',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  padding: '2px 8px',
+                                  borderRadius: 99,
+                                  background: 'var(--color-gold-soft)',
+                                  color: 'var(--color-accent)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                <Icon name="alert" size={11} color="var(--color-accent)" stroke={2.2} />
+                                {condo.riskCount} risco
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                          <span
-                            style={{
-                              fontFamily: 'var(--font-display)',
-                              fontSize: 18,
-                              fontWeight: 800,
-                              color: 'var(--color-text)',
-                            }}
-                          >
-                            {condo.totalBreads}
-                          </span>
-                          {condo.projectedBreads > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                             <span
                               style={{
-                                fontFamily: 'var(--font-body)',
-                                fontSize: 11.5,
-                                fontWeight: 700,
-                                color: 'var(--color-accent)',
+                                fontFamily: 'var(--font-display)',
+                                fontSize: 18,
+                                fontWeight: 800,
+                                fontVariantNumeric: 'tabular-nums',
+                                color: 'var(--color-text)',
                               }}
                             >
-                              +{condo.projectedBreads} previstos
+                              {condo.totalBreads}
                             </span>
-                          )}
+                            {condo.projectedBreads > 0 && (
+                              <span
+                                style={{
+                                  fontFamily: 'var(--font-body)',
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  color: 'var(--color-accent)',
+                                }}
+                              >
+                                +{condo.projectedBreads} prev.
+                              </span>
+                            )}
+                          </div>
+                          <Icon name="chevR" size={18} color="var(--color-text-ter)" stroke={2.2} />
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
