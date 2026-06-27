@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
+import { lookupCep } from '../../../lib/viacep'
 import { Icon } from '../../../components/brand/Icon'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
 
@@ -28,6 +29,15 @@ function maskCEP(value: string): string {
   return d.replace(/^(\d{5})(\d)/, '$1-$2')
 }
 
+/** Faz parse de "lat, long" (formato copiável do Google Maps). Retorna null se inválido. */
+function parseCoords(s: string): { lat: number; lng: number } | null {
+  const parts = s.split(',').map((x) => parseFloat(x.trim()))
+  if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+    return { lat: parts[0], lng: parts[1] }
+  }
+  return null
+}
+
 // ------------------------------------------------------------------ componente
 export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
   const [nome, setNome] = useState('')
@@ -42,6 +52,10 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(!!id)
   const [error, setError] = useState<string | null>(null)
+  const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'notfound'>('idle')
+  const lastCepLookup = useRef('')
+  const [coords, setCoords] = useState('')
+  const [locApprox, setLocApprox] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -61,6 +75,9 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
             } | null
             type: CondoTipo
             numBlocks?: number | null
+            lat?: number | null
+            lng?: number | null
+            approxLocation?: boolean
           }
           setNome(data.name)
           setRua(data.address?.street ?? '')
@@ -71,6 +88,8 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
           setCep(maskCEP(data.address?.zip ?? ''))
           setTipo(data.type)
           setNumBlocos(String(data.numBlocks ?? 1))
+          if (data.lat != null && data.lng != null) setCoords(`${data.lat}, ${data.lng}`)
+          setLocApprox(Boolean(data.approxLocation))
         }
       } catch {
         // falha silenciosa
@@ -81,10 +100,43 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
     void fetchCondo()
   }, [id])
 
+  // Auto-preenchimento de endereço pelo CEP via ViaCEP. Dispara quando o usuário completa
+  // os 8 dígitos; preenche rua/cidade/UF (o número continua manual).
+  const handleCepChange = (v: string) => {
+    const masked = maskCEP(v)
+    setCep(masked)
+    const digits = onlyDigits(masked)
+    if (digits.length !== 8) {
+      setCepStatus('idle')
+      return
+    }
+    if (digits === lastCepLookup.current) return
+    lastCepLookup.current = digits
+    setCepStatus('loading')
+    void lookupCep(masked).then((addr) => {
+      if (!addr) {
+        setCepStatus('notfound')
+        return
+      }
+      setCepStatus('idle')
+      if (addr.street) setRua(addr.street)
+      if (addr.city) setCidade(addr.city)
+      if (addr.uf) setEstado(addr.uf)
+    })
+  }
+
+  // Coordenadas manuais têm prioridade; ao informar coords válidas, a marca de
+  // "localização aproximada" deixa de fazer sentido.
+  const handleCoordsChange = (v: string) => {
+    setCoords(v)
+    if (parseCoords(v)) setLocApprox(false)
+  }
+
   const handleSalvar = async () => {
     setError(null)
     setIsSaving(true)
     try {
+      const parsedCoords = parseCoords(coords)
       const body = {
         name: nome.trim(),
         address: {
@@ -96,6 +148,8 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
           zip: onlyDigits(cep),
         },
         type: tipo,
+        // Coordenadas manuais (têm prioridade sobre a geocodificação do endereço).
+        ...(parsedCoords ? { lat: parsedCoords.lat, lng: parsedCoords.lng } : {}),
         ...(tipo === 'BLOCKS' ? { numBlocks: Number(numBlocos) } : {}),
       }
       const res = await apiFetch(id ? `/admin/condominiums/${id}` : '/admin/condominiums', {
@@ -264,10 +318,51 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
               icon="mail"
               type="tel"
               value={cep}
-              onChange={(v) => setCep(maskCEP(v))}
+              onChange={handleCepChange}
               placeholder="00000-000"
             />
           </div>
+        </div>
+
+        {cepStatus !== 'idle' && (
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              fontWeight: 600,
+              color: cepStatus === 'notfound' ? 'var(--color-warn)' : 'var(--color-text-ter)',
+              margin: '-8px 0 0',
+            }}
+          >
+            {cepStatus === 'loading'
+              ? 'Buscando endereço pelo CEP…'
+              : 'CEP não encontrado — preencha o endereço manualmente.'}
+          </p>
+        )}
+
+        {/* Localização no mapa (coordenadas manuais — opcional) */}
+        <div>
+          <FormField
+            label="Localização no mapa (lat, long)"
+            icon="pin"
+            value={coords}
+            onChange={handleCoordsChange}
+            placeholder="-21.7546, -41.3242"
+          />
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              fontWeight: 600,
+              color: locApprox ? 'var(--color-warn)' : 'var(--color-text-ter)',
+              margin: '6px 0 0',
+              lineHeight: 1.45,
+            }}
+          >
+            {locApprox
+              ? '⚠ Localização aproximada (centro da cidade). Cole as coordenadas exatas do Google Maps para a rota ficar precisa.'
+              : 'Opcional. No Google Maps, clique no local e copie as coordenadas. Em branco, localizamos pelo endereço.'}
+          </p>
         </div>
 
         {/* Tipo */}

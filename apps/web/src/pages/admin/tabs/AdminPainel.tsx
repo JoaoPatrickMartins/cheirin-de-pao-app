@@ -167,8 +167,13 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
             >
               <KpiCard
                 icon="bag"
-                value={data?.breadsTodayCount ?? 0}
-                label="Pães a entregar hoje"
+                value={
+                  <>
+                    {data?.breadsTodayCount ?? 0}{' '}
+                    <span style={{ fontSize: 19 }}>🥖</span>
+                  </>
+                }
+                label="A entregar hoje"
                 pill={trendPill(data?.breadsTodayTrendPct)}
                 sub={data && data.breadsTodayProjected > 0 ? `+${data.breadsTodayProjected} previstos (agenda)` : undefined}
               />

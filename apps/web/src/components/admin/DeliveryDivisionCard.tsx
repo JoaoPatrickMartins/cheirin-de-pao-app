@@ -31,16 +31,21 @@ export interface DeliveryDivisionCardProps {
   onApprove: () => Promise<void>
   isApproved: boolean
   isApproving: boolean
+  /** IDs de condomínios já totalmente entregues — ficam travados ao reabrir a divisão. */
+  lockedCondoIds?: Set<string>
 }
 
 interface SortableCondoProps {
   condo: CondoItem
   courierId: string
+  disabled?: boolean
+  locked?: boolean
 }
 
-function SortableCondo({ condo, courierId }: SortableCondoProps) {
+function SortableCondo({ condo, courierId, disabled, locked }: SortableCondoProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
     id: `${courierId}:${condo.condominiumId}`,
+    disabled,
   })
 
   return (
@@ -55,8 +60,8 @@ function SortableCondo({ condo, courierId }: SortableCondoProps) {
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '5px 0',
-        cursor: 'grab',
-        touchAction: 'none',
+        cursor: disabled ? 'default' : 'grab',
+        touchAction: disabled ? 'auto' : 'none',
       }}
     >
       <span
@@ -68,15 +73,33 @@ function SortableCondo({ condo, courierId }: SortableCondoProps) {
       >
         {condo.condominiumName}
       </span>
-      <span
-        style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 12,
-          fontWeight: 700,
-          color: 'var(--color-text-sec)',
-        }}
-      >
-        {condo.quantity} pães
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {locked && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              color: 'var(--color-good)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 10.5,
+              fontWeight: 700,
+            }}
+          >
+            <Icon name="check" size={11} color="var(--color-good)" stroke={2.6} aria-hidden="true" />
+            entregue
+          </span>
+        )}
+        <span
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 12,
+            fontWeight: 700,
+            color: 'var(--color-text-sec)',
+          }}
+        >
+          {condo.quantity} pães
+        </span>
       </span>
     </div>
   )
@@ -85,13 +108,14 @@ function SortableCondo({ condo, courierId }: SortableCondoProps) {
 interface CourierDropZoneProps {
   courierId: string
   children: ReactNode
+  disabled?: boolean
 }
 
 // Registra o card do entregador como alvo de soltar (droppable).
 // Necessário para conseguir arrastar condomínios para entregadores sem
 // nenhum condomínio — que não têm chips arrastáveis para servir de alvo.
-function CourierDropZone({ courierId, children }: CourierDropZoneProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: courierId })
+function CourierDropZone({ courierId, children, disabled }: CourierDropZoneProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: courierId, disabled })
 
   return (
     <div
@@ -100,7 +124,7 @@ function CourierDropZone({ courierId, children }: CourierDropZoneProps) {
         background: 'var(--color-surface-2)',
         borderRadius: 14,
         padding: 12,
-        border: isOver ? '1.5px solid var(--color-accent)' : '1.5px solid transparent',
+        border: isOver && !disabled ? '1.5px solid var(--color-accent)' : '1.5px solid transparent',
         transition: 'border-color 0.15s ease',
       }}
     >
@@ -115,9 +139,16 @@ export function DeliveryDivisionCard({
   onApprove,
   isApproved,
   isApproving,
+  lockedCondoIds,
 }: DeliveryDivisionCardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [approveError, setApproveError] = useState(false)
+  // Modo de edição após aprovação ("Reabrir divisão"). Antes de aprovar o DnD já está liberado.
+  const [reopened, setReopened] = useState(false)
+  const dndEnabled = !isApproved || reopened
+  const isLocked = (condoId: string) => lockedCondoIds?.has(condoId) ?? false
+  // Há algo a reabrir? Só se existir condomínio ainda NÃO entregue.
+  const hasReopenable = assignments.some((a) => a.condos.some((c) => !isLocked(c.condominiumId)))
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -130,11 +161,13 @@ export function DeliveryDivisionCard({
   }
 
   function handleDragStart(event: DragStartEvent) {
+    if (!dndEnabled) return
     setActiveId(String(event.active.id))
   }
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null)
+    if (!dndEnabled) return
     const { active, over } = event
     if (!over) return
 
@@ -144,6 +177,9 @@ export function DeliveryDivisionCard({
     // over pode ser um courierId (drop zone) ou um item id (courierId:condominiumId)
     const targetCourierId = overStr.includes(':') ? overStr.split(':')[0] : overStr
     const { courierId: sourceCourierId, condominiumId } = findOwner(activeStr)
+
+    // Condomínio já entregue não pode ser remanejado.
+    if (isLocked(condominiumId)) return
 
     if (sourceCourierId === targetCourierId) return
 
@@ -172,6 +208,7 @@ export function DeliveryDivisionCard({
     setApproveError(false)
     try {
       await onApprove()
+      setReopened(false)
     } catch {
       setApproveError(true)
     }
@@ -222,7 +259,7 @@ export function DeliveryDivisionCard({
         >
           Divisão sugerida
         </span>
-        {isApproved && (
+        {isApproved && !reopened && (
           <span
             style={{
               display: 'inline-flex',
@@ -241,6 +278,25 @@ export function DeliveryDivisionCard({
             Aprovada
           </span>
         )}
+        {reopened && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '3px 8px',
+              borderRadius: 99,
+              background: 'var(--color-gold-soft)',
+              color: '#8A6A00',
+              fontFamily: 'var(--font-body)',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            <Icon name="edit" size={12} color="#8A6A00" stroke={2.2} aria-hidden="true" />
+            Editando
+          </span>
+        )}
       </div>
 
       {/* Drag-and-drop context */}
@@ -252,7 +308,7 @@ export function DeliveryDivisionCard({
         <SortableContext items={allSortableIds} strategy={verticalListSortingStrategy}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {assignments.map((assignment) => (
-              <CourierDropZone key={assignment.courierId} courierId={assignment.courierId}>
+              <CourierDropZone key={assignment.courierId} courierId={assignment.courierId} disabled={!dndEnabled}>
                 {/* Entregador header */}
                 <div
                   style={{
@@ -309,14 +365,19 @@ export function DeliveryDivisionCard({
                   {/* Total de pães */}
                   <span
                     style={{
+                      display: 'inline-flex',
+                      alignItems: 'baseline',
+                      gap: 4,
                       fontFamily: 'var(--font-display)',
                       fontSize: 15,
                       fontWeight: 800,
                       color: 'var(--color-gold)',
                       flexShrink: 0,
+                      whiteSpace: 'nowrap',
                     }}
                   >
                     {totalForCourier(assignment)}
+                    <span style={{ fontSize: 13 }}>🥖</span>
                   </span>
                 </div>
 
@@ -333,6 +394,8 @@ export function DeliveryDivisionCard({
                         key={condo.condominiumId}
                         condo={condo}
                         courierId={assignment.courierId}
+                        disabled={!dndEnabled || isLocked(condo.condominiumId)}
+                        locked={reopened && isLocked(condo.condominiumId)}
                       />
                     ))}
                   </div>
@@ -379,8 +442,8 @@ export function DeliveryDivisionCard({
         </p>
       )}
 
-      {/* Botão Aprovar divisão */}
-      {!isApproved && (
+      {/* Ações: aprovar (estado editável) ou reabrir (estado aprovado) */}
+      {dndEnabled ? (
         <button
           onClick={() => void handleApprove()}
           disabled={isApproving}
@@ -406,6 +469,33 @@ export function DeliveryDivisionCard({
         >
           <Icon name="check" size={16} color="#1E1207" stroke={2.5} aria-hidden="true" />
           {isApproving ? 'Aprovando...' : 'Aprovar divisão'}
+        </button>
+      ) : (
+        <button
+          onClick={() => setReopened(true)}
+          disabled={!hasReopenable}
+          title={hasReopenable ? undefined : 'Todas as entregas já foram concluídas'}
+          style={{
+            width: '100%',
+            marginTop: 12,
+            minHeight: 44,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 7,
+            border: '1.5px solid var(--color-border)',
+            borderRadius: 14,
+            background: 'transparent',
+            color: 'var(--color-text)',
+            fontFamily: 'var(--font-body)',
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: hasReopenable ? 'pointer' : 'not-allowed',
+            opacity: hasReopenable ? 1 : 0.5,
+          }}
+        >
+          <Icon name="refresh" size={16} color="var(--color-text)" stroke={2.2} aria-hidden="true" />
+          Reabrir divisão
         </button>
       )}
     </div>

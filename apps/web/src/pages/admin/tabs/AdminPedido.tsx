@@ -708,9 +708,9 @@ export function AdminPedido() {
                       }}
                     >
                       {[
-                        { v: summary.confirmed, k: 'confirmados', c: 'var(--color-text)' },
-                        { v: summary.projected, k: 'previstos', c: 'var(--color-accent)' },
-                        { v: summary.deliveries, k: 'entregas', c: 'var(--color-text)' },
+                        { v: summary.confirmed, k: 'confirmados', c: 'var(--color-text)', bread: true },
+                        { v: summary.projected, k: 'previstos', c: 'var(--color-accent)', bread: true },
+                        { v: summary.deliveries, k: 'entregas', c: 'var(--color-text)', bread: false },
                       ].map((kpi) => (
                         <div
                           key={kpi.k}
@@ -732,7 +732,7 @@ export function AdminPedido() {
                               color: kpi.c,
                             }}
                           >
-                            {kpi.v}
+                            {kpi.v}{kpi.bread ? ' 🥖' : ''}
                           </div>
                           <div
                             style={{
@@ -1018,7 +1018,7 @@ export function AdminPedido() {
                                 color: 'var(--color-text)',
                               }}
                             >
-                              {condo.totalBreads}
+                              {condo.totalBreads} 🥖
                             </span>
                             {condo.projectedBreads > 0 && (
                               <span

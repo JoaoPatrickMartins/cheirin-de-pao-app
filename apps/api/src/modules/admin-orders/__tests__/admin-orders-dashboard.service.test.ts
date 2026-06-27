@@ -268,12 +268,28 @@ describe('AdminOrdersService.getDeliveryStatus', () => {
 })
 
 // ── Testes para getDivisionSuggestion ─────────────────────────────────────────
+//
+// O método faz DUAS consultas a order.findMany:
+//  - despachados: where.status = { in: ['OUT_FOR_DELIVERY', ...] } (estado aprovado)
+//  - separados:   where.status = 'SEPARATED'                       (sugestão greedy)
+// O helper abaixo distingue as duas pelo formato de where.status.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mockOrdersBySeparated(prisma: any, separated: unknown[], dispatched: unknown[] = []) {
+  prisma.order.findMany.mockImplementation(({ where }: { where?: { status?: unknown } }) => {
+    const status = where?.status as { in?: unknown[] } | string | undefined
+    if (status && typeof status === 'object' && Array.isArray(status.in)) {
+      return Promise.resolve(dispatched)
+    }
+    return Promise.resolve(separated)
+  })
+}
+
 describe('AdminOrdersService.getDivisionSuggestion', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('retorna array vazio quando nao ha entregadores ativos', async () => {
+  it('retorna vazio quando nao ha entregadores ativos', async () => {
     const { fastify, prisma } = makeDashboardFastifyMock({})
     prisma.user.findMany.mockResolvedValue([]) // sem couriers
 
@@ -281,10 +297,10 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDivisionSuggestion()
 
-    expect(result).toEqual([])
+    expect(result).toEqual({ approved: false, assignments: [] })
   })
 
-  it('retorna array vazio quando nao ha orders separados para hoje', async () => {
+  it('retorna vazio quando nao ha orders separados para hoje', async () => {
     const { fastify, prisma } = makeDashboardFastifyMock({})
     prisma.user.findMany.mockResolvedValue([
       { id: 'courier-01', name: 'Joao' },
@@ -295,15 +311,15 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDivisionSuggestion()
 
-    expect(result).toEqual([])
+    expect(result).toEqual({ approved: false, assignments: [] })
   })
 
-  it('algoritmo greedy aloca condominio ao entregador com menor total', async () => {
+  it('algoritmo greedy aloca condominio ao entregador com menor total (approved=false)', async () => {
     const couriers = [
       { id: 'c-01', name: 'Joao' },
       { id: 'c-02', name: 'Maria' },
     ]
-    // Dois condominios: 10 e 5 pães
+    // Dois condominios: 20 e 5 pães
     const orders = [
       { condominiumId: 'condo-A', quantity: 10 },
       { condominiumId: 'condo-A', quantity: 10 },
@@ -312,7 +328,7 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
 
     const { fastify, prisma } = makeDashboardFastifyMock({})
     prisma.user.findMany.mockResolvedValue(couriers)
-    prisma.order.findMany.mockResolvedValue(orders)
+    mockOrdersBySeparated(prisma, orders)
     prisma.condominium.findMany.mockResolvedValue([
       { id: 'condo-A', name: 'Condo A' },
       { id: 'condo-B', name: 'Condo B' },
@@ -322,9 +338,9 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDivisionSuggestion()
 
-    expect(result).toHaveLength(2) // 2 entregadores
-    // Verificar estrutura de cada item
-    for (const courier of result) {
+    expect(result.approved).toBe(false)
+    expect(result.assignments).toHaveLength(2) // 2 entregadores
+    for (const courier of result.assignments) {
       expect(courier).toEqual(
         expect.objectContaining({
           courierId: expect.any(String),
@@ -335,7 +351,7 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
       )
     }
     // Total combinado deve ser 25 (20 + 5)
-    const totalAll = result.reduce((sum, c) => sum + c.total, 0)
+    const totalAll = result.assignments.reduce((sum, c) => sum + c.total, 0)
     expect(totalAll).toBe(25)
   })
 
@@ -346,7 +362,7 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
       { id: 'c-02', name: 'Maria' },
     ])
     // Apenas 1 condominio para 2 entregadores
-    prisma.order.findMany.mockResolvedValue([{ condominiumId: 'condo-A', quantity: 10 }])
+    mockOrdersBySeparated(prisma, [{ condominiumId: 'condo-A', quantity: 10 }])
     prisma.condominium.findMany.mockResolvedValue([{ id: 'condo-A', name: 'Condo A' }])
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -354,8 +370,8 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     const result = await service.getDivisionSuggestion()
 
     // Ambos os entregadores devem aparecer — o vazio serve de alvo p/ atribuicao manual
-    expect(result).toHaveLength(2)
-    const empty = result.find((c) => c.condominiums.length === 0)
+    expect(result.assignments).toHaveLength(2)
+    const empty = result.assignments.find((c) => c.condominiums.length === 0)
     expect(empty).toBeDefined()
     expect(empty?.total).toBe(0)
   })
@@ -363,7 +379,7 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
   it('retorna 1 entregador com todos os condominios quando ha apenas 1 entregador', async () => {
     const { fastify, prisma } = makeDashboardFastifyMock({})
     prisma.user.findMany.mockResolvedValue([{ id: 'c-01', name: 'Unico' }])
-    prisma.order.findMany.mockResolvedValue([
+    mockOrdersBySeparated(prisma, [
       { condominiumId: 'condo-X', quantity: 8 },
       { condominiumId: 'condo-Y', quantity: 6 },
     ])
@@ -376,8 +392,40 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDivisionSuggestion()
 
-    expect(result).toHaveLength(1)
-    expect(result[0].condominiums).toHaveLength(2)
-    expect(result[0].total).toBe(14)
+    expect(result.assignments).toHaveLength(1)
+    expect(result.assignments[0].condominiums).toHaveLength(2)
+    expect(result.assignments[0].total).toBe(14)
+  })
+
+  it('approved=true: devolve a divisão real agrupada por courierId quando ha pedidos despachados', async () => {
+    const { fastify, prisma } = makeDashboardFastifyMock({})
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'c-01', name: 'Joao' },
+      { id: 'c-02', name: 'Maria' },
+    ])
+    // Pedidos JÁ despachados (com entregador) → estado pós-aprovação
+    mockOrdersBySeparated(prisma, [], [
+      { courierId: 'c-01', condominiumId: 'condo-A', quantity: 8 },
+      { courierId: 'c-01', condominiumId: 'condo-A', quantity: 2 },
+      { courierId: 'c-02', condominiumId: 'condo-B', quantity: 5 },
+    ])
+    prisma.condominium.findMany.mockResolvedValue([
+      { id: 'condo-A', name: 'Condo A' },
+      { id: 'condo-B', name: 'Condo B' },
+    ])
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AdminOrdersService(fastify as any)
+    const result = await service.getDivisionSuggestion()
+
+    expect(result.approved).toBe(true)
+    expect(result.assignments).toHaveLength(2)
+    const joao = result.assignments.find((a) => a.courierId === 'c-01')!
+    expect(joao.total).toBe(10)
+    expect(joao.condominiums).toEqual([
+      expect.objectContaining({ condominiumId: 'condo-A', condominiumName: 'Condo A', quantity: 10 }),
+    ])
+    const maria = result.assignments.find((a) => a.courierId === 'c-02')!
+    expect(maria.total).toBe(5)
   })
 })

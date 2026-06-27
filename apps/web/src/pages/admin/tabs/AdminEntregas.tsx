@@ -10,7 +10,7 @@ import {
 } from '../../../components/admin/DeliveryDivisionCard'
 import { Icon } from '../../../components/brand/Icon'
 import { OrderDetailSheet, STATUS_META, type LedgerRow } from '../../../components/admin/OrderDetailSheet'
-import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
+import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, hhmmToMin, type SlotOption } from '../../../lib/slots'
 
 type Segment = 'hoje' | 'proximos' | 'historico'
 
@@ -52,6 +52,35 @@ function matchSearch(r: LedgerRow, q: string) {
 function formatDateLong(dateStr: string) {
   try {
     return new Date(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+  } catch {
+    return dateStr
+  }
+}
+
+// Chave de agrupamento por dia no fuso BRT (YYYY-MM-DD) — evita drift de fuso.
+function brtDateKey(dateStr: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(dateStr))
+  } catch {
+    return dateStr
+  }
+}
+
+// Cabeçalho de data por extenso (ex.: "Domingo, 28 de junho").
+function formatDateHeader(dateStr: string): string {
+  try {
+    const full = new Intl.DateTimeFormat('pt-BR', {
+      weekday: 'long',
+      day: '2-digit',
+      month: 'long',
+      timeZone: 'America/Sao_Paulo',
+    }).format(new Date(dateStr))
+    return full.charAt(0).toUpperCase() + full.slice(1)
   } catch {
     return dateStr
   }
@@ -109,6 +138,27 @@ export function AdminEntregas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segment, slotId])
 
+  // Progresso em (quase) tempo real: depois de aprovada a divisão, atualiza
+  // "agendadas vs realizadas" sozinho (polling + ao voltar o foco) conforme o
+  // entregador confirma. Só roda quando aprovado — antes disso não há o que
+  // acompanhar e evitamos sobrescrever ajustes manuais da divisão.
+  useEffect(() => {
+    if (segment !== 'hoje' || !isApproved) return
+    const tick = () => void fetchHojeData({ silent: true })
+    const id = setInterval(tick, 20000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    window.addEventListener('focus', tick)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('focus', tick)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segment, slotId, isApproved])
+
   // Refetch do histórico ao mudar filtro/busca (com debounce simples na busca)
   useEffect(() => {
     if (segment !== 'historico') return
@@ -117,21 +167,25 @@ export function AdminEntregas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [histFilter, search])
 
-  async function fetchHojeData() {
-    setIsLoadingHoje(true)
+  // `silent` evita piscar o spinner em refreshes de fundo (polling/foco).
+  async function fetchHojeData(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setIsLoadingHoje(true)
     try {
       const qs = slotId ? `?slotId=${slotId}` : ''
       const divRes = await apiFetch(`/admin/orders/division-suggestion${qs}`)
       if (divRes.ok) {
-        const divData = (await divRes.json()) as DivisionSuggestionItem[]
-        setAssignments(divData.map((i) => ({ courierId: i.courierId, courierName: i.courierName, condos: i.condominiums ?? [] })))
+        const divData = (await divRes.json()) as { approved: boolean; assignments: DivisionSuggestionItem[] }
+        const items = divData.assignments ?? []
+        setAssignments(items.map((i) => ({ courierId: i.courierId, courierName: i.courierName, condos: i.condominiums ?? [] })))
+        // A aprovação é derivada do servidor → o badge sobrevive a reload/saída de tela.
+        setIsApproved(Boolean(divData.approved))
       }
       const statusRes = await apiFetch(`/admin/orders/delivery-status${qs}`)
       if (statusRes.ok) setDeliveryStatus((await statusRes.json()) as DeliveryStatus[])
     } catch {
       /* silencioso */
     } finally {
-      setIsLoadingHoje(false)
+      if (!opts?.silent) setIsLoadingHoje(false)
     }
   }
 
@@ -183,19 +237,27 @@ export function AdminEntregas() {
   async function handleApprove() {
     setIsApproving(true)
     try {
-      const withCondos = assignments.filter((a) => a.condos.length > 0)
-      for (const a of withCondos) {
-        const condoIds = a.condos.map((c) => c.condominiumId)
-        const orderIds = deliveryStatus.filter((ds) => condoIds.includes(ds.condominiumId)).flatMap((ds) => ds.orderIds)
-        if (orderIds.length === 0) continue
-        const res = await apiFetch('/admin/orders/assign-courier', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ courierId: a.courierId, orderIds }),
+      // Monta os grupos entregador → pedidos a partir da divisão atual (já com eventuais
+      // ajustes manuais via drag-and-drop). O backend despacha SEPARATED → OUT_FOR_DELIVERY.
+      const payload = assignments
+        .filter((a) => a.condos.length > 0)
+        .map((a) => {
+          const condoIds = a.condos.map((c) => c.condominiumId)
+          const orderIds = deliveryStatus
+            .filter((ds) => condoIds.includes(ds.condominiumId))
+            .flatMap((ds) => ds.orderIds)
+          return { courierId: a.courierId, orderIds }
         })
-        if (!res.ok) throw new Error('falha')
-      }
-      setIsApproved(true)
+        .filter((g) => g.orderIds.length > 0)
+      if (payload.length === 0) return
+      const res = await apiFetch('/admin/orders/approve-division', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId: slotId || undefined, assignments: payload }),
+      })
+      if (!res.ok) throw new Error('falha')
+      // Recarrega para refletir o estado persistido (approved=true + divisão real).
+      await fetchHojeData({ silent: true })
     } finally {
       setIsApproving(false)
     }
@@ -229,7 +291,7 @@ export function AdminEntregas() {
         )}
 
         {segment === 'hoje' && <HojeView {...{ isLoadingHoje, assignments, setAssignments, handleApprove, isApproved, isApproving, deliveryStatus }} />}
-        {segment === 'proximos' && <LedgerView rows={rows} loading={isLoadingLedger} emptyText="Nenhum pedido separado aguardando entrega. Conclua a separação para liberar." onSelect={setSelected} />}
+        {segment === 'proximos' && <ProximosView rows={rows} loading={isLoadingLedger} slots={slots} emptyText="Nenhum pedido separado aguardando entrega. Conclua a separação para liberar." onSelect={setSelected} />}
         {segment === 'historico' && (
           <>
             <SearchInput value={search} onChange={setSearch} />
@@ -293,6 +355,11 @@ function HojeView({
     )
   }
 
+  // Condomínios totalmente entregues — travados ao reabrir a divisão.
+  const lockedCondoIds = new Set(
+    deliveryStatus.filter((d) => d.scheduled > 0 && d.delivered >= d.scheduled).map((d) => d.condominiumId),
+  )
+
   return (
     <>
       <DeliveryDivisionCard
@@ -301,6 +368,7 @@ function HojeView({
         onApprove={handleApprove}
         isApproved={isApproved}
         isApproving={isApproving}
+        lockedCondoIds={lockedCondoIds}
       />
       {deliveryStatus.length > 0 && (
         <div style={{ marginTop: 20 }}>
@@ -336,6 +404,45 @@ function HojeView({
 }
 
 // ── Ledger (Próximos / Histórico) ───────────────────────────────────────────────
+
+// Botão de um pedido na lista. `showDate=false` quando a data já está no cabeçalho do grupo.
+function LedgerRowButton({ r, showDate = true, onSelect }: { r: LedgerRow; showDate?: boolean; onSelect: (r: LedgerRow) => void }) {
+  const meta = STATUS_META[r.status] ?? { label: r.status, color: 'var(--color-text-ter)', soft: 'var(--color-surface-2)' }
+  return (
+    <button
+      onClick={() => onSelect(r)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        background: 'var(--color-surface)',
+        borderRadius: 16,
+        padding: 13,
+        border: '1px solid var(--color-border-2)',
+        textAlign: 'left',
+        width: '100%',
+        cursor: 'pointer',
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {r.clientName}
+        </p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+          {r.condominiumName} · {r.block ? `Bl ${r.block} ` : ''}Apto {r.apartment || '—'}{showDate ? ` · ${formatDateLong(r.scheduledDate)}` : ''}
+        </p>
+      </div>
+      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
+        {r.quantity}
+        <span style={{ fontSize: 13 }}>🥖</span>
+      </span>
+      <span style={{ padding: '3px 8px', borderRadius: 99, background: meta.soft, color: meta.color, fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {meta.label}
+      </span>
+    </button>
+  )
+}
+
 function LedgerView({ rows, loading, emptyText, onSelect }: { rows: LedgerRow[]; loading: boolean; emptyText: string; onSelect: (r: LedgerRow) => void }) {
   if (loading) return <Centered><Spinner /></Centered>
   if (rows.length === 0) {
@@ -343,38 +450,93 @@ function LedgerView({ rows, loading, emptyText, onSelect }: { rows: LedgerRow[];
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {rows.map((r) => {
-        const meta = STATUS_META[r.status] ?? { label: r.status, color: 'var(--color-text-ter)', soft: 'var(--color-surface-2)' }
+      {rows.map((r) => (
+        <LedgerRowButton key={r.orderId} r={r} onSelect={onSelect} />
+      ))}
+    </div>
+  )
+}
+
+// Próximos: agrupado por DATA → TURNO, pra deixar claro o que é manhã/tarde de cada dia.
+function ProximosView({ rows, loading, slots, emptyText, onSelect }: { rows: LedgerRow[]; loading: boolean; slots: SlotOption[]; emptyText: string; onSelect: (r: LedgerRow) => void }) {
+  if (loading) return <Centered><Spinner /></Centered>
+  if (rows.length === 0) {
+    return <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', textAlign: 'center', padding: '40px 0' }}>{emptyText}</p>
+  }
+
+  const slotById = new Map(slots.map((s) => [s.slotId, s]))
+  const slotRank = (slotId: string) => {
+    const t = slotById.get(slotId)?.time
+    return t ? hhmmToMin(t) : 9999
+  }
+
+  // Agrupa por data (BRT) → turno, preservando a ordem ascendente das rows.
+  const byDate = new Map<string, Map<string, LedgerRow[]>>()
+  for (const r of rows) {
+    const dk = brtDateKey(r.scheduledDate)
+    if (!byDate.has(dk)) byDate.set(dk, new Map())
+    const slotMap = byDate.get(dk)!
+    const sk = r.slotId || 'sem'
+    if (!slotMap.has(sk)) slotMap.set(sk, [])
+    slotMap.get(sk)!.push(r)
+  }
+  const dateKeys = Array.from(byDate.keys()).sort()
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {dateKeys.map((dk) => {
+        const slotMap = byDate.get(dk)!
+        const slotKeys = Array.from(slotMap.keys()).sort((a, b) => slotRank(a) - slotRank(b))
+        const headerIso = slotMap.get(slotKeys[0])![0].scheduledDate
         return (
-          <button
-            key={r.orderId}
-            onClick={() => onSelect(r)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              background: 'var(--color-surface)',
-              borderRadius: 16,
-              padding: 13,
-              border: '1px solid var(--color-border-2)',
-              textAlign: 'left',
-              width: '100%',
-              cursor: 'pointer',
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {r.clientName}
-              </p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-                {r.condominiumName} · {r.block ? `Bl ${r.block} ` : ''}Apto {r.apartment || '—'} · {formatDateLong(r.scheduledDate)}
-              </p>
+          <div key={dk}>
+            {/* Cabeçalho de data */}
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 15.5, fontWeight: 700, color: 'var(--color-text)', margin: '0 0 10px' }}>
+              {formatDateHeader(headerIso)}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {slotKeys.map((sk) => {
+                const slotOpt = slotById.get(sk)
+                const groupRows = slotMap.get(sk)!
+                const slotLabel = slotOpt
+                  ? slotTabLabel(slotOpt) + (slotOpt.time ? ` · ${slotOpt.time}` : '')
+                  : groupRows[0].slotLabel || 'Sem turno'
+                const totalBreads = groupRows.reduce((sum, r) => sum + r.quantity, 0)
+                return (
+                  <div key={sk}>
+                    {/* Subcabeçalho do turno */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '0 0 8px' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontFamily: 'var(--font-body)',
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                          color: 'var(--color-espresso)',
+                          background: 'var(--color-gold-soft)',
+                          borderRadius: 99,
+                          padding: '4px 11px',
+                        }}
+                      >
+                        {slotLabel}
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-text-ter)' }}>
+                        {groupRows.length} {groupRows.length === 1 ? 'pedido' : 'pedidos'} · {totalBreads} pães
+                      </span>
+                    </div>
+                    {/* Pedidos do turno (data já está no cabeçalho do grupo) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {groupRows.map((r) => (
+                        <LedgerRowButton key={r.orderId} r={r} showDate={false} onSelect={onSelect} />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)' }}>{r.quantity}</span>
-            <span style={{ padding: '3px 8px', borderRadius: 99, background: meta.soft, color: meta.color, fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
-              {meta.label}
-            </span>
-          </button>
+          </div>
         )
       })}
     </div>

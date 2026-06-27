@@ -3,6 +3,7 @@ import { ZodError } from 'zod'
 import {
   UpdateOrderStatusSchema,
   AssignCourierSchema,
+  ApproveDivisionSchema,
   LedgerQuerySchema,
   RefundOrderSchema,
 } from './admin-orders.schema.js'
@@ -132,6 +133,34 @@ export class AdminOrdersController {
       this.fastify.log.error(err)
       const e = err as { statusCode?: number; message?: string }
       if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * POST /admin/orders/approve-division
+   *
+   * Aprova a divisão sugerida: despacha os pedidos (SEPARATED → OUT_FOR_DELIVERY)
+   * gravando o entregador de cada grupo. Apenas ADMIN (T-06-04).
+   */
+  async approveDivision(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    let body: ReturnType<typeof ApproveDivisionSchema.parse>
+    try {
+      body = ApproveDivisionSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados invalidos.' })
+    }
+
+    try {
+      const result = await this.service.approveDivision(body.assignments)
+      return reply.status(200).send({ ok: true, count: result.count })
+    } catch (err) {
+      this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }

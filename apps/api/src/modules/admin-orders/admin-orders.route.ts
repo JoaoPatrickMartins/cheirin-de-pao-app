@@ -262,26 +262,33 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
         },
         response: {
           200: {
-            type: 'array',
-            description: 'Sugestão de atribuição de condomínios por entregador.',
-            items: {
-              type: 'object',
-              properties: {
-                courierId: { type: 'string', description: 'ID do entregador.' },
-                courierName: { type: 'string', description: 'Nome do entregador.' },
-                condominiums: {
-                  type: 'array',
-                  description: 'Lista de condomínios sugeridos para este entregador.',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      condominiumId: { type: 'string', description: 'ID do condomínio.' },
-                      condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                      quantity: { type: 'integer', description: 'Total de pãezinhos neste condomínio.' },
+            type: 'object',
+            description: 'Estado da divisão: sugestão (approved=false) ou divisão real aprovada (approved=true).',
+            properties: {
+              approved: { type: 'boolean', description: 'true quando a divisão já foi aprovada/despachada no dia/turno.' },
+              assignments: {
+                type: 'array',
+                description: 'Atribuição de condomínios por entregador (sugerida ou real).',
+                items: {
+                  type: 'object',
+                  properties: {
+                    courierId: { type: 'string', description: 'ID do entregador.' },
+                    courierName: { type: 'string', description: 'Nome do entregador.' },
+                    condominiums: {
+                      type: 'array',
+                      description: 'Lista de condomínios atribuídos a este entregador.',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          condominiumId: { type: 'string', description: 'ID do condomínio.' },
+                          condominiumName: { type: 'string', description: 'Nome do condomínio.' },
+                          quantity: { type: 'integer', description: 'Total de pãezinhos neste condomínio.' },
+                        },
+                      },
                     },
+                    total: { type: 'integer', description: 'Total de pãezinhos atribuídos a este entregador.' },
                   },
                 },
-                total: { type: 'integer', description: 'Total de pãezinhos atribuídos a este entregador.' },
               },
             },
           },
@@ -289,6 +296,52 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.divisionSuggestion.bind(ctrl),
+  )
+
+  // 07-09: aprovação da divisão — despacha os pedidos (SEPARATED → OUT_FOR_DELIVERY)
+  // gravando o entregador de cada grupo. Rota estática (antes da dinâmica /:id).
+  fastify.post(
+    '/admin/orders/approve-division',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Aprovar divisão de entregas',
+        description: 'Despacha os pedidos separados de cada entregador (SEPARATED → OUT_FOR_DELIVERY) gravando o courierId. Idempotente: só afeta pedidos ainda SEPARATED. Após aprovar, a divisão fica visível ao entregador e o progresso de entregas é acompanhado em tempo real pelo admin.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['assignments'],
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde) — informativo.' },
+            date: { type: 'string', description: 'Data (YYYY-MM-DD) — informativo.' },
+            assignments: {
+              type: 'array',
+              description: 'Grupos entregador → pedidos a despachar.',
+              items: {
+                type: 'object',
+                required: ['courierId', 'orderIds'],
+                properties: {
+                  courierId: { type: 'string', description: 'ID do entregador.' },
+                  orderIds: { type: 'array', items: { type: 'string' }, description: 'Pedidos a atribuir/despachar.' },
+                },
+              },
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Divisão aprovada.',
+            properties: {
+              ok: { type: 'boolean', description: 'Indica sucesso da operação.' },
+              count: { type: 'integer', description: 'Número de pedidos despachados (SEPARATED → OUT_FOR_DELIVERY).' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.approveDivision.bind(ctrl),
   )
 
   // D-13: endpoint de atribuicao de entregador em batch

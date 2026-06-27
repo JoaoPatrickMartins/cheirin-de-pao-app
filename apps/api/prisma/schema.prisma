@@ -147,6 +147,12 @@ model Condominium {
   id            String    @id @default(auto()) @map("_id") @db.ObjectId
   name          String
   address       Address
+  // Coordenadas usadas pela rota do entregador (OSRM). Definidas manualmente pelo admin
+  // ou geocodificadas (Nominatim) ao criar/editar. Nulas enquanto não localizado.
+  lat           Float?
+  lng           Float?
+  // true quando a geocodificação só resolveu a nível de cidade (centro) — impreciso.
+  approxLocation Boolean @default(false)
   type          CondoType
   isActive      Boolean   @default(true)
   deliverySlots DeliverySlot[]

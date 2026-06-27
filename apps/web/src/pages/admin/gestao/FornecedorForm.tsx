@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
+import { lookupCep } from '../../../lib/viacep'
 import { Icon } from '../../../components/brand/Icon'
 
 // ------------------------------------------------------------------ tipos
@@ -101,6 +102,8 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(!!id)
   const [error, setError] = useState<string | null>(null)
+  const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'notfound'>('idle')
+  const lastCepLookup = useRef('')
 
   useEffect(() => {
     if (!id) return
@@ -134,7 +137,7 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
           setComplemento(data.address?.complement ?? '')
           setCidade(data.address?.city ?? '')
           setEstado(data.address?.state ?? '')
-          setCep(data.address?.zip ?? '')
+          setCep(maskCEP(data.address?.zip ?? ''))
           setIsPrincipal(data.isPrincipal)
         }
       } catch {
@@ -145,6 +148,31 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
     }
     void fetchFornecedor()
   }, [id])
+
+  // Auto-preenchimento de endereço pelo CEP via ViaCEP. Dispara ao completar 8 dígitos;
+  // preenche rua/cidade/UF (o número continua manual).
+  const handleCepChange = (v: string) => {
+    const masked = maskCEP(v)
+    setCep(masked)
+    const digits = onlyDigits(masked)
+    if (digits.length !== 8) {
+      setCepStatus('idle')
+      return
+    }
+    if (digits === lastCepLookup.current) return
+    lastCepLookup.current = digits
+    setCepStatus('loading')
+    void lookupCep(masked).then((addr) => {
+      if (!addr) {
+        setCepStatus('notfound')
+        return
+      }
+      setCepStatus('idle')
+      if (addr.street) setRua(addr.street)
+      if (addr.city) setCidade(addr.city)
+      if (addr.uf) setEstado(addr.uf)
+    })
+  }
 
   const handleSalvar = async () => {
     setError(null)
@@ -374,11 +402,27 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
               icon="mail"
               type="tel"
               value={cep}
-              onChange={(v) => setCep(maskCEP(v))}
+              onChange={handleCepChange}
               placeholder="00000-000"
             />
           </div>
         </div>
+
+        {cepStatus !== 'idle' && (
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              fontWeight: 600,
+              color: cepStatus === 'notfound' ? 'var(--color-warn)' : 'var(--color-text-ter)',
+              margin: '-8px 0 0',
+            }}
+          >
+            {cepStatus === 'loading'
+              ? 'Buscando endereço pelo CEP…'
+              : 'CEP não encontrado — preencha o endereço manualmente.'}
+          </p>
+        )}
 
         {/* Switch Fornecedor principal */}
         <div

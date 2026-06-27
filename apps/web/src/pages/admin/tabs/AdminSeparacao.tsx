@@ -68,6 +68,13 @@ const shortCode = (orderId: string) => orderId.slice(-4).toUpperCase()
 
 const countSep = (orders: BoardOrder[]) => orders.filter((o) => o.separated).length
 
+/** Rótulo do bloco sem duplicar "Bloco" (o valor já pode contê-la). */
+function blockLabel(block: string): string {
+  const b = (block || '').trim()
+  if (!b || b === '—') return ''
+  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
+}
+
 // Rótulo dos filtros (Dia / Turno) — largura fixa pra alinhar os controles à direita.
 const FILTER_LABEL_STYLE: React.CSSProperties = {
   display: 'inline-flex',
@@ -408,6 +415,8 @@ export function AdminSeparacao() {
 function SummaryCard({ board }: { board: Board }) {
   const sep = board.condominiums.reduce((n, c) => n + c.slots.reduce((m, s) => m + countSep(s.orders), 0), 0)
   const total = board.condominiums.reduce((n, c) => n + c.slots.reduce((m, s) => m + s.orders.length, 0), 0)
+  const done = sep === total && total > 0
+  const condoCount = board.condominiums.length
   return (
     <div
       style={{
@@ -422,19 +431,22 @@ function SummaryCard({ board }: { board: Board }) {
         <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text-sec)' }}>
           Progresso da separação
         </span>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--color-text)' }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: done ? 'var(--color-good)' : 'var(--color-text)' }}>
           {sep}/{total}
         </span>
       </div>
-      <ProgressBar value={sep} max={total} color={sep === total && total > 0 ? 'var(--color-good)' : 'var(--color-gold)'} />
+      <ProgressBar value={sep} max={total} color={done ? 'var(--color-good)' : 'var(--color-gold)'} />
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
-        {board.totalBreads} pães · {total} entregas em {board.condominiums.length} condomínio(s)
+        {board.totalBreads} pães · {total} {total === 1 ? 'entrega' : 'entregas'} em {condoCount}{' '}
+        {condoCount === 1 ? 'condomínio' : 'condomínios'}
       </p>
     </div>
   )
 }
 
 function OrderRow({ order, onToggle, onPrint }: { order: BoardOrder; onToggle: () => void; onPrint: () => void }) {
+  const blk = blockLabel(order.block)
+  const location = blk ? `${blk} · Apto ${order.apartment || '—'}` : `Apto ${order.apartment || '—'}`
   return (
     <div
       style={{
@@ -471,21 +483,24 @@ function OrderRow({ order, onToggle, onPrint }: { order: BoardOrder; onToggle: (
           {order.name}
         </p>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-          {order.block ? `Bloco ${order.block} · ` : ''}Apto {order.apartment || '—'}
+          {location}
         </p>
       </div>
 
       <span
         style={{
+          display: 'inline-flex',
+          alignItems: 'baseline',
+          gap: 4,
           fontFamily: 'var(--font-display)',
           fontSize: 15,
           fontWeight: 800,
           color: 'var(--color-text)',
-          minWidth: 22,
-          textAlign: 'right',
+          whiteSpace: 'nowrap',
         }}
       >
         {order.quantity}
+        <span style={{ fontSize: 13 }}>🥖</span>
       </span>
 
       <button
@@ -496,7 +511,7 @@ function OrderRow({ order, onToggle, onPrint }: { order: BoardOrder; onToggle: (
           height: 32,
           flexShrink: 0,
           borderRadius: 8,
-          border: 'none',
+          border: '1px solid var(--color-border-2)',
           background: 'var(--color-surface)',
           display: 'flex',
           alignItems: 'center',

@@ -8,6 +8,8 @@ export interface Stop {
   quantity: number
   status: string
   sortKey: number
+  slotId?: string
+  slotLabel?: string
 }
 
 interface StopRowProps {
@@ -15,10 +17,12 @@ interface StopRowProps {
   order: number
   isConfirmed: boolean
   isNotDelivered?: boolean
+  // Mostra o turno por parada — usado quando a rota mistura manhã e tarde.
+  showSlot?: boolean
   onPress: (stop: Stop) => void
 }
 
-export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, onPress }: StopRowProps) {
+export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, showSlot = false, onPress }: StopRowProps) {
   const resolved = isConfirmed || isNotDelivered
   return (
     <button
@@ -117,18 +121,40 @@ export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, onPr
         </p>
       </div>
 
-      {/* Quantidade */}
+      {/* Turno (quando a rota mistura manhã e tarde) */}
+      {showSlot && stop.slotLabel && (
+        <span
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 11,
+            fontWeight: 700,
+            color: 'var(--color-text-sec)',
+            background: 'var(--color-surface-2)',
+            borderRadius: 99,
+            padding: '2px 8px',
+            flexShrink: 0,
+          }}
+        >
+          {stop.slotLabel}
+        </span>
+      )}
+
+      {/* Quantidade — número + emoji de pãozinho (ex.: 8 🥖) */}
       <span
         style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
           fontFamily: 'var(--font-display)',
           fontSize: 15,
           fontWeight: 800,
           color: 'var(--color-accent)',
-          marginLeft: 'auto',
+          marginLeft: showSlot && stop.slotLabel ? 0 : 'auto',
           flexShrink: 0,
         }}
       >
-        {stop.quantity}x
+        {stop.quantity}
+        <span style={{ fontSize: 15, lineHeight: 1 }} aria-hidden="true">🥖</span>
       </span>
     </button>
   )

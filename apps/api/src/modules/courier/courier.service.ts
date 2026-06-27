@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { CourierRepository } from './courier.repository.js'
 import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
+import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
+import { addressToQuery, geocodeAddress, type AddressLike } from '../../lib/geocode.js'
 import type { TodayOrdersResponse } from './courier.schema.js'
 
 /**
@@ -73,6 +75,14 @@ export class CourierService {
     const { start, end } = getTodayRange()
     const orders = await this.repository.findTodayByCourierId(courierId, start, end)
 
+    // Config de turnos (slot) — para rotular cada entrega como manhã/tarde + horário.
+    const slotConfig = await getGlobalDeliverySlots(this.prisma)
+    const slotById = new Map(slotConfig.map((s) => [s.slotId, s]))
+    const slotLabelOf = (slotId: string | null | undefined): string => {
+      if (!slotId) return 'Sem horário'
+      return slotById.get(slotId)?.label ?? slotId.charAt(0).toUpperCase() + slotId.slice(1)
+    }
+
     // Enrich: busca dados de usuario (com condominiumId, apartment, block) e condominio
     const enriched = await Promise.all(
       orders.map(async (order: Record<string, unknown>) => {
@@ -84,24 +94,28 @@ export class CourierService {
         const condominium = user?.condominiumId
           ? await this.prisma.condominium.findUnique({
               where: { id: user.condominiumId },
-              select: { id: true, name: true, address: true },
+              select: { id: true, name: true, address: true, lat: true, lng: true },
             })
           : null
 
+        const addr = condominium?.address as AddressLike | undefined
         const sortKey = parseInt(user?.apartment ?? '9999', 10)
         return {
           orderId: order.id as string,
           userId: order.userId as string,
           condominiumId: user?.condominiumId ?? 'unknown',
           condominiumName: condominium?.name ?? 'Condominio desconhecido',
-          address: condominium?.address
-            ? `${(condominium.address as { street: string; number: string }).street}, ${(condominium.address as { street: string; number: string }).number}`
-            : '',
+          address: addr ? `${addr.street}, ${addr.number}` : '',
+          // Coordenadas persistidas no condomínio (preferenciais) + query completa p/ fallback.
+          condoLat: condominium?.lat ?? null,
+          condoLng: condominium?.lng ?? null,
+          geoQuery: addr ? addressToQuery(addr) : '',
           apartment: user?.apartment ?? '',
           block: user?.block ?? null,
           clientName: user?.name ?? 'Cliente',
           quantity: order.quantity as number,
           status: order.status as string,
+          slotId: (order.slotId as string | null) ?? '',
           sortKey: isNaN(sortKey) ? 9999 : sortKey,
         }
       }),
@@ -114,6 +128,7 @@ export class CourierService {
         condominiumId: string
         condominiumName: string
         address: string
+        geoQuery: string
         lat: number | null
         lng: number | null
         stops: typeof enriched
@@ -126,47 +141,30 @@ export class CourierService {
           condominiumId: item.condominiumId,
           condominiumName: item.condominiumName,
           address: item.address,
-          lat: null,
-          lng: null,
+          geoQuery: item.geoQuery,
+          // Coordenadas salvas no condomínio (preferenciais); null dispara fallback abaixo.
+          lat: item.condoLat,
+          lng: item.condoLng,
           stops: [],
         })
       }
       condoMap.get(item.condominiumId)!.stops.push(item)
     }
 
-    // Geocodificar enderecos via Nominatim e ordenar stops por sortKey ASC
+    // Coordenadas + ordenar stops por sortKey ASC
     const condos = await Promise.all(
       Array.from(condoMap.values()).map(async (condo) => {
         // Ordenar stops por apartamento numerico ASC (COUR-04)
         condo.stops.sort((a, b) => a.sortKey - b.sortKey)
 
-        // Geocodificacao com cache — D-06, T-06-05: encodeURIComponent elimina risco de injecao
-        if (condo.address) {
-          const cached = this.geocodeCache.get(condo.address)
-          if (cached !== undefined) {
-            condo.lat = cached?.lat ?? null
-            condo.lng = cached?.lng ?? null
-          } else {
-            try {
-              const url = `https://api.nominatim.openstreetmap.org/search?q=${encodeURIComponent(condo.address)}&format=json&limit=1`
-              const res = await fetch(url, {
-                headers: {
-                  'User-Agent': 'CheirimdePao-app/1.0 (contato@cheirindepao.com.br)',
-                },
-              })
-              const data = await res.json() as Array<{ lat: string; lon: string }>
-              if (data.length > 0) {
-                const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
-                this.geocodeCache.set(condo.address, coords)
-                condo.lat = coords.lat
-                condo.lng = coords.lng
-              } else {
-                this.geocodeCache.set(condo.address, null)
-              }
-            } catch {
-              this.geocodeCache.set(condo.address, null)
-            }
-          }
+        // Usa as coordenadas salvas no condomínio; só geocodifica ao vivo (fallback,
+        // com cache) quando o condomínio ainda não tem lat/lng persistidos.
+        if ((condo.lat == null || condo.lng == null) && condo.geoQuery) {
+          const cached = this.geocodeCache.get(condo.geoQuery)
+          const coords = cached !== undefined ? cached : await geocodeAddress(condo.geoQuery)
+          if (cached === undefined) this.geocodeCache.set(condo.geoQuery, coords)
+          condo.lat = coords?.lat ?? null
+          condo.lng = coords?.lng ?? null
         }
 
         return {
@@ -183,6 +181,8 @@ export class CourierService {
             quantity: s.quantity,
             status: s.status,
             sortKey: s.sortKey,
+            slotId: s.slotId,
+            slotLabel: slotLabelOf(s.slotId),
           })),
         }
       }),
@@ -190,6 +190,21 @@ export class CourierService {
 
     const totalStops = enriched.length
     const totalBreads = enriched.reduce((sum, o) => sum + o.quantity, 0)
+
+    // Turnos distintos presentes na rota de hoje, ordenados por horário de entrega.
+    // Alimenta o cabeçalho do app (informa manhã/tarde + horário do dia).
+    const slotIdsPresent = Array.from(new Set(enriched.map((o) => o.slotId).filter(Boolean)))
+    const slots = slotIdsPresent
+      .map((slotId) => {
+        const cfg = slotById.get(slotId)
+        return {
+          slotId,
+          label: cfg?.label ?? slotLabelOf(slotId),
+          emoji: cfg?.emoji ?? '',
+          time: cfg?.time ?? '',
+        }
+      })
+      .sort((a, b) => a.time.localeCompare(b.time))
 
     // Calcular rota OSRM — try/catch independente; erro seta route: null (D-07)
     let route: TodayOrdersResponse['route'] = null
@@ -225,7 +240,7 @@ export class CourierService {
       route = null
     }
 
-    return { condos, totalStops, totalBreads, route }
+    return { condos, totalStops, totalBreads, route, slots }
   }
 
   /**

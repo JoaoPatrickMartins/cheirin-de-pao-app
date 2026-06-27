@@ -26,7 +26,7 @@ export interface CouponData {
 
 function BreadMark() {
   return (
-    <svg viewBox="0 0 100 100" width="34" height="34" fill="none" aria-hidden="true">
+    <svg viewBox="0 0 100 100" width="34" height="34" fill="none" aria-hidden="true" style={{ display: 'block', margin: '0 auto' }}>
       <path d="M22 80 C22 58 34 48 50 48 C66 48 78 58 78 80" stroke="#000" strokeWidth="8" strokeLinecap="round" />
       <path d="M50 48 C45 39 55 34 50 24" stroke="#000" strokeWidth="5.5" strokeLinecap="round" />
       <path d="M36 52 C32 45 39 41 36 34" stroke="#000" strokeWidth="4.5" strokeLinecap="round" />
@@ -90,24 +90,40 @@ export function SeparationCouponSheet({ coupons }: { coupons: CouponData[] }) {
             <div>{c.clientName}</div>
           </div>
 
+          <div style={{ fontSize: '9pt', fontWeight: 700, padding: '3mm 0 0' }}>
+            Turno: {c.slotLabel} · {c.dateLabel}
+          </div>
           <div
             style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'baseline',
-              padding: '3mm 0 1mm',
+              padding: '1mm 0',
             }}
           >
             <span style={{ fontWeight: 800, fontSize: '11pt' }}>Pãezinhos</span>
             <span style={{ fontWeight: 800, fontSize: '17pt' }}>{c.quantity}</span>
           </div>
-          <div style={{ fontSize: '9pt', fontWeight: 700 }}>
-            Turno: {c.slotLabel} · {c.dateLabel}
-          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5mm', paddingTop: '4mm' }}>
             <QRCodeSVG value={c.orderId} size={256} level="M" style={{ width: '28mm', height: '28mm' }} />
             <div style={{ fontSize: '8.5pt', letterSpacing: '0.12em', fontWeight: 700 }}>#{c.code}</div>
+          </div>
+
+          <div
+            style={{
+              textAlign: 'center',
+              fontSize: '8pt',
+              fontWeight: 400,
+              lineHeight: 1.5,
+              paddingTop: '4.5mm',
+              marginTop: '5mm',
+              borderTop: '1px dashed #000',
+            }}
+          >
+            Feito com carinho pra começar o seu dia com aquele Cheirin de Pão.
+            <br />
+            Obrigado pela preferência!
           </div>
         </div>
       ))}

@@ -38,6 +38,26 @@ export const AssignCourierSchema = z.object({
 export type AssignCourierBody = z.infer<typeof AssignCourierSchema>
 
 /**
+ * Schema de aprovação da divisão de entregas.
+ * Despacha (SEPARATED → OUT_FOR_DELIVERY) os pedidos de cada entregador em uma única
+ * chamada. slotId/date são informativos (o gate real vem dos orderIds + status SEPARATED).
+ */
+export const ApproveDivisionSchema = z.object({
+  slotId: z.string().optional(),
+  date: z.string().optional(),
+  assignments: z
+    .array(
+      z.object({
+        courierId: z.string().min(1, 'courierId e obrigatorio'),
+        orderIds: z.array(z.string().min(1)).min(1, 'orderIds nao pode ser vazio'),
+      }),
+    )
+    .min(1, 'Informe ao menos um entregador com pedidos'),
+})
+
+export type ApproveDivisionBody = z.infer<typeof ApproveDivisionSchema>
+
+/**
  * Filtros do ledger de pedidos (verificação geral + histórico + limbo).
  * `status` chega como CSV (ex.: "DELIVERED,NOT_DELIVERED") e vira array.
  */

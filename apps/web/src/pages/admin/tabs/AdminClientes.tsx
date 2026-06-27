@@ -196,18 +196,32 @@ export function AdminClientes() {
     if (exporting) return
     setExporting(true)
     try {
-      const params = new URLSearchParams()
-      if (filtroCondominio) params.set('condominiumId', filtroCondominio)
-      if (debouncedQ.trim()) params.set('q', debouncedQ.trim())
-      if (statusFiltro !== 'all') params.set('status', statusFiltro)
-      if (ordenacao !== 'name') params.set('sort', ordenacao)
-      params.set('page', '1')
-      params.set('limit', '1000')
-      const res = await apiFetch(`/admin/clients?${params.toString()}`)
-      if (!res.ok) return
-      const data = (await res.json()) as ClientesPage
+      const baseParams = new URLSearchParams()
+      if (filtroCondominio) baseParams.set('condominiumId', filtroCondominio)
+      if (debouncedQ.trim()) baseParams.set('q', debouncedQ.trim())
+      if (statusFiltro !== 'all') baseParams.set('status', statusFiltro)
+      if (ordenacao !== 'name') baseParams.set('sort', ordenacao)
+
+      // A API limita a 100 itens por página; busca em lotes até cobrir o total
+      const EXPORT_LIMIT = 100
+      const itens: Cliente[] = []
+      let pagina = 1
+      let totalClientes = Infinity
+      while (itens.length < totalClientes) {
+        const params = new URLSearchParams(baseParams)
+        params.set('page', String(pagina))
+        params.set('limit', String(EXPORT_LIMIT))
+        const res = await apiFetch(`/admin/clients?${params.toString()}`)
+        if (!res.ok) return
+        const data = (await res.json()) as ClientesPage
+        itens.push(...data.items)
+        totalClientes = data.total
+        if (data.items.length === 0) break
+        pagina += 1
+      }
+
       const header = ['Nome', 'Condomínio', 'Apartamento', 'Bloco', 'Créditos', 'Bloqueado', 'Última compra', 'Cadastro']
-      const linhas = data.items.map((c) => [
+      const linhas = itens.map((c) => [
         c.name,
         nomeCondominio(c.condominiumId),
         c.apartment ?? '',

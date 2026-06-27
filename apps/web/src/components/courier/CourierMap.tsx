@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css'
 interface CourierMapProps {
   waypoints: Array<{ lat: number; lng: number; name: string; order: number }>
   geometry: Array<[number, number]>
-  distanceKm: string
+  distanceKm: string | null
   durationMin: number
 }
 
@@ -95,7 +95,7 @@ export function CourierMap({ waypoints, geometry, distanceKm, durationMin }: Cou
               color: 'var(--color-text)',
             }}
           >
-            ~{distanceKm} km · {waypoints.length} {waypoints.length === 1 ? 'parada' : 'paradas'}
+            {distanceKm ? `~${distanceKm} km · ` : ''}{waypoints.length} {waypoints.length === 1 ? 'parada' : 'paradas'}
           </span>
         </div>
       </div>

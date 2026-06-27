@@ -305,9 +305,9 @@ export function CondominiumOrderDetail({ condominiumId, slotId, onBack }: Props)
             }}
           >
             <div style={{ display: 'flex', alignItems: 'stretch' }}>
-              <Stat label="Confirmados" value={data.materializedBreads} color="var(--color-text)" />
+              <Stat label="Confirmados" value={data.materializedBreads} color="var(--color-text)" bread />
               <Divider />
-              <Stat label="Previstos" value={data.projectedBreads} color="var(--color-accent)" />
+              <Stat label="Previstos" value={data.projectedBreads} color="var(--color-accent)" bread />
               <Divider />
               <Stat label="Em risco" value={data.riskCount} color={data.riskCount > 0 ? WARN : 'var(--color-text)'} />
             </div>
@@ -513,7 +513,7 @@ export function CondominiumOrderDetail({ condominiumId, slotId, onBack }: Props)
                             display: 'block',
                           }}
                         >
-                          {d.quantity}
+                          {d.quantity} 🥖
                         </span>
                         <span
                           style={{
@@ -609,7 +609,7 @@ export function CondominiumOrderDetail({ condominiumId, slotId, onBack }: Props)
 // ---------------------------------------------------------------------------
 
 /** Coluna de estatística do card de resumo. */
-function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+function Stat({ label, value, color, bread }: { label: string; value: number; color: string; bread?: boolean }) {
   return (
     <div style={{ flex: 1, textAlign: 'center', padding: '0 4px' }}>
       <div
@@ -623,7 +623,7 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
           color,
         }}
       >
-        {value}
+        {value}{bread ? ' 🥖' : ''}
       </div>
       <div
         style={{

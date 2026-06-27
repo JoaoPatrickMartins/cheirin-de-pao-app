@@ -250,6 +250,30 @@ export class AdminOrdersService {
   }
 
   /**
+   * Aprova a divisão de entregas: grava o courierId e DESPACHA os pedidos
+   * (SEPARATED → OUT_FOR_DELIVERY) em uma operação por entregador.
+   *
+   * Gate: só pedidos SEPARATED são despachados — a operação é idempotente
+   * (repetir não reabre pedidos já entregues/falhos). A aprovação passa a ser
+   * derivável do próprio estado dos pedidos (existem pedidos OUT_FOR_DELIVERY+
+   * com courierId no dia/turno), sem precisar de flag extra no schema.
+   */
+  async approveDivision(
+    assignments: { courierId: string; orderIds: string[] }[],
+  ): Promise<{ count: number }> {
+    let count = 0
+    for (const a of assignments) {
+      if (!a.orderIds || a.orderIds.length === 0) continue
+      const result = await this.prisma.order.updateMany({
+        where: { id: { in: a.orderIds }, status: 'SEPARATED' },
+        data: { courierId: a.courierId, status: 'OUT_FOR_DELIVERY' },
+      })
+      count += result.count
+    }
+    return { count }
+  }
+
+  /**
    * Retorna KPIs do painel admin para o dia atual (BRT).
    *
    * T-07-06-01: preHandler authenticate + role check ADMIN garantem que apenas admins acessam.
@@ -483,38 +507,57 @@ export class AdminOrdersService {
   }
 
   /**
-   * Gera sugestão de divisão de entregas entre entregadores ativos.
+   * Estado da divisão de entregas do dia/turno.
    *
-   * Algoritmo greedy (D-10): ordena condomínios por quantity desc, aloca cada um
-   * ao entregador com menor total acumulado no momento (balanceamento hibrido).
+   * Dois modos, derivados do estado dos próprios pedidos (sem flag extra):
+   *  - approved=false → ainda não despachado: sugestão GREEDY (D-10) sobre os pedidos
+   *    SEPARATED do dia/turno (ordena condomínios por quantity desc, aloca ao entregador
+   *    com menor total acumulado). O admin pode reatribuir manualmente antes de aprovar.
+   *  - approved=true → já despachado: devolve a divisão REAL persistida, agrupada pelo
+   *    courierId gravado nos pedidos OUT_FOR_DELIVERY/DELIVERED/NOT_DELIVERED. É o que
+   *    faz o badge "Aprovada" sobreviver a reload / saída de tela.
    *
-   * Gate da separação: busca Orders de HOJE BRT com status=SEPARATED (já separados e
-   * liberados para entrega), agrupadas por condominiumId. Pedidos ainda não separados
-   * não entram na divisão.
-   * Retorna: [{ courierId, courierName, condominiums: [...], total }]
+   * Pipeline por turno: com slotId, a divisão é só daquele turno (entregador nunca
+   * recebe manhã+tarde misturados).
+   * Retorna: { approved, assignments: [{ courierId, courierName, condominiums, total }] }
    */
-  async getDivisionSuggestion(slotId?: string, dateStr?: string): Promise<
-    {
+  async getDivisionSuggestion(slotId?: string, dateStr?: string): Promise<{
+    approved: boolean
+    assignments: {
       courierId: string
       courierName: string
       condominiums: { condominiumId: string; condominiumName: string; quantity: number }[]
       total: number
     }[]
-  > {
+  }> {
     // Buscar entregadores ativos
-    const couriers = await this.prisma.user.findMany({
+    const couriers = (await this.prisma.user.findMany({
       where: { role: 'COURIER', isBlocked: false },
       select: { id: true, name: true },
-    })
+    })) as { id: string; name: string }[]
 
-    if ((couriers as { id: string; name: string }[]).length === 0) return []
+    if (couriers.length === 0) return { approved: false, assignments: [] }
 
-    // Divisão opera sobre as entregas já separadas do dia/turno selecionado.
-    // Pipeline por turno: quando informado o slotId, a divisão é só daquele turno
-    // (entregador nunca recebe manhã+tarde misturados).
     const { start, end } = this.resolveDayRange(dateStr)
 
-    const orders = await this.prisma.order.findMany({
+    // 1) Estado pós-aprovação: se já há pedidos despachados (com entregador) no dia/turno,
+    // a divisão foi aprovada — devolvemos a divisão REAL persistida (não a sugestão greedy).
+    const dispatched = (await this.prisma.order.findMany({
+      where: {
+        scheduledDate: { gte: start, lte: end },
+        status: { in: ['OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] },
+        courierId: { not: null },
+        ...(slotId ? { slotId } : {}),
+      },
+      select: { courierId: true, condominiumId: true, quantity: true },
+    })) as { courierId: string | null; condominiumId: string | null; quantity: number }[]
+
+    if (dispatched.length > 0) {
+      return { approved: true, assignments: await this.groupByCourier(couriers, dispatched) }
+    }
+
+    // 2) Ainda não aprovado: sugestão greedy sobre os pedidos SEPARATED do dia/turno.
+    const orders = (await this.prisma.order.findMany({
       where: {
         scheduledDate: { gte: start, lte: end },
         // Gate da separação — só pedidos separados entram na divisão entre entregadores
@@ -522,25 +565,19 @@ export class AdminOrdersService {
         ...(slotId ? { slotId } : {}),
       },
       select: { condominiumId: true, quantity: true },
-    })
+    })) as { condominiumId: string | null; quantity: number }[]
 
-    if ((orders as { condominiumId: string | null; quantity: number }[]).length === 0) return []
+    if (orders.length === 0) return { approved: false, assignments: [] }
 
     // Agrupar por condominiumId e somar quantity
     const condoMap = new Map<string, number>()
-    for (const order of orders as { condominiumId: string | null; quantity: number }[]) {
+    for (const order of orders) {
       const condoId = order.condominiumId ?? 'unknown'
       condoMap.set(condoId, (condoMap.get(condoId) ?? 0) + order.quantity)
     }
 
-    // Buscar nomes dos condomínios
-    const condominiumIds = Array.from(condoMap.keys()).filter((id) => id !== 'unknown')
-    const condominiums = await this.prisma.condominium.findMany({
-      where: { id: { in: condominiumIds } },
-      select: { id: true, name: true },
-    })
-    const condominiumNameMap = new Map<string, string>(
-      (condominiums as { id: string; name: string }[]).map((c) => [c.id, c.name]),
+    const condominiumNameMap = await this.resolveCondoNames(
+      Array.from(condoMap.keys()).filter((id) => id !== 'unknown'),
     )
 
     // Ordenar condomínios por quantity desc
@@ -553,7 +590,7 @@ export class AdminOrdersService {
       .sort((a, b) => b.quantity - a.quantity)
 
     // Algoritmo greedy: inicializar contadores por entregador
-    const courierList = (couriers as { id: string; name: string }[]).map((c) => ({
+    const courierList = couriers.map((c) => ({
       courierId: c.id,
       courierName: c.name,
       condominiums: [] as { condominiumId: string; condominiumName: string; quantity: number }[],
@@ -573,7 +610,65 @@ export class AdminOrdersService {
     // Retornar todos os entregadores ativos — inclusive os sem condomínio sugerido.
     // A sugestão greedy acima já balanceia a carga; manter os entregadores vazios
     // permite que o admin reatribua condomínios manualmente (drag-and-drop no front).
-    return courierList
+    return { approved: false, assignments: courierList }
+  }
+
+  /** Resolve nomes de condomínios para um conjunto de IDs (mapa id→nome). */
+  private async resolveCondoNames(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map()
+    const condos = (await this.prisma.condominium.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    })) as { id: string; name: string }[]
+    return new Map(condos.map((c) => [c.id, c.name]))
+  }
+
+  /**
+   * Agrupa pedidos já despachados por entregador → condomínio (com nomes resolvidos).
+   * Inclui todos os entregadores ativos — os sem pedido aparecem com total 0, mantendo
+   * a UI consistente com a sugestão greedy.
+   */
+  private async groupByCourier(
+    couriers: { id: string; name: string }[],
+    orders: { courierId: string | null; condominiumId: string | null; quantity: number }[],
+  ): Promise<
+    {
+      courierId: string
+      courierName: string
+      condominiums: { condominiumId: string; condominiumName: string; quantity: number }[]
+      total: number
+    }[]
+  > {
+    const byCourier = new Map<string, Map<string, number>>()
+    for (const o of orders) {
+      if (!o.courierId) continue
+      const condoId = o.condominiumId ?? 'unknown'
+      if (!byCourier.has(o.courierId)) byCourier.set(o.courierId, new Map())
+      const m = byCourier.get(o.courierId)!
+      m.set(condoId, (m.get(condoId) ?? 0) + o.quantity)
+    }
+
+    const condoIds = Array.from(
+      new Set(orders.map((o) => o.condominiumId).filter((id): id is string => !!id)),
+    )
+    const condoNameMap = await this.resolveCondoNames(condoIds)
+
+    return couriers.map((c) => {
+      const m = byCourier.get(c.id) ?? new Map<string, number>()
+      const condominiums = Array.from(m.entries())
+        .map(([condominiumId, quantity]) => ({
+          condominiumId,
+          condominiumName: condoNameMap.get(condominiumId) ?? condominiumId,
+          quantity,
+        }))
+        .sort((a, b) => b.quantity - a.quantity)
+      return {
+        courierId: c.id,
+        courierName: c.name,
+        condominiums,
+        total: condominiums.reduce((s, x) => s + x.quantity, 0),
+      }
+    })
   }
 
   /**

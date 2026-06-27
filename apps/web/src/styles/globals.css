@@ -27,6 +27,7 @@
   --color-accent: #B0702A;
   --color-good: #3E7C53;
   --color-good-soft: #DCEBDF;
+  --color-warn: #B23A2E;
   --color-primary-btn-text: #FBF3E4;
 
   /* Border colors (rgba — accessed via CSS var; no utility class generated) */

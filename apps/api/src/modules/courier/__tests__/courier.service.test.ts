@@ -75,6 +75,11 @@ function makeFastifyMock(overrides: {
     condominium: {
       findUnique: vi.fn().mockResolvedValue(condominium),
     },
+    // getGlobalDeliverySlots (rótulos de turno) consulta setting.findUnique;
+    // null => usa DEFAULT_DELIVERY_SLOTS.
+    setting: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-new' }),
       findMany: vi.fn().mockResolvedValue(makeNotifications(notificationCount)),

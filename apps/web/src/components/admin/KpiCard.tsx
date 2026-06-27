@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Icon, Ic } from '../brand/Icon'
 
 interface PillProps {
@@ -34,7 +35,7 @@ function Pill({ text, tone }: PillProps) {
 
 interface KpiCardProps {
   icon: keyof typeof Ic
-  value: string | number
+  value: ReactNode
   label: string
   pill?: { text: string; tone: 'good' | 'gold' | 'neutral' }
   sub?: string

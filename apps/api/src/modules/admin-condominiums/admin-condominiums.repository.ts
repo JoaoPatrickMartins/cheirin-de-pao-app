@@ -20,11 +20,11 @@ export class AdminCondominiumsRepository {
     return this.prisma.condominium.findUnique({ where: { id } })
   }
 
-  create(data: CreateCondominiumBody & { deliverySlots?: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }) {
+  create(data: Omit<CreateCondominiumBody, 'lat' | 'lng'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean; deliverySlots?: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }) {
     return this.prisma.condominium.create({ data })
   }
 
-  update(id: string, data: UpdateCondominiumBody) {
+  update(id: string, data: Omit<UpdateCondominiumBody, 'lat' | 'lng'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean }) {
     return this.prisma.condominium.update({ where: { id }, data })
   }
 
