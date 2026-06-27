@@ -7,8 +7,6 @@ import { Icon } from '../../../components/brand/Icon'
 import { SeparationCouponSheet, type CouponData } from '../../../components/admin/SeparationCoupon'
 import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
 
-type DateMode = 'hoje' | 'amanha'
-
 function localDateStr(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -75,25 +73,11 @@ function blockLabel(block: string): string {
   return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
 }
 
-// Rótulo dos filtros (Dia / Turno) — largura fixa pra alinhar os controles à direita.
-const FILTER_LABEL_STYLE: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 5,
-  width: 64,
-  flexShrink: 0,
-  fontFamily: 'var(--font-body)',
-  fontSize: 12.5,
-  fontWeight: 700,
-  color: 'var(--color-text-sec)',
-}
-
 export function AdminSeparacao() {
   const [board, setBoard] = useState<Board | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [coupons, setCoupons] = useState<CouponData[]>([])
-  const [dateMode, setDateMode] = useState<DateMode>('hoje')
   const [slots, setSlots] = useState<SlotOption[]>([])
   const [slotId, setSlotId] = useState<string>('')
 
@@ -116,17 +100,16 @@ export function AdminSeparacao() {
   const fetchBoard = useCallback(async () => {
     setIsLoading(true)
     try {
-      const d = new Date()
-      if (dateMode === 'amanha') d.setDate(d.getDate() + 1)
+      // Separação acontece sempre no dia da entrega — só hoje.
       const slotQs = slotId ? `&slotId=${slotId}` : ''
-      const res = await apiFetch(`/admin/separation/board?date=${localDateStr(d)}${slotQs}`)
+      const res = await apiFetch(`/admin/separation/board?date=${localDateStr(new Date())}${slotQs}`)
       if (res.ok) setBoard((await res.json()) as Board)
     } catch {
       // falha silenciosa — mantém estado anterior
     } finally {
       setIsLoading(false)
     }
-  }, [dateMode, slotId])
+  }, [slotId])
 
   useEffect(() => {
     void fetchBoard()
@@ -146,7 +129,7 @@ export function AdminSeparacao() {
 
   const dateLabel = board ? formatDateLabel(board.date) : ''
   const turnoLabel = slots.find((s) => s.slotId === slotId)?.label ?? ''
-  const dayLabel = dateMode === 'hoje' ? 'hoje' : 'amanhã'
+  const dayLabel = 'hoje'
 
   function toCoupons(orders: BoardOrder[], condoName: string): CouponData[] {
     return orders.map((o) => ({
@@ -218,46 +201,22 @@ export function AdminSeparacao() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
       <AdminHead
-        sub={`Recebimento e conferência · ${dateLabel || (dateMode === 'hoje' ? 'Hoje' : 'Amanhã')}`}
+        sub={`Recebimento e conferência · ${dateLabel || 'Hoje'}`}
         titulo="Separação"
       />
 
       <div style={{ padding: '0 20px' }}>
-        {/* Filtros rotulados — o rótulo (ícone + nome) deixa claro o que cada controle faz */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={FILTER_LABEL_STYLE}>
-              <Icon name="calendar" size={15} stroke={2} color="var(--color-text-ter)" aria-hidden="true" />
-              Dia
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <SegmentedControl<DateMode>
-                tabs={[
-                  { key: 'hoje', label: 'Hoje' },
-                  { key: 'amanha', label: 'Amanhã' },
-                ]}
-                value={dateMode}
-                onChange={setDateMode}
-              />
-            </div>
+        {/* Seletor de turno — a separação acontece sempre no dia da entrega (hoje),
+            então só escolhemos Manhã/Tarde, igual à aba Entregas. */}
+        {slots.length > 1 && (
+          <div style={{ marginBottom: 16 }}>
+            <SegmentedControl<string>
+              tabs={slots.map((s) => ({ key: s.slotId, label: slotTabLabel(s) }))}
+              value={slotId}
+              onChange={setSlotId}
+            />
           </div>
-
-          {slots.length > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={FILTER_LABEL_STYLE}>
-                <Icon name="clock" size={15} stroke={2} color="var(--color-text-ter)" aria-hidden="true" />
-                Turno
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <SegmentedControl<string>
-                  tabs={slots.map((s) => ({ key: s.slotId, label: slotTabLabel(s) }))}
-                  value={slotId}
-                  onChange={setSlotId}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+        )}
 
         {isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>

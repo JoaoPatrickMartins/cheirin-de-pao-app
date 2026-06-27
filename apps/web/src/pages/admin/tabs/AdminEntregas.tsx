@@ -10,9 +10,9 @@ import {
 } from '../../../components/admin/DeliveryDivisionCard'
 import { Icon } from '../../../components/brand/Icon'
 import { OrderDetailSheet, STATUS_META, type LedgerRow } from '../../../components/admin/OrderDetailSheet'
-import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, hhmmToMin, type SlotOption } from '../../../lib/slots'
+import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
 
-type Segment = 'hoje' | 'proximos' | 'historico'
+type Segment = 'hoje' | 'historico'
 
 interface DivisionSuggestionItem {
   courierId: string
@@ -31,7 +31,6 @@ interface DeliveryStatus {
 
 const TABS: Array<{ key: Segment; label: string }> = [
   { key: 'hoje', label: 'Hoje' },
-  { key: 'proximos', label: 'Próximos' },
   { key: 'historico', label: 'Histórico' },
 ]
 
@@ -57,41 +56,8 @@ function formatDateLong(dateStr: string) {
   }
 }
 
-// Chave de agrupamento por dia no fuso BRT (YYYY-MM-DD) — evita drift de fuso.
-function brtDateKey(dateStr: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Sao_Paulo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date(dateStr))
-  } catch {
-    return dateStr
-  }
-}
-
-// Cabeçalho de data por extenso (ex.: "Domingo, 28 de junho").
-function formatDateHeader(dateStr: string): string {
-  try {
-    const full = new Intl.DateTimeFormat('pt-BR', {
-      weekday: 'long',
-      day: '2-digit',
-      month: 'long',
-      timeZone: 'America/Sao_Paulo',
-    }).format(new Date(dateStr))
-    return full.charAt(0).toUpperCase() + full.slice(1)
-  } catch {
-    return dateStr
-  }
-}
 function formatDateShort() {
   return new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
-}
-function tomorrowISO() {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  return d.toISOString().slice(0, 10)
 }
 
 export function AdminEntregas() {
@@ -133,7 +99,6 @@ export function AdminEntregas() {
 
   useEffect(() => {
     if (segment === 'hoje') void fetchHojeData()
-    else if (segment === 'proximos') void fetchProximos()
     else void fetchHistorico()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segment, slotId])
@@ -186,24 +151,6 @@ export function AdminEntregas() {
       /* silencioso */
     } finally {
       if (!opts?.silent) setIsLoadingHoje(false)
-    }
-  }
-
-  async function fetchProximos() {
-    setIsLoadingLedger(true)
-    try {
-      // Gate progressivo: Próximos só lista pedidos JÁ separados aguardando o dia (não SCHEDULED)
-      const qs = new URLSearchParams({ from: tomorrowISO(), status: 'SEPARATED,OUT_FOR_DELIVERY', limit: '100' })
-      const res = await apiFetch(`/admin/orders?${qs.toString()}`)
-      if (res.ok) {
-        const data = (await res.json()) as { rows: LedgerRow[] }
-        // próximos: ordenar por data ascendente (o endpoint retorna desc)
-        setRows([...data.rows].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)))
-      }
-    } catch {
-      /* silencioso */
-    } finally {
-      setIsLoadingLedger(false)
     }
   }
 
@@ -265,10 +212,9 @@ export function AdminEntregas() {
 
   // Recarrega a aba atual após uma ação no detalhe (não entregue / estorno)
   const refreshCurrent = useCallback(() => {
-    if (segment === 'proximos') void fetchProximos()
-    else void fetchHistorico()
+    void fetchHistorico()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segment, histFilter, search])
+  }, [histFilter, search])
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
@@ -291,7 +237,6 @@ export function AdminEntregas() {
         )}
 
         {segment === 'hoje' && <HojeView {...{ isLoadingHoje, assignments, setAssignments, handleApprove, isApproved, isApproving, deliveryStatus }} />}
-        {segment === 'proximos' && <ProximosView rows={rows} loading={isLoadingLedger} slots={slots} emptyText="Nenhum pedido separado aguardando entrega. Conclua a separação para liberar." onSelect={setSelected} />}
         {segment === 'historico' && (
           <>
             <SearchInput value={search} onChange={setSearch} />
@@ -453,92 +398,6 @@ function LedgerView({ rows, loading, emptyText, onSelect }: { rows: LedgerRow[];
       {rows.map((r) => (
         <LedgerRowButton key={r.orderId} r={r} onSelect={onSelect} />
       ))}
-    </div>
-  )
-}
-
-// Próximos: agrupado por DATA → TURNO, pra deixar claro o que é manhã/tarde de cada dia.
-function ProximosView({ rows, loading, slots, emptyText, onSelect }: { rows: LedgerRow[]; loading: boolean; slots: SlotOption[]; emptyText: string; onSelect: (r: LedgerRow) => void }) {
-  if (loading) return <Centered><Spinner /></Centered>
-  if (rows.length === 0) {
-    return <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', textAlign: 'center', padding: '40px 0' }}>{emptyText}</p>
-  }
-
-  const slotById = new Map(slots.map((s) => [s.slotId, s]))
-  const slotRank = (slotId: string) => {
-    const t = slotById.get(slotId)?.time
-    return t ? hhmmToMin(t) : 9999
-  }
-
-  // Agrupa por data (BRT) → turno, preservando a ordem ascendente das rows.
-  const byDate = new Map<string, Map<string, LedgerRow[]>>()
-  for (const r of rows) {
-    const dk = brtDateKey(r.scheduledDate)
-    if (!byDate.has(dk)) byDate.set(dk, new Map())
-    const slotMap = byDate.get(dk)!
-    const sk = r.slotId || 'sem'
-    if (!slotMap.has(sk)) slotMap.set(sk, [])
-    slotMap.get(sk)!.push(r)
-  }
-  const dateKeys = Array.from(byDate.keys()).sort()
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {dateKeys.map((dk) => {
-        const slotMap = byDate.get(dk)!
-        const slotKeys = Array.from(slotMap.keys()).sort((a, b) => slotRank(a) - slotRank(b))
-        const headerIso = slotMap.get(slotKeys[0])![0].scheduledDate
-        return (
-          <div key={dk}>
-            {/* Cabeçalho de data */}
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 15.5, fontWeight: 700, color: 'var(--color-text)', margin: '0 0 10px' }}>
-              {formatDateHeader(headerIso)}
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {slotKeys.map((sk) => {
-                const slotOpt = slotById.get(sk)
-                const groupRows = slotMap.get(sk)!
-                const slotLabel = slotOpt
-                  ? slotTabLabel(slotOpt) + (slotOpt.time ? ` · ${slotOpt.time}` : '')
-                  : groupRows[0].slotLabel || 'Sem turno'
-                const totalBreads = groupRows.reduce((sum, r) => sum + r.quantity, 0)
-                return (
-                  <div key={sk}>
-                    {/* Subcabeçalho do turno */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '0 0 8px' }}>
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontFamily: 'var(--font-body)',
-                          fontSize: 12.5,
-                          fontWeight: 700,
-                          color: 'var(--color-espresso)',
-                          background: 'var(--color-gold-soft)',
-                          borderRadius: 99,
-                          padding: '4px 11px',
-                        }}
-                      >
-                        {slotLabel}
-                      </span>
-                      <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-text-ter)' }}>
-                        {groupRows.length} {groupRows.length === 1 ? 'pedido' : 'pedidos'} · {totalBreads} pães
-                      </span>
-                    </div>
-                    {/* Pedidos do turno (data já está no cabeçalho do grupo) */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {groupRows.map((r) => (
-                        <LedgerRowButton key={r.orderId} r={r} showDate={false} onSelect={onSelect} />
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
     </div>
   )
 }
