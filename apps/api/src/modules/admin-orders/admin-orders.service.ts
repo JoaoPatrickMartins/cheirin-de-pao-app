@@ -253,10 +253,12 @@ export class AdminOrdersService {
    * Aprova a divisão de entregas: grava o courierId e DESPACHA os pedidos
    * (SEPARATED → OUT_FOR_DELIVERY) em uma operação por entregador.
    *
-   * Gate: só pedidos SEPARATED são despachados — a operação é idempotente
-   * (repetir não reabre pedidos já entregues/falhos). A aprovação passa a ser
-   * derivável do próprio estado dos pedidos (existem pedidos OUT_FOR_DELIVERY+
-   * com courierId no dia/turno), sem precisar de flag extra no schema.
+   * Gate: aceita SEPARATED (despacho inicial) e OUT_FOR_DELIVERY (re-roteamento
+   * ao "Reabrir divisão" — troca o courierId de uma entrega pendente sem reabrir
+   * o pedido). DELIVERED/NOT_DELIVERED/CANCELLED ficam de fora, então a operação
+   * segue idempotente e segura: reaprovar nunca mexe em quem já foi entregue/falhou.
+   * A aprovação passa a ser derivável do próprio estado dos pedidos (existem pedidos
+   * OUT_FOR_DELIVERY+ com courierId no dia/turno), sem precisar de flag extra no schema.
    */
   async approveDivision(
     assignments: { courierId: string; orderIds: string[] }[],
@@ -265,7 +267,7 @@ export class AdminOrdersService {
     for (const a of assignments) {
       if (!a.orderIds || a.orderIds.length === 0) continue
       const result = await this.prisma.order.updateMany({
-        where: { id: { in: a.orderIds }, status: 'SEPARATED' },
+        where: { id: { in: a.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
         data: { courierId: a.courierId, status: 'OUT_FOR_DELIVERY' },
       })
       count += result.count
