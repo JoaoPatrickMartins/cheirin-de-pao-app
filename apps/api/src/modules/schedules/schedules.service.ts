@@ -161,6 +161,26 @@ export class SchedulesService {
   }
 
   /**
+   * Materializa os pedidos de TODOS os condomínios/slots ativos para uma data de
+   * entrega específica (independente da hora atual). Usado pelo "Encerrar corte"
+   * manual da aba Compra para fechar o ciclo do dia e alimentar a Separação.
+   *
+   * Idempotente: createOrdersForCondoSlot pula pedidos já existentes — seguro mesmo
+   * que o cron já tenha materializado parte (ou o admin clique mais de uma vez).
+   */
+  async materializeOrdersForDate(deliveryDate: Date): Promise<void> {
+    const dayKey = dayKeyOf(deliveryDate)
+    const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
+    for (const condo of condominiums) {
+      for (const slot of condo.deliverySlots) {
+        if (!slot.isActive) continue
+        const slotId = slot.slotId ?? slot.name
+        await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate)
+      }
+    }
+  }
+
+  /**
    * Disparado pelo cron a cada minuto: para cada (condomínio ativo, slot ativo) cujo
    * `cutoffTime` casa com a hora BRT atual, cria as orders da data alvo (Regra A).
    * Substitui a criação à meia-noite — agora a order é "fechada" no corte de cada slot.

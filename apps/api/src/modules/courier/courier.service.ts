@@ -257,4 +257,28 @@ export class CourierService {
     const adminOrdersService = new AdminOrdersService(this.fastify)
     await adminOrdersService.updateOrderStatus(orderId, 'DELIVERED')
   }
+
+  /**
+   * Marca uma entrega como NÃO entregue (cliente ausente, endereço, etc.).
+   *
+   * Valida ownership (order.courierId === courierId do JWT) e delega a transição
+   * NOT_DELIVERED ao AdminOrdersService, que registra failedAt + failureReason.
+   * O crédito permanece debitado (estorno é decisão manual do admin).
+   *
+   * @throws { statusCode: 404 } se order nao encontrada
+   * @throws { statusCode: 403 } se order.courierId !== courierId
+   * @throws { statusCode: 422 } se transicao invalida
+   */
+  async markNotDelivered(orderId: string, courierId: string, reason?: string): Promise<void> {
+    const order = await this.repository.findById(orderId)
+    if (!order) {
+      throw { statusCode: 404, message: 'Pedido nao encontrado' }
+    }
+    if (order.courierId !== courierId) {
+      throw { statusCode: 403, message: 'Acesso negado: esta entrega nao pertence a voce' }
+    }
+
+    const adminOrdersService = new AdminOrdersService(this.fastify)
+    await adminOrdersService.updateOrderStatus(orderId, 'NOT_DELIVERED', reason)
+  }
 }

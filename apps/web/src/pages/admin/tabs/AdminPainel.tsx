@@ -6,7 +6,7 @@ import { BarChart } from '../../../components/admin/BarChart'
 import { BreadMark } from '../../../components/brand/BreadMark'
 import { Icon } from '../../../components/brand/Icon'
 
-type AdminTab = 'painel' | 'pedido' | 'entregas' | 'clientes' | 'gestao'
+type AdminTab = 'painel' | 'pedido' | 'separacao' | 'entregas' | 'clientes' | 'gestao'
 
 interface DashboardData {
   breadsTodayCount: number
@@ -25,6 +25,7 @@ interface DashboardData {
     combos: number
     avulso: number
   }
+  stuckCount: number
 }
 
 const DAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
@@ -110,6 +111,51 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
           </div>
         ) : (
           <>
+            {/* Alerta — pedidos no limbo (sem desfecho) */}
+            {data && data.stuckCount > 0 && (
+              <button
+                onClick={() => onNavigate('entregas')}
+                aria-label="Ver pedidos parados"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'rgba(194,65,12,0.10)',
+                  border: '1px solid rgba(194,65,12,0.30)',
+                  borderRadius: 16,
+                  padding: 14,
+                  marginBottom: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    background: 'rgba(194,65,12,0.16)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon name="alert" size={20} color="var(--color-bad, #C2410C)" stroke={2.2} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-bad, #C2410C)', margin: 0, lineHeight: 1.25 }}>
+                    {data.stuckCount} pedido{data.stuckCount > 1 ? 's' : ''} parado{data.stuckCount > 1 ? 's' : ''}
+                  </p>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-sec)', margin: '2px 0 0', lineHeight: 1.3 }}>
+                    Data passada sem desfecho — verifique em Entregas › Histórico › Parados
+                  </p>
+                </div>
+                <Icon name="chevR" size={18} color="var(--color-bad, #C2410C)" stroke={2} />
+              </button>
+            )}
+
             {/* Grade 2x2 de KpiCards */}
             <div
               style={{

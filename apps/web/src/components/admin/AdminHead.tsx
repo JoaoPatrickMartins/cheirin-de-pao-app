@@ -1,11 +1,14 @@
+import type { ReactNode } from 'react'
 import { BreadMark } from '../brand/BreadMark'
 
 interface AdminHeadProps {
   sub: string
   titulo: string
+  /** Ação secundária opcional, renderizada à direita do header (ex.: atalho de histórico). */
+  action?: ReactNode
 }
 
-export function AdminHead({ sub, titulo }: AdminHeadProps) {
+export function AdminHead({ sub, titulo, action }: AdminHeadProps) {
   return (
     <div
       style={{
@@ -32,7 +35,7 @@ export function AdminHead({ sub, titulo }: AdminHeadProps) {
       </div>
 
       {/* Texto: subtítulo + título */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, minWidth: 0 }}>
         <p
           style={{
             fontFamily: 'var(--font-body)',
@@ -41,6 +44,9 @@ export function AdminHead({ sub, titulo }: AdminHeadProps) {
             color: 'var(--color-text-ter)',
             margin: 0,
             lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
           }}
         >
           {sub}
@@ -54,11 +60,17 @@ export function AdminHead({ sub, titulo }: AdminHeadProps) {
             color: 'var(--color-text)',
             margin: 0,
             lineHeight: 1.2,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
           }}
         >
           {titulo}
         </h1>
       </div>
+
+      {/* Ação à direita (opcional) */}
+      {action && <div style={{ flexShrink: 0 }}>{action}</div>}
     </div>
   )
 }

@@ -24,6 +24,8 @@ import { adminSuppliersRoute } from './modules/admin-suppliers/admin-suppliers.r
 import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.route.js'
 import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
 import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-supplier-orders.route.js'
+import { adminSeparationRoute } from './modules/admin-separation/admin-separation.route.js'
+import { ensureIndexes } from './lib/ensure-indexes.js'
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
 import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
 import { courierRoute } from './modules/courier/courier.route.js'
@@ -191,6 +193,7 @@ const start = async () => {
     await fastify.register(adminCouriersRoute)       // Phase 7 — CRUD /admin/couriers (07-03)
     await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)
     await fastify.register(adminSupplierOrdersRoute)  // Phase 7 — GET/POST /admin/supplier-orders + PDF/Excel (ADMO-05..09)
+    await fastify.register(adminSeparationRoute)      // Separação — GET board + PATCH conclude/orders (gate da entrega)
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
     await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
     await fastify.register(courierRoute)        // GET /courier/orders/today + PATCH /courier/orders/:id/confirm (COUR-01/02)
@@ -202,6 +205,10 @@ const start = async () => {
     const host = process.env.API_HOST ?? '0.0.0.0'
 
     await fastify.listen({ port, host })
+
+    // Garante os índices de runtime — roda também em bancos novos/vazios.
+    // Idempotente e best-effort: não bloqueia nem derruba o boot se o Atlas estiver lento/indisponível.
+    void ensureIndexes(fastify.prisma, fastify.log)
   } catch (err) {
     fastify.log.error(err)
     process.exit(1)

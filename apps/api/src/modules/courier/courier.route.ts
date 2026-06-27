@@ -105,4 +105,35 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.confirmDelivery.bind(ctrl),
   )
+
+  // PATCH /courier/orders/:id/not-delivered — marca a entrega como não realizada
+  fastify.patch(
+    '/courier/orders/:id/not-delivered',
+    {
+      preHandler: [fastify.authenticate, fastify.requireCourier],
+      schema: {
+        tags: ['courier'],
+        summary: 'Marcar entrega como não realizada',
+        description:
+          'Registra que um pedido não pôde ser entregue (cliente ausente, endereço, etc.), transicionando o status para NOT_DELIVERED com o motivo. O entregador só pode marcar pedidos atribuídos a ele. O crédito do cliente permanece debitado (estorno é decisão manual do admin).',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do pedido (MongoDB ObjectId).' } },
+        },
+        body: {
+          type: 'object',
+          properties: { reason: { type: 'string', description: 'Motivo da não-entrega.' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: { ok: { type: 'boolean', description: 'Indica sucesso da operação.' } },
+          },
+        },
+      },
+    },
+    ctrl.markNotDelivered.bind(ctrl),
+  )
 }

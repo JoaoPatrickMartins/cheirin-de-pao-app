@@ -67,6 +67,33 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.getDraft.bind(ctrl),
   )
 
+  // 1a. Status de geração — informa se o pedido de amanhã já foi gerado (trava a aba Compra)
+  fastify.get(
+    '/admin/supplier-orders/generated-status',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — supplier-orders'],
+        summary: 'Status de geração do pedido de amanhã',
+        description:
+          'Informa se o pedido ao fornecedor de amanhã já foi gerado (FINALIZED). Usado pela aba Compra para mostrar o estado "já gerado" e evitar geração duplicada.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              generated: { type: 'boolean' },
+              orderId: { type: 'string' },
+              totalQuantity: { type: 'integer' },
+              date: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.generatedStatus.bind(ctrl),
+  )
+
   // 1b. Detalhe por condomínio — também ANTES de /:id (rota mais específica primeiro)
   fastify.get(
     '/admin/supplier-orders/draft/:condominiumId',

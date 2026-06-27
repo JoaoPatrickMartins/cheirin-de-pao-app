@@ -5,6 +5,7 @@ import { StepBar } from '../../../components/admin/StepBar'
 import { Icon } from '../../../components/brand/Icon'
 import StepperInline from '../../../components/client/StepperInline'
 import { CondominiumOrderDetail } from '../../../components/admin/CondominiumOrderDetail'
+import { SupplierOrderHistory } from '../../../components/admin/SupplierOrderHistory'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -236,6 +237,8 @@ function Footer({ label, totalLabel, totalValue, ctaLabel, ctaIcon, onCta, isLoa
 
 export function AdminPedido() {
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
+  const [showHistory, setShowHistory] = useState(false)
+  const [generated, setGenerated] = useState<{ generated: boolean; orderId: string; totalQuantity: number } | null>(null)
 
   // Dados do draft
   const [draftData, setDraftData] = useState<CondoDraft[] | null>(null)
@@ -273,9 +276,10 @@ export function AdminPedido() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [draftRes, slotsRes] = await Promise.all([
+        const [draftRes, slotsRes, statusRes] = await Promise.all([
           apiFetch('/admin/supplier-orders/draft'),
           apiFetch('/admin/settings/slots'),
+          apiFetch('/admin/supplier-orders/generated-status'),
         ])
         if (draftRes.ok) {
           setDraftData((await draftRes.json()) as CondoDraft[])
@@ -283,6 +287,9 @@ export function AdminPedido() {
         if (slotsRes.ok) {
           const data = (await slotsRes.json()) as { slots: SlotCutoff[] }
           setSlots(data.slots)
+        }
+        if (statusRes.ok) {
+          setGenerated((await statusRes.json()) as { generated: boolean; orderId: string; totalQuantity: number })
         }
       } catch {
         // falha silenciosa
@@ -369,8 +376,9 @@ export function AdminPedido() {
       if (res.ok) {
         const data = (await res.json()) as Supplier[]
         setSuppliers(data)
-        // divisão inicial 75/25
-        const p = Math.round(adjustedTotal * 0.75)
+        // divisão inicial: 75/25 quando há fornecedor reserva; senão o principal leva tudo
+        const hasReserva = data.some((s) => !s.isPrincipal)
+        const p = hasReserva ? Math.round(adjustedTotal * 0.75) : adjustedTotal
         const r = adjustedTotal - p
         setSplit({ p, r })
       }
@@ -383,7 +391,8 @@ export function AdminPedido() {
   }
 
   async function finalizarPedido() {
-    if (!principal || !reserva) return
+    // Reserva é opcional — basta ter o fornecedor principal (ex.: só 1 padaria cadastrada)
+    if (!principal) return
     // Validar que pelo menos um tem quantidade > 0
     if (split.p === 0 && split.r === 0) return
 
@@ -391,7 +400,7 @@ export function AdminPedido() {
     try {
       const items = [
         { supplierId: principal.id, quantity: split.p },
-        { supplierId: reserva.id, quantity: split.r },
+        ...(reserva ? [{ supplierId: reserva.id, quantity: split.r }] : []),
       ].filter((item) => item.quantity > 0)
 
       const res = await apiFetch('/admin/supplier-orders', {
@@ -401,6 +410,7 @@ export function AdminPedido() {
       if (res.ok) {
         const data = (await res.json()) as { id: string }
         setOrderId(data.id)
+        setGenerated({ generated: true, orderId: data.id, totalQuantity: splitTotal })
         setStep(3)
       }
     } catch {
@@ -455,9 +465,42 @@ export function AdminPedido() {
     )
   }
 
+  // Histórico de compras (pedidos ao fornecedor finalizados) — tela cheia
+  if (showHistory) {
+    return <SupplierOrderHistory onBack={() => setShowHistory(false)} />
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      <AdminHead sub={`Para amanhã · ${tomorrowLabel}`} titulo="Pedido ao fornecedor" />
+      <AdminHead
+        sub={`Para amanhã · ${tomorrowLabel}`}
+        titulo="Compra"
+        action={
+          <button
+            onClick={() => setShowHistory(true)}
+            aria-label="Histórico de compras"
+            title="Histórico de compras"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 13px',
+              borderRadius: 999,
+              border: '1px solid var(--color-border-2)',
+              background: 'var(--color-surface)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 700,
+              fontSize: 12.5,
+              color: 'var(--color-text)',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-soft)',
+            }}
+          >
+            <Icon name="clock" size={15} color="var(--color-accent)" stroke={2} />
+            Histórico
+          </button>
+        }
+      />
 
       <StepBar step={step} onStepClick={(i) => setStep(i as 0 | 1 | 2 | 3)} />
 
@@ -471,6 +514,38 @@ export function AdminPedido() {
               <Spinner />
             ) : (
               <>
+                {/* Selo: pedido de amanhã já gerado */}
+                {generated?.generated && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      background: 'var(--color-good-soft)',
+                      border: '1px solid var(--color-good)',
+                      borderRadius: 16,
+                      padding: 14,
+                      marginBottom: 16,
+                    }}
+                  >
+                    <Icon name="check" size={20} color="var(--color-good)" stroke={2.4} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-good)', margin: 0 }}>
+                        Pedido de amanhã já gerado{generated.totalQuantity ? ` · ${generated.totalQuantity} pães` : ''}
+                      </p>
+                      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-sec)', margin: '2px 0 0' }}>
+                        Os pedidos já estão liberados na Separação.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setGenerated(null)}
+                      style={{ background: 'none', border: 'none', color: 'var(--color-text-sec)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 }}
+                    >
+                      Gerar de novo
+                    </button>
+                  </div>
+                )}
+
                 {/* Card de horário de corte */}
                 <div
                   style={{
@@ -909,9 +984,9 @@ export function AdminPedido() {
               label=""
               totalLabel="Total necessário"
               totalValue={draftTotal}
-              ctaLabel="Encerrar corte e gerar pedido"
-              ctaIcon="scissors"
-              onCta={goToStep1}
+              ctaLabel={generated?.generated ? 'Ver no histórico de compras' : 'Encerrar corte e gerar pedido'}
+              ctaIcon={generated?.generated ? 'check' : 'scissors'}
+              onCta={generated?.generated ? () => setShowHistory(true) : goToStep1}
             />
           )}
         </div>
@@ -1111,8 +1186,8 @@ export function AdminPedido() {
                     <StepperInline
                       value={split.p}
                       min={0}
-                      max={splitTotal}
-                      onChange={(v) => setSplit({ p: v, r: splitTotal - v })}
+                      max={adjustedTotal}
+                      onChange={(v) => setSplit({ p: v, r: reserva ? adjustedTotal - v : 0 })}
                     />
                     <span
                       style={{
@@ -1219,8 +1294,8 @@ export function AdminPedido() {
                     <StepperInline
                       value={split.r}
                       min={0}
-                      max={splitTotal}
-                      onChange={(v) => setSplit({ p: splitTotal - v, r: v })}
+                      max={adjustedTotal}
+                      onChange={(v) => setSplit({ p: adjustedTotal - v, r: v })}
                     />
                     <span
                       style={{

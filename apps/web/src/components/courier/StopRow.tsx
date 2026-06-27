@@ -14,14 +14,16 @@ interface StopRowProps {
   stop: Stop
   order: number
   isConfirmed: boolean
+  isNotDelivered?: boolean
   onPress: (stop: Stop) => void
 }
 
-export function StopRow({ stop, order, isConfirmed, onPress }: StopRowProps) {
+export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, onPress }: StopRowProps) {
+  const resolved = isConfirmed || isNotDelivered
   return (
     <button
-      onClick={() => !isConfirmed && onPress(stop)}
-      disabled={isConfirmed}
+      onClick={() => !resolved && onPress(stop)}
+      disabled={resolved}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -31,7 +33,7 @@ export function StopRow({ stop, order, isConfirmed, onPress }: StopRowProps) {
         width: '100%',
         border: 'none',
         background: 'transparent',
-        cursor: isConfirmed ? 'default' : 'pointer',
+        cursor: resolved ? 'default' : 'pointer',
         textAlign: 'left',
       }}
     >
@@ -61,14 +63,14 @@ export function StopRow({ stop, order, isConfirmed, onPress }: StopRowProps) {
         </span>
       </div>
 
-      {/* Checkbox */}
+      {/* Checkbox / status */}
       <div
         style={{
           width: 28,
           height: 28,
           borderRadius: 9,
-          border: `2px solid ${isConfirmed ? 'var(--color-good)' : 'var(--color-border)'}`,
-          background: isConfirmed ? 'var(--color-good)' : 'transparent',
+          border: `2px solid ${isConfirmed ? 'var(--color-good)' : isNotDelivered ? 'var(--color-bad, #C2410C)' : 'var(--color-border)'}`,
+          background: isConfirmed ? 'var(--color-good)' : isNotDelivered ? 'var(--color-bad, #C2410C)' : 'transparent',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -77,6 +79,7 @@ export function StopRow({ stop, order, isConfirmed, onPress }: StopRowProps) {
         }}
       >
         {isConfirmed && <Icon name="check" size={16} color="#fff" />}
+        {isNotDelivered && <Icon name="x" size={16} color="#fff" />}
       </div>
 
       {/* Texto */}
@@ -88,8 +91,8 @@ export function StopRow({ stop, order, isConfirmed, onPress }: StopRowProps) {
             fontWeight: 700,
             color: 'var(--color-text)',
             margin: 0,
-            textDecoration: isConfirmed ? 'line-through' : 'none',
-            opacity: isConfirmed ? 0.5 : 1,
+            textDecoration: resolved ? 'line-through' : 'none',
+            opacity: resolved ? 0.5 : 1,
             transition: 'opacity 0.15s',
             whiteSpace: 'nowrap',
             overflow: 'hidden',

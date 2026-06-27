@@ -5,11 +5,12 @@ import { Navigate } from 'react-router'
 import { AdminBottomNav } from '../../components/admin/AdminBottomNav'
 import { AdminPainel } from './tabs/AdminPainel'
 import { AdminPedido } from './tabs/AdminPedido'
+import { AdminSeparacao } from './tabs/AdminSeparacao'
 import { AdminEntregas } from './tabs/AdminEntregas'
 import { AdminClientes } from './tabs/AdminClientes'
 import { AdminGestao } from './tabs/AdminGestao'
 
-type AdminTab = 'painel' | 'pedido' | 'entregas' | 'clientes' | 'gestao'
+type AdminTab = 'painel' | 'pedido' | 'separacao' | 'entregas' | 'clientes' | 'gestao'
 
 export function AdminLayout() {
   const { user, isLoading } = useAuth()
@@ -30,6 +31,7 @@ export function AdminLayout() {
     >
       {tab === 'painel' && <AdminPainel onNavigate={setTab} />}
       {tab === 'pedido' && <AdminPedido />}
+      {tab === 'separacao' && <AdminSeparacao />}
       {tab === 'entregas' && <AdminEntregas />}
       {tab === 'clientes' && <AdminClientes />}
       {tab === 'gestao' && <AdminGestao />}

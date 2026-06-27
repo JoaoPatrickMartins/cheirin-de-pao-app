@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
-import { NotificationType } from '@prisma/client'
+import { NotificationType, OrderStatus, Prisma } from '@prisma/client'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
@@ -9,13 +9,61 @@ import { projectScheduleForDate } from '../../lib/schedule-projection.js'
  * Mapa de transições de estado válidas para pedidos.
  *
  * T-05-02: Qualquer transição fora deste mapa lança statusCode 422 antes do update.
- * Transições permitidas:
- *   SCHEDULED → OUT_FOR_DELIVERY
- *   OUT_FOR_DELIVERY → DELIVERED
+ * Ciclo de vida v2 (corte → separação → entrega → desfecho):
+ *   SCHEDULED        → SEPARATED | OUT_FOR_DELIVERY | CANCELLED
+ *   SEPARATED        → OUT_FOR_DELIVERY | DELIVERED | NOT_DELIVERED | SCHEDULED (desfazer) | CANCELLED
+ *   OUT_FOR_DELIVERY → DELIVERED | NOT_DELIVERED | CANCELLED
+ *
+ * Nota: SCHEDULED→OUT_FOR_DELIVERY e OUT_FOR_DELIVERY→DELIVERED são mantidos por
+ * compatibilidade. O gate da Entrega passa a exigir SEPARATED (ver admin-separation).
  */
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  SCHEDULED: ['OUT_FOR_DELIVERY'],
-  OUT_FOR_DELIVERY: ['DELIVERED'],
+  SCHEDULED: ['SEPARATED', 'OUT_FOR_DELIVERY', 'CANCELLED'],
+  SEPARATED: ['OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED', 'SCHEDULED', 'CANCELLED'],
+  OUT_FOR_DELIVERY: ['DELIVERED', 'NOT_DELIVERED', 'CANCELLED'],
+}
+
+const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
+function fallbackSlotLabel(slotId: string): string {
+  if (!slotId) return 'Sem horário'
+  return DEFAULT_SLOT_LABELS[slotId] ?? slotId.charAt(0).toUpperCase() + slotId.slice(1)
+}
+
+/** Linha do ledger de pedidos (verificação geral + histórico + limbo). */
+export interface LedgerRow {
+  orderId: string
+  userId: string
+  clientName: string
+  condominiumId: string
+  condominiumName: string
+  block: string
+  apartment: string
+  quantity: number
+  slotId: string
+  slotLabel: string
+  type: string
+  status: string
+  scheduledDate: string
+  courierId: string
+  courierName: string
+  separatedAt: string
+  deliveredAt: string
+  failedAt: string
+  failureReason: string
+  cancelReason: string
+  refunded: boolean
+}
+
+/** Filtros do ledger de pedidos. */
+export interface LedgerFilters {
+  from?: string
+  to?: string
+  status?: string[]
+  condominiumId?: string
+  courierId?: string
+  q?: string
+  limit?: number
+  skip?: number
 }
 
 function createOsClient() {
@@ -46,10 +94,15 @@ export class AdminOrdersService {
   /**
    * Atualiza o status de um pedido com validação de transição.
    *
+   * Registra o marco de tempo correspondente (separatedAt/deliveredAt/failedAt/cancelledAt)
+   * e o motivo (failureReason/cancelReason) quando aplicável — garante rastreabilidade
+   * e evita pedidos "no limbo".
+   *
+   * @param reason motivo obrigatório do ponto de vista de negócio para NOT_DELIVERED/CANCELLED
    * @throws { statusCode: 404, message: 'Pedido não encontrado' } se order não existe
    * @throws { statusCode: 422, message: 'Transição inválida: ...' } se transição não permitida
    */
-  async updateOrderStatus(orderId: string, newStatus: string): Promise<void> {
+  async updateOrderStatus(orderId: string, newStatus: string, reason?: string): Promise<void> {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } })
 
     if (!order) {
@@ -64,10 +117,30 @@ export class AdminOrdersService {
       }
     }
 
-    await this.prisma.order.update({
-      where: { id: orderId },
-      data: { status: newStatus as 'OUT_FOR_DELIVERY' | 'DELIVERED' },
-    })
+    const now = new Date()
+    const data: Prisma.OrderUpdateInput = { status: newStatus as OrderStatus }
+    switch (newStatus) {
+      case 'SEPARATED':
+        data.separatedAt = now
+        break
+      case 'DELIVERED':
+        data.deliveredAt = now
+        break
+      case 'NOT_DELIVERED':
+        data.failedAt = now
+        data.failureReason = reason ?? null
+        break
+      case 'CANCELLED':
+        data.cancelledAt = now
+        data.cancelReason = reason ?? null
+        break
+      case 'SCHEDULED':
+        // desfazer separação — limpa o marco
+        data.separatedAt = null
+        break
+    }
+
+    await this.prisma.order.update({ where: { id: orderId }, data })
 
     if (newStatus === 'DELIVERED') {
       await this.notifyAndPersist(order)
@@ -139,9 +212,9 @@ export class AdminOrdersService {
     },
   ): Promise<{ count: number }> {
     if (opts.orderIds && opts.orderIds.length > 0) {
-      // Atribuicao direta por lista de IDs
+      // Atribuicao direta por lista de IDs — gate: só pedidos separados ou já em rota
       const result = await this.prisma.order.updateMany({
-        where: { id: { in: opts.orderIds } },
+        where: { id: { in: opts.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
         data: { courierId },
       })
       return { count: result.count }
@@ -153,11 +226,12 @@ export class AdminOrdersService {
       const startOfDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0))
       const endOfDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999))
 
-      // Etapa 1: buscar orders do condominio na data
+      // Etapa 1: buscar orders do condominio na data — gate: só separados ou já em rota
       const orders = await this.prisma.order.findMany({
         where: {
           condominiumId: opts.condominiumId,
           scheduledDate: { gte: startOfDay, lte: endOfDay },
+          status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] },
         },
         select: { id: true },
       })
@@ -195,6 +269,7 @@ export class AdminOrdersService {
     condominiumsCount: number
     deliverySlots: Array<{ slotId: string; label: string; time: string; cutoffTime: string }>
     revenueByType: { combos: number; avulso: number }
+    stuckCount: number
   }> {
     // Calcular início e fim do dia em BRT (UTC-3)
     const now = new Date()
@@ -235,6 +310,7 @@ export class AdminOrdersService {
       weekOrders,
       projToday,
       projTomorrow,
+      stuckCount,
     ] = await Promise.all([
       // breadsTodayCount
       this.prisma.order.aggregate({
@@ -290,6 +366,13 @@ export class AdminOrdersService {
       // projeção da agenda (previstos não materializados) — hoje e amanhã
       projectScheduleForDate(this.prisma, todayNoonBrt),
       projectScheduleForDate(this.prisma, tomorrowNoonBrt),
+      // pedidos "no limbo": data passada e ainda sem desfecho
+      this.prisma.order.count({
+        where: {
+          scheduledDate: { lt: startOfDayBrt },
+          status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
+        },
+      }),
     ])
 
     const combosRevenue = (comboPaidPayments as { amount: number }[]).reduce((s, p) => s + p.amount, 0)
@@ -324,14 +407,16 @@ export class AdminOrdersService {
         .filter((s) => s.isActive)
         .map((s) => ({ slotId: s.slotId, label: s.label, time: s.time, cutoffTime: s.cutoffTime })),
       revenueByType: { combos: combosRevenue, avulso: avulsoRevenue },
+      stuckCount: stuckCount as number,
     }
   }
 
   /**
    * Retorna o status de entregas do dia agrupadas por condomínio.
    *
-   * Busca Orders com scheduledDate=hoje BRT (status != CANCELLED), agrupa por condominiumId.
-   * Para cada grupo: nome do condomínio, total agendado, total DELIVERED, orderIds.
+   * Gate da separação: busca Orders de hoje BRT já no estágio de entrega
+   * (SEPARATED/OUT_FOR_DELIVERY/DELIVERED/NOT_DELIVERED), agrupa por condominiumId.
+   * Para cada grupo: nome do condomínio, total no pipeline, total DELIVERED, orderIds.
    * orderIds é necessário para o frontend chamar assign-courier em batch (07-09).
    */
   async getDeliveryStatus(): Promise<
@@ -352,7 +437,9 @@ export class AdminOrdersService {
     const orders = await this.prisma.order.findMany({
       where: {
         scheduledDate: { gte: startOfDayBrt, lte: endOfDayBrt },
-        status: { not: 'CANCELLED' },
+        // Gate da separação: a operação de entrega só enxerga pedidos já SEPARADOS (e além).
+        // Pedidos SCHEDULED (ainda não separados) e CANCELLED ficam de fora.
+        status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] },
       },
       select: { id: true, condominiumId: true, status: true },
     })
@@ -397,7 +484,9 @@ export class AdminOrdersService {
    * Algoritmo greedy (D-10): ordena condomínios por quantity desc, aloca cada um
    * ao entregador com menor total acumulado no momento (balanceamento hibrido).
    *
-   * Busca Orders de amanhã BRT (nao CANCELLED) agrupadas por condominiumId.
+   * Gate da separação: busca Orders de HOJE BRT com status=SEPARATED (já separados e
+   * liberados para entrega), agrupadas por condominiumId. Pedidos ainda não separados
+   * não entram na divisão.
    * Retorna: [{ courierId, courierName, condominiums: [...], total }]
    */
   async getDivisionSuggestion(): Promise<
@@ -416,18 +505,19 @@ export class AdminOrdersService {
 
     if ((couriers as { id: string; name: string }[]).length === 0) return []
 
-    // Calcular amanhã em BRT
+    // Divisão opera sobre as entregas de HOJE já separadas (alinhamento de datas:
+    // a separação marca os pedidos do dia como SEPARATED; a divisão os consome no mesmo dia).
     const now = new Date()
     const nowBrtString = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
     const [day, month, year] = nowBrtString.split('/')
     const startOfTodayBrt = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 3, 0, 0, 0))
-    const startOfTomorrowBrt = new Date(startOfTodayBrt.getTime() + 24 * 60 * 60 * 1000)
-    const endOfTomorrowBrt = new Date(startOfTomorrowBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
+    const endOfTodayBrt = new Date(startOfTodayBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
 
     const orders = await this.prisma.order.findMany({
       where: {
-        scheduledDate: { gte: startOfTomorrowBrt, lte: endOfTomorrowBrt },
-        status: { not: 'CANCELLED' },
+        scheduledDate: { gte: startOfTodayBrt, lte: endOfTodayBrt },
+        // Gate da separação — só pedidos separados entram na divisão entre entregadores
+        status: 'SEPARATED',
       },
       select: { condominiumId: true, quantity: true },
     })
@@ -482,6 +572,231 @@ export class AdminOrdersService {
     // A sugestão greedy acima já balanceia a carga; manter os entregadores vazios
     // permite que o admin reatribua condomínios manualmente (drag-and-drop no front).
     return courierList
+  }
+
+  /**
+   * _enrichOrders — enriquece pedidos com nome do cliente, condomínio, label do slot,
+   * entregador e flag de estorno. Campos nulos viram '' (evita strip do response schema).
+   */
+  private async _enrichOrders(
+    orders: Array<{
+      id: string
+      userId: string
+      quantity: number
+      slotId: string | null
+      type: string
+      status: string
+      condominiumId: string | null
+      courierId: string | null
+      scheduledDate: Date
+      separatedAt: Date | null
+      deliveredAt: Date | null
+      failedAt: Date | null
+      failureReason: string | null
+      cancelReason: string | null
+    }>,
+  ): Promise<LedgerRow[]> {
+    if (orders.length === 0) return []
+
+    const userIds = [...new Set(orders.map((o) => o.userId))]
+    const condoIds = [...new Set(orders.map((o) => o.condominiumId).filter((c): c is string => !!c))]
+    const courierIds = [...new Set(orders.map((o) => o.courierId).filter((c): c is string => !!c))]
+    const orderIds = orders.map((o) => o.id)
+
+    const [users, condos, couriers, refunds] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, apartment: true, block: true },
+      }),
+      this.prisma.condominium.findMany({
+        where: { id: { in: condoIds } },
+        select: { id: true, name: true, deliverySlots: true },
+      }),
+      courierIds.length
+        ? this.prisma.user.findMany({ where: { id: { in: courierIds } }, select: { id: true, name: true } })
+        : Promise.resolve([] as { id: string; name: string }[]),
+      this.prisma.creditTransaction.findMany({
+        where: { type: 'REFUND', referenceId: { in: orderIds } },
+        select: { referenceId: true },
+      }),
+    ])
+
+    const userById = new Map(users.map((u) => [u.id, u]))
+    const condoById = new Map(condos.map((c) => [c.id, c]))
+    const courierById = new Map(couriers.map((c) => [c.id, c]))
+    const refundedSet = new Set(refunds.map((r) => r.referenceId).filter((id): id is string => !!id))
+
+    const slotLabelFor = (condoId: string | null, slotId: string): string => {
+      const condo = condoId ? condoById.get(condoId) : undefined
+      const slot = condo?.deliverySlots?.find((s) => s.slotId === slotId || s.name === slotId)
+      return slot?.label ?? fallbackSlotLabel(slotId)
+    }
+
+    return orders.map((o) => {
+      const u = userById.get(o.userId)
+      const slotId = o.slotId ?? ''
+      return {
+        orderId: o.id,
+        userId: o.userId,
+        clientName: u?.name ?? 'Cliente',
+        condominiumId: o.condominiumId ?? '',
+        condominiumName: (o.condominiumId && condoById.get(o.condominiumId)?.name) || '—',
+        block: u?.block ?? '',
+        apartment: u?.apartment ?? '',
+        quantity: o.quantity,
+        slotId,
+        slotLabel: slotLabelFor(o.condominiumId, slotId),
+        type: o.type,
+        status: o.status,
+        scheduledDate: o.scheduledDate.toISOString(),
+        courierId: o.courierId ?? '',
+        courierName: (o.courierId && courierById.get(o.courierId)?.name) || '',
+        separatedAt: o.separatedAt ? o.separatedAt.toISOString() : '',
+        deliveredAt: o.deliveredAt ? o.deliveredAt.toISOString() : '',
+        failedAt: o.failedAt ? o.failedAt.toISOString() : '',
+        failureReason: o.failureReason ?? '',
+        cancelReason: o.cancelReason ?? '',
+        refunded: refundedSet.has(o.id),
+      }
+    })
+  }
+
+  /** Colunas selecionadas para montar uma LedgerRow. */
+  private get _ledgerSelect() {
+    return {
+      id: true,
+      userId: true,
+      quantity: true,
+      slotId: true,
+      type: true,
+      status: true,
+      condominiumId: true,
+      courierId: true,
+      scheduledDate: true,
+      separatedAt: true,
+      deliveredAt: true,
+      failedAt: true,
+      failureReason: true,
+      cancelReason: true,
+    } as const
+  }
+
+  /**
+   * getLedger — verificação geral de pedidos (futuros + histórico) com filtros.
+   * Garante que nenhum pedido fique invisível: lista todos por data/status/condomínio/
+   * entregador/busca, paginado.
+   */
+  async getLedger(filters: LedgerFilters): Promise<{ rows: LedgerRow[]; total: number; hasMore: boolean }> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {}
+
+    if (filters.from || filters.to) {
+      where.scheduledDate = {}
+      if (filters.from) where.scheduledDate.gte = new Date(filters.from)
+      if (filters.to) where.scheduledDate.lte = new Date(filters.to)
+    }
+    if (filters.status && filters.status.length > 0) where.status = { in: filters.status }
+    if (filters.condominiumId) where.condominiumId = filters.condominiumId
+    if (filters.courierId) where.courierId = filters.courierId
+
+    if (filters.q && filters.q.trim()) {
+      const q = filters.q.trim()
+      const matched = await this.prisma.user.findMany({
+        where: {
+          OR: [{ name: { contains: q, mode: 'insensitive' } }, { apartment: { contains: q, mode: 'insensitive' } }],
+        },
+        select: { id: true },
+      })
+      const ids = matched.map((m) => m.id)
+      if (ids.length === 0) return { rows: [], total: 0, hasMore: false }
+      where.userId = { in: ids }
+    }
+
+    const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200)
+    const skip = Math.max(filters.skip ?? 0, 0)
+
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        orderBy: { scheduledDate: 'desc' },
+        take: limit,
+        skip,
+        select: this._ledgerSelect,
+      }),
+      this.prisma.order.count({ where }),
+    ])
+
+    const rows = await this._enrichOrders(orders)
+    return { rows, total, hasMore: skip + orders.length < total }
+  }
+
+  /**
+   * getStuck — pedidos "no limbo": data de entrega já passou e ainda não tiveram
+   * desfecho (não entregue, não cancelado). Base do alerta no Painel e do filtro Parados.
+   */
+  async getStuck(): Promise<{ rows: LedgerRow[]; count: number }> {
+    const now = new Date()
+    const nowBrtString = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    const [day, month, year] = nowBrtString.split('/')
+    const startOfTodayBrt = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 3, 0, 0, 0))
+
+    const where = {
+      scheduledDate: { lt: startOfTodayBrt },
+      status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] as OrderStatus[] },
+    }
+
+    const [orders, count] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        orderBy: { scheduledDate: 'asc' },
+        take: 200,
+        select: this._ledgerSelect,
+      }),
+      this.prisma.order.count({ where }),
+    ])
+
+    const rows = await this._enrichOrders(orders)
+    return { rows, count }
+  }
+
+  /**
+   * refundOrder — estorna os créditos de um pedido (atalho do detalhe do pedido).
+   * Cria CreditTransaction REFUND + incrementa o saldo. Idempotente: bloqueia 2º estorno.
+   */
+  async refundOrder(orderId: string, adminId: string, reason?: string): Promise<{ id: string; refundedCredits: number; creditBalance: number }> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order) {
+      throw { statusCode: 404, message: 'Pedido não encontrado' }
+    }
+
+    const existing = await this.prisma.creditTransaction.findFirst({
+      where: { type: 'REFUND', referenceId: orderId },
+      select: { id: true },
+    })
+    if (existing) {
+      throw { statusCode: 409, message: 'Este pedido já foi estornado' }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.creditTransaction.create({
+        data: {
+          userId: order.userId,
+          type: 'REFUND',
+          quantity: order.quantity,
+          referenceId: orderId,
+          description: `Estorno de pedido — ${order.quantity} crédito(s) devolvido(s)`,
+          adminId,
+          reason,
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: order.userId },
+        data: { creditBalance: { increment: order.quantity } },
+      }),
+    ])
+
+    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
+    return { id: orderId, refundedCredits: order.quantity, creditBalance: user?.creditBalance ?? 0 }
   }
 
   /**

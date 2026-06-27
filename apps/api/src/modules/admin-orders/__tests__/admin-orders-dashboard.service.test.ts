@@ -21,6 +21,7 @@ function makeDashboardFastifyMock(overrides: Record<string, any> = {}) {
       aggregate: vi.fn().mockResolvedValue(orderAggregate),
       findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      count: vi.fn().mockResolvedValue(0),
     },
     // projectScheduleForDate (projeção de agenda) consulta schedule.findMany;
     // [] => projeção retorna 0 e não interfere nos contadores materializados.
@@ -205,9 +206,9 @@ describe('AdminOrdersService.getDeliveryStatus', () => {
   it('agrupa orders de hoje por condominiumId com contagem scheduled e delivered', async () => {
     const condominiumId = 'condo-01'
     const orders = [
-      { id: 'order-1', condominiumId, status: 'SCHEDULED' },
+      { id: 'order-1', condominiumId, status: 'SEPARATED' },
       { id: 'order-2', condominiumId, status: 'DELIVERED' },
-      { id: 'order-3', condominiumId, status: 'SCHEDULED' },
+      { id: 'order-3', condominiumId, status: 'SEPARATED' },
     ]
 
     const { fastify, prisma } = makeDashboardFastifyMock({})
@@ -248,7 +249,7 @@ describe('AdminOrdersService.getDeliveryStatus', () => {
     const condominiumId = 'condo-02'
     const orders = [
       { id: 'o-1', condominiumId, status: 'DELIVERED' },
-      { id: 'o-2', condominiumId, status: 'SCHEDULED' },
+      { id: 'o-2', condominiumId, status: 'SEPARATED' },
     ]
 
     const { fastify, prisma } = makeDashboardFastifyMock({})
@@ -283,7 +284,7 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     expect(result).toEqual([])
   })
 
-  it('retorna array vazio quando nao ha orders para amanha', async () => {
+  it('retorna array vazio quando nao ha orders separados para hoje', async () => {
     const { fastify, prisma } = makeDashboardFastifyMock({})
     prisma.user.findMany.mockResolvedValue([
       { id: 'courier-01', name: 'Joao' },

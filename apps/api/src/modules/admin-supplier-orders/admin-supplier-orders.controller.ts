@@ -50,6 +50,24 @@ export class AdminSupplierOrdersController {
   }
 
   /**
+   * GET /admin/supplier-orders/generated-status
+   *
+   * Informa se o pedido ao fornecedor de amanhã já foi gerado (FINALIZED).
+   */
+  async generatedStatus(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    try {
+      const status = await this.service.getGeneratedStatus()
+      return reply.status(200).send(status)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * GET /admin/supplier-orders/draft/:condominiumId
    *
    * Detalhamento por cliente das entregas de um condomínio para amanhã.

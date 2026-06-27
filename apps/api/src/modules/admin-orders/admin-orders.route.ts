@@ -72,12 +72,137 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                   avulso: { type: 'number', description: 'Receita via compra avulsa/personalizada em reais.' },
                 },
               },
+              stuckCount: { type: 'integer', description: 'Pedidos "no limbo": data de entrega passada e ainda sem desfecho.' },
             },
           },
         },
       },
     },
     ctrl.dashboard.bind(ctrl),
+  )
+
+  // Propriedades de uma linha do ledger (verificação geral / histórico / limbo)
+  const ledgerRowProps = {
+    orderId: { type: 'string' },
+    userId: { type: 'string' },
+    clientName: { type: 'string' },
+    condominiumId: { type: 'string' },
+    condominiumName: { type: 'string' },
+    block: { type: 'string' },
+    apartment: { type: 'string' },
+    quantity: { type: 'integer' },
+    slotId: { type: 'string' },
+    slotLabel: { type: 'string' },
+    type: { type: 'string' },
+    status: { type: 'string' },
+    scheduledDate: { type: 'string' },
+    courierId: { type: 'string' },
+    courierName: { type: 'string' },
+    separatedAt: { type: 'string' },
+    deliveredAt: { type: 'string' },
+    failedAt: { type: 'string' },
+    failureReason: { type: 'string' },
+    cancelReason: { type: 'string' },
+    refunded: { type: 'boolean' },
+  }
+
+  // GET /admin/orders — ledger de pedidos (verificação geral + histórico)
+  fastify.get(
+    '/admin/orders',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Ledger de pedidos (verificação geral / histórico)',
+        description:
+          'Lista pedidos com filtros (intervalo de datas, status, condomínio, entregador, busca por cliente/apto) e paginação. Garante que nenhum pedido fique invisível: cobre futuros agendados e histórico (entregue/não entregue/cancelado).',
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Data inicial (ISO/YYYY-MM-DD).' },
+            to: { type: 'string', description: 'Data final (ISO/YYYY-MM-DD).' },
+            status: { type: 'string', description: 'CSV de status (ex.: "DELIVERED,NOT_DELIVERED").' },
+            condominiumId: { type: 'string' },
+            courierId: { type: 'string' },
+            q: { type: 'string', description: 'Busca por nome do cliente ou apartamento.' },
+            limit: { type: 'integer', description: 'Máx. de itens (1–200, default 50).' },
+            skip: { type: 'integer', description: 'Offset de paginação.' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              rows: { type: 'array', items: { type: 'object', properties: ledgerRowProps } },
+              total: { type: 'integer' },
+              hasMore: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.ledger.bind(ctrl),
+  )
+
+  // GET /admin/orders/stuck — pedidos parados (limbo)
+  fastify.get(
+    '/admin/orders/stuck',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Pedidos parados (limbo)',
+        description:
+          'Retorna pedidos cuja data de entrega já passou e que ainda não tiveram desfecho (não entregue, não cancelado). Base do alerta no Painel e do filtro "Parados".',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              rows: { type: 'array', items: { type: 'object', properties: ledgerRowProps } },
+              count: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.stuck.bind(ctrl),
+  )
+
+  // POST /admin/orders/:id/refund — estorno de créditos de um pedido
+  fastify.post(
+    '/admin/orders/:id/refund',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Estornar créditos de um pedido',
+        description:
+          'Devolve ao cliente os créditos de um pedido (CreditTransaction REFUND + incremento do saldo). Idempotente: bloqueia um segundo estorno do mesmo pedido (409). Usado no atalho do detalhe de pedidos não entregues/cancelados.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do pedido (MongoDB ObjectId).' } },
+        },
+        body: {
+          type: 'object',
+          properties: { reason: { type: 'string', description: 'Motivo do estorno (auditoria).' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              refundedCredits: { type: 'integer' },
+              creditBalance: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.refundOrder.bind(ctrl),
   )
 
   // GET /admin/orders/delivery-status — status de entregas do dia agrupadas por condomínio (07-06)
@@ -197,7 +322,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — dashboard'],
         summary: 'Atualizar status de pedido',
-        description: 'Atualiza o status de um pedido. Transições válidas: SCHEDULED → OUT_FOR_DELIVERY → DELIVERED. Não é possível regredir status. Quando status=DELIVERED, registra deliveredAt com timestamp atual e dispara push para o cliente.',
+        description: 'Atualiza o status de um pedido no ciclo de vida v2 (SCHEDULED → SEPARATED → OUT_FOR_DELIVERY → DELIVERED, com desfecho alternativo NOT_DELIVERED). Registra o marco de tempo correspondente (separatedAt/deliveredAt/failedAt) e, em NOT_DELIVERED, o motivo. Quando status=DELIVERED, dispara push para o cliente. Cancelamento é feito no fluxo de admin-clients (que também estorna créditos).',
         security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
@@ -210,7 +335,8 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
           type: 'object',
           required: ['status'],
           properties: {
-            status: { type: 'string', enum: ['OUT_FOR_DELIVERY', 'DELIVERED'], description: 'Novo status do pedido. Transições: SCHEDULED→OUT_FOR_DELIVERY ou OUT_FOR_DELIVERY→DELIVERED.' },
+            status: { type: 'string', enum: ['SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'], description: 'Novo status do pedido. Transições válidas em VALID_TRANSITIONS (ex.: SEPARATED→OUT_FOR_DELIVERY, OUT_FOR_DELIVERY→DELIVERED|NOT_DELIVERED).' },
+            reason: { type: 'string', description: 'Motivo (opcional) — usado principalmente em NOT_DELIVERED (cliente ausente, endereço, etc.).' },
           },
         },
         response: {

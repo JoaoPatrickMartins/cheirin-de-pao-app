@@ -1,6 +1,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { UpdateOrderStatusSchema, AssignCourierSchema } from './admin-orders.schema.js'
+import {
+  UpdateOrderStatusSchema,
+  AssignCourierSchema,
+  LedgerQuerySchema,
+  RefundOrderSchema,
+} from './admin-orders.schema.js'
 import { AdminOrdersService } from './admin-orders.service.js'
 
 type ZodIssue = { message: string }
@@ -130,6 +135,72 @@ export class AdminOrdersController {
   }
 
   /**
+   * GET /admin/orders — ledger (verificação geral + histórico + limbo).
+   */
+  async ledger(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    let query: ReturnType<typeof LedgerQuerySchema.parse>
+    try {
+      query = LedgerQuerySchema.parse(request.query)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Filtros inválidos.' })
+    }
+    try {
+      const data = await this.service.getLedger(query)
+      return reply.status(200).send(data)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/orders/stuck — pedidos parados (limbo).
+   */
+  async stuck(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    try {
+      const data = await this.service.getStuck()
+      return reply.status(200).send(data)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * POST /admin/orders/:id/refund — estorna créditos de um pedido.
+   */
+  async refundOrder(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    let body: ReturnType<typeof RefundOrderSchema.parse>
+    try {
+      body = RefundOrderSchema.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    const { id: orderId } = request.params as { id: string }
+    try {
+      const result = await this.service.refundOrder(orderId, request.user.id, body.reason)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 409) return reply.status(409).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * PATCH /admin/orders/:id/status
    *
    * Atualiza status de um pedido com validação de transição.
@@ -157,7 +228,7 @@ export class AdminOrdersController {
 
     // 4. Chamar service
     try {
-      await this.service.updateOrderStatus(orderId, body.status)
+      await this.service.updateOrderStatus(orderId, body.status, body.reason)
       return reply.status(200).send({ ok: true })
     } catch (err) {
       this.fastify.log.error(err)

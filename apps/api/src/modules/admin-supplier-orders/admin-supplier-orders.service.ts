@@ -9,6 +9,7 @@ import { generateExcel } from './excel-generator.js'
 import type { SupplierOrderData } from './pdf-generator.js'
 import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleDetailForDate } from '../../lib/schedule-projection.js'
+import { SchedulesService } from '../schedules/schedules.service.js'
 
 /** Flag de risco de uma entrega prevista que pode não se materializar. */
 export type RiskFlag = '' | 'no-credit' | 'blocked'
@@ -337,10 +338,9 @@ export class AdminSupplierOrdersService {
     items: Array<{ supplierId: string; quantity: number }>
     cutoffTime?: string
   }): Promise<{ id: string }> {
-    // Calcular data = amanhã (data do pedido)
-    const tomorrow = new Date()
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
-    tomorrow.setUTCHours(0, 0, 0, 0)
+    // Data de entrega = amanhã ao meio-dia BRT. Corrige o bug de gravar meia-noite UTC,
+    // que em BRT (UTC-3) caía no dia anterior (pedido de amanhã aparecia como "hoje").
+    const deliveryDate = brtNoonFromStr(brtDateStr(new Date(), 1))
 
     // Horário de corte — default 20:00 BRT
     const cutoffTime = data.cutoffTime
@@ -367,13 +367,54 @@ export class AdminSupplierOrdersService {
     const totalQuantity = itemsWithPrice.reduce((sum, item) => sum + item.quantity, 0)
 
     const order = await this.repository.create({
-      date: tomorrow,
+      date: deliveryDate,
       cutoffTime,
       totalQuantity,
       items: itemsWithPrice,
     })
 
+    // Fecha o ciclo do corte:
+    // 1) finaliza o pedido (DRAFT → FINALIZED) — passa a aparecer no histórico de compras
+    await this.repository.finalize(order.id)
+
+    // 2) materializa os pedidos por cliente do dia alvo (idempotente) — alimenta a Separação.
+    //    Best-effort: uma falha aqui NÃO invalida o pedido ao fornecedor já criado.
+    try {
+      const schedules = new SchedulesService(this.fastify)
+      await schedules.materializeOrdersForDate(deliveryDate)
+    } catch (err) {
+      this.fastify.log.warn(
+        { err, orderId: order.id },
+        '[supplier-orders] falha ao materializar pedidos no corte — ignorado',
+      )
+    }
+
     return { id: order.id }
+  }
+
+  /**
+   * getGeneratedStatus — informa se o pedido ao fornecedor de AMANHÃ já foi gerado
+   * (FINALIZED). Usado pela aba Compra para travar a tela como "já gerado" e evitar
+   * geração duplicada.
+   */
+  async getGeneratedStatus(): Promise<{
+    generated: boolean
+    orderId: string
+    totalQuantity: number
+    date: string
+  }> {
+    const deliveryDate = brtNoonFromStr(brtDateStr(new Date(), 1))
+    const { start, end } = brtDayRange(deliveryDate)
+    const po = await this.prisma.purchaseOrder.findFirst({
+      where: { status: 'FINALIZED', date: { gte: start, lte: end } },
+      orderBy: { createdAt: 'desc' },
+    })
+    return {
+      generated: !!po,
+      orderId: po?.id ?? '',
+      totalQuantity: po?.totalQuantity ?? 0,
+      date: po ? po.date.toISOString() : '',
+    }
   }
 
   /**

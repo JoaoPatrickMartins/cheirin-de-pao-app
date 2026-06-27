@@ -65,8 +65,10 @@ enum OrderType {
 
 enum OrderStatus {
   SCHEDULED
+  SEPARATED
   OUT_FOR_DELIVERY
   DELIVERED
+  NOT_DELIVERED
   CANCELLED
 }
 
@@ -228,8 +230,18 @@ model Order {
   condominiumId  String?     @db.ObjectId
   slotId         String?     // identificador estável do slot (chave de junção; Etapa B)
   deliveryTime   String?     // snapshot do horário de entrega no momento do pedido (exibição)
+  // Marcos do ciclo de vida (rastreabilidade ponta-a-ponta — evita pedido "no limbo")
+  separatedAt    DateTime?   // quando foi separado/conferido (entra na divisão de entregas)
+  deliveredAt    DateTime?   // quando foi confirmado como entregue
+  failedAt       DateTime?   // quando foi marcado como NÃO entregue
+  failureReason  String?     // motivo da não-entrega (cliente ausente, endereço, etc.)
+  cancelledAt    DateTime?   // quando foi cancelado
+  cancelReason   String?     // motivo do cancelamento
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+
+  @@index([status, scheduledDate])
+  @@index([condominiumId, scheduledDate])
 }
 
 // 9. Delivery — registro de entrega com confirmação por entregador
