@@ -65,7 +65,8 @@ export class AdminOrdersController {
     }
 
     try {
-      const data = await this.service.getDeliveryStatus()
+      const { slotId, date } = request.query as { slotId?: string; date?: string }
+      const data = await this.service.getDeliveryStatus(slotId, date)
       return reply.status(200).send(data)
     } catch (err) {
       this.fastify.log.error(err)
@@ -86,7 +87,8 @@ export class AdminOrdersController {
     }
 
     try {
-      const data = await this.service.getDivisionSuggestion()
+      const { slotId, date } = request.query as { slotId?: string; date?: string }
+      const data = await this.service.getDivisionSuggestion(slotId, date)
       return reply.status(200).send(data)
     } catch (err) {
       this.fastify.log.error(err)

@@ -6,6 +6,8 @@ import { Icon } from '../../../components/brand/Icon'
 import StepperInline from '../../../components/client/StepperInline'
 import { CondominiumOrderDetail } from '../../../components/admin/CondominiumOrderDetail'
 import { SupplierOrderHistory } from '../../../components/admin/SupplierOrderHistory'
+import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import { slotTabLabel } from '../../../lib/slots'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -39,8 +41,12 @@ interface Supplier {
 interface SlotCutoff {
   slotId: string
   label: string
+  emoji?: string
   time: string
   cutoffTime: string
+  deliveryDate?: string // ISO — data de entrega do turno (Regra A)
+  hasOrders?: boolean // há pedidos (materializados + previstos) neste turno
+  generated?: boolean // compra deste turno já finalizada
 }
 
 // ---------------------------------------------------------------------------
@@ -235,9 +241,32 @@ function Footer({ label, totalLabel, totalValue, ctaLabel, ctaIcon, onCta, isLoa
 // Componente principal
 // ---------------------------------------------------------------------------
 
+/**
+ * Turno padrão da aba Compra: o PRÓXIMO corte que tem pedido e ainda não foi finalizado.
+ * `slots` vem do backend já ordenado pelo próximo corte (data de entrega + horário).
+ * Fallbacks: primeiro com pedido; senão o primeiro da lista.
+ */
+function smartDefaultSlot(slots: SlotCutoff[]): string {
+  const pending = slots.find((s) => s.hasOrders && !s.generated)
+  if (pending) return pending.slotId
+  const withOrders = slots.find((s) => s.hasOrders)
+  if (withOrders) return withOrders.slotId
+  return slots[0]?.slotId ?? ''
+}
+
+/** Data ISO → "27 de junho" (BRT). */
+function formatIsoDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
+  } catch {
+    return iso
+  }
+}
+
 export function AdminPedido() {
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
   const [showHistory, setShowHistory] = useState(false)
+  const [slotId, setSlotId] = useState<string>('')
   const [generated, setGenerated] = useState<{ generated: boolean; orderId: string; totalQuantity: number } | null>(null)
 
   // Dados do draft
@@ -273,32 +302,52 @@ export function AdminPedido() {
   // Busca inicial: draft + cutoff
   // ---------------------------------------------------------------------------
 
+  // Mount: carrega o estado dos turnos e abre no PRÓXIMO corte com pedido (não finalizado).
   useEffect(() => {
-    const fetchData = async () => {
+    void (async () => {
       try {
-        const [draftRes, slotsRes, statusRes] = await Promise.all([
-          apiFetch('/admin/supplier-orders/draft'),
-          apiFetch('/admin/settings/slots'),
-          apiFetch('/admin/supplier-orders/generated-status'),
-        ])
-        if (draftRes.ok) {
-          setDraftData((await draftRes.json()) as CondoDraft[])
-        }
-        if (slotsRes.ok) {
-          const data = (await slotsRes.json()) as { slots: SlotCutoff[] }
+        const res = await apiFetch('/admin/supplier-orders/slots-status')
+        if (res.ok) {
+          const data = (await res.json()) as { slots: SlotCutoff[] }
           setSlots(data.slots)
+          if (data.slots.length > 0) {
+            setSlotId(smartDefaultSlot(data.slots))
+            return // o efeito [slotId] cuida de carregar a prévia + status
+          }
         }
+      } catch {
+        // falha silenciosa
+      }
+      setIsLoading(false)
+    })()
+  }, [])
+
+  // Troca de turno: recarrega a prévia + status APENAS daquele turno (pipeline por slot).
+  useEffect(() => {
+    if (!slotId) return
+    let cancelled = false
+    void (async () => {
+      setIsLoading(true)
+      try {
+        const [draftRes, statusRes] = await Promise.all([
+          apiFetch(`/admin/supplier-orders/draft?slotId=${slotId}`),
+          apiFetch(`/admin/supplier-orders/generated-status?slotId=${slotId}`),
+        ])
+        if (cancelled) return
+        if (draftRes.ok) setDraftData((await draftRes.json()) as CondoDraft[])
         if (statusRes.ok) {
           setGenerated((await statusRes.json()) as { generated: boolean; orderId: string; totalQuantity: number })
         }
       } catch {
         // falha silenciosa
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
+    })()
+    return () => {
+      cancelled = true
     }
-    void fetchData()
-  }, [])
+  }, [slotId])
 
   // Atualiza a contagem regressiva do corte a cada 30s
   useEffect(() => {
@@ -405,7 +454,7 @@ export function AdminPedido() {
 
       const res = await apiFetch('/admin/supplier-orders', {
         method: 'POST',
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, slotId }),
       })
       if (res.ok) {
         const data = (await res.json()) as { id: string }
@@ -457,11 +506,15 @@ export function AdminPedido() {
   // ---------------------------------------------------------------------------
 
   const tomorrowLabel = getTomorrowLabel()
+  const selectedSlot = slots?.find((s) => s.slotId === slotId)
+  const turnoLabel = selectedSlot?.label ?? ''
+  // Data de entrega do turno selecionado (Regra A): Manhã = amanhã, Tarde = hoje, etc.
+  const deliveryDateLabel = selectedSlot?.deliveryDate ? formatIsoDate(selectedSlot.deliveryDate) : tomorrowLabel
 
   // Drill-down em tela cheia — detalhamento por cliente do condomínio selecionado
   if (detailCondoId) {
     return (
-      <CondominiumOrderDetail condominiumId={detailCondoId} onBack={() => setDetailCondoId(null)} />
+      <CondominiumOrderDetail condominiumId={detailCondoId} slotId={slotId} onBack={() => setDetailCondoId(null)} />
     )
   }
 
@@ -473,7 +526,7 @@ export function AdminPedido() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <AdminHead
-        sub={`Para amanhã · ${tomorrowLabel}`}
+        sub={turnoLabel ? `Turno ${turnoLabel} · ${deliveryDateLabel}` : `Pedido ao fornecedor · ${deliveryDateLabel}`}
         titulo="Compra"
         action={
           <button
@@ -514,7 +567,7 @@ export function AdminPedido() {
               <Spinner />
             ) : (
               <>
-                {/* Selo: pedido de amanhã já gerado */}
+                {/* Selo: pedido do turno já gerado */}
                 {generated?.generated && (
                   <div
                     style={{
@@ -531,7 +584,7 @@ export function AdminPedido() {
                     <Icon name="check" size={20} color="var(--color-good)" stroke={2.4} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-good)', margin: 0 }}>
-                        Pedido de amanhã já gerado{generated.totalQuantity ? ` · ${generated.totalQuantity} pães` : ''}
+                        Pedido {turnoLabel ? `da ${turnoLabel}` : 'do turno'} já gerado{generated.totalQuantity ? ` · ${generated.totalQuantity} pães` : ''}
                       </p>
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-sec)', margin: '2px 0 0' }}>
                         Os pedidos já estão liberados na Separação.
@@ -631,6 +684,17 @@ export function AdminPedido() {
                     {cutoff.open ? 'Aberto' : 'Encerrado'}
                   </span>
                 </div>
+
+                {/* Seletor de turno — abre no próximo corte com pedido; fica abaixo do card de corte */}
+                {slots && slots.length > 1 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <SegmentedControl<string>
+                      tabs={slots.map((s) => ({ key: s.slotId, label: slotTabLabel(s) }))}
+                      value={slotId}
+                      onChange={setSlotId}
+                    />
+                  </div>
+                )}
 
                 {/* Resumo (KPIs + split de turno + risco) + busca */}
                 {draftData && draftData.length > 0 && (

@@ -20,6 +20,8 @@ export const CreateSupplierOrderSchema = z.object({
     )
     .min(1, 'Pelo menos um item é obrigatório'),
   cutoffTime: z.string().optional(),
+  // Turno (slot) do pedido — pipeline por turno
+  slotId: z.string().min(1, 'slotId é obrigatório'),
 })
 
 export type CreateSupplierOrderBody = z.infer<typeof CreateSupplierOrderSchema>

@@ -161,22 +161,20 @@ export class SchedulesService {
   }
 
   /**
-   * Materializa os pedidos de TODOS os condomínios/slots ativos para uma data de
-   * entrega específica (independente da hora atual). Usado pelo "Encerrar corte"
-   * manual da aba Compra para fechar o ciclo do dia e alimentar a Separação.
+   * Materializa os pedidos de UM turno (slot) em TODOS os condomínios ativos, para a
+   * data de entrega informada. Usado pelo "Encerrar corte" manual da aba Compra para
+   * fechar o ciclo daquele turno — sem tocar nos outros turnos (pipeline por slot).
    *
    * Idempotente: createOrdersForCondoSlot pula pedidos já existentes — seguro mesmo
-   * que o cron já tenha materializado parte (ou o admin clique mais de uma vez).
+   * que o cron já tenha materializado o turno (ou o admin clique mais de uma vez).
    */
-  async materializeOrdersForDate(deliveryDate: Date): Promise<void> {
+  async materializeOrdersForSlot(deliveryDate: Date, slotId: string): Promise<void> {
     const dayKey = dayKeyOf(deliveryDate)
     const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
     for (const condo of condominiums) {
-      for (const slot of condo.deliverySlots) {
-        if (!slot.isActive) continue
-        const slotId = slot.slotId ?? slot.name
-        await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate)
-      }
+      const slot = condo.deliverySlots.find((s) => (s.slotId ?? s.name) === slotId && s.isActive)
+      if (!slot) continue
+      await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate)
     }
   }
 

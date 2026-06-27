@@ -44,6 +44,7 @@ interface CondoDetail {
 
 interface Props {
   condominiumId: string
+  slotId: string
   onBack: () => void
 }
 
@@ -94,7 +95,7 @@ function slugify(s: string): string {
 // Componente
 // ---------------------------------------------------------------------------
 
-export function CondominiumOrderDetail({ condominiumId, onBack }: Props) {
+export function CondominiumOrderDetail({ condominiumId, slotId, onBack }: Props) {
   const [data, setData] = useState<CondoDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [slotFilter, setSlotFilter] = useState<string>('all')
@@ -102,7 +103,7 @@ export function CondominiumOrderDetail({ condominiumId, onBack }: Props) {
   useEffect(() => {
     let active = true
     setIsLoading(true)
-    apiFetch(`/admin/supplier-orders/draft/${condominiumId}`)
+    apiFetch(`/admin/supplier-orders/draft/${condominiumId}?slotId=${slotId}`)
       .then(async (res) => {
         if (!res.ok) return
         const json = (await res.json()) as CondoDetail
@@ -117,7 +118,7 @@ export function CondominiumOrderDetail({ condominiumId, onBack }: Props) {
     return () => {
       active = false
     }
-  }, [condominiumId])
+  }, [condominiumId, slotId])
 
   // Entregas filtradas pelo turno selecionado
   const visible = useMemo(() => {

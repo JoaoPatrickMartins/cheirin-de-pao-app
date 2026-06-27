@@ -50,6 +50,8 @@ export class AdminSupplierOrdersRepository {
    */
   async create(data: {
     date: Date
+    slotId: string
+    slotLabel: string
     cutoffTime: Date
     totalQuantity: number
     items: Array<{ supplierId: string; quantity: number; unitPrice: number }>
@@ -58,6 +60,8 @@ export class AdminSupplierOrdersRepository {
       const order = await tx.purchaseOrder.create({
         data: {
           date: data.date,
+          slotId: data.slotId,
+          slotLabel: data.slotLabel,
           cutoffTime: data.cutoffTime,
           totalQuantity: data.totalQuantity,
           status: 'DRAFT',

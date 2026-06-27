@@ -7,9 +7,10 @@ import { AdminSupplierOrdersRepository } from './admin-supplier-orders.repositor
 import { generatePdf } from './pdf-generator.js'
 import { generateExcel } from './excel-generator.js'
 import type { SupplierOrderData } from './pdf-generator.js'
-import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
+import { brtDayRange, targetDeliveryDate } from '../../lib/cutoff.js'
 import { projectScheduleDetailForDate } from '../../lib/schedule-projection.js'
 import { SchedulesService } from '../schedules/schedules.service.js'
+import { getGlobalDeliverySlots, type GlobalDeliverySlot } from '../../lib/delivery-slots.js'
 
 /** Flag de risco de uma entrega prevista que pode não se materializar. */
 export type RiskFlag = '' | 'no-credit' | 'blocked'
@@ -68,6 +69,19 @@ export class AdminSupplierOrdersService {
   }
 
   /**
+   * Resolve o turno (slot) pelo slotId e calcula sua próxima data de entrega (Regra A):
+   * HOJE se o horário do slot ainda está à frente do corte, senão AMANHÃ.
+   */
+  private async _resolveSlot(slotId: string): Promise<{ slot: GlobalDeliverySlot; deliveryDate: Date }> {
+    const slots = await getGlobalDeliverySlots(this.prisma)
+    const slot = slots.find((s) => s.slotId === slotId)
+    if (!slot) {
+      throw { statusCode: 400, message: `Turno inválido: ${slotId}` }
+    }
+    return { slot, deliveryDate: targetDeliveryDate(slot.time, slot.cutoffTime) }
+  }
+
+  /**
    * _buildDeliveryRows — fonte única de verdade das entregas de amanhã (BRT).
    *
    * Une pedidos JÁ materializados (Order) com previstos da agenda (ainda não materializados),
@@ -79,25 +93,23 @@ export class AdminSupplierOrdersService {
    * - 'blocked'  → cliente bloqueado
    * - 'no-credit'→ total previsto do cliente > saldo de créditos atual
    */
-  private async _buildDeliveryRows(condominiumId?: string): Promise<DeliveryRow[]> {
-    // Amanhã em BRT — usa helpers de cutoff (corrige bug de cálculo por dia UTC, que
-    // entre 21:00–23:59 BRT apontava para o dia errado, inclusive no corte das 22:00).
-    const now = new Date()
-    const tomorrowNoonBrt = brtNoonFromStr(brtDateStr(now, 1))
-    const { start: startOfTomorrow, end: endOfTomorrow } = brtDayRange(tomorrowNoonBrt)
+  private async _buildDeliveryRows(slotId: string, deliveryDate: Date, condominiumId?: string): Promise<DeliveryRow[]> {
+    const { start: startOfDay, end: endOfDay } = brtDayRange(deliveryDate)
 
-    // Pedidos JÁ materializados para amanhã (não cancelados)
+    // Pedidos JÁ materializados deste turno para a data (não cancelados)
     const orders = await this.prisma.order.findMany({
       where: {
-        scheduledDate: { gte: startOfTomorrow, lte: endOfTomorrow },
+        scheduledDate: { gte: startOfDay, lte: endOfDay },
         status: { not: 'CANCELLED' },
+        slotId,
         condominiumId: condominiumId ?? { not: null },
       },
       select: { userId: true, quantity: true, slotId: true, type: true, condominiumId: true },
     })
 
-    // Previstos pela agenda (por usuário e slot, ainda não materializados)
-    let projected = await projectScheduleDetailForDate(this.prisma, tomorrowNoonBrt)
+    // Previstos pela agenda — APENAS deste turno, ainda não materializados
+    let projected = await projectScheduleDetailForDate(this.prisma, deliveryDate)
+    projected = projected.filter((p) => p.slotId === slotId)
     if (condominiumId) projected = projected.filter((p) => p.condominiumId === condominiumId)
 
     // Carregar clientes (nome, ap/bloco, saldo, bloqueio) e condomínios (nome + slots) referenciados
@@ -204,7 +216,7 @@ export class AdminSupplierOrdersService {
    * Agrupa as linhas de entrega por condomínio. Mantém os campos originais
    * (deliveryCount/totalBreads/projected*) e acrescenta `bySlot` (chips ☀/☾) e `riskCount`.
    */
-  async getDraft(): Promise<
+  async getDraft(slotId: string): Promise<
     Array<{
       condominiumId: string
       name: string
@@ -216,7 +228,8 @@ export class AdminSupplierOrdersService {
       riskCount: number
     }>
   > {
-    const rows = await this._buildDeliveryRows()
+    const { deliveryDate } = await this._resolveSlot(slotId)
+    const rows = await this._buildDeliveryRows(slotId, deliveryDate)
 
     const byCondo = new Map<string, DeliveryRow[]>()
     for (const r of rows) {
@@ -251,7 +264,7 @@ export class AdminSupplierOrdersService {
    * (avulso/agenda), origem (confirmado/previsto) e flag de risco. Inclui quebra por slot,
    * por tipo e contadores — base da tela de detalhe da aba Pedido.
    */
-  async getCondominiumDetail(condominiumId: string): Promise<{
+  async getCondominiumDetail(condominiumId: string, slotId: string): Promise<{
     condominiumId: string
     name: string
     totalBreads: number
@@ -275,7 +288,8 @@ export class AdminSupplierOrdersService {
       risk: RiskFlag
     }>
   }> {
-    const rows = await this._buildDeliveryRows(condominiumId)
+    const { deliveryDate } = await this._resolveSlot(slotId)
+    const rows = await this._buildDeliveryRows(slotId, deliveryDate, condominiumId)
 
     // Nome do condomínio — buscar mesmo se não houver linhas (estado vazio)
     let name = rows[0]?.condominiumName
@@ -337,10 +351,10 @@ export class AdminSupplierOrdersService {
   async create(data: {
     items: Array<{ supplierId: string; quantity: number }>
     cutoffTime?: string
+    slotId: string
   }): Promise<{ id: string }> {
-    // Data de entrega = amanhã ao meio-dia BRT. Corrige o bug de gravar meia-noite UTC,
-    // que em BRT (UTC-3) caía no dia anterior (pedido de amanhã aparecia como "hoje").
-    const deliveryDate = brtNoonFromStr(brtDateStr(new Date(), 1))
+    // Resolve o turno e sua data de entrega (Regra A). Pedido de compra é por TURNO.
+    const { slot, deliveryDate } = await this._resolveSlot(data.slotId)
 
     // Horário de corte — default 20:00 BRT
     const cutoffTime = data.cutoffTime
@@ -368,24 +382,26 @@ export class AdminSupplierOrdersService {
 
     const order = await this.repository.create({
       date: deliveryDate,
+      slotId: slot.slotId,
+      slotLabel: slot.label,
       cutoffTime,
       totalQuantity,
       items: itemsWithPrice,
     })
 
-    // Fecha o ciclo do corte:
+    // Fecha o ciclo do corte DESTE turno:
     // 1) finaliza o pedido (DRAFT → FINALIZED) — passa a aparecer no histórico de compras
     await this.repository.finalize(order.id)
 
-    // 2) materializa os pedidos por cliente do dia alvo (idempotente) — alimenta a Separação.
+    // 2) materializa os pedidos por cliente APENAS deste turno (idempotente) — alimenta a Separação.
     //    Best-effort: uma falha aqui NÃO invalida o pedido ao fornecedor já criado.
     try {
       const schedules = new SchedulesService(this.fastify)
-      await schedules.materializeOrdersForDate(deliveryDate)
+      await schedules.materializeOrdersForSlot(deliveryDate, slot.slotId)
     } catch (err) {
       this.fastify.log.warn(
-        { err, orderId: order.id },
-        '[supplier-orders] falha ao materializar pedidos no corte — ignorado',
+        { err, orderId: order.id, slotId: slot.slotId },
+        '[supplier-orders] falha ao materializar pedidos do turno no corte — ignorado',
       )
     }
 
@@ -397,16 +413,17 @@ export class AdminSupplierOrdersService {
    * (FINALIZED). Usado pela aba Compra para travar a tela como "já gerado" e evitar
    * geração duplicada.
    */
-  async getGeneratedStatus(): Promise<{
+  async getGeneratedStatus(slotId: string): Promise<{
     generated: boolean
     orderId: string
     totalQuantity: number
     date: string
+    slotLabel: string
   }> {
-    const deliveryDate = brtNoonFromStr(brtDateStr(new Date(), 1))
+    const { slot, deliveryDate } = await this._resolveSlot(slotId)
     const { start, end } = brtDayRange(deliveryDate)
     const po = await this.prisma.purchaseOrder.findFirst({
-      where: { status: 'FINALIZED', date: { gte: start, lte: end } },
+      where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
       orderBy: { createdAt: 'desc' },
     })
     return {
@@ -414,7 +431,55 @@ export class AdminSupplierOrdersService {
       orderId: po?.id ?? '',
       totalQuantity: po?.totalQuantity ?? 0,
       date: po ? po.date.toISOString() : '',
+      slotLabel: slot.label,
     }
+  }
+
+  /**
+   * getSlotsStatus — para cada turno ativo: data de entrega (Regra A), se há pedidos
+   * (materializados + previstos) e se a compra já foi finalizada. Ordenado pelo PRÓXIMO
+   * corte (data de entrega + horário). A aba Compra usa isto para abrir já no turno certo
+   * (o próximo com pedido e ainda não finalizado) e exibir a data correta de cada turno.
+   */
+  async getSlotsStatus(): Promise<
+    Array<{
+      slotId: string
+      label: string
+      emoji: string
+      time: string
+      cutoffTime: string
+      deliveryDate: string
+      hasOrders: boolean
+      generated: boolean
+      totalBreads: number
+    }>
+  > {
+    const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
+    const out = await Promise.all(
+      slots.map(async (slot) => {
+        const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime)
+        const { start, end } = brtDayRange(deliveryDate)
+        const rows = await this._buildDeliveryRows(slot.slotId, deliveryDate)
+        const totalBreads = rows.reduce((s, r) => s + r.quantity, 0)
+        const po = await this.prisma.purchaseOrder.findFirst({
+          where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
+          select: { id: true },
+        })
+        return {
+          slotId: slot.slotId,
+          label: slot.label,
+          emoji: slot.emoji,
+          time: slot.time,
+          cutoffTime: slot.cutoffTime,
+          deliveryDate: deliveryDate.toISOString(),
+          hasOrders: rows.length > 0,
+          generated: !!po,
+          totalBreads,
+        }
+      }),
+    )
+    // Próximo corte primeiro: por data de entrega, depois por horário do turno.
+    return out.sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate) || a.time.localeCompare(b.time))
   }
 
   /**

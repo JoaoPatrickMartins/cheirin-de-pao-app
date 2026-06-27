@@ -283,9 +283,12 @@ model Supplier {
 }
 
 // 12. PurchaseOrder — pedidos de compra ao fornecedor (cabeçalho)
+// Um pedido por TURNO (slot): cada (date, slotId) gera seu próprio PurchaseOrder.
 model PurchaseOrder {
   id            String              @id @default(auto()) @map("_id") @db.ObjectId
   date          DateTime
+  slotId        String?             // turno do pedido (manha/tarde) — pipeline por slot
+  slotLabel     String?             // rótulo de exibição do turno (ex.: "Manhã")
   totalQuantity Int
   cutoffTime    DateTime
   status        PurchaseOrderStatus

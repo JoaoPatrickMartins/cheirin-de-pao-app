@@ -5,6 +5,7 @@ import { ProgressBar } from '../../../components/admin/ProgressBar'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
 import { Icon } from '../../../components/brand/Icon'
 import { SeparationCouponSheet, type CouponData } from '../../../components/admin/SeparationCoupon'
+import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
 
 type DateMode = 'hoje' | 'amanha'
 
@@ -67,26 +68,58 @@ const shortCode = (orderId: string) => orderId.slice(-4).toUpperCase()
 
 const countSep = (orders: BoardOrder[]) => orders.filter((o) => o.separated).length
 
+// Rótulo dos filtros (Dia / Turno) — largura fixa pra alinhar os controles à direita.
+const FILTER_LABEL_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  width: 64,
+  flexShrink: 0,
+  fontFamily: 'var(--font-body)',
+  fontSize: 12.5,
+  fontWeight: 700,
+  color: 'var(--color-text-sec)',
+}
+
 export function AdminSeparacao() {
   const [board, setBoard] = useState<Board | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [coupons, setCoupons] = useState<CouponData[]>([])
   const [dateMode, setDateMode] = useState<DateMode>('hoje')
+  const [slots, setSlots] = useState<SlotOption[]>([])
+  const [slotId, setSlotId] = useState<string>('')
+
+  // Carrega os turnos e define o padrão (automático pelo horário de corte)
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await apiFetch('/admin/settings/slots')
+        if (res.ok) {
+          const data = (await res.json()) as { slots: SlotOption[] }
+          setSlots(data.slots)
+          if (data.slots.length > 0) setSlotId(resolveDefaultSlot(data.slots, nowMinutesLocal()))
+        }
+      } catch {
+        /* silencioso */
+      }
+    })()
+  }, [])
 
   const fetchBoard = useCallback(async () => {
     setIsLoading(true)
     try {
       const d = new Date()
       if (dateMode === 'amanha') d.setDate(d.getDate() + 1)
-      const res = await apiFetch(`/admin/separation/board?date=${localDateStr(d)}`)
+      const slotQs = slotId ? `&slotId=${slotId}` : ''
+      const res = await apiFetch(`/admin/separation/board?date=${localDateStr(d)}${slotQs}`)
       if (res.ok) setBoard((await res.json()) as Board)
     } catch {
       // falha silenciosa — mantém estado anterior
     } finally {
       setIsLoading(false)
     }
-  }, [dateMode])
+  }, [dateMode, slotId])
 
   useEffect(() => {
     void fetchBoard()
@@ -105,6 +138,8 @@ export function AdminSeparacao() {
   }, [coupons])
 
   const dateLabel = board ? formatDateLabel(board.date) : ''
+  const turnoLabel = slots.find((s) => s.slotId === slotId)?.label ?? ''
+  const dayLabel = dateMode === 'hoje' ? 'hoje' : 'amanhã'
 
   function toCoupons(orders: BoardOrder[], condoName: string): CouponData[] {
     return orders.map((o) => ({
@@ -175,18 +210,46 @@ export function AdminSeparacao() {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
-      <AdminHead sub={`Recebimento e conferência · ${dateMode === 'hoje' ? 'Hoje' : 'Amanhã'}`} titulo="Separação" />
+      <AdminHead
+        sub={`Recebimento e conferência · ${dateLabel || (dateMode === 'hoje' ? 'Hoje' : 'Amanhã')}`}
+        titulo="Separação"
+      />
 
       <div style={{ padding: '0 20px' }}>
-        <div style={{ marginBottom: 16 }}>
-          <SegmentedControl<DateMode>
-            tabs={[
-              { key: 'hoje', label: 'Hoje' },
-              { key: 'amanha', label: 'Amanhã' },
-            ]}
-            value={dateMode}
-            onChange={setDateMode}
-          />
+        {/* Filtros rotulados — o rótulo (ícone + nome) deixa claro o que cada controle faz */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={FILTER_LABEL_STYLE}>
+              <Icon name="calendar" size={15} stroke={2} color="var(--color-text-ter)" aria-hidden="true" />
+              Dia
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <SegmentedControl<DateMode>
+                tabs={[
+                  { key: 'hoje', label: 'Hoje' },
+                  { key: 'amanha', label: 'Amanhã' },
+                ]}
+                value={dateMode}
+                onChange={setDateMode}
+              />
+            </div>
+          </div>
+
+          {slots.length > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={FILTER_LABEL_STYLE}>
+                <Icon name="clock" size={15} stroke={2} color="var(--color-text-ter)" aria-hidden="true" />
+                Turno
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <SegmentedControl<string>
+                  tabs={slots.map((s) => ({ key: s.slotId, label: slotTabLabel(s) }))}
+                  value={slotId}
+                  onChange={setSlotId}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {isLoading ? (
@@ -194,12 +257,28 @@ export function AdminSeparacao() {
             <Spinner />
           </div>
         ) : isEmpty ? (
-          <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+          <div style={{ textAlign: 'center', padding: '52px 24px' }}>
+            <div
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 20,
+                background: 'var(--color-surface-2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+              }}
+            >
+              <Icon name="list" size={30} color="var(--color-text-ter)" stroke={1.8} />
+            </div>
             <p style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: 'var(--color-text)', margin: '0 0 8px' }}>
               Nada para separar
             </p>
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', margin: 0, lineHeight: 1.5 }}>
-              Os pedidos aparecem aqui após o corte materializar as entregas do dia.
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', margin: '0 auto', lineHeight: 1.5, maxWidth: 290 }}>
+              {turnoLabel
+                ? `Nenhum pedido da ${turnoLabel} para ${dayLabel}. Eles aparecem aqui após o corte da ${turnoLabel}.`
+                : `Nenhum pedido para ${dayLabel}. Os pedidos aparecem após o corte materializar as entregas.`}
             </p>
           </div>
         ) : (

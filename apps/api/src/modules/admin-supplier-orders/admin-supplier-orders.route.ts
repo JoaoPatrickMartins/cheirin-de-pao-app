@@ -29,12 +29,17 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — supplier-orders'],
         summary: 'Prévia do pedido ao fornecedor (draft)',
-        description: 'Gera uma prévia do pedido a ser feito ao fornecedor para amanhã, baseado nas agendas semanais ativas e pedidos avulsos programados. Não persiste nada — apenas calcula e retorna. Use para revisar antes de criar o pedido definitivo via POST /admin/supplier-orders. Restrito a ADMIN.',
+        description: 'Gera a prévia do pedido a ser feito ao fornecedor para UM turno (slotId), baseado nas agendas semanais ativas e pedidos avulsos do turno. Não persiste nada. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          required: ['slotId'],
+          properties: { slotId: { type: 'string', description: 'Turno (manha/tarde).' } },
+        },
         response: {
           200: {
             type: 'array',
-            description: 'Prévia consolidada por condomínio para amanhã.',
+            description: 'Prévia consolidada por condomínio para o turno.',
             items: {
               type: 'object',
               properties: {
@@ -76,8 +81,13 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — supplier-orders'],
         summary: 'Status de geração do pedido de amanhã',
         description:
-          'Informa se o pedido ao fornecedor de amanhã já foi gerado (FINALIZED). Usado pela aba Compra para mostrar o estado "já gerado" e evitar geração duplicada.',
+          'Informa se o pedido ao fornecedor do turno (slotId) já foi gerado (FINALIZED). Usado pela aba Compra para mostrar o estado "já gerado" e evitar geração duplicada.',
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          required: ['slotId'],
+          properties: { slotId: { type: 'string', description: 'Turno (manha/tarde).' } },
+        },
         response: {
           200: {
             type: 'object',
@@ -86,12 +96,53 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
               orderId: { type: 'string' },
               totalQuantity: { type: 'integer' },
               date: { type: 'string' },
+              slotLabel: { type: 'string' },
             },
           },
         },
       },
     },
     ctrl.generatedStatus.bind(ctrl),
+  )
+
+  // 1c. Estado dos turnos — data de entrega, tem pedidos e compra finalizada (por turno)
+  fastify.get(
+    '/admin/supplier-orders/slots-status',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — supplier-orders'],
+        summary: 'Estado dos turnos para a aba Compra',
+        description:
+          'Para cada turno ativo: data de entrega (Regra A), se há pedidos e se a compra foi finalizada. Ordenado pelo próximo corte. A aba Compra usa para abrir no turno certo e mostrar a data correta.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              slots: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    slotId: { type: 'string' },
+                    label: { type: 'string' },
+                    emoji: { type: 'string' },
+                    time: { type: 'string' },
+                    cutoffTime: { type: 'string' },
+                    deliveryDate: { type: 'string' },
+                    hasOrders: { type: 'boolean' },
+                    generated: { type: 'boolean' },
+                    totalBreads: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.slotsStatus.bind(ctrl),
   )
 
   // 1b. Detalhe por condomínio — também ANTES de /:id (rota mais específica primeiro)
@@ -111,10 +162,15 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
             condominiumId: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
           },
         },
+        querystring: {
+          type: 'object',
+          required: ['slotId'],
+          properties: { slotId: { type: 'string', description: 'Turno (manha/tarde).' } },
+        },
         response: {
           200: {
             type: 'object',
-            description: 'Detalhe das entregas do condomínio para amanhã.',
+            description: 'Detalhe das entregas do condomínio para o turno.',
             properties: {
               condominiumId: { type: 'string' },
               name: { type: 'string' },
@@ -182,7 +238,7 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['items'],
+          required: ['items', 'slotId'],
           properties: {
             items: {
               type: 'array',
@@ -196,7 +252,8 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
                 },
               },
             },
-            cutoffTime: { type: 'string', description: 'Horário de corte específico para este pedido (HH:MM). Opcional — usa o configurado no sistema se omitido.' },
+            cutoffTime: { type: 'string', description: 'Horário de corte específico para este pedido (HH:MM). Opcional.' },
+            slotId: { type: 'string', description: 'Turno (manha/tarde) — o pedido é por turno.' },
           },
         },
         response: {
@@ -232,6 +289,8 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
               properties: {
                 id: { type: 'string', description: 'ID do pedido.' },
                 date: { type: 'string', description: 'Data de referência do pedido (ISO 8601).' },
+                slotId: { type: 'string', description: 'Turno do pedido (manha/tarde).' },
+                slotLabel: { type: 'string', description: 'Rótulo do turno (ex.: "Manhã").' },
                 status: { type: 'string', description: 'Status: sempre FINALIZED nesta listagem.' },
                 totalQuantity: { type: 'integer', description: 'Total de pãezinhos pedidos.' },
                 cutoffTime: { type: 'string', description: 'Horário de corte do pedido (ISO 8601).' },

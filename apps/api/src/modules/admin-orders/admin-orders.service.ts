@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { NotificationType, OrderStatus, Prisma } from '@prisma/client'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
-import { dayKeyOf, type DayKey } from '../../lib/cutoff.js'
+import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
 
 /**
@@ -419,7 +419,13 @@ export class AdminOrdersService {
    * Para cada grupo: nome do condomínio, total no pipeline, total DELIVERED, orderIds.
    * orderIds é necessário para o frontend chamar assign-courier em batch (07-09).
    */
-  async getDeliveryStatus(): Promise<
+  /** Janela do dia BRT para a data informada (YYYY-MM-DD); default = hoje. */
+  private resolveDayRange(dateStr?: string): { start: Date; end: Date } {
+    const ds = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : brtDateStr(new Date(), 0)
+    return brtDayRange(brtNoonFromStr(ds))
+  }
+
+  async getDeliveryStatus(slotId?: string, dateStr?: string): Promise<
     {
       condominiumId: string
       condominiumName: string
@@ -428,18 +434,16 @@ export class AdminOrdersService {
       orderIds: string[]
     }[]
   > {
-    const now = new Date()
-    const nowBrtString = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-    const [day, month, year] = nowBrtString.split('/')
-    const startOfDayBrt = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 3, 0, 0, 0))
-    const endOfDayBrt = new Date(startOfDayBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
+    const { start, end } = this.resolveDayRange(dateStr)
 
     const orders = await this.prisma.order.findMany({
       where: {
-        scheduledDate: { gte: startOfDayBrt, lte: endOfDayBrt },
+        scheduledDate: { gte: start, lte: end },
         // Gate da separação: a operação de entrega só enxerga pedidos já SEPARADOS (e além).
         // Pedidos SCHEDULED (ainda não separados) e CANCELLED ficam de fora.
         status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] },
+        // Pipeline por turno: quando informado, filtra só o slot.
+        ...(slotId ? { slotId } : {}),
       },
       select: { id: true, condominiumId: true, status: true },
     })
@@ -489,7 +493,7 @@ export class AdminOrdersService {
    * não entram na divisão.
    * Retorna: [{ courierId, courierName, condominiums: [...], total }]
    */
-  async getDivisionSuggestion(): Promise<
+  async getDivisionSuggestion(slotId?: string, dateStr?: string): Promise<
     {
       courierId: string
       courierName: string
@@ -505,19 +509,17 @@ export class AdminOrdersService {
 
     if ((couriers as { id: string; name: string }[]).length === 0) return []
 
-    // Divisão opera sobre as entregas de HOJE já separadas (alinhamento de datas:
-    // a separação marca os pedidos do dia como SEPARATED; a divisão os consome no mesmo dia).
-    const now = new Date()
-    const nowBrtString = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-    const [day, month, year] = nowBrtString.split('/')
-    const startOfTodayBrt = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 3, 0, 0, 0))
-    const endOfTodayBrt = new Date(startOfTodayBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
+    // Divisão opera sobre as entregas já separadas do dia/turno selecionado.
+    // Pipeline por turno: quando informado o slotId, a divisão é só daquele turno
+    // (entregador nunca recebe manhã+tarde misturados).
+    const { start, end } = this.resolveDayRange(dateStr)
 
     const orders = await this.prisma.order.findMany({
       where: {
-        scheduledDate: { gte: startOfTodayBrt, lte: endOfTodayBrt },
+        scheduledDate: { gte: start, lte: end },
         // Gate da separação — só pedidos separados entram na divisão entre entregadores
         status: 'SEPARATED',
+        ...(slotId ? { slotId } : {}),
       },
       select: { condominiumId: true, quantity: true },
     })

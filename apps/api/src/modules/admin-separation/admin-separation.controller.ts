@@ -26,8 +26,8 @@ export class AdminSeparationController {
       return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
     }
     try {
-      const { date } = request.query as { date?: string }
-      const data = await this.service.getBoard(date)
+      const { date, slotId } = request.query as { date?: string; slotId?: string }
+      const data = await this.service.getBoard(date, slotId)
       return reply.status(200).send(data)
     } catch (err) {
       this.fastify.log.error(err)

@@ -67,6 +67,7 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
           type: 'object',
           properties: {
             date: { type: 'string', description: 'Data de entrega (YYYY-MM-DD, BRT). Default: hoje.' },
+            slotId: { type: 'string', description: 'Turno (manha/tarde). Omitido = todos os turnos do dia.' },
           },
         },
         response: {

@@ -10,6 +10,7 @@ import {
 } from '../../../components/admin/DeliveryDivisionCard'
 import { Icon } from '../../../components/brand/Icon'
 import { OrderDetailSheet, STATUS_META, type LedgerRow } from '../../../components/admin/OrderDetailSheet'
+import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
 
 type Segment = 'hoje' | 'proximos' | 'historico'
 
@@ -67,6 +68,10 @@ function tomorrowISO() {
 export function AdminEntregas() {
   const [segment, setSegment] = useState<Segment>('hoje')
 
+  // Turno (pipeline por slot)
+  const [slots, setSlots] = useState<SlotOption[]>([])
+  const [slotId, setSlotId] = useState<string>('')
+
   // Hoje
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus[]>([])
@@ -81,12 +86,28 @@ export function AdminEntregas() {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<LedgerRow | null>(null)
 
+  // Carrega os turnos e define o padrão (automático pelo horário de corte)
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await apiFetch('/admin/settings/slots')
+        if (res.ok) {
+          const data = (await res.json()) as { slots: SlotOption[] }
+          setSlots(data.slots)
+          if (data.slots.length > 0) setSlotId(resolveDefaultSlot(data.slots, nowMinutesLocal()))
+        }
+      } catch {
+        /* silencioso */
+      }
+    })()
+  }, [])
+
   useEffect(() => {
     if (segment === 'hoje') void fetchHojeData()
     else if (segment === 'proximos') void fetchProximos()
     else void fetchHistorico()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segment])
+  }, [segment, slotId])
 
   // Refetch do histórico ao mudar filtro/busca (com debounce simples na busca)
   useEffect(() => {
@@ -99,12 +120,13 @@ export function AdminEntregas() {
   async function fetchHojeData() {
     setIsLoadingHoje(true)
     try {
-      const divRes = await apiFetch('/admin/orders/division-suggestion')
+      const qs = slotId ? `?slotId=${slotId}` : ''
+      const divRes = await apiFetch(`/admin/orders/division-suggestion${qs}`)
       if (divRes.ok) {
         const divData = (await divRes.json()) as DivisionSuggestionItem[]
         setAssignments(divData.map((i) => ({ courierId: i.courierId, courierName: i.courierName, condos: i.condominiums ?? [] })))
       }
-      const statusRes = await apiFetch('/admin/orders/delivery-status')
+      const statusRes = await apiFetch(`/admin/orders/delivery-status${qs}`)
       if (statusRes.ok) setDeliveryStatus((await statusRes.json()) as DeliveryStatus[])
     } catch {
       /* silencioso */
@@ -116,7 +138,8 @@ export function AdminEntregas() {
   async function fetchProximos() {
     setIsLoadingLedger(true)
     try {
-      const qs = new URLSearchParams({ from: tomorrowISO(), status: 'SCHEDULED,SEPARATED,OUT_FOR_DELIVERY', limit: '100' })
+      // Gate progressivo: Próximos só lista pedidos JÁ separados aguardando o dia (não SCHEDULED)
+      const qs = new URLSearchParams({ from: tomorrowISO(), status: 'SEPARATED,OUT_FOR_DELIVERY', limit: '100' })
       const res = await apiFetch(`/admin/orders?${qs.toString()}`)
       if (res.ok) {
         const data = (await res.json()) as { rows: LedgerRow[] }
@@ -194,8 +217,19 @@ export function AdminEntregas() {
           <SegmentedControl<Segment> tabs={TABS} value={segment} onChange={setSegment} />
         </div>
 
+        {/* Seletor de turno — pipeline por turno (só na operação do dia) */}
+        {segment === 'hoje' && slots.length > 1 && (
+          <div style={{ marginBottom: 16 }}>
+            <SegmentedControl<string>
+              tabs={slots.map((s) => ({ key: s.slotId, label: slotTabLabel(s) }))}
+              value={slotId}
+              onChange={setSlotId}
+            />
+          </div>
+        )}
+
         {segment === 'hoje' && <HojeView {...{ isLoadingHoje, assignments, setAssignments, handleApprove, isApproved, isApproving, deliveryStatus }} />}
-        {segment === 'proximos' && <LedgerView rows={rows} loading={isLoadingLedger} emptyText="Nenhum pedido futuro agendado." onSelect={setSelected} />}
+        {segment === 'proximos' && <LedgerView rows={rows} loading={isLoadingLedger} emptyText="Nenhum pedido separado aguardando entrega. Conclua a separação para liberar." onSelect={setSelected} />}
         {segment === 'historico' && (
           <>
             <SearchInput value={search} onChange={setSearch} />

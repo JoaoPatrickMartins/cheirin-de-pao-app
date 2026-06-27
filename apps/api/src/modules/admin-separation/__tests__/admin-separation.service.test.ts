@@ -15,10 +15,16 @@ interface MockOpts {
   condos?: unknown[]
   order?: unknown
   count?: number
+  finalizedSlots?: string[]
 }
 
 function makeMock(opts: MockOpts = {}) {
+  // Gate progressivo: getBoard só mostra turnos com COMPRA finalizada. Default cobre manhã+tarde.
+  const finalizedSlots = opts.finalizedSlots ?? ['manha', 'tarde']
   const prisma = {
+    purchaseOrder: {
+      findMany: vi.fn().mockResolvedValue(finalizedSlots.map((slotId) => ({ slotId }))),
+    },
     order: {
       findMany: vi.fn().mockResolvedValue(opts.orders ?? []),
       findUnique: vi.fn().mockResolvedValue(opts.order ?? null),
@@ -101,6 +107,20 @@ describe('AdminSeparationService', () => {
       const { fastify } = makeMock({ orders: [] })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const board = await new AdminSeparationService(fastify as any).getBoard()
+      expect(board.condominiums).toEqual([])
+      expect(board.totalDeliveries).toBe(0)
+    })
+
+    it('gate progressivo: não mostra turno cuja COMPRA não foi finalizada', async () => {
+      const orders = [
+        { id: 'o1', userId: 'u1', quantity: 4, slotId: 'manha', type: 'SCHEDULED', condominiumId: 'c1', status: 'SCHEDULED' },
+      ]
+      const users = [{ id: 'u1', name: 'Ana', apartment: '101', block: 'A' }]
+      const condos = [{ id: 'c1', name: 'Cond 1', deliverySlots: SLOTS }]
+      // Nenhuma compra finalizada → mesmo com pedidos materializados, board vazio
+      const { fastify } = makeMock({ orders, users, condos, finalizedSlots: [] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const board = await new AdminSeparationService(fastify as any).getBoard('2026-06-27')
       expect(board.condominiums).toEqual([])
       expect(board.totalDeliveries).toBe(0)
     })

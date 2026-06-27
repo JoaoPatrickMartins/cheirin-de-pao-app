@@ -5,6 +5,7 @@ import { Icon } from '../brand/Icon'
 interface SupplierOrder {
   id: string
   date: string
+  slotLabel?: string
   totalQuantity: number
   status: string
   cutoffTime?: string
@@ -95,7 +96,9 @@ export function SupplierOrderHistory({ onBack }: { onBack: () => void }) {
                     <Icon name="factory" size={20} color="var(--color-accent)" stroke={2} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>{formatDateLong(o.date)}</p>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                      {formatDateLong(o.date)}{o.slotLabel ? ` · ${o.slotLabel}` : ''}
+                    </p>
                     <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '3px 0 0' }}>{o.totalQuantity} pães</p>
                   </div>
                   <span style={{ padding: '3px 8px', borderRadius: 99, background: 'var(--color-good-soft)', color: 'var(--color-good)', fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700 }}>

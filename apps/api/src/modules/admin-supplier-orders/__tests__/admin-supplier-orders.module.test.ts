@@ -43,6 +43,7 @@ function makeFastifyMock(overrides: {
       create: vi.fn().mockResolvedValue(purchaseOrder),
       findMany: vi.fn().mockResolvedValue(purchaseOrder ? [purchaseOrder] : []),
       findUnique: vi.fn().mockResolvedValue(purchaseOrder),
+      findFirst: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue({ ...purchaseOrder, status: 'FINALIZED' }),
     },
     purchaseOrderItem: {
@@ -58,7 +59,11 @@ function makeFastifyMock(overrides: {
       findMany: vi.fn().mockResolvedValue(condominium ? [condominium] : []),
     },
     order: {
-      findMany: vi.fn().mockResolvedValue(order),
+      // Honra o filtro por turno (where.slotId) — pipeline por slot.
+      findMany: vi.fn().mockImplementation(({ where }: { where?: { slotId?: string } } = {}) => {
+        const slotId = where?.slotId
+        return Promise.resolve(slotId ? order.filter((o) => o.slotId === slotId) : order)
+      }),
     },
     user: {
       findMany: vi.fn().mockResolvedValue(users),
@@ -66,6 +71,10 @@ function makeFastifyMock(overrides: {
     // projectScheduleDetailForDate (projeção de agenda) consulta schedule.findMany.
     schedule: {
       findMany: vi.fn().mockResolvedValue(schedule),
+    },
+    // _resolveSlot lê a config global de slots (Setting). null → DEFAULT_DELIVERY_SLOTS.
+    setting: {
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
       if (typeof fn === 'function') {
@@ -102,56 +111,43 @@ describe('AdminSupplierOrdersService', () => {
     vi.clearAllMocks()
   })
 
-  describe('getDraft', () => {
-    it('retorna lista de condominios com totais de paes para o dia seguinte', async () => {
+  describe('getDraft (por turno)', () => {
+    it('retorna apenas o turno solicitado (manhã)', async () => {
       const { fastify } = makeFastifyMock()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSupplierOrdersService(fastify as any)
-      const result = await service.getDraft()
-      expect(Array.isArray(result)).toBe(true)
-    })
-
-    it('inclui bySlot e riskCount por condominio', async () => {
-      const { fastify } = makeFastifyMock()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new AdminSupplierOrdersService(fastify as any)
-      const result = await service.getDraft()
+      const result = await service.getDraft('manha')
       const condo = result.find((c) => c.condominiumId === 'condo-01')!
       expect(condo).toBeDefined()
-      // ord-01 (manha, 50) + ord-02 (tarde, 30) materializados
-      expect(condo.totalBreads).toBe(80)
-      expect(condo.deliveryCount).toBe(2)
-      expect(Array.isArray(condo.bySlot)).toBe(true)
-      const slots = Object.fromEntries(condo.bySlot.map((s) => [s.slotId, s.breads]))
-      expect(slots).toMatchObject({ manha: 50, tarde: 30 })
+      // só ord-01 (manha, 50) — a tarde NÃO entra no corte da manhã
+      expect(condo.totalBreads).toBe(50)
+      expect(condo.deliveryCount).toBe(1)
       expect(condo.riskCount).toBe(0)
     })
 
-    it('soma dos chips bySlot reconcilia com total (materializado + previsto)', async () => {
+    it('separa manhã e tarde em prévias distintas', async () => {
       const { fastify } = makeFastifyMock()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSupplierOrdersService(fastify as any)
-      const result = await service.getDraft()
-      for (const condo of result) {
-        const slotSum = condo.bySlot.reduce((s, b) => s + b.breads, 0)
-        expect(slotSum).toBe(condo.totalBreads + condo.projectedBreads)
-      }
+      const tarde = await service.getDraft('tarde')
+      const condo = tarde.find((c) => c.condominiumId === 'condo-01')!
+      expect(condo.totalBreads).toBe(30)
+      expect(condo.deliveryCount).toBe(1)
     })
   })
 
-  describe('getCondominiumDetail', () => {
-    it('retorna entregas detalhadas com tipo, origem e quebra por slot', async () => {
+  describe('getCondominiumDetail (por turno)', () => {
+    it('detalha apenas as entregas do turno solicitado', async () => {
       const { fastify } = makeFastifyMock()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSupplierOrdersService(fastify as any)
-      const detail = await service.getCondominiumDetail('condo-01')
+      const detail = await service.getCondominiumDetail('condo-01', 'manha')
 
       expect(detail.name).toBe('Residencial Aurora')
-      expect(detail.materializedBreads).toBe(80)
-      expect(detail.deliveries).toHaveLength(2)
+      expect(detail.materializedBreads).toBe(50)
+      expect(detail.deliveries).toHaveLength(1)
       const ana = detail.deliveries.find((d) => d.name === 'Ana Lima')!
       expect(ana).toMatchObject({ apartment: '102', block: 'A', type: 'SINGLE', source: 'order', risk: '' })
-      expect(detail.byType).toMatchObject({ single: 50, scheduled: 30 })
     })
 
     it('marca risco no-credit para previsto sem saldo suficiente', async () => {
@@ -164,7 +160,7 @@ describe('AdminSupplierOrdersService', () => {
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSupplierOrdersService(fastify as any)
-      const detail = await service.getCondominiumDetail('condo-01')
+      const detail = await service.getCondominiumDetail('condo-01', 'manha')
 
       expect(detail.projectedBreads).toBe(8)
       expect(detail.riskCount).toBe(1)
@@ -173,7 +169,7 @@ describe('AdminSupplierOrdersService', () => {
       expect(raf.risk).toBe('no-credit')
     })
 
-    it('marca risco blocked para cliente bloqueado', async () => {
+    it('marca risco blocked para cliente bloqueado (turno tarde)', async () => {
       const { fastify } = makeFastifyMock({
         order: [],
         schedule: [
@@ -183,7 +179,7 @@ describe('AdminSupplierOrdersService', () => {
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSupplierOrdersService(fastify as any)
-      const detail = await service.getCondominiumDetail('condo-01')
+      const detail = await service.getCondominiumDetail('condo-01', 'tarde')
 
       const tania = detail.deliveries.find((d) => d.name === 'Tânia Freitas')!
       expect(tania.risk).toBe('blocked')
@@ -191,17 +187,31 @@ describe('AdminSupplierOrdersService', () => {
     })
   })
 
-  describe('create', () => {
-    it('cria PurchaseOrder DRAFT com items em $transaction', async () => {
+  describe('getSlotsStatus', () => {
+    it('retorna estado por turno: tem pedidos e não finalizado', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const slots = await new AdminSupplierOrdersService(fastify as any).getSlotsStatus()
+      expect(slots.length).toBe(2) // manha + tarde (default)
+      const manha = slots.find((s) => s.slotId === 'manha')!
+      expect(manha.hasOrders).toBe(true) // ord-01 (manha) materializado
+      expect(manha.generated).toBe(false) // nenhuma compra finalizada (findFirst → null)
+      expect(typeof manha.deliveryDate).toBe('string')
+      expect(manha.deliveryDate.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('create (por turno)', () => {
+    it('cria PurchaseOrder do turno em $transaction', async () => {
       const { fastify, prisma } = makeFastifyMock()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSupplierOrdersService(fastify as any)
       const result = await service.create({
         items: [{ supplierId: 'sup-01', quantity: 100 }],
+        slotId: 'manha',
       })
       expect(result).toBeDefined()
       expect(result.id).toBeDefined()
-      // $transaction deve ter sido chamado para atomicidade
       expect(prisma.$transaction).toHaveBeenCalled()
     })
 
@@ -211,6 +221,7 @@ describe('AdminSupplierOrdersService', () => {
       const service = new AdminSupplierOrdersService(fastify as any)
       const result = await service.create({
         items: [{ supplierId: 'sup-01', quantity: 50 }],
+        slotId: 'manha',
       })
       expect(result.id).toBe('po-01')
     })

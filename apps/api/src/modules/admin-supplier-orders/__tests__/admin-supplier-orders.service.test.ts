@@ -81,6 +81,7 @@ describe('AdminSupplierOrdersService', () => {
       const service = new AdminSupplierOrdersService(fastify as any)
       const result = await service.create({
         items: [{ supplierId: 'sup-01', quantity: 100 }],
+        slotId: 'manha',
       })
 
       expect(result).toBeDefined()

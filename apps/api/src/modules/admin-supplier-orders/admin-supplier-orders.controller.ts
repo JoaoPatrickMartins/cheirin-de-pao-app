@@ -40,11 +40,16 @@ export class AdminSupplierOrdersController {
       return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
     }
 
+    const { slotId } = request.query as { slotId?: string }
+    if (!slotId) return reply.status(400).send({ error: 'slotId é obrigatório' })
+
     try {
-      const draft = await this.service.getDraft()
+      const draft = await this.service.getDraft(slotId)
       return reply.status(200).send(draft)
     } catch (err) {
       this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
@@ -58,9 +63,32 @@ export class AdminSupplierOrdersController {
     if (request.user?.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
     }
+    const { slotId } = request.query as { slotId?: string }
+    if (!slotId) return reply.status(400).send({ error: 'slotId é obrigatório' })
     try {
-      const status = await this.service.getGeneratedStatus()
+      const status = await this.service.getGeneratedStatus(slotId)
       return reply.status(200).send(status)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/supplier-orders/slots-status
+   *
+   * Estado de cada turno (data de entrega, tem pedidos, compra finalizada) — para a
+   * aba Compra abrir no turno certo e mostrar a data correta.
+   */
+  async slotsStatus(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    try {
+      const data = await this.service.getSlotsStatus()
+      return reply.status(200).send({ slots: data })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
@@ -79,12 +107,16 @@ export class AdminSupplierOrdersController {
     }
 
     const { condominiumId } = request.params as { condominiumId: string }
+    const { slotId } = request.query as { slotId?: string }
+    if (!slotId) return reply.status(400).send({ error: 'slotId é obrigatório' })
 
     try {
-      const detail = await this.service.getCondominiumDetail(condominiumId)
+      const detail = await this.service.getCondominiumDetail(condominiumId, slotId)
       return reply.status(200).send(detail)
     } catch (err) {
       this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
@@ -117,6 +149,7 @@ export class AdminSupplierOrdersController {
     } catch (err) {
       this.fastify.log.error(err)
       const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }

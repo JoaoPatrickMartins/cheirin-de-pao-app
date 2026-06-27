@@ -80,14 +80,26 @@ export class AdminSeparationService {
    * getBoard — pedidos materializados da data de entrega, agrupados por
    * condomínio → turno → cliente, com contadores de separação.
    */
-  async getBoard(dateStr?: string): Promise<SeparationBoard> {
+  async getBoard(dateStr?: string, slotId?: string): Promise<SeparationBoard> {
     const { date, start, end } = this.resolveDate(dateStr)
+    const empty: SeparationBoard = { date, totalDeliveries: 0, separatedDeliveries: 0, totalBreads: 0, separatedBreads: 0, condominiums: [] }
 
-    const orders = await this.prisma.order.findMany({
+    // Gate progressivo: um turno só entra na Separação depois que sua COMPRA é finalizada.
+    // (O pedido pode já estar materializado pelo cron, mas só aparece aqui após o corte.)
+    const finalizedPOs = await this.prisma.purchaseOrder.findMany({
+      where: { status: 'FINALIZED', date: { gte: start, lte: end }, ...(slotId ? { slotId } : {}) },
+      select: { slotId: true },
+    })
+    const finalizedSlots = new Set(finalizedPOs.map((p) => p.slotId).filter((s): s is string => !!s))
+    if (finalizedSlots.size === 0) return empty
+
+    const allOrders = await this.prisma.order.findMany({
       where: {
         scheduledDate: { gte: start, lte: end },
         status: { not: 'CANCELLED' },
         condominiumId: { not: null },
+        // Pipeline por turno: quando informado, mostra só o slot selecionado.
+        ...(slotId ? { slotId } : {}),
       },
       select: {
         id: true,
@@ -100,9 +112,10 @@ export class AdminSeparationService {
       },
     })
 
-    if (orders.length === 0) {
-      return { date, totalDeliveries: 0, separatedDeliveries: 0, totalBreads: 0, separatedBreads: 0, condominiums: [] }
-    }
+    // Mantém só pedidos de turnos cuja compra foi finalizada
+    const orders = allOrders.filter((o) => o.slotId != null && finalizedSlots.has(o.slotId))
+
+    if (orders.length === 0) return empty
 
     const userIds = [...new Set(orders.map((o) => o.userId))]
     const condoIds = [...new Set(orders.map((o) => o.condominiumId).filter((c): c is string => !!c))]

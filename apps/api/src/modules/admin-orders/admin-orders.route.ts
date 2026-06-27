@@ -213,8 +213,15 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — dashboard'],
         summary: 'Status de entregas do dia por condomínio',
-        description: 'Retorna o status de entregas do dia atual agrupado por condomínio. Permite ao admin acompanhar o andamento das entregas em tempo real. Cada condomínio mostra o total de pedidos, quantos foram entregues e quais ainda estão pendentes.',
+        description: 'Retorna o status de entregas de um turno (slotId) do dia (date, default hoje), agrupado por condomínio. Pipeline por turno: sem misturar manhã e tarde.',
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde). Omitido = todos.' },
+            date: { type: 'string', description: 'Data de entrega (YYYY-MM-DD, BRT). Default: hoje.' },
+          },
+        },
         response: {
           200: {
             type: 'array',
@@ -244,8 +251,15 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — dashboard'],
         summary: 'Sugestão de divisão de entregas entre entregadores',
-        description: 'Gera uma sugestão automática de divisão de condomínios entre os entregadores disponíveis, usando algoritmo greedy para balancear a carga por quantidade de pãezinhos. O admin pode aceitar a sugestão ou ajustar manualmente via /admin/orders/assign-courier. Considera apenas entregadores não bloqueados.',
+        description: 'Gera a sugestão de divisão de condomínios entre entregadores para um turno (slotId) do dia (date, default hoje), balanceando por quantidade. Pipeline por turno: cada entregador recebe só o turno selecionado.',
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde). Omitido = todos.' },
+            date: { type: 'string', description: 'Data de entrega (YYYY-MM-DD, BRT). Default: hoje.' },
+          },
+        },
         response: {
           200: {
             type: 'array',
