@@ -53,12 +53,16 @@ export class SchedulesService {
    * Cria as orders de UM slot de UM condomínio para a `deliveryDate` informada.
    * Idempotente: pula se já existe Order para (user, slot, dia) — seguro p/ cron por minuto.
    * Preenche `condominiumId` + `deliveryTime` e debita créditos (transação por order).
+   *
+   * @param opts.onlyAutoRecharge quando true, só processa clientes com recarga automática ativa
+   *   (usado pela pré-confirmação T-2h — ver preconfirmAutoRechargeAhead).
    */
   async createOrdersForCondoSlot(
     condominiumId: string,
     slot: { slotId: string; time: string },
     dayKey: DayKey,
     deliveryDate: Date,
+    opts: { onlyAutoRecharge?: boolean } = {},
   ): Promise<void> {
     const schedules = await this.prisma.schedule.findMany({
       where: { condominiumId, isActive: true },
@@ -88,6 +92,13 @@ export class SchedulesService {
 
         const user = await this.repo.findUserById(schedule.userId)
         if (!user) continue
+
+        // Pré-confirmação T-2h: processa SÓ quem tem recarga automática ativa.
+        // Os demais (recarga manual/avulso) seguem sendo materializados no corte.
+        if (opts.onlyAutoRecharge) {
+          const ar = user.autoRecharge as { active?: boolean } | null
+          if (!ar?.active) continue
+        }
 
         let balance = user.creditBalance
 
@@ -197,6 +208,48 @@ export class SchedulesService {
           `[schedules] corte ${hhmm} — ${condo.name} / slot ${slot.name} (${slot.time}) → gerando orders p/ ${deliveryDate.toISOString().split('T')[0]}`,
         )
         await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate)
+      }
+    }
+  }
+
+  /**
+   * preconfirmAutoRechargeAhead — disparado pelo cron a cada minuto. `leadMinutes` antes do
+   * corte de cada slot, confirma ANTECIPADAMENTE as orders de quem tem recarga automática ativa:
+   * cobra o cartão off-session e cria a order, dando margem para a cobrança processar antes do
+   * corte (evita que uma demora deixe o agendado sem confirmar quando a auto-recarga está ativa).
+   *
+   * Só toca em clientes com auto-recarga ativa — os demais seguem sendo materializados no corte.
+   * Idempotente: o corte (createOrdersAtCutoff) reexecuta e pula o que já foi materializado, então
+   * a auto-recarga tem 2 janelas (T-2h e o corte) sem cobrar duas vezes.
+   *
+   * Obs.: assume que T-leadMinutes cai no MESMO dia BRT do corte (ok p/ cortes 22:01/10:00 →
+   * 20:01/08:00). Para cortes nas 2 primeiras horas do dia, T-2h cruzaria a meia-noite.
+   */
+  async preconfirmAutoRechargeAhead(now: Date = new Date(), leadMinutes = 120): Promise<void> {
+    const [nh, nm] = nowHHMM(now).split(':').map(Number)
+    const cur = nh * 60 + nm
+    const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
+
+    for (const condo of condominiums) {
+      for (const slot of condo.deliverySlots) {
+        if (!slot.isActive) continue
+        const [ch, cm] = slot.cutoffTime.split(':').map(Number)
+        const target = (ch * 60 + cm - leadMinutes + 1440) % 1440
+        if (cur !== target) continue
+
+        const slotId = slot.slotId ?? slot.name
+        const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime, now)
+        const dayKey = dayKeyOf(deliveryDate)
+        this.fastify.log.info(
+          `[schedules] pré-confirmação T-${leadMinutes}min — ${condo.name}/slot ${slot.name} (corte ${slot.cutoffTime}) → ${deliveryDate.toISOString().split('T')[0]}`,
+        )
+        await this.createOrdersForCondoSlot(
+          condo.id,
+          { slotId, time: slot.time },
+          dayKey,
+          deliveryDate,
+          { onlyAutoRecharge: true },
+        )
       }
     }
   }

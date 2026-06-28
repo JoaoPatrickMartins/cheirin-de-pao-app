@@ -127,6 +127,9 @@ export function AdminFornecedores({ onBack }: AdminFornecedoresProps) {
           Novo fornecedor
         </GoldBtn>
 
+        {/* Split padrão usado pelo "Gerar direto" e pela geração automática no corte */}
+        {!isLoading && <SplitDefaultCard hasReserva={fornecedores.some((f) => !f.isPrincipal)} />}
+
         {/* Lista */}
         {isLoading ? (
           <div style={{ paddingTop: 32, textAlign: 'center' }}>
@@ -318,6 +321,122 @@ function FornecedorCard({ fornecedor: f, formatBRL, onEdit }: FornecedorCardProp
         )}
       </div>
     </div>
+  )
+}
+
+// ------------------------------------------------------------------ SplitDefaultCard
+/** Configura o percentual do fornecedor principal no split padrão do pedido. */
+function SplitDefaultCard({ hasReserva }: { hasReserva: boolean }) {
+  const [pct, setPct] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    apiFetch('/admin/supplier-orders/default-split')
+      .then(async (r) => {
+        if (r.ok && active) setPct((((await r.json()) as { principalPercent: number }).principalPercent))
+      })
+      .catch(() => {
+        /* falha silenciosa */
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  async function save(next: number) {
+    const v = Math.max(0, Math.min(100, next))
+    setPct(v)
+    setSaving(true)
+    try {
+      await apiFetch('/admin/supplier-orders/default-split', {
+        method: 'PATCH',
+        body: JSON.stringify({ principalPercent: v }),
+      })
+    } catch {
+      /* falha silenciosa */
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (pct === null) return null
+
+  return (
+    <div
+      style={{
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border-2)',
+        borderRadius: 16,
+        padding: 16,
+        marginTop: 12,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Icon name="percent" size={16} color="var(--color-accent)" />
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+          Split padrão de compra
+        </p>
+      </div>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '0 0 12px', lineHeight: 1.4 }}>
+        {hasReserva
+          ? 'Divisão usada pelo “Gerar direto” e pela geração automática no corte.'
+          : 'Com só um fornecedor, ele recebe 100%. A divisão vale quando houver reserva.'}
+      </p>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-text)', margin: 0 }}>
+            {pct}% <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: 'var(--color-text-ter)' }}>principal</span>
+          </p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-accent)', margin: '2px 0 0', fontWeight: 700 }}>
+            {100 - pct}% reserva
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: saving ? 0.6 : 1 }}>
+          <SplitStep label="−5%" disabled={saving || pct <= 0} onClick={() => void save(pct - 5)} />
+          <SplitStep label="+5%" disabled={saving || pct >= 100} onClick={() => void save(pct + 5)} />
+        </div>
+      </div>
+
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={pct}
+        onChange={(e) => setPct(Number(e.target.value))}
+        onPointerUp={(e) => void save(Number((e.target as HTMLInputElement).value))}
+        onKeyUp={(e) => void save(Number((e.target as HTMLInputElement).value))}
+        aria-label="Percentual do fornecedor principal"
+        style={{ width: '100%', marginTop: 14, accentColor: 'var(--color-accent)' }}
+      />
+    </div>
+  )
+}
+
+function SplitStep({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        minWidth: 48,
+        minHeight: 38,
+        borderRadius: 11,
+        border: '1.5px solid var(--color-border)',
+        background: 'var(--color-surface)',
+        fontFamily: 'var(--font-body)',
+        fontSize: 13.5,
+        fontWeight: 800,
+        color: 'var(--color-text)',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      {label}
+    </button>
   )
 }
 

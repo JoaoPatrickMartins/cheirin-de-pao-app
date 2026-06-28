@@ -263,7 +263,20 @@ function formatIsoDate(iso: string): string {
   }
 }
 
-export function AdminPedido() {
+interface AdminPedidoProps {
+  /** Data de entrega alvo (YYYY-MM-DD). Quando presente, a tela é escopada a este dia. */
+  deliveryDate?: string
+  /** Slots daquele dia (de upcoming-days). Evita refetch de slots-status no modo dia. */
+  daySlots?: SlotCutoff[]
+  /** Subtítulo desambiguado do header (ex.: "Entrega sáb de manhã · corte sex 22:00"). */
+  daySubtitle?: string
+  /** Volta para a lista de dias. Quando presente, mostra a seta e esconde o botão Histórico. */
+  onBack?: () => void
+}
+
+export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: AdminPedidoProps = {}) {
+  const dayMode = !!deliveryDate
+  const dateQuery = deliveryDate ? `&date=${deliveryDate}` : ''
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
   const [showHistory, setShowHistory] = useState(false)
   const [slotId, setSlotId] = useState<string>('')
@@ -302,8 +315,16 @@ export function AdminPedido() {
   // Busca inicial: draft + cutoff
   // ---------------------------------------------------------------------------
 
-  // Mount: carrega o estado dos turnos e abre no PRÓXIMO corte com pedido (não finalizado).
+  // Mount: no modo dia usa os slots recebidos; senão carrega o estado dos turnos (Regra A)
+  // e abre no PRÓXIMO corte com pedido (não finalizado).
   useEffect(() => {
+    // Modo dia: slots já vêm de upcoming-days — sem refetch de slots-status.
+    if (dayMode && daySlots) {
+      setSlots(daySlots)
+      if (daySlots.length > 0) setSlotId(smartDefaultSlot(daySlots))
+      else setIsLoading(false)
+      return
+    }
     void (async () => {
       try {
         const res = await apiFetch('/admin/supplier-orders/slots-status')
@@ -320,6 +341,7 @@ export function AdminPedido() {
       }
       setIsLoading(false)
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Troca de turno: recarrega a prévia + status APENAS daquele turno (pipeline por slot).
@@ -330,8 +352,8 @@ export function AdminPedido() {
       setIsLoading(true)
       try {
         const [draftRes, statusRes] = await Promise.all([
-          apiFetch(`/admin/supplier-orders/draft?slotId=${slotId}`),
-          apiFetch(`/admin/supplier-orders/generated-status?slotId=${slotId}`),
+          apiFetch(`/admin/supplier-orders/draft?slotId=${slotId}${dateQuery}`),
+          apiFetch(`/admin/supplier-orders/generated-status?slotId=${slotId}${dateQuery}`),
         ])
         if (cancelled) return
         if (draftRes.ok) setDraftData((await draftRes.json()) as CondoDraft[])
@@ -389,6 +411,9 @@ export function AdminPedido() {
   })()
 
   const cutoff = nextCutoff(slots)
+
+  // Total que o "Gerar direto" vai pedir = SÓ CONFIRMADOS (previstos não entram no pedido).
+  const expectedTotal = summary.confirmed
 
   // Lista filtrada pela busca
   const filteredCondos = (draftData ?? []).filter((c) =>
@@ -454,12 +479,36 @@ export function AdminPedido() {
 
       const res = await apiFetch('/admin/supplier-orders', {
         method: 'POST',
-        body: JSON.stringify({ items, slotId }),
+        body: JSON.stringify({ items, slotId, ...(deliveryDate ? { date: deliveryDate } : {}) }),
       })
       if (res.ok) {
         const data = (await res.json()) as { id: string }
         setOrderId(data.id)
         setGenerated({ generated: true, orderId: data.id, totalQuantity: splitTotal })
+        setStep(3)
+      }
+    } catch {
+      // falha silenciosa
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  /**
+   * gerarDireto — "Gerar direto" (1 toque): cria o pedido com a quantidade esperada e o
+   * split padrão no backend, pulando os passos Ajustar/Dividir. Vai direto pro Pronto.
+   */
+  async function gerarDireto() {
+    setIsCreating(true)
+    try {
+      const res = await apiFetch('/admin/supplier-orders/quick', {
+        method: 'POST',
+        body: JSON.stringify({ slotId, ...(deliveryDate ? { date: deliveryDate } : {}) }),
+      })
+      if (res.ok) {
+        const data = (await res.json()) as { id: string }
+        setOrderId(data.id)
+        setGenerated({ generated: true, orderId: data.id, totalQuantity: expectedTotal })
         setStep(3)
       }
     } catch {
@@ -514,7 +563,12 @@ export function AdminPedido() {
   // Drill-down em tela cheia — detalhamento por cliente do condomínio selecionado
   if (detailCondoId) {
     return (
-      <CondominiumOrderDetail condominiumId={detailCondoId} slotId={slotId} onBack={() => setDetailCondoId(null)} />
+      <CondominiumOrderDetail
+        condominiumId={detailCondoId}
+        slotId={slotId}
+        date={deliveryDate}
+        onBack={() => setDetailCondoId(null)}
+      />
     )
   }
 
@@ -525,35 +579,86 @@ export function AdminPedido() {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      <AdminHead
-        sub={turnoLabel ? `Turno ${turnoLabel} · ${deliveryDateLabel}` : `Pedido ao fornecedor · ${deliveryDateLabel}`}
-        titulo="Compra"
-        action={
+      {dayMode ? (
+        // Modo dia: header com seta de voltar e data desambiguada (sem botão Histórico).
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '4px 20px 14px' }}>
           <button
-            onClick={() => setShowHistory(true)}
-            aria-label="Histórico de compras"
-            title="Histórico de compras"
+            onClick={onBack}
+            aria-label="Voltar para os dias"
             style={{
-              display: 'inline-flex',
+              width: 36,
+              height: 36,
+              borderRadius: 11,
+              background: 'var(--color-surface-2)',
+              border: 'none',
+              display: 'flex',
               alignItems: 'center',
-              gap: 6,
-              padding: '8px 13px',
-              borderRadius: 999,
-              border: '1px solid var(--color-border-2)',
-              background: 'var(--color-surface)',
-              fontFamily: 'var(--font-body)',
-              fontWeight: 700,
-              fontSize: 12.5,
-              color: 'var(--color-text)',
+              justifyContent: 'center',
               cursor: 'pointer',
-              boxShadow: 'var(--shadow-soft)',
+              flexShrink: 0,
             }}
           >
-            <Icon name="clock" size={15} color="var(--color-accent)" stroke={2} />
-            Histórico
+            <Icon name="chevL" size={20} color="var(--color-text)" stroke={2.2} />
           </button>
-        }
-      />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, minWidth: 0 }}>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: 'var(--color-text-ter)',
+                margin: 0,
+                lineHeight: 1.3,
+              }}
+            >
+              {daySubtitle ?? (turnoLabel ? `Turno ${turnoLabel} · ${deliveryDateLabel}` : deliveryDateLabel)}
+            </p>
+            <h1
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 20,
+                fontWeight: 700,
+                letterSpacing: '-0.02em',
+                color: 'var(--color-text)',
+                margin: 0,
+                lineHeight: 1.2,
+              }}
+            >
+              Compra
+            </h1>
+          </div>
+        </div>
+      ) : (
+        <AdminHead
+          sub={turnoLabel ? `Turno ${turnoLabel} · ${deliveryDateLabel}` : `Pedido ao fornecedor · ${deliveryDateLabel}`}
+          titulo="Compra"
+          action={
+            <button
+              onClick={() => setShowHistory(true)}
+              aria-label="Histórico de compras"
+              title="Histórico de compras"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 13px',
+                borderRadius: 999,
+                border: '1px solid var(--color-border-2)',
+                background: 'var(--color-surface)',
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 12.5,
+                color: 'var(--color-text)',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-soft)',
+              }}
+            >
+              <Icon name="clock" size={15} color="var(--color-accent)" stroke={2} />
+              Histórico
+            </button>
+          }
+        />
+      )}
 
       <StepBar step={step} onStepClick={(i) => setStep(i as 0 | 1 | 2 | 3)} />
 
@@ -596,6 +701,27 @@ export function AdminPedido() {
                     >
                       Gerar de novo
                     </button>
+                  </div>
+                )}
+
+                {/* Faixa: rede de segurança (geração automática no corte) — só no modo dia */}
+                {dayMode && !generated?.generated && cutoff.open && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      background: 'var(--color-gold-soft)',
+                      border: '1px solid rgba(227,172,63,0.4)',
+                      borderRadius: 14,
+                      padding: '11px 13px',
+                      marginBottom: 16,
+                    }}
+                  >
+                    <Icon name="spark" size={16} color="var(--color-accent)" stroke={2} />
+                    <p style={{ margin: 0, fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b531c', lineHeight: 1.4 }}>
+                      Sem ação, o pedido é gerado <b style={{ color: '#5a4413' }}>automaticamente no corte</b> com o split padrão. Você pode gerar agora ou ajustar.
+                    </p>
                   </div>
                 )}
 
@@ -1044,14 +1170,81 @@ export function AdminPedido() {
           </div>
 
           {!isLoading && draftData && draftData.length > 0 && (
-            <Footer
-              label=""
-              totalLabel="Total necessário"
-              totalValue={draftTotal}
-              ctaLabel={generated?.generated ? 'Ver no histórico de compras' : 'Encerrar corte e gerar pedido'}
-              ctaIcon={generated?.generated ? 'check' : 'scissors'}
-              onCta={generated?.generated ? () => setShowHistory(true) : goToStep1}
-            />
+            generated?.generated ? (
+              <Footer
+                label=""
+                totalLabel="Total necessário"
+                totalValue={draftTotal}
+                ctaLabel="Ver no histórico de compras"
+                ctaIcon="check"
+                onCta={() => setShowHistory(true)}
+              />
+            ) : (
+              // Não gerado: Gerar direto (1 toque) + Ajustar antes (fluxo manual completo).
+              <div
+                style={{
+                  position: 'sticky',
+                  bottom: 0,
+                  background: 'var(--color-app-bg)',
+                  borderTop: '1px solid var(--color-border-2)',
+                  padding: '12px 20px 16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 11 }}>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+                    Total a pedir
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-text)' }}>
+                    {expectedTotal} pães
+                  </span>
+                </div>
+                <button
+                  onClick={() => void gerarDireto()}
+                  disabled={isCreating || expectedTotal === 0}
+                  style={{
+                    width: '100%',
+                    padding: '14px 20px',
+                    borderRadius: 16,
+                    border: 'none',
+                    background: 'var(--color-accent)',
+                    color: '#fff',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: isCreating ? 'wait' : 'pointer',
+                    opacity: isCreating || expectedTotal === 0 ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    minHeight: 44,
+                  }}
+                >
+                  <Icon name="spark" size={18} color="#fff" stroke={2.1} />
+                  Gerar direto{expectedTotal > 0 ? ` · ${expectedTotal} 🥖` : ''}
+                </button>
+                <button
+                  onClick={goToStep1}
+                  disabled={isLoadingSuppliers}
+                  style={{
+                    width: '100%',
+                    marginTop: 9,
+                    padding: '12px',
+                    borderRadius: 16,
+                    border: '1.5px solid var(--color-border)',
+                    background: 'transparent',
+                    color: 'var(--color-text-sec)',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 13.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    minHeight: 44,
+                  }}
+                >
+                  Ajustar antes de gerar (fluxo completo)
+                </button>
+              </div>
+            )
           )}
         </div>
       )}
