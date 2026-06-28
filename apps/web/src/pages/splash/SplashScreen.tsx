@@ -107,9 +107,9 @@ export function SplashScreen() {
         {/* Banner de instalação — clicável, dispara o install do PWA */}
         {canInstall && <InstallBanner onClick={handleInstall} />}
 
-        {/* Primary CTA — entrar */}
+        {/* Primary CTA — já tenho conta */}
         <PrimaryButton onClick={() => navigate('/login')}>
-          Entrar
+          Já tenho conta · Entrar
         </PrimaryButton>
 
         {/* Secondary link — criar conta */}
@@ -127,7 +127,7 @@ export function SplashScreen() {
             cursor: 'pointer',
           }}
         >
-          Criar conta
+          Quero criar minha conta
         </button>
       </div>
 
