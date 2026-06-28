@@ -270,6 +270,45 @@ function formatIsoDate(iso: string): string {
   }
 }
 
+/** Coluna de estatística do card de resumo (mesmo padrão da tela interna do condomínio). */
+function Stat({ label, value, color, bread }: { label: string; value: number; color: string; bread?: boolean }) {
+  return (
+    <div style={{ flex: 1, textAlign: 'center', padding: '0 4px' }}>
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 21,
+          fontWeight: 800,
+          letterSpacing: '-0.02em',
+          fontVariantNumeric: 'tabular-nums',
+          lineHeight: 1,
+          color,
+        }}
+      >
+        {value}{bread ? ' 🥖' : ''}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: 9.5,
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--color-text-ter)',
+          marginTop: 4,
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  )
+}
+
+/** Divisória vertical entre estatísticas. */
+function Divider() {
+  return <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--color-border-2)', margin: '1px 0' }} />
+}
+
 interface AdminPedidoProps {
   /** Data de entrega alvo (YYYY-MM-DD). Quando presente, a tela é escopada a este dia. */
   deliveryDate?: string
@@ -832,127 +871,81 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                 {/* Resumo (KPIs + split de turno + risco) + busca */}
                 {draftData && draftData.length > 0 && (
                   <>
+                    {/* Resumo coeso: confirmados / previstos / entregas + split de turno */}
                     <div
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(3, 1fr)',
-                        gap: 9,
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-border-2)',
+                        borderRadius: 16,
+                        padding: '13px 8px 6px',
+                        boxShadow: 'var(--shadow-soft)',
                         marginBottom: 14,
                       }}
                     >
-                      {[
-                        { v: summary.confirmed, k: 'confirmados', c: 'var(--color-text)', bread: true },
-                        { v: summary.projected, k: 'previstos', c: 'var(--color-accent)', bread: true },
-                        { v: summary.deliveries, k: 'entregas', c: 'var(--color-text)', bread: false },
-                      ].map((kpi) => (
-                        <div
-                          key={kpi.k}
-                          style={{
-                            background: 'var(--color-surface)',
-                            border: '1px solid var(--color-border-2)',
-                            borderRadius: 14,
-                            padding: '11px 12px',
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontFamily: 'var(--font-display)',
-                              fontSize: 20,
-                              fontWeight: 800,
-                              letterSpacing: '-0.02em',
-                              fontVariantNumeric: 'tabular-nums',
-                              lineHeight: 1,
-                              color: kpi.c,
-                            }}
-                          >
-                            {kpi.v}{kpi.bread ? ' 🥖' : ''}
-                          </div>
-                          <div
-                            style={{
-                              fontFamily: 'var(--font-body)',
-                              fontSize: 10.5,
-                              fontWeight: 600,
-                              color: 'var(--color-text-ter)',
-                              marginTop: 3,
-                            }}
-                          >
-                            {kpi.k}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                        <Stat label="Confirmados" value={summary.confirmed} color="var(--color-text)" bread />
+                        <Divider />
+                        <Stat label="Previstos" value={summary.projected} color="var(--color-accent)" bread />
+                        <Divider />
+                        <Stat label="Entregas" value={summary.deliveries} color="var(--color-text)" />
+                      </div>
 
-                    {/* Barra de split por turno */}
-                    {summary.slotTotal > 0 && (
-                      <>
-                        <div
-                          style={{
-                            display: 'flex',
-                            height: 8,
-                            borderRadius: 9,
-                            overflow: 'hidden',
-                            margin: '0 2px 8px',
-                            boxShadow: 'inset 0 0 0 1px var(--color-border-2)',
-                          }}
-                        >
-                          {summary.slotList.map((s) => (
+                      {summary.slotTotal > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-border-2)', margin: '10px 6px 0', paddingTop: 11 }}>
+                          {summary.slotList.length > 1 && (
                             <div
-                              key={s.slotId}
                               style={{
-                                width: `${(s.breads / summary.slotTotal) * 100}%`,
-                                background: slotColor(s.slotId),
+                                display: 'flex',
+                                height: 7,
+                                borderRadius: 8,
+                                overflow: 'hidden',
+                                marginBottom: 9,
+                                boxShadow: 'inset 0 0 0 1px var(--color-border-2)',
                               }}
-                            />
-                          ))}
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: 16,
-                            justifyContent: 'center',
-                            flexWrap: 'wrap',
-                            margin: '0 0 14px',
-                            fontFamily: 'var(--font-body)',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: 'var(--color-text-sec)',
-                          }}
-                        >
-                          {summary.slotList.map((s) => (
-                            <span key={s.slotId}>
-                              <i
-                                style={{
-                                  display: 'inline-block',
-                                  width: 9,
-                                  height: 9,
-                                  borderRadius: 3,
-                                  background: slotColor(s.slotId),
-                                  marginRight: 5,
-                                  verticalAlign: -1,
-                                }}
-                              />
-                              {s.label} {s.breads}
-                            </span>
-                          ))}
-                          {summary.risk > 0 && (
-                            <span style={{ color: 'var(--color-accent)' }}>
-                              <i
-                                style={{
-                                  display: 'inline-block',
-                                  width: 9,
-                                  height: 9,
-                                  borderRadius: 3,
-                                  background: 'var(--color-accent)',
-                                  marginRight: 5,
-                                  verticalAlign: -1,
-                                }}
-                              />
-                              {summary.risk} em risco
-                            </span>
+                            >
+                              {summary.slotList.map((s) => (
+                                <div
+                                  key={s.slotId}
+                                  style={{
+                                    width: `${(s.breads / summary.slotTotal) * 100}%`,
+                                    background: slotColor(s.slotId),
+                                  }}
+                                />
+                              ))}
+                            </div>
                           )}
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'center',
+                              gap: 16,
+                              flexWrap: 'wrap',
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 11.5,
+                              fontWeight: 600,
+                              color: 'var(--color-text-sec)',
+                            }}
+                          >
+                            {summary.slotList.map((s) => (
+                              <span key={s.slotId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <i style={{ width: 9, height: 9, borderRadius: 3, background: slotColor(s.slotId) }} />
+                                {s.label}
+                                <strong style={{ color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>
+                                  {s.breads}
+                                </strong>
+                              </span>
+                            ))}
+                            {summary.risk > 0 && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-accent)' }}>
+                                <i style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--color-accent)' }} />
+                                em risco
+                                <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{summary.risk}</strong>
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </>
-                    )}
+                      )}
+                    </div>
 
                     {/* Busca de condomínio */}
                     <div
