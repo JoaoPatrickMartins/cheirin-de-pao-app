@@ -293,4 +293,53 @@ describe('AdminSupplierOrdersService', () => {
       expect(buf.length).toBeGreaterThan(0)
     })
   })
+
+  describe('autoGenerateAtCutoff (rede de segurança 1h após o corte)', () => {
+    // Slot único 'tarde': entrega no mesmo dia (15:30) com corte 10:00 BRT (= 13:00 UTC).
+    // Logo, corte + janela de 1h ⇒ a rede de segurança só assume a partir de 14:00 UTC do dia.
+    const tardeOnly = [
+      { slotId: 'tarde', name: 'tarde', label: 'Tarde', emoji: '🌙', time: '15:30', cutoffTime: '10:00', isActive: true },
+    ]
+
+    // findFirst controla se já existe PurchaseOrder FINALIZED (pedido gerado) para o turno+data.
+    function makeService(existingFinalized: { id: string } | null = null) {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.setting.findUnique.mockResolvedValue({ value: JSON.stringify(tardeOnly) })
+      prisma.purchaseOrder.findFirst.mockResolvedValue(existingFinalized)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      // Isola a lógica de janela/idempotência — a geração em si é testada em createQuick/create.
+      const quickSpy = vi.spyOn(service, 'createQuick').mockResolvedValue({ id: 'po-auto' })
+      return { service, prisma, quickSpy }
+    }
+
+    it('NÃO gera dentro da janela manual de 1h após o corte', async () => {
+      const { service, quickSpy } = makeService()
+      // 2026-06-27 10:30 BRT (13:30 UTC) — 30min após o corte, ainda na janela manual.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 13, 30)))
+      expect(quickSpy).not.toHaveBeenCalled()
+    })
+
+    it('gera automaticamente passada 1h do corte quando não há pedido', async () => {
+      const { service, quickSpy } = makeService(null)
+      // 2026-06-27 11:30 BRT (14:30 UTC) — 1h30 após o corte, janela manual encerrada.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 14, 30)))
+      expect(quickSpy).toHaveBeenCalledTimes(1)
+      expect(quickSpy).toHaveBeenCalledWith('tarde', '2026-06-27')
+    })
+
+    it('NÃO gera se já foi gerado manualmente (pedido finalizado), mesmo passada a 1h', async () => {
+      const { service, quickSpy } = makeService({ id: 'po-manual' })
+      // Mesmo após a janela, o pedido manual finalizado torna a rede de segurança idempotente.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 14, 30)))
+      expect(quickSpy).not.toHaveBeenCalled()
+    })
+
+    it('respeita o atraso configurável (delayMinutes)', async () => {
+      const { service, quickSpy } = makeService(null)
+      // 14:30 UTC = 30min após o corte: com janela de 120min ainda NÃO gera.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 13, 30)), 120)
+      expect(quickSpy).not.toHaveBeenCalled()
+    })
+  })
 })
