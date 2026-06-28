@@ -9,13 +9,13 @@ export function SplashScreen() {
   const [showIOSSheet, setShowIOSSheet] = useState(false)
   const navigate = useNavigate()
 
-  const handleCTA = () => {
+  const canInstall = isInstallable || (isIOS && !isStandalone)
+
+  const handleInstall = () => {
     if (isInstallable) {
       triggerInstall()
     } else if (isIOS && !isStandalone) {
       setShowIOSSheet(true)
-    } else {
-      navigate('/register')
     }
   }
 
@@ -102,67 +102,19 @@ export function SplashScreen() {
         </div>
       </div>
 
-      {/* Rodapé — card informativo + ações */}
+      {/* Rodapé — banner de instalação + ações */}
       <div style={{ position: 'relative', padding: '0 24px 16px' }}>
-        {/* Card de instalação (informativo) */}
-        <div
-          style={{
-            backgroundColor: 'rgba(250,245,236,0.06)',
-            border: '1px solid rgba(250,245,236,0.12)',
-            borderRadius: 22,
-            padding: 18,
-            marginBottom: 16,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
-            {/* Ícone-mini */}
-            <div
-              style={{
-                width: 46,
-                height: 46,
-                borderRadius: 13,
-                backgroundColor: '#160C04',
-                display: 'grid',
-                placeItems: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <BreadMark size={30} color="#E3AC3F" reduced={false} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <p
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontWeight: 700,
-                  fontSize: 15,
-                  margin: 0,
-                }}
-              >
-                Instalar o Cheirin
-              </p>
-              <p
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 12.5,
-                  color: '#C7B595',
-                  marginTop: 2,
-                  marginBottom: 0,
-                }}
-              >
-                Adicione à tela inicial — abre rápido, funciona offline.
-              </p>
-            </div>
-          </div>
-        </div>
+        {/* Banner de instalação — clicável, dispara o install do PWA */}
+        {canInstall && <InstallBanner onClick={handleInstall} />}
 
-        {/* Primary CTA */}
-        <PrimaryButton onClick={handleCTA}>
-          Instalar e criar conta
+        {/* Primary CTA — entrar */}
+        <PrimaryButton onClick={() => navigate('/login')}>
+          Entrar
         </PrimaryButton>
 
-        {/* Secondary link */}
+        {/* Secondary link — criar conta */}
         <button
-          onClick={() => navigate('/login')}
+          onClick={() => navigate('/register')}
           style={{
             width: '100%',
             marginTop: 12,
@@ -175,7 +127,7 @@ export function SplashScreen() {
             cursor: 'pointer',
           }}
         >
-          Já tenho conta — entrar
+          Criar conta
         </button>
       </div>
 
@@ -188,6 +140,79 @@ export function SplashScreen() {
 }
 
 /* ---------- Sub-components ---------- */
+
+interface InstallBannerProps {
+  onClick: () => void
+}
+
+function InstallBanner({ onClick }: InstallBannerProps) {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        backgroundColor: hovered
+          ? 'rgba(250,245,236,0.1)'
+          : 'rgba(250,245,236,0.06)',
+        border: '1px solid rgba(250,245,236,0.12)',
+        borderRadius: 22,
+        padding: 18,
+        marginBottom: 16,
+        cursor: 'pointer',
+        transition: 'background-color .15s, transform .15s',
+        transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+        {/* Ícone-mini */}
+        <div
+          style={{
+            width: 46,
+            height: 46,
+            borderRadius: 13,
+            backgroundColor: '#160C04',
+            display: 'grid',
+            placeItems: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <BreadMark size={30} color="#E3AC3F" reduced={false} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontWeight: 700,
+              fontSize: 15,
+              margin: 0,
+            }}
+          >
+            Instale o App do Cheirin de Pão
+          </p>
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12.5,
+              color: '#C7B595',
+              marginTop: 2,
+              marginBottom: 0,
+            }}
+          >
+            Acesso direto pela tela inicial, abre na hora e funciona até sem
+            internet.
+          </p>
+        </div>
+        <Icon name="download" size={22} color="#E3AC3F" />
+      </div>
+    </button>
+  )
+}
 
 interface PrimaryButtonProps {
   onClick: () => void
