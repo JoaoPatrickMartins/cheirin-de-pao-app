@@ -154,6 +154,8 @@ model Condominium {
   // true quando a geocodificação só resolveu a nível de cidade (centro) — impreciso.
   approxLocation Boolean @default(false)
   type          CondoType
+  // Número de blocos/torres — usado apenas quando type == BLOCKS. Nulo em SINGLE_ENTRANCE.
+  numBlocks     Int?
   isActive      Boolean   @default(true)
   deliverySlots DeliverySlot[]
   createdAt     DateTime  @default(now())

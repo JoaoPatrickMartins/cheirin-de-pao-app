@@ -1740,7 +1740,7 @@ function NotasCard({ clienteId, showToast }: { clienteId: string; showToast: (m:
           disabled={!draft.trim() || saving}
           style={{
             flexShrink: 0, padding: '0 14px', minHeight: 40, borderRadius: 12, border: 'none',
-            background: 'var(--color-accent)', color: '#1E1207', fontFamily: 'var(--font-body)', fontSize: 14,
+            background: 'var(--color-espresso)', color: '#FAF5EC', fontFamily: 'var(--font-body)', fontSize: 14,
             fontWeight: 700, cursor: !draft.trim() || saving ? 'not-allowed' : 'pointer', opacity: !draft.trim() ? 0.45 : 1,
           }}
         >

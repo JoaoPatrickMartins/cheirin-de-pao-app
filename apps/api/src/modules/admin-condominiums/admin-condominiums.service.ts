@@ -60,9 +60,11 @@ export class AdminCondominiumsService {
     const existing = await this.repository.findById(id)
     if (!existing) throw { statusCode: 404, message: 'Condomínio não encontrado' }
 
-    const patch: Omit<UpdateCondominiumBody, 'lat' | 'lng'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean } = {
+    const patch: Omit<UpdateCondominiumBody, 'lat' | 'lng' | 'numBlocks'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean; numBlocks?: number | null } = {
       ...data,
     }
+    // Ao trocar para SINGLE_ENTRANCE, limpa numBlocks para não deixar valor órfão.
+    if (data.type === 'SINGLE_ENTRANCE') patch.numBlocks = null
     const hasManual = data.lat != null && data.lng != null
     if (hasManual) {
       patch.lat = data.lat

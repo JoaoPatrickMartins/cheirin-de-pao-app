@@ -209,8 +209,8 @@ function Footer({ label, totalLabel, totalValue, ctaLabel, ctaIcon, onCta, isLoa
           padding: '14px 20px',
           borderRadius: 16,
           border: 'none',
-          background: 'var(--color-accent)',
-          color: '#fff',
+          background: 'var(--color-espresso)',
+          color: '#FAF5EC',
           fontFamily: 'var(--font-body)',
           fontSize: 15,
           fontWeight: 700,
@@ -224,7 +224,7 @@ function Footer({ label, totalLabel, totalValue, ctaLabel, ctaIcon, onCta, isLoa
         }}
         aria-label={ctaLabel}
       >
-        {ctaIcon && <Icon name={ctaIcon} size={18} color="#fff" stroke={2.1} />}
+        {ctaIcon && <Icon name={ctaIcon} size={18} color="#FAF5EC" stroke={2.1} />}
         {ctaLabel}
       </button>
       {label && (
@@ -1206,8 +1206,8 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                     padding: '14px 20px',
                     borderRadius: 16,
                     border: 'none',
-                    background: 'var(--color-accent)',
-                    color: '#fff',
+                    background: 'var(--color-espresso)',
+                    color: '#FAF5EC',
                     fontFamily: 'var(--font-body)',
                     fontSize: 15,
                     fontWeight: 800,
@@ -1220,7 +1220,7 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                     minHeight: 44,
                   }}
                 >
-                  <Icon name="spark" size={18} color="#fff" stroke={2.1} />
+                  <Icon name="spark" size={18} color="#FAF5EC" stroke={2.1} />
                   Gerar direto{expectedTotal > 0 ? ` · ${expectedTotal} 🥖` : ''}
                 </button>
                 <button
@@ -1620,8 +1620,8 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                 padding: '14px 20px',
                 borderRadius: 16,
                 border: 'none',
-                background: 'var(--color-accent)',
-                color: '#fff',
+                background: 'var(--color-espresso)',
+                color: '#FAF5EC',
                 fontFamily: 'var(--font-body)',
                 fontSize: 15,
                 fontWeight: 700,
@@ -1634,7 +1634,7 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                 minHeight: 44,
               }}
             >
-              <Icon name="check" size={18} color="#fff" stroke={2.1} />
+              <Icon name="check" size={18} color="#FAF5EC" stroke={2.1} />
               Finalizar pedido
             </button>
           </div>

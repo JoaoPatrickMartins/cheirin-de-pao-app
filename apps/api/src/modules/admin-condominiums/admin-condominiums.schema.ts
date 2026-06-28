@@ -17,6 +17,8 @@ export const CreateCondominiumSchema = z.object({
   type: z.enum(['SINGLE_ENTRANCE', 'BLOCKS'], {
     message: 'Tipo inválido. Use SINGLE_ENTRANCE ou BLOCKS.',
   }),
+  // Número de blocos/torres — relevante apenas quando type == BLOCKS.
+  numBlocks: z.number().int().min(1, 'Número de blocos deve ser ao menos 1').optional(),
   // Coordenadas manuais (opcionais) — quando informadas, têm prioridade sobre a
   // geocodificação automática do endereço.
   lat: z.number().optional(),

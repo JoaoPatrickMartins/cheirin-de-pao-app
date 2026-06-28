@@ -24,7 +24,7 @@ export class AdminCondominiumsRepository {
     return this.prisma.condominium.create({ data })
   }
 
-  update(id: string, data: Omit<UpdateCondominiumBody, 'lat' | 'lng'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean }) {
+  update(id: string, data: Omit<UpdateCondominiumBody, 'lat' | 'lng' | 'numBlocks'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean; numBlocks?: number | null }) {
     return this.prisma.condominium.update({ where: { id }, data })
   }
 

@@ -143,8 +143,8 @@ export function CreditBalanceCard({ creditBalance, isLoading = false }: CreditBa
           style={{
             flex: 1,
             minHeight: 44,
-            background: 'var(--color-gold)',
-            color: 'var(--color-espresso)',
+            background: 'var(--color-espresso)',
+            color: '#FAF5EC',
             borderRadius: 'var(--radius-btn)',
             fontFamily: 'var(--font-body)',
             fontSize: 15,

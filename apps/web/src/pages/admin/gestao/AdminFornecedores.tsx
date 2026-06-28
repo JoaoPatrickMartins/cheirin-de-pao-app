@@ -478,8 +478,8 @@ function GoldBtn({ icon, onClick, children }: GoldBtnProps) {
         gap: 8,
         width: '100%',
         minHeight: 44,
-        background: 'var(--color-gold)',
-        color: 'var(--color-espresso)',
+        background: 'var(--color-espresso)',
+        color: '#FAF5EC',
         border: 'none',
         borderRadius: 14,
         fontFamily: 'var(--font-body)',
@@ -489,7 +489,7 @@ function GoldBtn({ icon, onClick, children }: GoldBtnProps) {
         letterSpacing: '-0.01em',
       }}
     >
-      <Icon name={icon as Parameters<typeof Icon>[0]['name']} size={18} color="var(--color-espresso)" />
+      <Icon name={icon as Parameters<typeof Icon>[0]['name']} size={18} color="#FAF5EC" />
       {children}
     </button>
   )

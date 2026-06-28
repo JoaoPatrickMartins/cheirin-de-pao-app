@@ -29,6 +29,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
                 id: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
                 name: { type: 'string', description: 'Nome do condomínio.' },
                 type: { type: 'string', description: 'Tipo: SINGLE_ENTRANCE (entrada única) ou BLOCKS (por blocos).' },
+                numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
                 address: {
                   type: 'object',
                   description: 'Endereço completo do condomínio.',
@@ -93,6 +94,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
               id: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
               name: { type: 'string', description: 'Nome do condomínio.' },
               type: { type: 'string', description: 'Tipo: SINGLE_ENTRANCE ou BLOCKS.' },
+              numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
               address: {
                 type: 'object',
                 description: 'Endereço completo do condomínio.',
@@ -150,6 +152,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: 'string', description: 'Nome do condomínio (ex: Residencial das Palmeiras).' },
             type: { type: 'string', enum: ['SINGLE_ENTRANCE', 'BLOCKS'], description: 'SINGLE_ENTRANCE: uma entrada para todos. BLOCKS: dividido por blocos — clientes devem informar o bloco.' },
+            numBlocks: { type: 'integer', minimum: 1, description: 'Número de blocos/torres (obrigatório quando type == BLOCKS).' },
             address: {
               type: 'object',
               required: ['street', 'number', 'city', 'state', 'zip'],
@@ -173,6 +176,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
               id: { type: 'string', description: 'ID do condomínio criado.' },
               name: { type: 'string', description: 'Nome do condomínio.' },
               type: { type: 'string', description: 'Tipo do condomínio.' },
+              numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
               address: {
                 type: 'object',
                 description: 'Endereço completo.',
@@ -217,6 +221,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: 'string', description: 'Novo nome do condomínio.' },
             type: { type: 'string', enum: ['SINGLE_ENTRANCE', 'BLOCKS'], description: 'Novo tipo de condomínio.' },
+            numBlocks: { type: 'integer', minimum: 1, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
             address: {
               type: 'object',
               description: 'Endereço parcialmente atualizado.',
@@ -239,6 +244,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
               id: { type: 'string', description: 'ID do condomínio.' },
               name: { type: 'string', description: 'Nome atualizado.' },
               type: { type: 'string', description: 'Tipo do condomínio.' },
+              numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
               address: {
                 type: 'object',
                 description: 'Endereço completo.',
