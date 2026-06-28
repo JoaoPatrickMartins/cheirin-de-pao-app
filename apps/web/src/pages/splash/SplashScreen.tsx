@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useInstallPrompt } from '../../hooks/useInstallPrompt'
 import { BreadMark } from '../../components/brand/BreadMark'
 import { Icon } from '../../components/brand/Icon'
@@ -6,116 +7,153 @@ import { Icon } from '../../components/brand/Icon'
 export function SplashScreen() {
   const { isInstallable, isIOS, isStandalone, triggerInstall } = useInstallPrompt()
   const [showIOSSheet, setShowIOSSheet] = useState(false)
+  const navigate = useNavigate()
 
   const handleCTA = () => {
     if (isInstallable) {
       triggerInstall()
     } else if (isIOS && !isStandalone) {
       setShowIOSSheet(true)
+    } else {
+      navigate('/register')
     }
   }
 
   return (
     <div
-      className="min-h-screen flex flex-col items-center px-5 relative overflow-hidden"
-      style={{ backgroundColor: '#1E1207' }}
+      style={{
+        minHeight: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#1E1207',
+        color: '#FAF5EC',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
     >
-      {/* Radial vinheta */}
+      {/* Glow radial quente */}
       <div
         aria-hidden="true"
         style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 256,
+          inset: 0,
           pointerEvents: 'none',
-          background: 'radial-gradient(ellipse at 50% 0%, rgba(227,172,63,0.15), transparent)',
+          background:
+            'radial-gradient(120% 80% at 50% -10%, rgba(227,172,63,0.18), transparent 60%)',
         }}
       />
 
-      {/* App icon container */}
+      {/* Bloco central — logo + nome, centralizado verticalmente */}
       <div
         style={{
-          width: 132,
-          height: 132,
-          borderRadius: '30%',
-          backgroundColor: '#160C04',
-          boxShadow: 'var(--shadow-strong)',
+          flex: 1,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          marginTop: 64,
-          flexShrink: 0,
+          gap: 22,
           position: 'relative',
-          zIndex: 1,
+          padding: 32,
         }}
       >
-        <BreadMark size={86} color="#E3AC3F" reduced={false} />
-      </div>
-
-      {/* App name */}
-      <h1
-        style={{
-          fontFamily: 'var(--font-display)',
-          fontWeight: 700,
-          fontSize: 32,
-          lineHeight: 1.1,
-          letterSpacing: '-0.02em',
-          color: '#FBF3E4',
-          marginTop: 20,
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        Cheirin de Pão
-      </h1>
-
-      {/* Tagline */}
-      <p
-        style={{
-          fontFamily: 'var(--font-body)',
-          fontWeight: 700,
-          fontSize: 12,
-          letterSpacing: '0.26em',
-          color: '#E3AC3F',
-          marginTop: 8,
-          textTransform: 'uppercase',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        PÃO FRESCO NA PORTA
-      </p>
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Install card */}
-      <div
-        style={{
-          width: '100%',
-          backgroundColor: '#FFFFFF',
-          borderRadius: 22,
-          padding: 20,
-          boxShadow: 'var(--shadow-soft)',
-          marginBottom: 32,
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        <p
+        {/* App icon container */}
+        <div
           style={{
-            fontFamily: 'var(--font-body)',
-            fontWeight: 700,
-            fontSize: 15,
-            color: '#241608',
-            marginBottom: 12,
-            margin: '0 0 12px 0',
+            width: 132,
+            height: 132,
+            borderRadius: '30%',
+            backgroundColor: '#160C04',
+            display: 'grid',
+            placeItems: 'center',
+            boxShadow: '0 30px 60px -20px rgba(0,0,0,0.6)',
           }}
         >
-          Instalar o Cheirin
-        </p>
+          <BreadMark size={86} color="#E3AC3F" reduced={false} />
+        </div>
+
+        {/* Nome + tagline */}
+        <div style={{ textAlign: 'center' }}>
+          <h1
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 32,
+              letterSpacing: '-0.03em',
+              whiteSpace: 'nowrap',
+              margin: 0,
+            }}
+          >
+            Cheirin de Pão
+          </h1>
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontWeight: 600,
+              fontSize: 12,
+              letterSpacing: '0.26em',
+              color: '#E3AC3F',
+              marginTop: 8,
+              marginBottom: 0,
+              textTransform: 'uppercase',
+            }}
+          >
+            PÃO FRESCO NA PORTA
+          </p>
+        </div>
+      </div>
+
+      {/* Rodapé — card informativo + ações */}
+      <div style={{ position: 'relative', padding: '0 24px 16px' }}>
+        {/* Card de instalação (informativo) */}
+        <div
+          style={{
+            backgroundColor: 'rgba(250,245,236,0.06)',
+            border: '1px solid rgba(250,245,236,0.12)',
+            borderRadius: 22,
+            padding: 18,
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+            {/* Ícone-mini */}
+            <div
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 13,
+                backgroundColor: '#160C04',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <BreadMark size={30} color="#E3AC3F" reduced={false} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 700,
+                  fontSize: 15,
+                  margin: 0,
+                }}
+              >
+                Instalar o Cheirin
+              </p>
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  color: '#C7B595',
+                  marginTop: 2,
+                  marginBottom: 0,
+                }}
+              >
+                Adicione à tela inicial — abre rápido, funciona offline.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Primary CTA */}
         <PrimaryButton onClick={handleCTA}>
@@ -124,21 +162,17 @@ export function SplashScreen() {
 
         {/* Secondary link */}
         <button
-          onClick={() => {/* navigate to login — Phase 2 */}}
+          onClick={() => navigate('/login')}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
             width: '100%',
-            minHeight: 44,
-            background: 'transparent',
-            color: '#B0702A',
-            fontFamily: 'var(--font-body)',
-            fontSize: 15,
-            fontWeight: 700,
+            marginTop: 12,
+            background: 'none',
             border: 'none',
+            color: '#C7B595',
+            fontFamily: 'var(--font-body)',
+            fontSize: 13.5,
+            fontWeight: 600,
             cursor: 'pointer',
-            marginTop: 4,
           }}
         >
           Já tenho conta — entrar
@@ -178,10 +212,10 @@ function PrimaryButton({ onClick, children }: PrimaryButtonProps) {
         color: '#1E1207',
         borderRadius: 'var(--radius-btn)',
         fontFamily: 'var(--font-body)',
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: 700,
         letterSpacing: '-0.01em',
-        padding: '13px 18px',
+        padding: '16px 22px',
         border: 'none',
         cursor: 'pointer',
         transition: 'transform .15s, filter .15s',
