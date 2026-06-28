@@ -3,9 +3,11 @@ interface StepperInlineProps {
   max: number
   value: number
   onChange: (v: number) => void
+  /** Exibe o emoji de pão 🥖 ao lado da quantidade (quando > 0). Opt-in. */
+  showUnit?: boolean
 }
 
-export default function StepperInline({ min, max, value, onChange }: StepperInlineProps) {
+export default function StepperInline({ min, max, value, onChange, showUnit = false }: StepperInlineProps) {
   const atMin = value <= min
   const atMax = value >= max
 
@@ -38,14 +40,23 @@ export default function StepperInline({ min, max, value, onChange }: StepperInli
         −
       </button>
       <span style={{
-        fontFamily: 'var(--font-display)',
-        fontSize: 18,
-        fontWeight: 800,
-        color: value > 0 ? 'var(--color-accent)' : 'var(--color-text-ter)',
-        minWidth: 24,
-        textAlign: 'center',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        minWidth: showUnit ? 46 : 24,
       }}>
-        {value}
+        <span style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 18,
+          fontWeight: 800,
+          color: value > 0 ? 'var(--color-accent)' : 'var(--color-text-ter)',
+        }}>
+          {value}
+        </span>
+        {showUnit && value > 0 && (
+          <span aria-hidden="true" style={{ fontSize: 15, lineHeight: 1 }}>🥖</span>
+        )}
       </span>
       <button
         aria-label="aumentar"

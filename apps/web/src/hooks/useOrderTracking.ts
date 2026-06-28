@@ -1,9 +1,20 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../lib/apiFetch'
 
+// Espelha o enum OrderStatus do backend (Prisma). Inclui estados intermediários
+// (SEPARATED, NOT_DELIVERED) que NÃO são "entregue" — consumidores devem tratar o
+// default como "agendado", nunca como "entregue".
+export type OrderStatus =
+  | 'SCHEDULED'
+  | 'SEPARATED'
+  | 'OUT_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'NOT_DELIVERED'
+  | 'CANCELLED'
+
 export interface TodayOrder {
   id: string
-  status: 'SCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED'
+  status: OrderStatus
   quantity: number
   scheduledDate: string
   deliveryTime?: string

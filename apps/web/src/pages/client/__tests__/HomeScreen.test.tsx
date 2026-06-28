@@ -17,6 +17,16 @@ vi.mock('../../../hooks/useAuth', () => ({
   }),
 }))
 
+// Pedido de hoje em estado intermediário (SEPARATED) — regressão do bug em que o
+// banner mostrava "ENTREGUE" para qualquer status fora dos 3 conhecidos.
+vi.mock('../../../hooks/useOrderTracking', () => ({
+  useOrderTracking: () => ({
+    order: { id: 'o1', status: 'SEPARATED', quantity: 5, scheduledDate: new Date().toISOString(), deliveryTime: '06:30' },
+    isToday: true,
+    isLoading: false,
+  }),
+}))
+
 describe('HomeScreen [UI-04, CRED-11]', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
@@ -46,6 +56,19 @@ describe('HomeScreen [UI-04, CRED-11]', () => {
         </MemoryRouter>
       )
       expect(screen.getByText('pães')).toBeDefined()
+    })
+  })
+
+  describe('status do banner de entrega', () => {
+    it('estado intermediário (SEPARATED) NÃO mostra "Entregue" — mostra "Agendado"', () => {
+      render(
+        <MemoryRouter>
+          <HomeScreen />
+        </MemoryRouter>
+      )
+      expect(screen.queryByText('Entregue')).toBeNull()
+      expect(screen.queryByText('ENTREGUE')).toBeNull()
+      expect(screen.getByText('Agendado')).toBeDefined()
     })
   })
 })

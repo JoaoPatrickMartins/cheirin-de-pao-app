@@ -3,9 +3,11 @@ interface QuantityStepperProps {
   max: number
   value: number
   onChange: (v: number) => void
+  /** Exibe o emoji de pão 🥖 ao lado da quantidade (quando > 0). Opt-in. */
+  showUnit?: boolean
 }
 
-export default function QuantityStepper({ min, max, value, onChange }: QuantityStepperProps) {
+export default function QuantityStepper({ min, max, value, onChange, showUnit = false }: QuantityStepperProps) {
   const atMin = value <= min
   const atMax = value >= max
 
@@ -38,15 +40,24 @@ export default function QuantityStepper({ min, max, value, onChange }: QuantityS
         −
       </button>
       <span style={{
-        fontFamily: 'var(--font-display)',
-        fontSize: 56,
-        fontWeight: 800,
-        color: 'var(--color-accent)',
-        lineHeight: 1,
-        minWidth: 64,
-        textAlign: 'center',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        minWidth: showUnit ? 100 : 64,
       }}>
-        {value}
+        <span style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 56,
+          fontWeight: 800,
+          color: 'var(--color-accent)',
+          lineHeight: 1,
+        }}>
+          {value}
+        </span>
+        {showUnit && value > 0 && (
+          <span aria-hidden="true" style={{ fontSize: 30, lineHeight: 1 }}>🥖</span>
+        )}
       </span>
       <button
         aria-label="aumentar"
