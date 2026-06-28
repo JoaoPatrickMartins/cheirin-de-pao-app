@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { Icon } from '../../components/brand/Icon'
 import { StepDots } from '../../components/auth/StepDots'
-import { ChannelSelector } from '../../components/auth/ChannelSelector'
 import { CondoSearch } from '../../components/auth/CondoSearch'
 import { OtpInput } from '../../components/auth/OtpInput'
 import { ResendTimer } from '../../components/auth/ResendTimer'
@@ -61,10 +60,10 @@ export function OnboardingScreen() {
   const [cpfDisplay, setCpfDisplay] = useState('') // formatted display value
   const [dataNascimento, setDataNascimento] = useState('')
 
-  // Step 1 — Contato
+  // Step 1 — Contato (OTP só por e-mail; telefone é coletado p/ avisos de
+  // entrega e OTP por WhatsApp futuro)
   const [telefone, setTelefone] = useState('')
   const [email, setEmail] = useState('')
-  const [canal, setCanal] = useState<'sms' | 'email'>('sms')
 
   // Step 2 — Condomínio
   const [condos, setCondos] = useState<Condo[]>([])
@@ -82,15 +81,6 @@ export function OnboardingScreen() {
 
   const selectedCondo = condos.find((c) => c.id === selectedCondoId) ?? null
   const isBlocksCondo = selectedCondo?.type === 'BLOCKS'
-
-  // Auto-select channel based on contact info
-  useEffect(() => {
-    const hasPhone = telefone.trim().length > 0
-    const hasEmail = email.trim().length > 0
-    if (hasPhone && !hasEmail) setCanal('sms')
-    else if (hasEmail && !hasPhone) setCanal('email')
-    // both → keep current selection
-  }, [telefone, email])
 
   // Load condos when reaching step 2
   useEffect(() => {
@@ -151,9 +141,8 @@ export function OnboardingScreen() {
           name: nome,
           cpf: rawCpf,
           birthDate: parseBirthDate(dataNascimento),
-          ...(telefone ? { phone: telefone } : {}),
-          ...(email ? { email } : {}),
-          channel: canal,
+          phone: telefone,
+          email,
           condominiumId: selectedCondoId!,
           apartment: apto,
           ...(isBlocksCondo && bloco ? { block: bloco } : {}),
@@ -174,11 +163,10 @@ export function OnboardingScreen() {
       const { userId: uid } = (await regRes.json()) as { userId: string }
       setUserId(uid)
 
-      // Send OTP
-      const otpBody = canal === 'sms' ? { phone: telefone } : { email }
+      // Send OTP (sempre por e-mail neste primeiro momento)
       const otpRes = await apiFetch('/auth/otp/send', {
         method: 'POST',
-        body: JSON.stringify(otpBody),
+        body: JSON.stringify({ email }),
       })
 
       if (!otpRes.ok) {
@@ -244,24 +232,23 @@ export function OnboardingScreen() {
   const handleResend = async () => {
     if (!userId) return
     setError(null)
-    const otpBody = canal === 'sms' ? { phone: telefone } : { email }
     await apiFetch('/auth/otp/send', {
       method: 'POST',
-      body: JSON.stringify(otpBody),
+      body: JSON.stringify({ email }),
     }).catch(() => null)
   }
 
   // Step 0 CTA disabled until all fields filled
   const step0Valid = nome.trim() !== '' && cpfDisplay.trim() !== '' && dataNascimento.replace(/\D/g, '').length === 8
 
-  // Step 1 CTA disabled until at least one contact field
-  const step1Valid = telefone.trim().length > 0 || email.trim().length > 0
+  // Step 1 CTA disabled até preencher telefone E e-mail (ambos obrigatórios)
+  const step1Valid = telefone.trim().length > 0 && email.trim().length > 0
 
   // Step 3 CTA disabled until apartment filled (and block if BLOCKS condo)
   const step3Valid = apto.trim() !== ''
 
-  const otpDestination = canal === 'sms' ? telefone : email
-  const otpChannelLabel = canal === 'sms' ? 'SMS' : 'e-mail'
+  const otpDestination = email
+  const otpChannelLabel = 'e-mail'
 
   return (
     <div
@@ -397,20 +384,12 @@ export function OnboardingScreen() {
               lineHeight: 1.5,
             }}
           >
-            Informe telefone <strong style={{ color: 'var(--color-text)' }}>ou</strong> e-mail (pelo
-            menos um). É por aí que enviamos o código e os avisos de entrega.
+            Precisamos do seu e-mail e do seu celular. Enviamos o código de acesso
+            por <strong style={{ color: 'var(--color-text)' }}>e-mail</strong> e usamos o celular
+            para os avisos de entrega.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <FieldRow
-              label="Celular"
-              icon="phone"
-              value={telefone}
-              onChange={setTelefone}
-              placeholder="(11) 9 0000-0000"
-              type="tel"
-              autoComplete="tel"
-            />
             <FieldRow
               label="E-mail"
               icon="mail"
@@ -420,14 +399,14 @@ export function OnboardingScreen() {
               type="email"
               autoComplete="email"
             />
-          </div>
-
-          <div style={{ marginTop: 16 }}>
-            <ChannelSelector
-              phone={telefone}
-              email={email}
-              selected={canal}
-              onChange={setCanal}
+            <FieldRow
+              label="Celular"
+              icon="phone"
+              value={telefone}
+              onChange={setTelefone}
+              placeholder="(11) 9 0000-0000"
+              type="tel"
+              autoComplete="tel"
             />
           </div>
 

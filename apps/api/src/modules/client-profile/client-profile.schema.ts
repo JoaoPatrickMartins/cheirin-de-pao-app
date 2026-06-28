@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { PhoneSchema } from '@cheirin-de-pao/shared'
 
 export const UpdateProfileSchema = z.object({
   name: z.string().min(2).optional(),
@@ -11,12 +10,11 @@ export const UpdateProfileSchema = z.object({
 
 export type UpdateProfileBody = z.infer<typeof UpdateProfileSchema>
 
-export const ContactChangeRequestSchema = z
-  .object({
-    phone: PhoneSchema.optional(),
-    email: z.string().email().optional(),
-  })
-  .refine((d) => d.phone || d.email, { message: 'phone ou email obrigatório' })
+// Apenas troca de e-mail por enquanto (OTP só por e-mail). A edição de
+// telefone volta quando o OTP por WhatsApp for implementado.
+export const ContactChangeRequestSchema = z.object({
+  email: z.string().email(),
+})
 
 export type ContactChangeRequestBody = z.infer<typeof ContactChangeRequestSchema>
 

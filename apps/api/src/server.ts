@@ -53,8 +53,6 @@ const envSchema = {
     // Phase 2 additions:
     NODE_ENV: { type: 'string', default: 'development' },
     OTP_DEV_CODE: { type: 'string', default: '1234' },
-    ZENVIA_TOKEN: { type: 'string' },
-    ZENVIA_FROM: { type: 'string' },
     RESEND_API_KEY: { type: 'string' },
     RESEND_FROM: { type: 'string' },
     ADMIN_NAME: { type: 'string' },
