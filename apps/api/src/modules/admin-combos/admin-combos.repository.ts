@@ -32,6 +32,31 @@ export class AdminCombosRepository {
     return this.prisma.combo.delete({ where: { id } })
   }
 
+  /**
+   * Desliga a compra automática (autoRecharge.active=false) de todos os clientes que
+   * usam este combo. Chamado ao desativar o combo. autoRecharge é Json — filtramos em
+   * memória, pois Prisma/Mongo não consulta com segurança campo aninhado de Json.
+   * Preserva o resto da config (comboId, mode, weekday). Retorna quantos foram afetados.
+   */
+  async disableAutoRechargeForCombo(comboId: string): Promise<number> {
+    const clients = await this.prisma.user.findMany({
+      where: { role: 'CLIENT' },
+      select: { id: true, autoRecharge: true },
+    })
+    const affected = clients.filter((u) => {
+      const ar = u.autoRecharge as { active?: boolean; comboId?: string } | null
+      return !!ar?.active && ar.comboId === comboId
+    })
+    for (const u of affected) {
+      const ar = u.autoRecharge as Record<string, unknown>
+      await this.prisma.user.update({
+        where: { id: u.id },
+        data: { autoRecharge: { ...ar, active: false } },
+      })
+    }
+    return affected.length
+  }
+
   findActivePromotion(comboId: string) {
     return this.prisma.promotion.findFirst({
       where: { comboId, isActive: true },

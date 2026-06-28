@@ -167,6 +167,7 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
               tag: { type: 'string', nullable: true, description: 'Tag de destaque.' },
               isActive: { type: 'boolean', description: 'Se o combo está disponível para compra.' },
               createdAt: { type: 'string', description: 'Data de criação.' },
+              affectedAutoRecharge: { type: 'integer', description: 'Clientes cuja compra automática foi desligada por este update (ao desativar o combo).' },
             },
           },
         },

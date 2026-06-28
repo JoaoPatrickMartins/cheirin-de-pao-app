@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
+import { SwitchToggle } from '../../../components/admin/SwitchToggle'
+import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
+import { Toast, useToast } from '../../../components/admin/Toast'
 import { ComboForm } from './ComboForm'
 
 // ------------------------------------------------------------------ tipos
@@ -17,6 +20,7 @@ interface Combo {
   quantity: number
   price: number
   tag?: string | null
+  isActive: boolean
   discount?: DiscountEmbed | null
 }
 
@@ -44,6 +48,9 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
   const [editId, setEditId] = useState<string | null>(null)
   const [combos, setCombos] = useState<Combo[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [pending, setPending] = useState<Combo | null>(null)
+  const { toast, showToast } = useToast()
 
   const fetchCombos = useCallback(async () => {
     setIsLoading(true)
@@ -62,6 +69,52 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
   useEffect(() => {
     void fetchCombos()
   }, [fetchCombos])
+
+  // Ativa/desativa o combo com update otimista. Ao desativar, o backend desliga a
+  // compra automática dos clientes que o usam e retorna affectedAutoRecharge.
+  const performToggleActive = useCallback(
+    async (combo: Combo, next: boolean) => {
+      setBusyId(combo.id)
+      setCombos((prev) => prev.map((c) => (c.id === combo.id ? { ...c, isActive: next } : c)))
+      try {
+        const res = await apiFetch(`/admin/combos/${combo.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ isActive: next }),
+        })
+        if (!res.ok) throw new Error('patch failed')
+        if (next) {
+          showToast(`${combo.name} reativado`)
+        } else {
+          const data = (await res.json().catch(() => null)) as { affectedAutoRecharge?: number } | null
+          const n = data?.affectedAutoRecharge ?? 0
+          showToast(
+            n > 0
+              ? `Combo desativado · ${n} compra${n !== 1 ? 's' : ''} automática${n !== 1 ? 's' : ''} desligada${n !== 1 ? 's' : ''}`
+              : 'Combo desativado',
+          )
+        }
+      } catch {
+        setCombos((prev) => prev.map((c) => (c.id === combo.id ? { ...c, isActive: !next } : c)))
+        showToast('Não foi possível atualizar. Tente novamente.', false)
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [showToast],
+  )
+
+  // Desativar pede confirmação (afeta a compra automática); reativar é direto.
+  const requestToggleActive = useCallback(
+    (combo: Combo) => {
+      const next = !combo.isActive
+      if (!next) {
+        setPending(combo)
+        return
+      }
+      void performToggleActive(combo, true)
+    },
+    [performToggleActive],
+  )
 
   if (sub === 'criar') {
     return (
@@ -90,6 +143,8 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <Toast toast={toast} />
+
       {/* AppBar */}
       <div
         style={{
@@ -155,24 +210,39 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
               <ComboCard
                 key={combo.id}
                 combo={combo}
+                busy={busyId === combo.id}
                 onEdit={() => {
                   setEditId(combo.id)
                   setSub('editar')
                 }}
-                onTogglePromo={() => void togglePromo(combo, combos, setCombos)}
+                onToggleActive={() => requestToggleActive(combo)}
+                onTogglePromo={() => void togglePromo(combo, setCombos)}
               />
             ))}
           </div>
         )}
       </div>
+
+      <ConfirmSheet
+        open={!!pending}
+        title={pending ? `Desativar ${pending.name}?` : ''}
+        description="O combo sai da loja e os clientes que o usam na compra automática terão a recarga desligada. Você pode reativar quando quiser."
+        confirmLabel="Desativar"
+        tone="danger"
+        onConfirm={() => {
+          const combo = pending
+          setPending(null)
+          if (combo) void performToggleActive(combo, false)
+        }}
+        onCancel={() => setPending(null)}
+      />
     </div>
   )
 }
 
-// ------------------------------------------------------------------ toggle otimista
+// ------------------------------------------------------------------ toggle de promoção (otimista)
 async function togglePromo(
   combo: Combo,
-  combos: Combo[],
   setCombos: React.Dispatch<React.SetStateAction<Combo[]>>,
 ) {
   const prevActive = combo.discount?.active ?? false
@@ -207,12 +277,15 @@ async function togglePromo(
 // ------------------------------------------------------------------ ComboCard
 interface ComboCardProps {
   combo: Combo
+  busy: boolean
   onEdit: () => void
+  onToggleActive: () => void
   onTogglePromo: () => void
 }
 
-function ComboCard({ combo, onEdit, onTogglePromo }: ComboCardProps) {
+function ComboCard({ combo, busy, onEdit, onToggleActive, onTogglePromo }: ComboCardProps) {
   const promoAtiva = combo.discount?.active === true
+  const inactive = !combo.isActive
 
   return (
     <div
@@ -227,7 +300,7 @@ function ComboCard({ combo, onEdit, onTogglePromo }: ComboCardProps) {
       }}
     >
       {/* Linha principal */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: inactive ? 0.55 : 1 }}>
         {/* Avatar */}
         <div
           style={{
@@ -317,7 +390,7 @@ function ComboCard({ combo, onEdit, onTogglePromo }: ComboCardProps) {
         </button>
       </div>
 
-      {/* Footer: Switch de promoção */}
+      {/* Status — disponível na loja (ativo/inativo) */}
       <div
         style={{
           display: 'flex',
@@ -326,6 +399,39 @@ function ComboCard({ combo, onEdit, onTogglePromo }: ComboCardProps) {
           marginTop: 12,
           paddingTop: 12,
           borderTop: '1px solid var(--color-border-2)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="bag" size={16} color="var(--color-text-sec)" />
+          <span
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 700,
+              color: inactive ? 'var(--color-text-ter)' : 'var(--color-text-sec)',
+            }}
+          >
+            {inactive ? 'Inativo — fora da loja' : 'Ativo na loja'}
+          </span>
+        </div>
+        <SwitchToggle
+          on={combo.isActive}
+          onChange={onToggleActive}
+          disabled={busy}
+          aria-label="Ativar ou desativar combo"
+        />
+      </div>
+
+      {/* Promoção */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 12,
+          paddingTop: 12,
+          borderTop: '1px solid var(--color-border-2)',
+          opacity: inactive ? 0.55 : 1,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -341,7 +447,12 @@ function ComboCard({ combo, onEdit, onTogglePromo }: ComboCardProps) {
             Promoção {combo.discount?.value ?? 15}% OFF
           </span>
         </div>
-        <SwitchToggle on={promoAtiva} onChange={onTogglePromo} />
+        <SwitchToggle
+          on={promoAtiva}
+          onChange={onTogglePromo}
+          disabled={inactive}
+          aria-label="Ativar ou desativar promoção"
+        />
       </div>
     </div>
   )
@@ -379,48 +490,6 @@ function GoldBtn({ icon, onClick, children }: GoldBtnProps) {
     >
       <Icon name={icon as Parameters<typeof Icon>[0]['name']} size={18} color="#FAF5EC" />
       {children}
-    </button>
-  )
-}
-
-interface SwitchToggleProps {
-  on: boolean
-  onChange: () => void
-}
-
-function SwitchToggle({ on, onChange }: SwitchToggleProps) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={onChange}
-      style={{
-        width: 44,
-        height: 26,
-        borderRadius: 99,
-        border: 'none',
-        background: on ? 'var(--color-gold)' : 'var(--color-border)',
-        cursor: 'pointer',
-        position: 'relative',
-        transition: 'background 0.2s ease',
-        flexShrink: 0,
-        padding: 0,
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute',
-          top: 3,
-          left: on ? 21 : 3,
-          width: 20,
-          height: 20,
-          borderRadius: '50%',
-          background: '#fff',
-          transition: 'left 0.2s ease',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-        }}
-      />
     </button>
   )
 }
