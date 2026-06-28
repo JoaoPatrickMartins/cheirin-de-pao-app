@@ -126,7 +126,8 @@ export class AdminSupplierOrdersService {
    *
    * Risco (só para previstos, que ainda dependem de saldo/conta ativa para virar pedido):
    * - 'blocked'  → cliente bloqueado
-   * - 'no-credit'→ total previsto do cliente > saldo de créditos atual
+   * - 'no-credit'→ total previsto do cliente > saldo de créditos atual E SEM recarga automática
+   *               ativa (com autoRecharge.active o sistema cobra/recarrega antes do corte → não é risco)
    */
   private async _buildDeliveryRows(slotId: string, deliveryDate: Date, condominiumId?: string): Promise<DeliveryRow[]> {
     const { start: startOfDay, end: endOfDay } = brtDayRange(deliveryDate)
@@ -160,7 +161,7 @@ export class AdminSupplierOrdersService {
       userIds.length
         ? this.prisma.user.findMany({
             where: { id: { in: userIds } },
-            select: { id: true, name: true, apartment: true, block: true, creditBalance: true, isBlocked: true },
+            select: { id: true, name: true, apartment: true, block: true, creditBalance: true, isBlocked: true, autoRecharge: true },
           })
         : Promise.resolve([]),
       condoIds.length
@@ -209,9 +210,12 @@ export class AdminSupplierOrdersService {
 
     for (const p of projected) {
       const u = userById.get(p.userId)
+      // Recarga automática ativa cobre o saldo no corte (cobrança off_session antes de materializar),
+      // então um previsto sem saldo deixa de ser risco 'no-credit'. Bloqueio segue valendo sempre.
+      const autoRechargeActive = Boolean((u?.autoRecharge as { active?: boolean } | null)?.active)
       const risk: RiskFlag = u?.isBlocked
         ? 'blocked'
-        : (projTotalByUser.get(p.userId) ?? 0) > (u?.creditBalance ?? 0)
+        : !autoRechargeActive && (projTotalByUser.get(p.userId) ?? 0) > (u?.creditBalance ?? 0)
           ? 'no-credit'
           : ''
       rows.push({

@@ -169,6 +169,43 @@ describe('AdminSupplierOrdersService', () => {
       expect(raf.risk).toBe('no-credit')
     })
 
+    it('NÃO marca risco no-credit quando o cliente tem recarga automática ativa', async () => {
+      const { fastify } = makeFastifyMock({
+        order: [],
+        schedule: [
+          { userId: 'user-03', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+        ],
+        // Mesmo cenário sem saldo do teste acima, mas com autoRecharge.active → o corte recarrega antes.
+        users: [{ id: 'user-03', name: 'Rafael Pinto', apartment: '301', block: 'A', creditBalance: 2, isBlocked: false, autoRecharge: { active: true, comboId: 'combo-01' } }],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const detail = await service.getCondominiumDetail('condo-01', 'manha')
+
+      expect(detail.projectedBreads).toBe(8)
+      expect(detail.riskCount).toBe(0)
+      const raf = detail.deliveries.find((d) => d.name === 'Rafael Pinto')!
+      expect(raf.source).toBe('projected')
+      expect(raf.risk).toBe('')
+    })
+
+    it('marca risco blocked mesmo com recarga automática ativa (bloqueio prevalece)', async () => {
+      const { fastify } = makeFastifyMock({
+        order: [],
+        schedule: [
+          { userId: 'user-05', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+        ],
+        users: [{ id: 'user-05', name: 'Lia Souza', apartment: '501', block: 'A', creditBalance: 0, isBlocked: true, autoRecharge: { active: true } }],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const detail = await service.getCondominiumDetail('condo-01', 'manha')
+
+      const lia = detail.deliveries.find((d) => d.name === 'Lia Souza')!
+      expect(lia.risk).toBe('blocked')
+      expect(detail.riskCount).toBe(1)
+    })
+
     it('marca risco blocked para cliente bloqueado (turno tarde)', async () => {
       const { fastify } = makeFastifyMock({
         order: [],
