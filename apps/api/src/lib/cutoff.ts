@@ -78,19 +78,31 @@ export function brtDayRange(date: Date): { start: Date; end: Date } {
  * Para o avulso: o corte que governa a entrega na data `deliveryDateStr` (YYYY-MM-DD, dia BRT)
  * já passou em `now`? O corte ocorre no mesmo dia da entrega se slotTime > cutoffTime, senão na véspera.
  */
+/**
+ * Instante ABSOLUTO (UTC) do corte que governa a entrega em `deliveryDateStr` (YYYY-MM-DD, dia
+ * BRT). O corte ocorre no mesmo dia da entrega se slotTime > cutoffTime, senão na véspera.
+ * Por ser absoluto, é seguro para janelas/checagens que cruzam a meia-noite.
+ */
+export function cutoffInstantForDelivery(
+  slotTime: string,
+  cutoffTime: string,
+  deliveryDateStr: string,
+): Date {
+  const [y, mo, d] = deliveryDateStr.slice(0, 10).split('-').map(Number)
+  const [ch, cm] = cutoffTime.split(':').map(Number)
+  const sameDay = slotTime > cutoffTime
+  const cutoffDayOffset = sameDay ? 0 : -1
+  // BRT → UTC: soma 3h
+  return new Date(Date.UTC(y, mo - 1, d + cutoffDayOffset, ch + 3, cm, 0, 0))
+}
+
 export function isPastCutoffForDelivery(
   slotTime: string,
   cutoffTime: string,
   deliveryDateStr: string,
   now: Date = new Date(),
 ): boolean {
-  const [y, mo, d] = deliveryDateStr.slice(0, 10).split('-').map(Number)
-  const [ch, cm] = cutoffTime.split(':').map(Number)
-  const sameDay = slotTime > cutoffTime
-  const cutoffDayOffset = sameDay ? 0 : -1
-  // BRT → UTC: soma 3h
-  const cutoffUTC = Date.UTC(y, mo - 1, d + cutoffDayOffset, ch + 3, cm, 0, 0)
-  return now.getTime() >= cutoffUTC
+  return now.getTime() >= cutoffInstantForDelivery(slotTime, cutoffTime, deliveryDateStr).getTime()
 }
 
 /** Para o banner: o corte do slot para o ciclo atual já passou? (HH:MM BRT atual >= cutoffTime). */

@@ -10,7 +10,10 @@ import {
   dayKeyOf,
   brtDayRange,
   brtDateStr,
-  isSlotCutoffPast,
+  brtNoonFromStr,
+  isPastCutoffForDelivery,
+  nextDeliveryDateStr,
+  cutoffInstantForDelivery,
   type DayKey,
 } from '../../lib/cutoff.js'
 
@@ -41,12 +44,11 @@ export class SchedulesService {
   private notificationsService: NotificationsService
   private payments: PaymentsService
 
-  // Estado efêmero compartilhado entre ticks do cron (instância única em cron.ts):
-  // - autoRechargeAttempts: nº de cobranças por `${user}|${slot}|${dia}` (anti-spam na janela T-2h)
-  // - materializedCycles: ciclos `${condo}|${slot}|${dia}` já materializados (corte + backfill 1x)
-  // São limpos diariamente (pruneCronState). Perdidos no restart → no máximo 1 reprocessamento.
+  // Anti-spam de cobrança na janela T-2h: nº de cobranças por `${user}|${slot}|${dia}`.
+  // Em memória (compartilhado entre ticks; instância única em cron.ts) — resetar no restart só
+  // permite no máx. +MAX_RECHARGE_ATTEMPTS cobranças, aceitável. O marcador de CICLO materializado
+  // (backfill 1x) é PERSISTIDO no banco (MaterializedCycle) — sobrevive a restart e à meia-noite.
   private autoRechargeAttempts = new Map<string, number>()
-  private materializedCycles = new Set<string>()
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new SchedulesRepository(fastify)
@@ -246,50 +248,57 @@ export class SchedulesService {
           rechargeAttempts: this.autoRechargeAttempts,
           maxRechargeAttempts: MAX_RECHARGE_ATTEMPTS,
         })
-        this.materializedCycles.add(`${condo.id}|${slotId}|${deliveryDate.toISOString().slice(0, 10)}`)
+        await this.repo.markCycleMaterialized(condo.id, slotId, deliveryDate.toISOString().slice(0, 10))
       }
     }
   }
 
-  /** Limpa o estado efêmero do cron de dias passados (chamado a cada minuto). */
+  /** Limpa o anti-spam de cobrança (em memória) de dias passados — chamado a cada minuto. */
   private pruneCronState(now: Date): void {
     const today = brtDateStr(now, 0)
-    const dateOf = (k: string) => k.slice(k.lastIndexOf('|') + 1)
-    for (const k of this.autoRechargeAttempts.keys()) if (dateOf(k) < today) this.autoRechargeAttempts.delete(k)
-    for (const k of this.materializedCycles) if (dateOf(k) < today) this.materializedCycles.delete(k)
+    for (const k of this.autoRechargeAttempts.keys()) {
+      if (k.slice(k.lastIndexOf('|') + 1) < today) this.autoRechargeAttempts.delete(k)
+    }
+  }
+
+  /** Remove marcas de ciclos materializados antigos (entrega < hoje-2). Chamado no cron diário. */
+  async cleanupOldMaterializedCycles(now: Date = new Date()): Promise<void> {
+    await this.repo.deleteCyclesBefore(brtDateStr(now, -2))
   }
 
   /**
-   * backfillMissedCutoffs — disparado pelo cron a cada minuto. Para slots cujo corte deste
-   * ciclo JÁ PASSOU (estritamente, no mesmo dia BRT) mas que ainda NÃO foram materializados
-   * (ex.: servidor fora do ar no minuto exato — node-cron não faz backfill), materializa agora,
-   * uma única vez por ciclo (materializedCycles). Idempotente; cobrança limitada (anti-spam).
+   * backfillMissedCutoffs — disparado pelo cron a cada minuto. Para cada slot, examina as entregas
+   * de HOJE e AMANHÃ (BRT) cujo corte (instante ABSOLUTO) já passou mas que ainda NÃO foram
+   * materializadas (marca persistida em MaterializedCycle) — ex.: servidor fora do ar no minuto
+   * exato do corte (node-cron não faz backfill). Materializa agora, 1x por ciclo.
    *
-   * Limitação: a janela é o mesmo dia BRT do corte. Um corte cujo minuto passou e o servidor
-   * só subiu após a meia-noite NÃO é recuperado (precisaria de marca persistida — fora do escopo).
+   * Por usar datas absolutas + marca persistida, recupera cortes mesmo CRUZANDO A MEIA-NOITE e
+   * SOBREVIVE A RESTART. Idempotente; cobrança limitada (anti-spam).
    */
   async backfillMissedCutoffs(now: Date = new Date()): Promise<void> {
-    const hhmm = nowHHMM(now)
+    const candidates = [brtDateStr(now, 0), brtDateStr(now, 1)]
     const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
 
     for (const condo of condominiums) {
       for (const slot of condo.deliverySlots) {
         if (!slot.isActive) continue
-        // Estritamente após o corte — o minuto exato é responsabilidade de createOrdersAtCutoff.
-        if (hhmm <= slot.cutoffTime) continue
         const slotId = slot.slotId ?? slot.name
-        const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime, now)
-        const cycleKey = `${condo.id}|${slotId}|${deliveryDate.toISOString().slice(0, 10)}`
-        if (this.materializedCycles.has(cycleKey)) continue
-        const dayKey = dayKeyOf(deliveryDate)
-        this.fastify.log.warn(
-          `[schedules] BACKFILL corte perdido — ${condo.name} / slot ${slot.name} (corte ${slot.cutoffTime}) → ${deliveryDate.toISOString().slice(0, 10)}`,
-        )
-        await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate, {
-          rechargeAttempts: this.autoRechargeAttempts,
-          maxRechargeAttempts: MAX_RECHARGE_ATTEMPTS,
-        })
-        this.materializedCycles.add(cycleKey)
+        for (const deliveryStr of candidates) {
+          // Só recupera cortes cujo instante absoluto já passou.
+          if (!isPastCutoffForDelivery(slot.time, slot.cutoffTime, deliveryStr, now)) continue
+          if (await this.repo.isCycleMaterialized(condo.id, slotId, deliveryStr)) continue
+
+          const deliveryDate = brtNoonFromStr(deliveryStr)
+          const dayKey = dayKeyOf(deliveryDate)
+          this.fastify.log.warn(
+            `[schedules] BACKFILL corte perdido — ${condo.name} / slot ${slot.name} (corte ${slot.cutoffTime}) → ${deliveryStr}`,
+          )
+          await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate, {
+            rechargeAttempts: this.autoRechargeAttempts,
+            maxRechargeAttempts: MAX_RECHARGE_ATTEMPTS,
+          })
+          await this.repo.markCycleMaterialized(condo.id, slotId, deliveryStr)
+        }
       }
     }
   }
@@ -301,32 +310,27 @@ export class SchedulesService {
    * corte (evita que uma demora deixe o agendado sem confirmar quando a auto-recarga está ativa).
    *
    * Só toca em clientes com auto-recarga ativa — os demais seguem sendo materializados no corte.
-   * Roda em JANELA `[corte − leadMinutes, corte)`: a cada minuto tenta confirmar quem ainda falta,
-   * com no máx. MAX_RECHARGE_ATTEMPTS cobranças por (user, slot, dia) — retenta falhas transitórias
-   * sem martelar o cartão (anti-spam). Suprime o push "sem saldo" na janela (o corte avisa 1x).
+   * Roda em JANELA `[corte − leadMinutes, corte)` usando o INSTANTE ABSOLUTO do corte (seguro p/
+   * janelas que cruzam a meia-noite): a cada minuto tenta confirmar quem ainda falta, com no máx.
+   * MAX_RECHARGE_ATTEMPTS cobranças por (user, slot, dia) — retenta falhas transitórias sem
+   * martelar o cartão (anti-spam). Suprime o push "sem saldo" na janela (o corte avisa 1x).
    * Quem é confirmado vira Order e é pulado por idempotência nos minutos seguintes.
-   *
-   * Obs. (#3): a janela precisa cair no MESMO dia BRT do corte (ok p/ cortes 22:01/10:00 →
-   * 20:01/08:00). Cortes nas 2 primeiras horas do dia (janela cruza a meia-noite) são ignorados
-   * aqui — o corte/backfill cuidam.
    */
   async preconfirmAutoRechargeAhead(now: Date = new Date(), leadMinutes = 120): Promise<void> {
     this.pruneCronState(now)
-    const [nh, nm] = nowHHMM(now).split(':').map(Number)
-    const cur = nh * 60 + nm
+    const leadMs = leadMinutes * 60_000
     const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
 
     for (const condo of condominiums) {
       for (const slot of condo.deliverySlots) {
         if (!slot.isActive) continue
-        const [ch, cm] = slot.cutoffTime.split(':').map(Number)
-        const cutoffMin = ch * 60 + cm
-        const startWin = cutoffMin - leadMinutes
-        if (startWin < 0) continue // janela cruza a meia-noite (#3) — não coberto aqui
-        if (cur < startWin || cur >= cutoffMin) continue // fora da janela [start, corte)
+        const deliveryStr = nextDeliveryDateStr(slot.time, now) // próxima entrega deste slot
+        const cutoffAt = cutoffInstantForDelivery(slot.time, slot.cutoffTime, deliveryStr).getTime()
+        // Janela [corte − lead, corte): instantes absolutos, robusto à meia-noite.
+        if (now.getTime() < cutoffAt - leadMs || now.getTime() >= cutoffAt) continue
 
         const slotId = slot.slotId ?? slot.name
-        const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime, now)
+        const deliveryDate = brtNoonFromStr(deliveryStr)
         const dayKey = dayKeyOf(deliveryDate)
         await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate, {
           onlyAutoRecharge: true,

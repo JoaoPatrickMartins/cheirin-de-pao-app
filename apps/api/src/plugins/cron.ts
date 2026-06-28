@@ -29,6 +29,13 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em sendLowCreditNotifications — servidor mantido ativo')
       }
+
+      // Limpa marcas de ciclos materializados antigos (MaterializedCycle).
+      try {
+        await schedulesService.cleanupOldMaterializedCycles()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em cleanupOldMaterializedCycles — servidor mantido ativo')
+      }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },
   )

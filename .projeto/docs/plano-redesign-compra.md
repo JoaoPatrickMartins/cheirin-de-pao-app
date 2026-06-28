@@ -90,9 +90,11 @@ Atalho opcional (não implementado): endpoint dev-only de dry-run que roda a det
 
 **Robustez (anti-spam + retry na janela):** a cada minuto na janela, retenta quem ainda falta, mas com teto de **`MAX_RECHARGE_ATTEMPTS = 3` cobranças por (user, slot, dia)** (`rechargeAttempts` Map compartilhado) — retenta falhas transitórias sem martelar o cartão em recusas. O push "sem saldo" é **suprimido na janela** (`suppressInsufficientPush`) e enviado **1x no corte**. Quem confirma vira Order e é pulado por idempotência.
 
-**Backfill de cortes perdidos** (`backfillMissedCutoffs`, no cron por minuto): se o servidor estava fora do ar no minuto exato do corte (`node-cron` não faz backfill), materializa o ciclo assim que voltar — **1x por ciclo** (`materializedCycles` Set; `createOrdersAtCutoff` também marca o ciclo). Estado efêmero limpo diariamente (`pruneCronState`).
+**Backfill de cortes perdidos** (`backfillMissedCutoffs`, no cron por minuto): examina as entregas de hoje/amanhã cujo **instante absoluto** do corte já passou mas que ainda não foram materializadas, e materializa o ciclo — **1x por ciclo**.
 
-**Limitação remanescente (#3 — janela cruza a meia-noite):** tanto a janela T-2h quanto o backfill comparam horas no **mesmo dia BRT**. Funciona para os cortes atuais (22:01 → janela 20:01–22:01; 10:00 → 08:00–10:00). Mas para um corte configurado nas 2 primeiras horas do dia (ex.: 01:00), a janela T-2h cairia às 23:00 do dia anterior e o backfill `nowHHMM > cutoffTime` não reconheceria o corte após a meia-noite — esses casos ficam só com o corte exato. Recuperação cross-midnight exigiria marca **persistida** (no banco) do último ciclo materializado — fora do escopo atual.
+**Marca persistida no banco (corrige #3 — cross-midnight + restart):** o "ciclo materializado" virou o model **`MaterializedCycle`** (`@@unique([condominiumId, slotId, deliveryDate])`, índice garantido em `ensure-indexes.ts`). `createOrdersAtCutoff` e o backfill marcam o ciclo no banco; a janela T-2h e o backfill usam **instantes absolutos** (`cutoffInstantForDelivery`) em vez de comparar HH:MM. Resultado: o backfill recupera cortes **mesmo cruzando a meia-noite** e **sobrevive a restart**. Marcas antigas são limpas no cron diário (`cleanupOldMaterializedCycles`). Só o anti-spam de cobrança (`autoRechargeAttempts`) segue em memória (resetar no restart = no máx. +3 cobranças, aceitável).
+
+**Testes:** `preconfirmAutoRechargeAhead / backfillMissedCutoffs` — (1) teto de 3 cobranças na janela + push suprimido; (2) cobrança aprovada confirma 1x e para; (3) backfill materializa 1x por ciclo via marca persistida.
 
 ## 7. Follow-ups implementados (fase 5)
 

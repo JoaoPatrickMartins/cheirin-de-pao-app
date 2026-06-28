@@ -10,13 +10,23 @@ import type { PrismaClient } from '@prisma/client'
  */
 const INDEX_SPECS: Array<{
   collection: string
-  indexes: Array<{ key: Record<string, 1 | -1>; name: string }>
+  indexes: Array<{ key: Record<string, 1 | -1>; name: string; unique?: boolean }>
 }> = [
   {
     collection: 'Order',
     indexes: [
       { key: { status: 1, scheduledDate: 1 }, name: 'status_1_scheduledDate_1' },
       { key: { condominiumId: 1, scheduledDate: 1 }, name: 'condominiumId_1_scheduledDate_1' },
+    ],
+  },
+  {
+    collection: 'MaterializedCycle',
+    indexes: [
+      {
+        key: { condominiumId: 1, slotId: 1, deliveryDate: 1 },
+        name: 'condominiumId_1_slotId_1_deliveryDate_1',
+        unique: true,
+      },
     ],
   },
 ]

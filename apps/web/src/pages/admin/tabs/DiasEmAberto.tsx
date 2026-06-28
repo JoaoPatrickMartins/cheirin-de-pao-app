@@ -450,9 +450,9 @@ function UrgentHero({
             {slot.projectedBreads > 0 ? ` · +${slot.projectedBreads} previstos` : ''}
           </div>
         </div>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1, textAlign: 'right' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 42, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1, textAlign: 'right', whiteSpace: 'nowrap' }}>
           {slot.breads}
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#cdb893' }}> 🥖</span>
+          <span style={{ fontSize: 24, position: 'relative', top: -8, marginLeft: 2 }}>🥖</span>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 9, marginTop: 14, position: 'relative', zIndex: 2 }}>

@@ -388,3 +388,17 @@ model SavedCard {
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
 }
+
+// MaterializedCycle — marca persistida de que o ciclo de corte de um (condomínio, slot, dia de
+// entrega) já foi materializado. Substitui o Set em memória: permite o backfill recuperar cortes
+// perdidos mesmo cruzando a meia-noite e sobreviver a restart do servidor. `deliveryDate` é a data
+// BRT da entrega no formato YYYY-MM-DD (absoluta), não HH:MM.
+model MaterializedCycle {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  condominiumId String   @db.ObjectId
+  slotId        String
+  deliveryDate  String
+  createdAt     DateTime @default(now())
+
+  @@unique([condominiumId, slotId, deliveryDate])
+}
