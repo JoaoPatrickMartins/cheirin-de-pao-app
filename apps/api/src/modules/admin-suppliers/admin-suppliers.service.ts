@@ -18,6 +18,12 @@ export class AdminSuppliersService {
     return this.prisma.supplier.findMany({ orderBy: { name: 'asc' } })
   }
 
+  async getById(id: string) {
+    const supplier = await this.prisma.supplier.findUnique({ where: { id } })
+    if (!supplier) throw { statusCode: 404, message: 'Fornecedor não encontrado' }
+    return supplier
+  }
+
   async create(data: CreateSupplierBody) {
     // T-07-03-03: se isPrincipal=true, desativar todos os outros antes de criar
     if (data.isPrincipal) {

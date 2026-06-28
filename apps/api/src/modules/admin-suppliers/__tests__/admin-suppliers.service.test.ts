@@ -92,6 +92,30 @@ describe('AdminSuppliersService', () => {
     })
   })
 
+  describe('getById', () => {
+    it('retorna o fornecedor quando existe', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSuppliersService(fastify as any)
+
+      const result = await service.getById('supplier-01')
+
+      expect(prisma.supplier.findUnique).toHaveBeenCalledWith({ where: { id: 'supplier-01' } })
+      expect(result).toMatchObject({ id: 'supplier-01', name: 'Padaria Central' })
+    })
+
+    it('lança { statusCode: 404 } quando fornecedor não existe', async () => {
+      const { fastify } = makeFastifyMock({ supplier: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSuppliersService(fastify as any)
+
+      await expect(service.getById('id-inexistente')).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+  })
+
   describe('create', () => {
     it('cria fornecedor com isPrincipal=false sem desativar outros', async () => {
       const { fastify, prisma } = makeFastifyMock()

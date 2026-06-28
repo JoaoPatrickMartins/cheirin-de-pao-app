@@ -53,6 +53,42 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.list.bind(ctrl),
   )
 
+  fastify.get(
+    '/admin/combos/:id',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — combos'],
+        summary: 'Obter combo por ID (admin)',
+        description: 'Retorna os dados completos de um combo específico para preencher o formulário de edição. Retorna 404 se o combo não existir. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do combo (MongoDB ObjectId).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Combo encontrado.',
+            properties: {
+              id: { type: 'string', description: 'ID do combo (MongoDB ObjectId).' },
+              name: { type: 'string', description: 'Nome do combo.' },
+              quantity: { type: 'integer', description: 'Quantidade de pãezinhos incluídos.' },
+              price: { type: 'number', description: 'Preço em reais.' },
+              tag: { type: 'string', nullable: true, description: 'Tag de destaque (ex: "Mais Popular").' },
+              isActive: { type: 'boolean', description: 'Se o combo está disponível para compra.' },
+              createdAt: { type: 'string', description: 'Data de criação.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getById.bind(ctrl),
+  )
+
   fastify.post(
     '/admin/combos',
     {

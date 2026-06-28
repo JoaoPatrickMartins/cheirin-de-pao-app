@@ -46,6 +46,15 @@ export class AdminCombosService {
   }
 
   /**
+   * Busca um combo por ID (para edição). Lança 404 se não encontrar.
+   */
+  async getById(id: string) {
+    const combo = await this.repository.findById(id)
+    if (!combo) throw { statusCode: 404, message: 'Combo não encontrado' }
+    return combo
+  }
+
+  /**
    * Cria um novo combo.
    */
   async create(data: CreateComboBody) {

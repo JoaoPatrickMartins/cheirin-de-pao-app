@@ -63,6 +63,57 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.list.bind(ctrl),
   )
 
+  fastify.get(
+    '/admin/suppliers/:id',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — suppliers'],
+        summary: 'Obter fornecedor por ID (admin)',
+        description: 'Retorna os dados completos de um fornecedor específico para preencher o formulário de edição. Retorna 404 se o fornecedor não existir. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do fornecedor (MongoDB ObjectId).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Fornecedor encontrado.',
+            properties: {
+              id: { type: 'string', description: 'ID do fornecedor (MongoDB ObjectId).' },
+              name: { type: 'string', description: 'Nome da empresa fornecedora.' },
+              cnpj: { type: 'string', description: 'CNPJ do fornecedor (14 dígitos sem formatação).' },
+              phone: { type: 'string', nullable: true, description: 'Telefone de contato.' },
+              email: { type: 'string', nullable: true, description: 'E-mail de contato.' },
+              pricePerUnit: { type: 'number', description: 'Preço por unidade de pão cobrado pelo fornecedor.' },
+              isPrincipal: { type: 'boolean', description: 'true se é o fornecedor principal (padrão para pedidos).' },
+              isActive: { type: 'boolean', description: 'Se o fornecedor está ativo.' },
+              address: {
+                type: 'object',
+                description: 'Endereço do fornecedor.',
+                properties: {
+                  street: { type: 'string', description: 'Logradouro.' },
+                  number: { type: 'string', description: 'Número.' },
+                  complement: { type: 'string', nullable: true, description: 'Complemento.' },
+                  city: { type: 'string', description: 'Cidade.' },
+                  state: { type: 'string', description: 'UF.' },
+                  zip: { type: 'string', description: 'CEP.' },
+                },
+              },
+              createdAt: { type: 'string', description: 'Data de cadastro.' },
+              updatedAt: { type: 'string', description: 'Data da última atualização.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getById.bind(ctrl),
+  )
+
   fastify.post(
     '/admin/suppliers',
     {
