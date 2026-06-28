@@ -236,7 +236,7 @@ export function DiasEmAberto({ onOpenDay, onOpenHistory }: Props) {
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <AdminHead
         sub="Próximos 7 dias"
-        titulo="Compra"
+        titulo="Pedidos"
         action={
           <button
             onClick={onOpenHistory}

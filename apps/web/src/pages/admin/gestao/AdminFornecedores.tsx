@@ -380,7 +380,7 @@ function SplitDefaultCard({ hasReserva }: { hasReserva: boolean }) {
       </div>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '0 0 12px', lineHeight: 1.4 }}>
         {hasReserva
-          ? 'Divisão usada pelo “Gerar direto” e pela geração automática no corte.'
+          ? 'Divisão usada pelo “Gerar direto” e pela geração automática 1h após o corte.'
           : 'Com só um fornecedor, ele recebe 100%. A divisão vale quando houver reserva.'}
       </p>
 

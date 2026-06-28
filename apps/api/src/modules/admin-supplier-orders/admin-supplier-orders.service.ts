@@ -14,6 +14,7 @@ import {
   brtNoonFromStr,
   brtDateStr,
   isPastCutoffForDelivery,
+  cutoffInstantForDelivery,
   nowHHMM,
 } from '../../lib/cutoff.js'
 import { projectScheduleDetailForDate } from '../../lib/schedule-projection.js'
@@ -643,38 +644,49 @@ export class AdminSupplierOrdersService {
   }
 
   /**
-   * autoGenerateAtCutoff — rede de segurança: no corte de cada turno, se o admin NÃO gerou o
-   * pedido ao fornecedor, gera automaticamente com o split padrão. Disparado pelo cron a cada
-   * minuto (após createOrdersAtCutoff materializar as orders do turno).
+   * autoGenerateAtCutoff — rede de segurança: passada a JANELA MANUAL (`delayMinutes` após o corte
+   * de cada turno), se o admin NÃO gerou o pedido ao fornecedor, gera automaticamente com o split
+   * padrão. Disparado pelo cron a cada minuto (após createOrdersAtCutoff materializar as orders).
+   *
+   * A janela dá `delayMinutes` (default 60) ao admin para gerar manualmente após o corte; só então
+   * a rede de segurança assume. Examina os dias candidatos HOJE/AMANHÃ (BRT) usando o INSTANTE
+   * ABSOLUTO do corte (robusto à meia-noite) — então, diferente do antigo casamento de minuto
+   * exato, também RECUPERA cortes cujo minuto foi perdido (servidor fora do ar) e sobrevive a
+   * restart: a cada minuto, se já passou corte + janela e não há pedido, gera.
    *
    * Idempotente: só gera se não houver PurchaseOrder FINALIZED para o turno + data.
    */
-  async autoGenerateAtCutoff(now: Date = new Date()): Promise<void> {
-    const hhmm = nowHHMM(now)
-    const slots = (await getGlobalDeliverySlots(this.prisma)).filter(
-      (s) => s.isActive && s.cutoffTime === hhmm,
-    )
+  async autoGenerateAtCutoff(now: Date = new Date(), delayMinutes = 60): Promise<void> {
+    const delayMs = delayMinutes * 60_000
+    const candidates = [brtDateStr(now, 0), brtDateStr(now, 1)]
+    const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
     for (const slot of slots) {
-      const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime, now)
-      const { start, end } = brtDayRange(deliveryDate)
-      const existing = await this.prisma.purchaseOrder.findFirst({
-        where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
-        select: { id: true },
-      })
-      if (existing) continue
-      try {
-        const res = await this.createQuick(slot.slotId, brtDateStr(deliveryDate, 0))
-        this.fastify.log.info(
-          { slotId: slot.slotId, orderId: res?.id ?? null },
-          res
-            ? '[supplier-orders] rede de segurança gerou pedido no corte'
-            : '[supplier-orders] corte sem pães — nada a gerar',
-        )
-      } catch (err) {
-        this.fastify.log.error(
-          { err, slotId: slot.slotId },
-          '[supplier-orders] falha na rede de segurança no corte — ignorado',
-        )
+      for (const deliveryStr of candidates) {
+        // Só assume após o corte + janela manual; antes disso o admin ainda pode gerar na mão.
+        const cutoffAt = cutoffInstantForDelivery(slot.time, slot.cutoffTime, deliveryStr).getTime()
+        if (now.getTime() < cutoffAt + delayMs) continue
+
+        const deliveryDate = brtNoonFromStr(deliveryStr)
+        const { start, end } = brtDayRange(deliveryDate)
+        const existing = await this.prisma.purchaseOrder.findFirst({
+          where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
+          select: { id: true },
+        })
+        if (existing) continue
+        try {
+          const res = await this.createQuick(slot.slotId, deliveryStr)
+          this.fastify.log.info(
+            { slotId: slot.slotId, deliveryStr, orderId: res?.id ?? null },
+            res
+              ? '[supplier-orders] rede de segurança gerou pedido (janela manual encerrada)'
+              : '[supplier-orders] corte sem pães — nada a gerar',
+          )
+        } catch (err) {
+          this.fastify.log.error(
+            { err, slotId: slot.slotId },
+            '[supplier-orders] falha na rede de segurança no corte — ignorado',
+          )
+        }
       }
     }
   }

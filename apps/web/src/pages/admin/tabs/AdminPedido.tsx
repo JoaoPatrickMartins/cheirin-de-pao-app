@@ -727,7 +727,7 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                   >
                     <Icon name="spark" size={16} color="var(--color-accent)" stroke={2} />
                     <p style={{ margin: 0, fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b531c', lineHeight: 1.4 }}>
-                      Sem ação, o pedido é gerado <b style={{ color: '#5a4413' }}>automaticamente no corte</b> com o split padrão. Você pode gerar agora ou ajustar.
+                      Sem ação, o pedido é gerado <b style={{ color: '#5a4413' }}>automaticamente 1h após o corte</b> com o split padrão. Você tem esse tempo para gerar agora ou ajustar.
                     </p>
                   </div>
                 )}

@@ -108,8 +108,9 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.error({ err }, '[cron] erro em sendCutoffReminders — servidor mantido ativo')
       }
 
-      // Rede de segurança: após materializar as orders do corte, gera o pedido ao fornecedor
-      // automaticamente se o admin não tiver gerado (com split padrão). Idempotente.
+      // Rede de segurança: 1h APÓS o corte (janela manual), gera o pedido ao fornecedor
+      // automaticamente se o admin não tiver gerado (com split padrão). Idempotente; recupera
+      // cortes cujo minuto foi perdido (não depende do minuto exato).
       try {
         await supplierOrdersService.autoGenerateAtCutoff()
       } catch (err) {
