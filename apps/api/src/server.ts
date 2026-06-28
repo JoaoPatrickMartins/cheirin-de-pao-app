@@ -27,6 +27,8 @@ import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-
 import { adminSeparationRoute } from './modules/admin-separation/admin-separation.route.js'
 import { ensureIndexes } from './lib/ensure-indexes.js'
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
+import { adminReportsRoute } from './modules/admin-reports/admin-reports.route.js'
+import { analyticsRoute } from './modules/analytics/analytics.route.js'
 import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
 import { courierRoute } from './modules/courier/courier.route.js'
 import { clientProfileRoute } from './modules/client-profile/client-profile.route.js'
@@ -138,6 +140,8 @@ const start = async () => {
           { name: 'admin — clients', description: 'Gestão de clientes' },
           { name: 'admin — supplier-orders', description: 'Pedido ao fornecedor, PDF e Excel' },
           { name: 'admin — financial', description: 'Relatório financeiro por período' },
+          { name: 'admin — reports', description: 'Relatórios: acesso, login e conversão' },
+          { name: 'analytics', description: 'Ingestão de eventos de acesso/login (público)' },
           { name: 'admin — payments', description: 'Lista de pagamentos e estornos' },
           { name: 'saved-cards', description: 'Cartões salvos do cliente (MP Customer API)' },
         ],
@@ -195,6 +199,8 @@ const start = async () => {
     await fastify.register(adminSupplierOrdersRoute)  // Phase 7 — GET/POST /admin/supplier-orders + PDF/Excel (ADMO-05..09)
     await fastify.register(adminSeparationRoute)      // Separação — GET board + PATCH conclude/orders (gate da entrega)
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
+    await fastify.register(adminReportsRoute)   // GET /admin/reports/access — acesso/login/conversão
+    await fastify.register(analyticsRoute)      // POST /analytics/event — ingestão pública de acesso/login
     await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
     await fastify.register(courierRoute)        // GET /courier/orders/today + PATCH /courier/orders/:id/confirm (COUR-01/02)
     await fastify.register(clientProfileRoute)  // Phase 11 — GET/PATCH /client/profile, POST contact/change (CONF-02..06)

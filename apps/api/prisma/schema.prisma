@@ -111,6 +111,11 @@ enum NotificationType {
   CREDIT_GRANTED
 }
 
+enum AnalyticsEventType {
+  ACCESS // abertura do app / carga da PWA por um visitante (anônimo)
+  LOGIN  // verificação de OTP bem-sucedida que cria uma sessão
+}
+
 // ===== MODELS (15 collections) =====
 
 // 1. User — clientes, entregadores e admins
@@ -403,4 +408,23 @@ model MaterializedCycle {
   createdAt     DateTime @default(now())
 
   @@unique([condominiumId, slotId, deliveryDate])
+}
+
+// 19. AnalyticsEvent — eventos de acesso e login para os Relatórios (imutável — sem updatedAt)
+// Stream único que permite calcular a conversão acesso→login pelo mesmo `visitorId`.
+// `visitorId` é o device_id anônimo gerado no cliente (sem PII).
+model AnalyticsEvent {
+  id        String             @id @default(auto()) @map("_id") @db.ObjectId
+  type      AnalyticsEventType
+  visitorId String             // ID anônimo do dispositivo (device_id do cliente)
+  userId    String?            @db.ObjectId // preenchido apenas em LOGIN
+  role      String?            // CLIENT | COURIER | ADMIN (em LOGIN)
+  path      String?            // rota/tela inicial no momento do evento
+  referrer  String?
+  platform  String?            // 'pwa' | 'browser'
+  userAgent String?            // para breakdown de SO/dispositivo
+  createdAt DateTime           @default(now())
+
+  @@index([type, createdAt])
+  @@index([visitorId, createdAt])
 }

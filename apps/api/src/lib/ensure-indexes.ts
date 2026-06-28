@@ -29,6 +29,13 @@ const INDEX_SPECS: Array<{
       },
     ],
   },
+  {
+    collection: 'AnalyticsEvent',
+    indexes: [
+      { key: { type: 1, createdAt: 1 }, name: 'type_1_createdAt_1' },
+      { key: { visitorId: 1, createdAt: 1 }, name: 'visitorId_1_createdAt_1' },
+    ],
+  },
 ]
 
 /**

@@ -12,6 +12,7 @@ import ReactDOM from 'react-dom/client'
 import OneSignal from 'react-onesignal'
 import { RouterProvider } from 'react-router'
 import { router } from './routes/router'
+import { trackAccess } from './lib/analytics'
 
 // Stripe.js é carregado sob demanda em lib/stripe.ts (stripePromise) e usado via
 // <Elements> nas telas de cartão. Não há init global aqui.
@@ -24,6 +25,10 @@ OneSignal.init({
   serviceWorkerPath: 'push/onesignal/OneSignalSDKWorker.js',
   serviceWorkerParam: { scope: '/push/onesignal/' },
 })
+
+// Métrica de acesso (Relatórios) — dispara 1x por carga do app, antes do login.
+// Em escopo de módulo (não em efeito), evita disparo duplo do StrictMode.
+trackAccess()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useMemo } from 'react'
 import { useNavigate, Outlet } from 'react-router'
+import { trackLogin } from '../lib/analytics'
 
 export interface AuthUser {
   id: string
@@ -69,6 +70,9 @@ export function AuthProvider() {
         }
         setToken(t)
         setUser(userData)
+        // Métrica de login (Relatórios) — chokepoint único de todos os logins.
+        // O backend filtra role=CLIENT para a conversão acesso→login.
+        trackLogin(userData.role, userData.id)
       },
       logout: () => {
         try {
