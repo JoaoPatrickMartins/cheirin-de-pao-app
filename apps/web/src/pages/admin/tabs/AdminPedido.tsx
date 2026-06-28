@@ -8,6 +8,7 @@ import { CondominiumOrderDetail } from '../../../components/admin/CondominiumOrd
 import { SupplierOrderHistory } from '../../../components/admin/SupplierOrderHistory'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
 import { slotTabLabel } from '../../../lib/slots'
+import { cutoffInstantForDelivery } from '../../../lib/cutoff'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -45,6 +46,8 @@ interface SlotCutoff {
   time: string
   cutoffTime: string
   deliveryDate?: string // ISO — data de entrega do turno (Regra A)
+  cutoffAt?: string // ISO — instante absoluto do corte (vem de upcoming-days)
+  pastCutoff?: boolean // corte já passou (vem de upcoming-days)
   hasOrders?: boolean // há pedidos (materializados + previstos) neste turno
   generated?: boolean // compra deste turno já finalizada
 }
@@ -80,39 +83,43 @@ export function slotColor(slotId: string): string {
   return 'var(--text-sec)'
 }
 
-/** Minutos desde a meia-noite BRT (agora). */
-function brtNowMinutes(): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    timeZone: 'America/Sao_Paulo',
-  }).formatToParts(new Date())
-  const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
-  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
-  return h * 60 + m
-}
-
-function hhmmToMin(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return (h || 0) * 60 + (m || 0)
+/**
+ * Instante absoluto (ms) do corte de um slot, considerando a DATA de entrega — não só a
+ * hora-do-dia. Usa `cutoffAt` quando o backend já o forneceu (upcoming-days); senão deriva de
+ * `deliveryDate` + `time` + `cutoffTime` (slots-status). `null` quando falta informação.
+ */
+function slotCutoffMs(s: SlotCutoff): number | null {
+  if (s.cutoffAt) {
+    const t = new Date(s.cutoffAt).getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  if (s.deliveryDate && s.time && s.cutoffTime) {
+    return cutoffInstantForDelivery(s.time, s.cutoffTime, s.deliveryDate.slice(0, 10)).getTime()
+  }
+  return null
 }
 
 /**
- * Próximo corte do dia: o slot com cutoffTime mais cedo ainda à frente do horário atual (BRT).
- * Retorna o tempo restante formatado e o label do slot — ou status encerrado se todos passaram.
+ * Próximo corte: o slot cujo INSTANTE de corte (absoluto, já ligado à data de entrega) ainda está
+ * à frente de `now`. Retorna o tempo restante formatado e o label — ou status encerrado se todos
+ * passaram. Compara instantes absolutos (não a hora-do-dia), então um dia futuro não aparece como
+ * "Encerrado" só porque o horário do corte já passou no relógio de hoje.
  */
-function nextCutoff(slots: SlotCutoff[] | null): { open: boolean; label?: string; remaining?: string } {
+export function nextCutoff(
+  slots: SlotCutoff[] | null,
+  now: Date = new Date(),
+): { open: boolean; label?: string; remaining?: string } {
   if (!slots || slots.length === 0) return { open: true }
-  const now = brtNowMinutes()
-  const upcoming = slots
-    .map((s) => ({ label: s.label, min: hhmmToMin(s.cutoffTime) }))
-    .filter((s) => s.min > now)
-    .sort((a, b) => a.min - b.min)
+  const nowMs = now.getTime()
+  const instants = slots
+    .map((s) => ({ label: s.label, at: slotCutoffMs(s) }))
+    .filter((s): s is { label: string; at: number } => s.at != null)
+  if (instants.length === 0) return { open: true } // sem info de corte → assume aberto
+  const upcoming = instants.filter((s) => s.at > nowMs).sort((a, b) => a.at - b.at)
   if (upcoming.length === 0) return { open: false }
-  const diff = upcoming[0].min - now
-  const h = Math.floor(diff / 60)
-  const m = diff % 60
+  const diffMin = Math.floor((upcoming[0].at - nowMs) / 60_000)
+  const h = Math.floor(diffMin / 60)
+  const m = diffMin % 60
   const remaining = h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}min`
   return { open: true, label: upcoming[0].label, remaining }
 }

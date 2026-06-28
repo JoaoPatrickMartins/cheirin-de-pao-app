@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { ProgressBar } from '../../../components/admin/ProgressBar'
@@ -80,6 +80,12 @@ export function AdminSeparacao() {
   const [coupons, setCoupons] = useState<CouponData[]>([])
   const [slots, setSlots] = useState<SlotOption[]>([])
   const [slotId, setSlotId] = useState<string>('')
+  // Só busca o quadro depois que os turnos carregaram: assim o fetch já sai com o
+  // slotId correto, em vez de uma primeira chamada sem filtro (que traz todos os turnos).
+  const [slotsReady, setSlotsReady] = useState(false)
+  // Sequência de requisições: só aplicamos a resposta da busca mais recente, evitando
+  // que uma chamada antiga (sem filtro) resolva depois e sobrescreva o turno selecionado.
+  const reqSeq = useRef(0)
 
   // Carrega os turnos e define o padrão (automático pelo horário de corte)
   useEffect(() => {
@@ -93,27 +99,32 @@ export function AdminSeparacao() {
         }
       } catch {
         /* silencioso */
+      } finally {
+        setSlotsReady(true)
       }
     })()
   }, [])
 
   const fetchBoard = useCallback(async () => {
+    const seq = ++reqSeq.current
     setIsLoading(true)
     try {
       // Separação acontece sempre no dia da entrega — só hoje.
       const slotQs = slotId ? `&slotId=${slotId}` : ''
       const res = await apiFetch(`/admin/separation/board?date=${localDateStr(new Date())}${slotQs}`)
-      if (res.ok) setBoard((await res.json()) as Board)
+      // Ignora respostas obsoletas: só a busca mais recente pode atualizar o estado.
+      if (res.ok && seq === reqSeq.current) setBoard((await res.json()) as Board)
     } catch {
       // falha silenciosa — mantém estado anterior
     } finally {
-      setIsLoading(false)
+      if (seq === reqSeq.current) setIsLoading(false)
     }
   }, [slotId])
 
   useEffect(() => {
+    if (!slotsReady) return
     void fetchBoard()
-  }, [fetchBoard])
+  }, [fetchBoard, slotsReady])
 
   // Dispara a impressão quando há cupons na fila; limpa ao terminar.
   useEffect(() => {
