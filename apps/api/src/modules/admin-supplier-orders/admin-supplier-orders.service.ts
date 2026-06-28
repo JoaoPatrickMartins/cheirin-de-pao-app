@@ -410,6 +410,9 @@ export class AdminSupplierOrdersService {
         if (!supplier) {
           throw { statusCode: 404, message: `Fornecedor ${item.supplierId} não encontrado` }
         }
+        if (supplier.isActive === false) {
+          throw { statusCode: 400, message: `Fornecedor ${supplier.name} está inativo` }
+        }
         return {
           supplierId: item.supplierId,
           quantity: item.quantity,
@@ -631,9 +634,10 @@ export class AdminSupplierOrdersService {
     if (total <= 0) return null
 
     // Split padrão configurável: principal leva tudo; principalPct% quando há reserva.
-    const suppliers = await this.prisma.supplier.findMany()
+    // Só fornecedores ativos entram na geração automática.
+    const suppliers = await this.prisma.supplier.findMany({ where: { isActive: true } })
     const principal = suppliers.find((s) => s.isPrincipal) ?? suppliers[0]
-    if (!principal) throw { statusCode: 400, message: 'Nenhum fornecedor cadastrado' }
+    if (!principal) throw { statusCode: 400, message: 'Nenhum fornecedor ativo cadastrado' }
     const reserva = suppliers.find((s) => !s.isPrincipal && s.id !== principal.id)
 
     const pct = await this.getDefaultSplitPercent()

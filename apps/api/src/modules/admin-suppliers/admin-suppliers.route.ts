@@ -206,6 +206,7 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
             email: { type: 'string', format: 'email', description: 'Novo e-mail.' },
             pricePerUnit: { type: 'number', minimum: 0.01, description: 'Novo preço unitário.' },
             isPrincipal: { type: 'boolean', description: 'Definir como fornecedor principal.' },
+            isActive: { type: 'boolean', description: 'Ativar (true) ou desativar (false) o fornecedor. Não é possível desativar o principal.' },
             address: { type: 'object', description: 'Novo endereço parcial.' },
           },
         },

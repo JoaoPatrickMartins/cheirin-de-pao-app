@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
+import { SwitchToggle } from '../../../components/admin/SwitchToggle'
+import { Toast, useToast } from '../../../components/admin/Toast'
 import { FornecedorForm } from './FornecedorForm'
 
 // ------------------------------------------------------------------ tipos
@@ -12,6 +14,7 @@ interface Fornecedor {
   email?: string | null
   pricePerUnit: number
   isPrincipal: boolean
+  isActive: boolean
 }
 
 type SubTelaSub = null | 'criar' | 'editar'
@@ -50,6 +53,8 @@ export function AdminFornecedores({ onBack }: AdminFornecedoresProps) {
   const [editId, setEditId] = useState<string | null>(null)
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const { toast, showToast } = useToast()
 
   const fetchFornecedores = useCallback(async () => {
     setIsLoading(true)
@@ -64,6 +69,33 @@ export function AdminFornecedores({ onBack }: AdminFornecedoresProps) {
       setIsLoading(false)
     }
   }, [])
+
+  // Ativar/desativar com update otimista + revert em caso de erro (inclui 409 do principal).
+  const toggleFornecedor = useCallback(
+    async (f: Fornecedor) => {
+      const next = !f.isActive
+      setBusyId(f.id)
+      setFornecedores((prev) => prev.map((x) => (x.id === f.id ? { ...x, isActive: next } : x)))
+      try {
+        const res = await apiFetch(`/admin/suppliers/${f.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ isActive: next }),
+        })
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as { error?: string } | null
+          throw new Error(err?.error || 'fail')
+        }
+        showToast(next ? `${f.name} reativado` : `${f.name} desativado`)
+      } catch (e) {
+        setFornecedores((prev) => prev.map((x) => (x.id === f.id ? { ...x, isActive: !next } : x)))
+        const msg = e instanceof Error && e.message !== 'fail' ? e.message : 'Não foi possível atualizar.'
+        showToast(msg, false)
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [showToast],
+  )
 
   useEffect(() => {
     void fetchFornecedores()
@@ -96,6 +128,8 @@ export function AdminFornecedores({ onBack }: AdminFornecedoresProps) {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <Toast toast={toast} />
+
       {/* AppBar */}
       <div
         style={{
@@ -163,6 +197,8 @@ export function AdminFornecedores({ onBack }: AdminFornecedoresProps) {
                 key={f.id}
                 fornecedor={f}
                 formatBRL={formatBRL}
+                busy={busyId === f.id}
+                onToggle={() => void toggleFornecedor(f)}
                 onEdit={() => {
                   setEditId(f.id)
                   setSub('editar')
@@ -180,10 +216,14 @@ export function AdminFornecedores({ onBack }: AdminFornecedoresProps) {
 interface FornecedorCardProps {
   fornecedor: Fornecedor
   formatBRL: (v: number) => string
+  busy: boolean
+  onToggle: () => void
   onEdit: () => void
 }
 
-function FornecedorCard({ fornecedor: f, formatBRL, onEdit }: FornecedorCardProps) {
+function FornecedorCard({ fornecedor: f, formatBRL, busy, onToggle, onEdit }: FornecedorCardProps) {
+  const inactive = !f.isActive
+
   return (
     <div
       style={{
@@ -197,7 +237,7 @@ function FornecedorCard({ fornecedor: f, formatBRL, onEdit }: FornecedorCardProp
       }}
     >
       {/* Linha principal */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: inactive ? 0.55 : 1 }}>
         {/* Avatar */}
         <div
           style={{
@@ -293,6 +333,7 @@ function FornecedorCard({ fornecedor: f, formatBRL, onEdit }: FornecedorCardProp
           marginTop: 12,
           paddingTop: 12,
           borderTop: '1px solid var(--color-border-2)',
+          opacity: inactive ? 0.55 : 1,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -338,6 +379,52 @@ function FornecedorCard({ fornecedor: f, formatBRL, onEdit }: FornecedorCardProp
             </span>
           </div>
         )}
+      </div>
+
+      {/* Status — ativo/inativo */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginTop: 12,
+          paddingTop: 12,
+          borderTop: '1px solid var(--color-border-2)',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 700,
+              color: inactive ? 'var(--color-text-ter)' : 'var(--color-text-sec)',
+            }}
+          >
+            {inactive ? 'Inativo' : 'Ativo'}
+          </span>
+          {f.isPrincipal && (
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 11.5,
+                fontWeight: 500,
+                color: 'var(--color-text-ter)',
+                margin: '2px 0 0',
+                lineHeight: 1.35,
+              }}
+            >
+              Defina outro como principal para poder desativar.
+            </p>
+          )}
+        </div>
+        <SwitchToggle
+          on={f.isActive}
+          onChange={onToggle}
+          disabled={busy || f.isPrincipal}
+          aria-label="Ativar ou desativar fornecedor"
+        />
       </div>
     </div>
   )

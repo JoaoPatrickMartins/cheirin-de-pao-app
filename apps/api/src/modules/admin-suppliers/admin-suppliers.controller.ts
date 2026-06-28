@@ -105,6 +105,7 @@ export class AdminSuppliersController {
       this.fastify.log.error(err)
       const e = err as { statusCode?: number; message?: string }
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 409) return reply.status(409).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }

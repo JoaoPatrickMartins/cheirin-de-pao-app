@@ -37,6 +37,7 @@ interface Supplier {
   name: string
   pricePerUnit: number
   isPrincipal: boolean
+  isActive: boolean
 }
 
 interface SlotCutoff {
@@ -494,7 +495,8 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     try {
       const res = await apiFetch('/admin/suppliers')
       if (res.ok) {
-        const data = (await res.json()) as Supplier[]
+        // Só fornecedores ativos entram no pedido — inativos não podem ser usados.
+        const data = ((await res.json()) as Supplier[]).filter((s) => s.isActive)
         setSuppliers(data)
         // divisão inicial: 75/25 quando há fornecedor reserva; senão o principal leva tudo
         const hasReserva = data.some((s) => !s.isPrincipal)

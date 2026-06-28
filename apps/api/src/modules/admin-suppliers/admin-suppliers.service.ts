@@ -39,6 +39,17 @@ export class AdminSuppliersService {
     const existing = await this.prisma.supplier.findUnique({ where: { id } })
     if (!existing) throw { statusCode: 404, message: 'Fornecedor não encontrado' }
 
+    // Não pode existir fornecedor principal inativo — a geração de pedido escolhe o principal.
+    // Bloqueia tanto desativar o principal atual quanto marcar como principal já inativo.
+    const willBePrincipal = data.isPrincipal ?? existing.isPrincipal
+    const willBeActive = data.isActive ?? existing.isActive
+    if (willBePrincipal && !willBeActive) {
+      throw {
+        statusCode: 409,
+        message: 'Defina outro fornecedor como principal antes de desativar este.',
+      }
+    }
+
     // T-07-03-03: se isPrincipal=true no update, desativar os outros primeiro
     if (data.isPrincipal) {
       await this.prisma.supplier.updateMany({
