@@ -43,6 +43,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
                   },
                 },
                 isActive: { type: 'boolean', description: 'Se o condomínio está ativo (atendido).' },
+                clientCount: { type: 'integer', description: 'Clientes ativos (não bloqueados) vinculados a este condomínio.' },
                 deliverySlots: {
                   type: 'array',
                   description: 'Slots de entrega configurados.',
@@ -222,6 +223,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
             name: { type: 'string', description: 'Novo nome do condomínio.' },
             type: { type: 'string', enum: ['SINGLE_ENTRANCE', 'BLOCKS'], description: 'Novo tipo de condomínio.' },
             numBlocks: { type: 'integer', minimum: 1, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
+            isActive: { type: 'boolean', description: 'Ativar (true) ou desativar (false) o atendimento ao condomínio.' },
             address: {
               type: 'object',
               description: 'Endereço parcialmente atualizado.',

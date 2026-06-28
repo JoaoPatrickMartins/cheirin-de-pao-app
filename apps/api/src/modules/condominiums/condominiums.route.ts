@@ -97,7 +97,9 @@ export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
     },
   }, async (_request, reply) => {
     try {
+      // Apenas condomínios ativos aparecem no cadastro — desativados somem para novos clientes.
       const condominiums = await fastify.prisma.condominium.findMany({
+        where: { isActive: true },
         orderBy: { name: 'asc' },
       })
       const result = condominiums.map((c) => ({

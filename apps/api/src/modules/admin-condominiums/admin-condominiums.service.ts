@@ -21,7 +21,11 @@ export class AdminCondominiumsService {
    * Lista todos os condomínios ordenados por nome (admin vê tudo, sem filtro isActive).
    */
   async list() {
-    return this.repository.findAll()
+    const condos = await this.repository.findAll()
+    if (condos.length === 0) return condos
+    const grouped = await this.repository.countClientsByCondominium(condos.map((c) => c.id))
+    const countMap = new Map(grouped.map((g) => [g.condominiumId, g._count._all]))
+    return condos.map((c) => ({ ...c, clientCount: countMap.get(c.id) ?? 0 }))
   }
 
   /**

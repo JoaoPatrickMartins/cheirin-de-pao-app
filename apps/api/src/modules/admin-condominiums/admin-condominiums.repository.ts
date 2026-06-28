@@ -20,6 +20,19 @@ export class AdminCondominiumsRepository {
     return this.prisma.condominium.findUnique({ where: { id } })
   }
 
+  /**
+   * Conta clientes ativos (role CLIENT, não bloqueados) vinculados a cada condomínio.
+   * Usado para exibir/avisar a contagem antes de desativar. User não tem relação Prisma
+   * com Condominium (só o campo condominiumId), por isso usamos groupBy.
+   */
+  countClientsByCondominium(ids: string[]) {
+    return this.prisma.user.groupBy({
+      by: ['condominiumId'],
+      where: { role: 'CLIENT', isBlocked: false, condominiumId: { in: ids } },
+      _count: { _all: true },
+    })
+  }
+
   create(data: Omit<CreateCondominiumBody, 'lat' | 'lng'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean; deliverySlots?: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }) {
     return this.prisma.condominium.create({ data })
   }

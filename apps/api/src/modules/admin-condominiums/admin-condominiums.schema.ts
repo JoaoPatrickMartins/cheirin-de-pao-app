@@ -27,7 +27,10 @@ export const CreateCondominiumSchema = z.object({
 
 export type CreateCondominiumBody = z.infer<typeof CreateCondominiumSchema>
 
-export const UpdateCondominiumSchema = CreateCondominiumSchema.partial()
+export const UpdateCondominiumSchema = CreateCondominiumSchema.partial().extend({
+  // Ativar/desativar o condomínio (atendimento). Só editável via update.
+  isActive: z.boolean().optional(),
+})
 export type UpdateCondominiumBody = z.infer<typeof UpdateCondominiumSchema>
 
 export const SlotUpdateSchema = z.object({
