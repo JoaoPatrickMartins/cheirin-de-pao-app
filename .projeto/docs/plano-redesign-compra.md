@@ -86,9 +86,13 @@ Atalho opcional (não implementado): endpoint dev-only de dry-run que roda a det
 
 **Diagnóstico:** a recarga automática (`payments.chargeAutoRecharge`, off-session sem CVV) só era tentada **no exato minuto do corte**, dentro de `createOrdersAtCutoff → createOrdersForCondoSlot`. Antes do corte, o agendado fica "previsto" e a projeção marca "sem crédito" pelo saldo **atual** (point-in-time) — a recarga ainda nem foi tentada. Isso deixa a confirmação dependente de uma única tentativa no minuto do corte + latência do Stripe; qualquer demora/falha (ou o servidor não estar vivo naquele minuto — `node-cron` não faz backfill) deixa o pedido sem confirmar mesmo com auto-recarga ativa.
 
-**Correção:** nova passada **T-2h** (`SchedulesService.preconfirmAutoRechargeAhead`, no cron por minuto). 2h antes do corte de cada slot, cobra a auto-recarga e materializa as orders **apenas dos clientes com auto-recarga ativa** (`createOrdersForCondoSlot(..., { onlyAutoRecharge: true })`). O corte continua como fallback (idempotente → não cobra duas vezes). Dá 2h de margem para o pagamento processar antes do corte.
+**Correção:** nova passada **T-2h** (`SchedulesService.preconfirmAutoRechargeAhead`, no cron por minuto). Roda em **janela `[corte − 2h, corte)`**, cobrando a auto-recarga e materializando as orders **apenas dos clientes com auto-recarga ativa** (`createOrdersForCondoSlot(..., { onlyAutoRecharge: true })`). O corte continua como fallback (idempotente → não cobra duas vezes). Dá 2h de margem para o pagamento processar.
 
-- Limitação: tentativa única em T-2h + a do corte (2 janelas). Não retentamos a cada minuto para não martelar o cartão em recusas. Cortes nas 2 primeiras horas do dia (T-2h cruza a meia-noite) não são cobertos por esta versão.
+**Robustez (anti-spam + retry na janela):** a cada minuto na janela, retenta quem ainda falta, mas com teto de **`MAX_RECHARGE_ATTEMPTS = 3` cobranças por (user, slot, dia)** (`rechargeAttempts` Map compartilhado) — retenta falhas transitórias sem martelar o cartão em recusas. O push "sem saldo" é **suprimido na janela** (`suppressInsufficientPush`) e enviado **1x no corte**. Quem confirma vira Order e é pulado por idempotência.
+
+**Backfill de cortes perdidos** (`backfillMissedCutoffs`, no cron por minuto): se o servidor estava fora do ar no minuto exato do corte (`node-cron` não faz backfill), materializa o ciclo assim que voltar — **1x por ciclo** (`materializedCycles` Set; `createOrdersAtCutoff` também marca o ciclo). Estado efêmero limpo diariamente (`pruneCronState`).
+
+**Limitação remanescente (#3 — janela cruza a meia-noite):** tanto a janela T-2h quanto o backfill comparam horas no **mesmo dia BRT**. Funciona para os cortes atuais (22:01 → janela 20:01–22:01; 10:00 → 08:00–10:00). Mas para um corte configurado nas 2 primeiras horas do dia (ex.: 01:00), a janela T-2h cairia às 23:00 do dia anterior e o backfill `nowHHMM > cutoffTime` não reconheceria o corte após a meia-noite — esses casos ficam só com o corte exato. Recuperação cross-midnight exigiria marca **persistida** (no banco) do último ciclo materializado — fora do escopo atual.
 
 ## 7. Follow-ups implementados (fase 5)
 

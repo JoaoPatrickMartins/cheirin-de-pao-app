@@ -87,6 +87,13 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.error({ err }, '[cron] erro em createOrdersAtCutoff — servidor mantido ativo')
       }
 
+      // Backfill: recupera cortes cujo minuto exato foi perdido (servidor fora do ar), 1x por ciclo.
+      try {
+        await schedulesService.backfillMissedCutoffs()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em backfillMissedCutoffs — servidor mantido ativo')
+      }
+
       // Lembrete T-30min: avisa os admins quando falta ~30min pro corte e há pedido pendente.
       try {
         await supplierOrdersService.sendCutoffReminders()
