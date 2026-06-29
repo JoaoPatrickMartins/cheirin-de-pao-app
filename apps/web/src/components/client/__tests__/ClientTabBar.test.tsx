@@ -37,13 +37,13 @@ describe('ClientTabBar [UI-08]', () => {
       expect(screen.getByText('Agenda')).toBeDefined()
     })
 
-    it('aba "Creditos" esta presente com label correto', () => {
+    it('aba "Pães" esta presente com label correto', () => {
       render(
         <MemoryRouter initialEntries={['/client/home']}>
           <ClientTabBar />
         </MemoryRouter>
       )
-      expect(screen.getByText('Créditos')).toBeDefined()
+      expect(screen.getByText('Pães')).toBeDefined()
     })
 
     it('aba "Pedidos" esta presente com label correto', () => {

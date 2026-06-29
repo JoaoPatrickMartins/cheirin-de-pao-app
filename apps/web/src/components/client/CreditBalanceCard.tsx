@@ -101,7 +101,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
               textTransform: 'uppercase' as const,
             }}
           >
-            SEUS CRÉDITOS
+            VOCÊ TEM
           </p>
 
           {/* Balance number */}
@@ -173,7 +173,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
                 margin: '8px 0 0',
               }}
             >
-              Adicione créditos para começar
+              Compre pães para começar
             </p>
           )}
         </div>
@@ -215,7 +215,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
           }}
         >
           <Icon name="plus" size={18} stroke={2.4} color="var(--color-espresso)" />
-          Comprar créditos
+          Comprar pães
         </motion.button>
 
         {/* Extrato — soft button, flexShrink: 0 */}

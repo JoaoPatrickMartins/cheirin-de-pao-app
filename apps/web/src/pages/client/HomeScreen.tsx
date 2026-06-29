@@ -708,7 +708,7 @@ export function HomeScreen() {
                     lineHeight: 1.45,
                   }}
                 >
-                  Sua agenda está ativa, mas você está <strong>sem créditos</strong>. Adicione créditos para não perder as próximas entregas. 🥖
+                  Sua agenda está ativa, mas você está <strong>sem pães</strong>. Compre mais para não perder as próximas entregas. 🥖
                 </p>
               </div>
               <motion.button
@@ -728,7 +728,7 @@ export function HomeScreen() {
                   cursor: 'pointer',
                 }}
               >
-                Comprar créditos
+                Comprar pães
               </motion.button>
             </motion.div>
           )}
