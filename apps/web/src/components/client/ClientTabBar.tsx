@@ -46,6 +46,7 @@ export function ClientTabBar() {
             key={tab.path}
             onClick={() => navigate(tab.path)}
             data-active={isActive ? 'true' : 'false'}
+            data-tour={`tab-${tab.path.split('/').pop()}`}
             aria-label={tab.label}
             aria-current={isActive ? 'page' : undefined}
             style={{

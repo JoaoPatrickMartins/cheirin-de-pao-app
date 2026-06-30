@@ -205,6 +205,7 @@ function TodayDeliveryCard({ order, isToday, onOpen }: { order: TodayOrder | nul
         tabIndex={0}
         onKeyDown={(e) => e.key === 'Enter' && onOpen()}
         aria-label="Ver entregas"
+        data-tour="entrega-hoje"
         style={{ ...baseCard, background: 'var(--color-surface)', padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 13 }}
       >
         <div
@@ -263,6 +264,7 @@ function TodayDeliveryCard({ order, isToday, onOpen }: { order: TodayOrder | nul
       tabIndex={0}
       onKeyDown={(e) => e.key === 'Enter' && onOpen()}
       aria-label="Ver entrega de hoje"
+      data-tour="entrega-hoje"
       style={baseCard}
     >
       {/* Topo espresso */}
@@ -378,9 +380,9 @@ function TodayDeliveryCard({ order, isToday, onOpen }: { order: TodayOrder | nul
 
 // ---------- Ações rápidas (3 cards) ----------
 function QuickActions({ onGo }: { onGo: (path: string) => void }) {
-  const items: Array<{ ic: IconName; label: string; sub: string; to: string }> = [
+  const items: Array<{ ic: IconName; label: string; sub: string; to: string; tour?: string }> = [
     { ic: 'calendar', label: 'Agenda', sub: 'Semanal', to: '/client/agenda' },
-    { ic: 'bag', label: 'Avulso', sub: 'Pedir hoje', to: '/client/creditos?tab=avulso' },
+    { ic: 'bag', label: 'Avulso', sub: 'Pedir hoje', to: '/client/creditos?tab=avulso', tour: 'pedido-avulso' },
     { ic: 'clock', label: 'Histórico', sub: 'Pedidos', to: '/client/pedidos' },
   ]
   return (
@@ -393,6 +395,7 @@ function QuickActions({ onGo }: { onGo: (path: string) => void }) {
           whileTap={{ scale: 0.96 }}
           transition={{ type: 'spring', stiffness: 400, damping: 26 }}
           onClick={() => onGo(it.to)}
+          data-tour={it.tour}
           style={{
             background: 'var(--color-surface)',
             border: '1px solid var(--color-border-2)',

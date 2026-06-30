@@ -55,6 +55,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
 
   return (
     <div
+      data-tour="saldo"
       style={{
         borderRadius: 'var(--radius-card)',
         overflow: 'hidden',
@@ -191,6 +192,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
       >
         {/* Comprar créditos — gold button, flex: 1 */}
         <motion.button
+          data-tour="comprar-paes"
           onClick={() => navigate('/client/creditos')}
           whileHover={{ y: -1, filter: 'brightness(1.05)' }}
           whileTap={{ scale: 0.97 }}

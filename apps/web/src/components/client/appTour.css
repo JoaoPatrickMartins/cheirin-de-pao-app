@@ -1,0 +1,105 @@
+/* Estilo do Tour do App (driver.js) com os tokens da marca Cheirin de Pão.
+   Escopo: popover com a classe custom `cdp-tour` + elemento ativo destacado. */
+
+.driver-popover.cdp-tour {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 18px;
+  box-shadow: var(--shadow-strong);
+  font-family: var(--font-body);
+  max-width: 300px;
+  padding: 14px 16px;
+}
+
+/* Topo: progresso "x de N" (esquerda) + Pular (direita) */
+.driver-popover.cdp-tour .cdp-tour-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.driver-popover.cdp-tour .cdp-tour-progress {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+.driver-popover.cdp-tour .cdp-tour-skip {
+  background: none;
+  border: none;
+  color: var(--color-text-ter);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.driver-popover.cdp-tour .driver-popover-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+.driver-popover.cdp-tour .driver-popover-description {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-text-sec);
+}
+
+/* Rodapé: dots (esquerda) + botões (direita) */
+.driver-popover.cdp-tour .driver-popover-footer {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+}
+.driver-popover.cdp-tour .cdp-tour-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+.driver-popover.cdp-tour .cdp-tour-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--color-border);
+  transition: width 0.2s ease, background 0.2s ease;
+}
+.driver-popover.cdp-tour .cdp-tour-dots span.is-active {
+  width: 18px;
+  background: var(--color-gold);
+}
+
+.driver-popover.cdp-tour button {
+  font-family: var(--font-body);
+  font-weight: 700;
+  border-radius: 12px;
+  text-shadow: none;
+  cursor: pointer;
+}
+.driver-popover.cdp-tour .driver-popover-next-btn {
+  background: var(--color-espresso);
+  color: var(--color-primary-btn-text);
+  border: none;
+  padding: 9px 16px;
+}
+.driver-popover.cdp-tour .driver-popover-prev-btn {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border: none;
+  padding: 9px 14px;
+  margin-right: 8px;
+}
+
+/* Destaque (spotlight): contorno dourado seguindo o raio do próprio elemento */
+.driver-active-element {
+  outline: 3px solid var(--color-gold);
+  outline-offset: 4px;
+}
+
+/* Nas abas da nav bar o contorno fica com cara de "select" — remove a borda,
+   mantendo apenas o recorte do spotlight. */
+[data-tour^='tab-'].driver-active-element {
+  outline: none;
+}
