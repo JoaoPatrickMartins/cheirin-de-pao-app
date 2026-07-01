@@ -32,7 +32,10 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
               items: {
                 type: 'object',
                 properties: {
-                  name: { type: 'string', description: 'Nome do slot (manha | tarde).' },
+                  slotId: { type: 'string', description: 'Identificador estável do slot (manha | tarde).' },
+                  name: { type: 'string', description: 'Nome interno do slot (manha | tarde).' },
+                  label: { type: 'string', description: 'Rótulo de exibição (ex.: "Manhã").' },
+                  emoji: { type: 'string', description: 'Emoji de exibição do slot.' },
                   time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
                   cutoffTime: { type: 'string', description: 'Horário de corte do slot (HH:MM).' },
                   locked: { type: 'boolean', description: 'true se o corte da próxima entrega desse slot já passou.' },
@@ -46,57 +49,87 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
   }, ctrl.cutoffStatus.bind(ctrl))
 
+  // Config GLOBAL de slots de entrega — fonte da verdade dos horários de corte (um por slot).
+  const slotItemSchema = {
+    type: 'object',
+    properties: {
+      slotId: { type: 'string', description: 'Identificador estável do slot (read-only).' },
+      name: { type: 'string', description: 'Nome interno do slot (read-only).' },
+      label: { type: 'string', description: 'Rótulo de exibição (editável).' },
+      emoji: { type: 'string', description: 'Emoji de exibição (editável).' },
+      time: { type: 'string', description: 'Horário de entrega HH:MM (read-only na Etapa A).' },
+      cutoffTime: { type: 'string', description: 'Horário de corte HH:MM (editável).' },
+      isActive: { type: 'boolean', description: 'Slot ativo (editável).' },
+    },
+  }
+
   fastify.get(
-    '/admin/settings/cutoff',
+    '/admin/settings/slots',
     {
       preHandler: [fastify.authenticate],
       schema: {
         tags: ['admin — settings'],
-        summary: 'Consultar horário de corte de pedidos (admin)',
-        description: 'Retorna o horário de corte de pedidos configurado. Após este horário, novos pedidos avulsos para o dia corrente são bloqueados. Restrito a ADMIN.',
+        summary: 'Consultar config global de slots de entrega (admin)',
+        description: 'Retorna a configuração global dos slots de entrega, cada um com seu horário de corte (cutoffTime). É a fonte da verdade: ao editar, os horários são propagados para todos os condomínios. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         response: {
           200: {
             type: 'object',
-            description: 'Configuração do horário de corte.',
+            description: 'Config global de slots.',
             properties: {
-              cutoffTime: { type: 'string', description: 'Horário de corte no formato HH:MM.' },
+              slots: { type: 'array', items: slotItemSchema },
             },
           },
         },
       },
     },
-    ctrl.getCutoff.bind(ctrl),
+    ctrl.getSlots.bind(ctrl),
   )
 
   fastify.patch(
-    '/admin/settings/cutoff',
+    '/admin/settings/slots',
     {
       preHandler: [fastify.authenticate],
       schema: {
         tags: ['admin — settings'],
-        summary: 'Atualizar horário de corte de pedidos (admin)',
-        description: 'Atualiza o horário de corte de pedidos do sistema. Afeta imediatamente: pedidos avulsos feitos após o novo cutoffTime para o dia corrente serão rejeitados. Restrito a ADMIN.',
+        summary: 'Atualizar config global de slots de entrega (admin)',
+        description: 'Edita a config global dos slots (time, cutoffTime, label, emoji, isActive) e propaga para todos os condomínios. A identidade (name/slotId) NÃO é editável. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['cutoffTime'],
+          required: ['slots'],
           properties: {
-            cutoffTime: { type: 'string', pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$', description: 'Novo horário de corte no formato HH:MM (ex: "09:00"). Após este horário, pedidos do dia corrente são bloqueados.' },
+            slots: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                required: ['slotId'],
+                properties: {
+                  slotId: { type: 'string', description: 'Identificador do slot a editar.' },
+                  time: { type: 'string', pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$', description: 'Novo horário de entrega HH:MM.' },
+                  cutoffTime: { type: 'string', pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$', description: 'Novo horário de corte HH:MM.' },
+                  label: { type: 'string', description: 'Novo rótulo de exibição.' },
+                  emoji: { type: 'string', description: 'Novo emoji de exibição.' },
+                  isActive: { type: 'boolean', description: 'Ativar/desativar o slot.' },
+                },
+              },
+            },
           },
         },
         response: {
           200: {
             type: 'object',
-            description: 'Horário de corte atualizado.',
+            description: 'Config global atualizada e propagada.',
             properties: {
-              cutoffTime: { type: 'string', description: 'Novo horário de corte salvo.' },
+              ok: { type: 'boolean' },
+              slots: { type: 'array', items: slotItemSchema },
             },
           },
         },
       },
     },
-    ctrl.setCutoff.bind(ctrl),
+    ctrl.setSlots.bind(ctrl),
   )
 
   fastify.get(

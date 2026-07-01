@@ -14,6 +14,14 @@ export class CreditsRepository {
     })
   }
 
+  // Promoções ativas dos combos informados, em uma query (evita N+1 na listagem).
+  findActivePromotionsByComboIds(comboIds: string[]) {
+    return this.prisma.promotion.findMany({
+      where: { comboId: { in: comboIds }, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
+
   getSettingByKey(key: string) {
     return this.prisma.setting.findUnique({ where: { key } })
   }

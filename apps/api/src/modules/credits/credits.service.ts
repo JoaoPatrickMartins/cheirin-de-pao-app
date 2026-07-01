@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { CreditsRepository } from './credits.repository.js'
+import { effectiveComboPrice } from '../../lib/combo-pricing.js'
 
 export class CreditsService {
   private repo: CreditsRepository
@@ -8,8 +9,34 @@ export class CreditsService {
     this.repo = new CreditsRepository(fastify)
   }
 
-  listCombos() {
-    return this.repo.listActiveCombos()
+  // Lista combos com a promoção ativa já aplicada: price = preço com desconto,
+  // antes = preço original (só quando há promoção). O front usa `antes` para o
+  // preço riscado (ComboCard). findMany já vem ordenado por createdAt desc, então
+  // o primeiro de cada comboId é a promoção ativa mais recente.
+  async listCombos() {
+    const combos = await this.repo.listActiveCombos()
+    const promotions = await this.repo.findActivePromotionsByComboIds(combos.map((c) => c.id))
+
+    const promoByCombo = new Map<string, (typeof promotions)[number]>()
+    for (const p of promotions) {
+      if (!promoByCombo.has(p.comboId)) promoByCombo.set(p.comboId, p)
+    }
+
+    return combos.map((combo) => {
+      const promo = promoByCombo.get(combo.id) ?? null
+      const price = effectiveComboPrice(combo.price, promo)
+      const isOnPromotion = price < combo.price
+      return {
+        id: combo.id,
+        name: combo.name,
+        quantity: combo.quantity,
+        tag: combo.tag,
+        isActive: combo.isActive,
+        price,
+        isOnPromotion,
+        ...(isOnPromotion ? { antes: combo.price } : {}),
+      }
+    })
   }
 
   async getPricing(): Promise<{ avulsoLimite: number; avulsoUnit: number }> {

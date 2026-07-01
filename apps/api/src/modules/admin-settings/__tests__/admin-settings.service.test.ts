@@ -17,14 +17,16 @@ vi.mock('@onesignal/node-onesignal', () => ({
 // ── makeFastifyMock ───────────────────────────────────────────────────────────
 function makeFastifyMock(overrides: {
   setting?: { key: string; value: string } | null
+  deliverySlots?: { key: string; value: string } | null
   settingAvulsoLimite?: { key: string; value: string } | null
   settingAvulsoUnit?: { key: string; value: string } | null
   users?: Array<{ id: string; oneSignalPlayerId: string | null }>
   orders?: Array<{ id: string; userId: string; scheduledDate: Date }>
-  condominiums?: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ name: string; time: string; cutoffTime: string; isActive: boolean }> }>
+  condominiums?: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }>
 } = {}) {
   const {
     setting = { key: 'cutoffTime', value: '20:00' },
+    deliverySlots = null,
     settingAvulsoLimite = { key: 'avulsoLimite', value: '20' },
     settingAvulsoUnit = { key: 'avulsoUnit', value: '1.50' },
     users = [],
@@ -34,6 +36,7 @@ function makeFastifyMock(overrides: {
 
   const settingFindUnique = vi.fn().mockImplementation(({ where }: { where: { key: string } }) => {
     if (where.key === 'cutoffTime') return Promise.resolve(setting)
+    if (where.key === 'deliverySlots') return Promise.resolve(deliverySlots)
     if (where.key === 'avulsoLimite') return Promise.resolve(settingAvulsoLimite)
     if (where.key === 'avulsoUnit') return Promise.resolve(settingAvulsoUnit)
     return Promise.resolve(null)
@@ -54,6 +57,7 @@ function makeFastifyMock(overrides: {
     },
     condominium: {
       findMany: vi.fn().mockResolvedValue(condominiums),
+      update: vi.fn().mockResolvedValue({}),
     },
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-1' }),
@@ -77,45 +81,81 @@ describe('AdminSettingsService', () => {
     vi.clearAllMocks()
   })
 
-  describe('getCutoffTime', () => {
-    it('retorna o value da Setting key=cutoffTime quando existe', async () => {
+  describe('getDeliverySlots', () => {
+    it('retorna a config global default (manha 22:00 / tarde 10:00) quando Setting não existe', async () => {
+      const { fastify } = makeFastifyMock({ deliverySlots: null })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      const result = await service.getDeliverySlots()
+
+      expect(result.map((s) => s.slotId).sort()).toEqual(['manha', 'tarde'])
+      const manha = result.find((s) => s.slotId === 'manha')!
+      expect(manha.cutoffTime).toBe('22:00')
+      expect(manha.time).toBe('06:30')
+      const tarde = result.find((s) => s.slotId === 'tarde')!
+      expect(tarde.cutoffTime).toBe('10:00')
+    })
+
+    it('retorna a config global persistida quando existe', async () => {
+      const custom = [
+        { slotId: 'manha', name: 'manha', label: 'Manhã', emoji: '☀️', time: '06:30', cutoffTime: '21:00', isActive: true },
+        { slotId: 'tarde', name: 'tarde', label: 'Tarde', emoji: '🌙', time: '15:30', cutoffTime: '09:00', isActive: false },
+      ]
       const { fastify } = makeFastifyMock({
-        setting: { key: 'cutoffTime', value: '20:00' },
+        deliverySlots: { key: 'deliverySlots', value: JSON.stringify(custom) },
       })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSettingsService(fastify as any)
-      const result = await service.getCutoffTime()
+      const result = await service.getDeliverySlots()
 
-      expect(result).toBe('20:00')
-    })
-
-    it('retorna "20:00" como default quando Setting não existe', async () => {
-      const { fastify } = makeFastifyMock({ setting: null })
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new AdminSettingsService(fastify as any)
-      const result = await service.getCutoffTime()
-
-      expect(result).toBe('20:00')
+      expect(result.find((s) => s.slotId === 'manha')!.cutoffTime).toBe('21:00')
+      expect(result.find((s) => s.slotId === 'tarde')!.isActive).toBe(false)
     })
   })
 
-  describe('setCutoffTime', () => {
-    it('chama prisma.setting.upsert com key=cutoffTime e o value informado', async () => {
-      const { fastify, prisma } = makeFastifyMock()
+  describe('setDeliverySlots', () => {
+    it('persiste a config global (upsert key=deliverySlots) com o novo cutoff', async () => {
+      const { fastify, prisma } = makeFastifyMock({ deliverySlots: null })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSettingsService(fastify as any)
-      await service.setCutoffTime('18:30')
+      await service.setDeliverySlots([{ slotId: 'manha', cutoffTime: '21:30' }])
 
       expect(prisma.setting.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { key: 'cutoffTime' },
-          create: expect.objectContaining({ key: 'cutoffTime', value: '18:30' }),
-          update: expect.objectContaining({ value: '18:30' }),
-        }),
+        expect.objectContaining({ where: { key: 'deliverySlots' } }),
       )
+      const call = prisma.setting.upsert.mock.calls[0][0] as { create: { value: string } }
+      const saved = JSON.parse(call.create.value) as Array<{ slotId: string; cutoffTime: string }>
+      expect(saved.find((s) => s.slotId === 'manha')!.cutoffTime).toBe('21:30')
+    })
+
+    it('propaga aos condomínios preservando time/name, alterando só cutoffTime e preenchendo slotId', async () => {
+      const condo = {
+        id: 'condo-1',
+        name: 'C1',
+        isActive: true,
+        deliverySlots: [
+          { name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true },
+          { name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true },
+        ],
+      }
+      const { fastify, prisma } = makeFastifyMock({ deliverySlots: null, condominiums: [condo] })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setDeliverySlots([{ slotId: 'manha', cutoffTime: '21:00' }])
+
+      expect(prisma.condominium.update).toHaveBeenCalledTimes(1)
+      const arg = prisma.condominium.update.mock.calls[0][0] as {
+        data: { deliverySlots: Array<{ slotId?: string; name: string; time: string; cutoffTime: string }> }
+      }
+      const manha = arg.data.deliverySlots.find((s) => s.name === 'manha')!
+      expect(manha.time).toBe('06:30') // chave de junção preservada
+      expect(manha.name).toBe('manha') // identidade preservada
+      expect(manha.cutoffTime).toBe('21:00') // cutoff atualizado
+      expect(manha.slotId).toBe('manha') // slotId preenchido
     })
   })
 

@@ -37,6 +37,24 @@ export class AdminSuppliersController {
     }
   }
 
+  async getById(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    const { id } = request.params as { id: string }
+
+    try {
+      const result = await this.service.getById(id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
   async create(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
@@ -87,6 +105,7 @@ export class AdminSuppliersController {
       this.fastify.log.error(err)
       const e = err as { statusCode?: number; message?: string }
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 409) return reply.status(409).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }

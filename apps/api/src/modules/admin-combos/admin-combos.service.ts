@@ -29,11 +29,29 @@ export class AdminCombosService {
     const combosWithPromotion = await Promise.all(
       combos.map(async (combo: { id: string }) => {
         const activePromotion = await this.repository.findActivePromotion(combo.id)
-        return { ...combo, activePromotion: activePromotion ?? null }
+        // Mapeia a Promotion crua para o shape `discount` consumido pelo frontend.
+        const discount = activePromotion
+          ? {
+              type: activePromotion.discountType,
+              value: activePromotion.discountValue,
+              expiresAt: activePromotion.endsAt,
+              active: activePromotion.isActive,
+            }
+          : null
+        return { ...combo, discount }
       }),
     )
 
     return combosWithPromotion
+  }
+
+  /**
+   * Busca um combo por ID (para edição). Lança 404 se não encontrar.
+   */
+  async getById(id: string) {
+    const combo = await this.repository.findById(id)
+    if (!combo) throw { statusCode: 404, message: 'Combo não encontrado' }
+    return combo
   }
 
   /**
@@ -49,7 +67,16 @@ export class AdminCombosService {
   async update(id: string, data: UpdateComboBody) {
     const existing = await this.repository.findById(id)
     if (!existing) throw { statusCode: 404, message: 'Combo não encontrado' }
-    return this.repository.update(id, data)
+
+    // Desativar o combo desliga a compra automática dos clientes que o usam —
+    // evita cobrá-los em um combo que não existe mais na loja.
+    let affectedAutoRecharge = 0
+    if (data.isActive === false && existing.isActive) {
+      affectedAutoRecharge = await this.repository.disableAutoRechargeForCombo(id)
+    }
+
+    const updated = await this.repository.update(id, data)
+    return { ...updated, affectedAutoRecharge }
   }
 
   /**

@@ -6,11 +6,18 @@ export const BuyCustomSchema = z.object({
 
 export type BuyCustomBody = z.infer<typeof BuyCustomSchema>
 
-export const AutoRechargeSchema = z.object({
-  mode: z.enum(['acabar', 'semanal']),
-  weekday: z.string().optional(),
-  comboId: z.string(),
-})
+export const AutoRechargeSchema = z
+  .object({
+    // active liga/desliga a recarga — é o que o corte checa (autoRecharge.active).
+    active: z.boolean().optional().default(false),
+    mode: z.enum(['acabar', 'semanal']).optional().default('acabar'),
+    weekday: z.string().optional(),
+    // comboId só é obrigatório ao ATIVAR (ao desativar pode vir vazio/ausente).
+    comboId: z.string().optional(),
+  })
+  .refine((d) => !d.active || !!d.comboId, {
+    message: 'comboId é obrigatório ao ativar a recarga automática',
+  })
 
 export type AutoRechargeBody = z.infer<typeof AutoRechargeSchema>
 

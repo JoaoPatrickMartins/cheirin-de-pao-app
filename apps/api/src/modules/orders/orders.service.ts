@@ -59,29 +59,47 @@ export class OrdersService {
    * @throws { statusCode: 400, message: 'Créditos insuficientes' } se saldo < quantity
    */
   async createSingleOrder(userId: string, data: CreateOrderBody) {
-    // T-04-03-02: Rejeita datas no passado ou hoje — compara "YYYY-MM-DD" ao amanhã BRT
-    // (comparação por string evita off-by-one de fuso que rejeitava o próprio "amanhã").
+    // Nunca aceita datas no passado. "Hoje" é permitido, mas só se o corte do slot
+    // escolhido ainda não passou (validação adiante). Sem slots para validar o corte,
+    // o piso permanece "amanhã".
     const dateStr = data.scheduledDate.slice(0, 10)
+    const todayStr = brtDateStr(new Date(), 0)
     const tomorrowStr = brtDateStr(new Date(), 1)
-    if (dateStr < tomorrowStr) {
+    if (dateStr < todayStr) {
       throw { statusCode: 400, message: 'Data inválida' }
     }
     // Armazena ao meio-dia BRT do dia escolhido (cai na janela correta de hoje/histórico)
     const scheduledDate = brtNoonFromStr(dateStr)
 
-    // Enforçar horário de corte por slot: a data só é aceita enquanto houver ao menos
-    // um slot do condomínio ainda aberto para entrega naquela data (corte não passou).
+    // Enforçar horário de corte por slot. Quando um slot é escolhido (deliveryTime),
+    // valida o corte DAQUELE slot para a data; senão (legado) aceita se houver ao menos
+    // um slot ainda aberto. O slot resolvido é gravado em Order.deliveryTime.
+    let deliveryTime: string | undefined = data.deliveryTime
+    let slotId: string | undefined
     const ownerCondo = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { condominiumId: true },
     })
-    if (ownerCondo?.condominiumId) {
-      const condo = await this.prisma.condominium.findUnique({
-        where: { id: ownerCondo.condominiumId },
-        select: { deliverySlots: true },
-      })
-      const activeSlots = (condo?.deliverySlots ?? []).filter((s) => s.isActive)
-      if (activeSlots.length > 0) {
+    const condo = ownerCondo?.condominiumId
+      ? await this.prisma.condominium.findUnique({
+          where: { id: ownerCondo.condominiumId },
+          select: { deliverySlots: true },
+        })
+      : null
+    const activeSlots = (condo?.deliverySlots ?? []).filter((s) => s.isActive)
+
+    if (activeSlots.length > 0) {
+      if (data.deliveryTime) {
+        const slot = activeSlots.find((s) => s.time === data.deliveryTime)
+        if (!slot) {
+          throw { statusCode: 400, message: 'Horário de entrega indisponível' }
+        }
+        if (isPastCutoffForDelivery(slot.time, slot.cutoffTime, data.scheduledDate)) {
+          throw { statusCode: 400, message: 'Prazo de pedido encerrado para este horário' }
+        }
+        deliveryTime = slot.time
+        slotId = slot.slotId ?? slot.name
+      } else {
         const stillOpen = activeSlots.some(
           (s) => !isPastCutoffForDelivery(s.time, s.cutoffTime, data.scheduledDate),
         )
@@ -89,6 +107,9 @@ export class OrdersService {
           throw { statusCode: 400, message: 'Prazo de pedido encerrado para esta data' }
         }
       }
+    } else if (dateStr < tomorrowStr) {
+      // Sem slots para validar o corte → não permite "hoje".
+      throw { statusCode: 400, message: 'Data inválida' }
     }
 
     // T-04-03-04: Reserva atômica — verifica saldo, debita e cria Order/CreditTransaction
@@ -111,6 +132,8 @@ export class OrdersService {
       })
 
       // Criar Order (type SINGLE, status SCHEDULED)
+      // condominiumId herdado do usuário — necessário para o agrupamento por
+      // condomínio no painel admin (delivery-status / divisão de entregas).
       const newOrder = await tx.order.create({
         data: {
           userId,
@@ -118,6 +141,9 @@ export class OrdersService {
           status: 'SCHEDULED',
           quantity: data.quantity,
           scheduledDate,
+          ...(deliveryTime ? { deliveryTime } : {}),
+          ...(slotId ? { slotId } : {}),
+          ...(user.condominiumId ? { condominiumId: user.condominiumId } : {}),
         },
       })
 

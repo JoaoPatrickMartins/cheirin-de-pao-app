@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
+import { lookupCep } from '../../../lib/viacep'
 import { Icon } from '../../../components/brand/Icon'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
 
@@ -17,15 +18,44 @@ const TIPO_TABS = [
   { key: 'BLOCKS' as CondoTipo, label: 'Blocos/Torres' },
 ]
 
+// ------------------------------------------------------------------ máscaras
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+/** Formata CEP para 00000-000. */
+function maskCEP(value: string): string {
+  const d = onlyDigits(value).slice(0, 8)
+  return d.replace(/^(\d{5})(\d)/, '$1-$2')
+}
+
+/** Faz parse de "lat, long" (formato copiável do Google Maps). Retorna null se inválido. */
+function parseCoords(s: string): { lat: number; lng: number } | null {
+  const parts = s.split(',').map((x) => parseFloat(x.trim()))
+  if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+    return { lat: parts[0], lng: parts[1] }
+  }
+  return null
+}
+
 // ------------------------------------------------------------------ componente
 export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
   const [nome, setNome] = useState('')
-  const [endereco, setEndereco] = useState('')
+  const [rua, setRua] = useState('')
+  const [numero, setNumero] = useState('')
+  const [complemento, setComplemento] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [estado, setEstado] = useState('')
+  const [cep, setCep] = useState('')
   const [tipo, setTipo] = useState<CondoTipo>('SINGLE_ENTRANCE')
   const [numBlocos, setNumBlocos] = useState('1')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(!!id)
   const [error, setError] = useState<string | null>(null)
+  const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'notfound'>('idle')
+  const lastCepLookup = useRef('')
+  const [coords, setCoords] = useState('')
+  const [locApprox, setLocApprox] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -35,14 +65,31 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
         if (res.ok) {
           const data = (await res.json()) as {
             name: string
-            address?: string | null
+            address?: {
+              street?: string | null
+              number?: string | null
+              complement?: string | null
+              city?: string | null
+              state?: string | null
+              zip?: string | null
+            } | null
             type: CondoTipo
             numBlocks?: number | null
+            lat?: number | null
+            lng?: number | null
+            approxLocation?: boolean
           }
           setNome(data.name)
-          setEndereco(data.address ?? '')
+          setRua(data.address?.street ?? '')
+          setNumero(data.address?.number ?? '')
+          setComplemento(data.address?.complement ?? '')
+          setCidade(data.address?.city ?? '')
+          setEstado(data.address?.state ?? '')
+          setCep(maskCEP(data.address?.zip ?? ''))
           setTipo(data.type)
           setNumBlocos(String(data.numBlocks ?? 1))
+          if (data.lat != null && data.lng != null) setCoords(`${data.lat}, ${data.lng}`)
+          setLocApprox(Boolean(data.approxLocation))
         }
       } catch {
         // falha silenciosa
@@ -53,14 +100,56 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
     void fetchCondo()
   }, [id])
 
+  // Auto-preenchimento de endereço pelo CEP via ViaCEP. Dispara quando o usuário completa
+  // os 8 dígitos; preenche rua/cidade/UF (o número continua manual).
+  const handleCepChange = (v: string) => {
+    const masked = maskCEP(v)
+    setCep(masked)
+    const digits = onlyDigits(masked)
+    if (digits.length !== 8) {
+      setCepStatus('idle')
+      return
+    }
+    if (digits === lastCepLookup.current) return
+    lastCepLookup.current = digits
+    setCepStatus('loading')
+    void lookupCep(masked).then((addr) => {
+      if (!addr) {
+        setCepStatus('notfound')
+        return
+      }
+      setCepStatus('idle')
+      if (addr.street) setRua(addr.street)
+      if (addr.city) setCidade(addr.city)
+      if (addr.uf) setEstado(addr.uf)
+    })
+  }
+
+  // Coordenadas manuais têm prioridade; ao informar coords válidas, a marca de
+  // "localização aproximada" deixa de fazer sentido.
+  const handleCoordsChange = (v: string) => {
+    setCoords(v)
+    if (parseCoords(v)) setLocApprox(false)
+  }
+
   const handleSalvar = async () => {
     setError(null)
     setIsSaving(true)
     try {
+      const parsedCoords = parseCoords(coords)
       const body = {
         name: nome.trim(),
-        ...(endereco.trim() ? { address: endereco.trim() } : {}),
+        address: {
+          street: rua.trim(),
+          number: numero.trim(),
+          ...(complemento.trim() ? { complement: complemento.trim() } : {}),
+          city: cidade.trim(),
+          state: estado.trim().toUpperCase(),
+          zip: onlyDigits(cep),
+        },
         type: tipo,
+        // Coordenadas manuais (têm prioridade sobre a geocodificação do endereço).
+        ...(parsedCoords ? { lat: parsedCoords.lat, lng: parsedCoords.lng } : {}),
         ...(tipo === 'BLOCKS' ? { numBlocks: Number(numBlocos) } : {}),
       }
       const res = await apiFetch(id ? `/admin/condominiums/${id}` : '/admin/condominiums', {
@@ -80,7 +169,13 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
     }
   }
 
-  const isValid = nome.trim() !== ''
+  const isValid =
+    nome.trim() !== '' &&
+    rua.trim() !== '' &&
+    numero.trim() !== '' &&
+    cidade.trim() !== '' &&
+    estado.trim().length === 2 &&
+    cep.trim() !== ''
 
   if (isLoading) {
     return (
@@ -155,13 +250,120 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
           placeholder="Ex.: Residencial das Flores"
         />
 
+        {/* Endereço */}
+        <div
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'var(--color-text-sec)',
+            letterSpacing: '0.02em',
+            textTransform: 'uppercase',
+            marginTop: 4,
+          }}
+        >
+          Endereço
+        </div>
+
         <FormField
-          label="Endereço"
+          label="Rua"
           icon="pin"
-          value={endereco}
-          onChange={setEndereco}
-          placeholder="Rua, número, bairro"
+          value={rua}
+          onChange={setRua}
+          placeholder="Rua das Flores"
         />
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="Número"
+              icon="home"
+              value={numero}
+              onChange={setNumero}
+              placeholder="123"
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="Complemento"
+              icon="edit"
+              value={complemento}
+              onChange={setComplemento}
+              placeholder="Portaria, ponto de referência"
+            />
+          </div>
+        </div>
+
+        <FormField
+          label="Cidade"
+          icon="building"
+          value={cidade}
+          onChange={setCidade}
+          placeholder="São Paulo"
+        />
+
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="Estado (UF)"
+              icon="pin"
+              value={estado}
+              onChange={(v) => setEstado(v.toUpperCase().slice(0, 2))}
+              placeholder="SP"
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <FormField
+              label="CEP"
+              icon="mail"
+              type="tel"
+              value={cep}
+              onChange={handleCepChange}
+              placeholder="00000-000"
+            />
+          </div>
+        </div>
+
+        {cepStatus !== 'idle' && (
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              fontWeight: 600,
+              color: cepStatus === 'notfound' ? 'var(--color-warn)' : 'var(--color-text-ter)',
+              margin: '-8px 0 0',
+            }}
+          >
+            {cepStatus === 'loading'
+              ? 'Buscando endereço pelo CEP…'
+              : 'CEP não encontrado — preencha o endereço manualmente.'}
+          </p>
+        )}
+
+        {/* Localização no mapa (coordenadas manuais — opcional) */}
+        <div>
+          <FormField
+            label="Localização no mapa (lat, long)"
+            icon="pin"
+            value={coords}
+            onChange={handleCoordsChange}
+            placeholder="-21.7546, -41.3242"
+          />
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              fontWeight: 600,
+              color: locApprox ? 'var(--color-warn)' : 'var(--color-text-ter)',
+              margin: '6px 0 0',
+              lineHeight: 1.45,
+            }}
+          >
+            {locApprox
+              ? '⚠ Localização aproximada (centro da cidade). Cole as coordenadas exatas do Google Maps para a rota ficar precisa.'
+              : 'Opcional. No Google Maps, clique no local e copie as coordenadas. Em branco, localizamos pelo endereço.'}
+          </p>
+        </div>
 
         {/* Tipo */}
         <div>

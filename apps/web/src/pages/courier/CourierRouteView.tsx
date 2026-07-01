@@ -21,7 +21,11 @@ function formatEstimatedTime(baseMinutes: number): string {
 }
 
 export function CourierRouteView({ condos, route }: CourierRouteViewProps) {
-  if (route === null) {
+  const condosWithCoords = condos.filter((c) => c.lat !== null && c.lng !== null)
+
+  // Só fica indisponível quando nenhum endereço pôde ser localizado no mapa.
+  // Com 1+ parada localizada mostramos o mapa (mesmo sem o traçado do OSRM).
+  if (condosWithCoords.length === 0) {
     return (
       <div style={{ padding: '20px 0' }}>
         <div
@@ -52,25 +56,21 @@ export function CourierRouteView({ condos, route }: CourierRouteViewProps) {
               margin: 0,
             }}
           >
-            O cálculo da rota está temporariamente indisponível. Use a aba Lista para as paradas.
+            Não foi possível localizar os endereços no mapa. Use a aba Lista para as paradas.
           </p>
         </div>
       </div>
     )
   }
 
-  const waypoints = condos
-    .filter((c) => c.lat !== null && c.lng !== null)
-    .map((c, i) => ({
-      lat: c.lat!,
-      lng: c.lng!,
-      name: c.condominiumName,
-      order: i + 1,
-    }))
+  const waypoints = condosWithCoords.map((c, i) => ({
+    lat: c.lat!,
+    lng: c.lng!,
+    name: c.condominiumName,
+    order: i + 1,
+  }))
 
-  const minutesPerStop = waypoints.length > 0 ? route.durationMin / waypoints.length : 0
-
-  const condosWithCoords = condos.filter((c) => c.lat !== null && c.lng !== null)
+  const minutesPerStop = route && waypoints.length > 0 ? route.durationMin / waypoints.length : 0
 
   return (
     <div>
@@ -78,9 +78,9 @@ export function CourierRouteView({ condos, route }: CourierRouteViewProps) {
       <div style={{ paddingBottom: 12 }}>
         <CourierMap
           waypoints={waypoints}
-          geometry={route.geometry}
-          distanceKm={route.distanceKm}
-          durationMin={route.durationMin}
+          geometry={route?.geometry ?? []}
+          distanceKm={route?.distanceKm ?? null}
+          durationMin={route?.durationMin ?? 0}
         />
       </div>
 

@@ -55,7 +55,7 @@ export const adminCouriersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — couriers'],
         summary: 'Cadastrar entregador (admin)',
-        description: 'Cadastra um novo entregador no sistema com role=COURIER. O CPF deve ser único. O entregador usa o app de entrega com autenticação OTP pelo phone ou email informado. Entregadores cadastrados aqui recebem o mesmo fluxo de OTP que clientes.',
+        description: 'Cadastra um novo entregador no sistema com role=COURIER. O CPF deve ser único. O entregador usa o app de entrega com autenticação OTP por e-mail (único canal neste momento), portanto informe o e-mail. Entregadores cadastrados aqui recebem o mesmo fluxo de OTP que clientes.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
@@ -63,8 +63,8 @@ export const adminCouriersRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: 'string', description: 'Nome completo do entregador.' },
             cpf: { type: 'string', minLength: 11, maxLength: 11, description: 'CPF do entregador sem pontuação (11 dígitos). Deve ser único.' },
-            phone: { type: 'string', description: 'Telefone do entregador para OTP via SMS. Obrigatório se email não informado.' },
-            email: { type: 'string', format: 'email', description: 'E-mail do entregador para OTP. Obrigatório se phone não informado.' },
+            phone: { type: 'string', description: 'Telefone do entregador. Obrigatório se email não informado.' },
+            email: { type: 'string', format: 'email', description: 'E-mail do entregador para receber o OTP de acesso. Obrigatório se phone não informado.' },
           },
         },
         response: {
@@ -75,6 +75,11 @@ export const adminCouriersRoute: FastifyPluginAsync = async (fastify) => {
               id: { type: 'string', description: 'ID do entregador criado.' },
               name: { type: 'string', description: 'Nome do entregador.' },
               role: { type: 'string', description: 'Role sempre "COURIER".' },
+              cpf: { type: 'string', nullable: true, description: 'CPF do entregador.' },
+              phone: { type: 'string', nullable: true, description: 'Telefone.' },
+              email: { type: 'string', nullable: true, description: 'E-mail.' },
+              isBlocked: { type: 'boolean', description: 'Status de bloqueio.' },
+              createdAt: { type: 'string', description: 'Data de cadastro.' },
             },
           },
         },
@@ -106,6 +111,7 @@ export const adminCouriersRoute: FastifyPluginAsync = async (fastify) => {
             description: 'Status de bloqueio alternado.',
             properties: {
               id: { type: 'string', description: 'ID do entregador.' },
+              name: { type: 'string', description: 'Nome do entregador.' },
               isBlocked: { type: 'boolean', description: 'Novo status de bloqueio após o toggle.' },
             },
           },
@@ -147,6 +153,12 @@ export const adminCouriersRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               id: { type: 'string', description: 'ID do entregador.' },
               name: { type: 'string', description: 'Nome atualizado.' },
+              cpf: { type: 'string', nullable: true, description: 'CPF do entregador.' },
+              phone: { type: 'string', nullable: true, description: 'Telefone.' },
+              email: { type: 'string', nullable: true, description: 'E-mail.' },
+              isBlocked: { type: 'boolean', description: 'Status de bloqueio.' },
+              role: { type: 'string', description: 'Role do entregador.' },
+              createdAt: { type: 'string', description: 'Data de cadastro.' },
             },
           },
         },

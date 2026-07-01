@@ -23,9 +23,12 @@ type Address {
 }
 
 type DeliverySlot {
-  name        String  // "manha" | "tarde"
-  time        String  // "06:30"
-  cutoffTime  String  // "22:00"
+  slotId      String? // identificador estável interno (ex.: "manha" | "tarde") — chave de referência futura
+  name        String  // legado/identidade atual; mantido igual ao slotId
+  label       String? // rótulo de exibição (ex.: "Manhã") — editável
+  emoji       String? // emoji de exibição (ex.: "☀️") — editável
+  time        String  // "06:30" — chave de junção (agendas/pedidos); read-only na Etapa A
+  cutoffTime  String  // "22:00" — editável
   isActive    Boolean
 }
 
@@ -62,8 +65,10 @@ enum OrderType {
 
 enum OrderStatus {
   SCHEDULED
+  SEPARATED
   OUT_FOR_DELIVERY
   DELIVERED
+  NOT_DELIVERED
   CANCELLED
 }
 
@@ -106,6 +111,11 @@ enum NotificationType {
   CREDIT_GRANTED
 }
 
+enum AnalyticsEventType {
+  ACCESS // abertura do app / carga da PWA por um visitante (anônimo)
+  LOGIN  // verificação de OTP bem-sucedida que cria uma sessão
+}
+
 // ===== MODELS (15 collections) =====
 
 // 1. User — clientes, entregadores e admins
@@ -118,6 +128,10 @@ model User {
   cpf           String    @unique
   birthDate     DateTime?
   isBlocked     Boolean   @default(false)
+  // Contexto do bloqueio atual (auditoria) — preenchido ao bloquear, limpo ao desbloquear
+  blockReason   String?
+  blockedAt     DateTime?
+  blockedById   String?   @db.ObjectId
   condominiumId String?   @db.ObjectId
   apartment     String?
   block         String?
@@ -138,7 +152,15 @@ model Condominium {
   id            String    @id @default(auto()) @map("_id") @db.ObjectId
   name          String
   address       Address
+  // Coordenadas usadas pela rota do entregador (OSRM). Definidas manualmente pelo admin
+  // ou geocodificadas (Nominatim) ao criar/editar. Nulas enquanto não localizado.
+  lat           Float?
+  lng           Float?
+  // true quando a geocodificação só resolveu a nível de cidade (centro) — impreciso.
+  approxLocation Boolean @default(false)
   type          CondoType
+  // Número de blocos/torres — usado apenas quando type == BLOCKS. Nulo em SINGLE_ENTRANCE.
+  numBlocks     Int?
   isActive      Boolean   @default(true)
   deliverySlots DeliverySlot[]
   createdAt     DateTime  @default(now())
@@ -219,9 +241,20 @@ model Order {
   deliveryListId String?     @db.ObjectId
   courierId      String?     @db.ObjectId
   condominiumId  String?     @db.ObjectId
-  deliveryTime   String?
+  slotId         String?     // identificador estável do slot (chave de junção; Etapa B)
+  deliveryTime   String?     // snapshot do horário de entrega no momento do pedido (exibição)
+  // Marcos do ciclo de vida (rastreabilidade ponta-a-ponta — evita pedido "no limbo")
+  separatedAt    DateTime?   // quando foi separado/conferido (entra na divisão de entregas)
+  deliveredAt    DateTime?   // quando foi confirmado como entregue
+  failedAt       DateTime?   // quando foi marcado como NÃO entregue
+  failureReason  String?     // motivo da não-entrega (cliente ausente, endereço, etc.)
+  cancelledAt    DateTime?   // quando foi cancelado
+  cancelReason   String?     // motivo do cancelamento
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+
+  @@index([status, scheduledDate])
+  @@index([condominiumId, scheduledDate])
 }
 
 // 9. Delivery — registro de entrega com confirmação por entregador
@@ -263,9 +296,12 @@ model Supplier {
 }
 
 // 12. PurchaseOrder — pedidos de compra ao fornecedor (cabeçalho)
+// Um pedido por TURNO (slot): cada (date, slotId) gera seu próprio PurchaseOrder.
 model PurchaseOrder {
   id            String              @id @default(auto()) @map("_id") @db.ObjectId
   date          DateTime
+  slotId        String?             // turno do pedido (manha/tarde) — pipeline por slot
+  slotLabel     String?             // rótulo de exibição do turno (ex.: "Manhã")
   totalQuantity Int
   cutoffTime    DateTime
   status        PurchaseOrderStatus
@@ -326,6 +362,15 @@ model Session {
   createdAt  DateTime @default(now())
 }
 
+// AdminNote — notas internas do admin sobre um cliente (suporte/CRM)
+model AdminNote {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  adminId   String   @db.ObjectId
+  body      String
+  createdAt DateTime @default(now())
+}
+
 // 17. OtpCode — one-time codes for login and registration
 model OtpCode {
   id        String    @id @default(auto()) @map("_id") @db.ObjectId
@@ -349,4 +394,37 @@ model SavedCard {
   expiresAt String
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+// MaterializedCycle — marca persistida de que o ciclo de corte de um (condomínio, slot, dia de
+// entrega) já foi materializado. Substitui o Set em memória: permite o backfill recuperar cortes
+// perdidos mesmo cruzando a meia-noite e sobreviver a restart do servidor. `deliveryDate` é a data
+// BRT da entrega no formato YYYY-MM-DD (absoluta), não HH:MM.
+model MaterializedCycle {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  condominiumId String   @db.ObjectId
+  slotId        String
+  deliveryDate  String
+  createdAt     DateTime @default(now())
+
+  @@unique([condominiumId, slotId, deliveryDate])
+}
+
+// 19. AnalyticsEvent — eventos de acesso e login para os Relatórios (imutável — sem updatedAt)
+// Stream único que permite calcular a conversão acesso→login pelo mesmo `visitorId`.
+// `visitorId` é o device_id anônimo gerado no cliente (sem PII).
+model AnalyticsEvent {
+  id        String             @id @default(auto()) @map("_id") @db.ObjectId
+  type      AnalyticsEventType
+  visitorId String             // ID anônimo do dispositivo (device_id do cliente)
+  userId    String?            @db.ObjectId // preenchido apenas em LOGIN
+  role      String?            // CLIENT | COURIER | ADMIN (em LOGIN)
+  path      String?            // rota/tela inicial no momento do evento
+  referrer  String?
+  platform  String?            // 'pwa' | 'browser'
+  userAgent String?            // para breakdown de SO/dispositivo
+  createdAt DateTime           @default(now())
+
+  @@index([type, createdAt])
+  @@index([visitorId, createdAt])
 }

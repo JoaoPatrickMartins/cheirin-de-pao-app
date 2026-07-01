@@ -53,7 +53,7 @@ describe('AuthService [AUTH-05, AUTH-06]', () => {
     const fastify = createMockFastify()
     const service = new AuthService(fastify)
 
-    await service.sendOtp('user1', 'sms', '+5511999999999')
+    await service.sendOtp('user1', 'cliente@example.com')
 
     const createCall = (
       fastify.prisma.otpCode.create as ReturnType<typeof vi.fn>

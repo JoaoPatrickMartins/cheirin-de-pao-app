@@ -11,6 +11,13 @@ export const ConfirmDeliveryParams = z.object({
 
 export type ConfirmDeliveryParamsType = z.infer<typeof ConfirmDeliveryParams>
 
+/** Body de PATCH /courier/orders/:id/not-delivered — motivo opcional da não-entrega. */
+export const NotDeliveredBody = z.object({
+  reason: z.string().max(500).optional(),
+})
+
+export type NotDeliveredBodyType = z.infer<typeof NotDeliveredBody>
+
 /**
  * Tipo de resposta de GET /courier/orders/today.
  *
@@ -32,9 +39,16 @@ export type TodayOrdersResponse = {
       quantity: number
       status: string
       sortKey: number
+      // Turno (slot) da entrega — deixa claro manhã/tarde por pedido (entregador pode
+      // ter ambos os turnos no mesmo dia).
+      slotId: string
+      slotLabel: string
     }>
   }>
   totalStops: number
   totalBreads: number
   route: { distanceKm: string; durationMin: number; geometry: Array<[number, number]> } | null
+  // Turnos presentes na rota de hoje (distintos, ordenados por horário) — usado no
+  // cabeçalho do app do entregador para informar turno + horário.
+  slots: Array<{ slotId: string; label: string; emoji: string; time: string }>
 }

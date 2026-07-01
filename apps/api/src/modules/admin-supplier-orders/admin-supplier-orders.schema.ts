@@ -20,6 +20,13 @@ export const CreateSupplierOrderSchema = z.object({
     )
     .min(1, 'Pelo menos um item é obrigatório'),
   cutoffTime: z.string().optional(),
+  // Turno (slot) do pedido — pipeline por turno
+  slotId: z.string().min(1, 'slotId é obrigatório'),
+  // Data de entrega alvo (YYYY-MM-DD). Opcional — sem ela usa a Regra A (próxima entrega).
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'date deve ser YYYY-MM-DD')
+    .optional(),
 })
 
 export type CreateSupplierOrderBody = z.infer<typeof CreateSupplierOrderSchema>

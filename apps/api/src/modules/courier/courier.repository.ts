@@ -17,14 +17,17 @@ export class CourierRepository {
    * Busca ordens do entregador para hoje (range BRT fornecido).
    *
    * Filtra: courierId === courierId param, scheduledDate no range,
-   * status IN ['SCHEDULED', 'OUT_FOR_DELIVERY'].
+   * status === 'OUT_FOR_DELIVERY' — o entregador só enxerga o que o admin já
+   * APROVOU/despachou na divisão (aprovação faz SEPARATED → OUT_FOR_DELIVERY).
+   * Pedidos ainda não aprovados (SCHEDULED/SEPARATED) e finalizados
+   * (DELIVERED/NOT_DELIVERED) ficam fora da rota ativa.
    */
   async findTodayByCourierId(courierId: string, start: Date, end: Date) {
     return this.prisma.order.findMany({
       where: {
         courierId,
         scheduledDate: { gte: start, lte: end },
-        status: { in: ['SCHEDULED', 'OUT_FOR_DELIVERY'] },
+        status: 'OUT_FOR_DELIVERY',
       },
     })
   }

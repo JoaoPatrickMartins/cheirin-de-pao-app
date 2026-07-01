@@ -1,5 +1,5 @@
 // ClientTabBar component tests
-// Requirements: UI-08 (4 abas com labels corretos; aba ativa com cor diferente)
+// Requirements: UI-08 (5 abas com labels corretos; aba ativa com cor diferente)
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
@@ -9,14 +9,14 @@ describe('ClientTabBar [UI-08]', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   describe('renderizacao das abas', () => {
-    it('renderiza exatamente 4 abas de navegacao', () => {
+    it('renderiza exatamente 5 abas de navegacao', () => {
       render(
         <MemoryRouter initialEntries={['/client/home']}>
           <ClientTabBar />
         </MemoryRouter>
       )
       const buttons = screen.getAllByRole('button')
-      expect(buttons).toHaveLength(4)
+      expect(buttons).toHaveLength(5)
     })
 
     it('aba "Inicio" esta presente com label correto', () => {
@@ -37,13 +37,13 @@ describe('ClientTabBar [UI-08]', () => {
       expect(screen.getByText('Agenda')).toBeDefined()
     })
 
-    it('aba "Creditos" esta presente com label correto', () => {
+    it('aba "Pães" esta presente com label correto', () => {
       render(
         <MemoryRouter initialEntries={['/client/home']}>
           <ClientTabBar />
         </MemoryRouter>
       )
-      expect(screen.getByText('Créditos')).toBeDefined()
+      expect(screen.getByText('Pães')).toBeDefined()
     })
 
     it('aba "Pedidos" esta presente com label correto', () => {
@@ -53,6 +53,15 @@ describe('ClientTabBar [UI-08]', () => {
         </MemoryRouter>
       )
       expect(screen.getByText('Pedidos')).toBeDefined()
+    })
+
+    it('aba "Perfil" esta presente com label correto', () => {
+      render(
+        <MemoryRouter initialEntries={['/client/home']}>
+          <ClientTabBar />
+        </MemoryRouter>
+      )
+      expect(screen.getByText('Perfil')).toBeDefined()
     })
   })
 

@@ -19,6 +19,12 @@ export const CreateOrderSchema = z.object({
   scheduledDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Data de entrega deve estar no formato AAAA-MM-DD' }),
+  // Horário do slot escolhido ("HH:MM"). Opcional para condomínios sem slots configurados;
+  // quando o condomínio tem slots ativos, o service exige que corresponda a um deles.
+  deliveryTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/, { message: 'Horário do slot deve estar no formato HH:MM' })
+    .optional(),
 })
 
 export type CreateOrderBody = z.infer<typeof CreateOrderSchema>

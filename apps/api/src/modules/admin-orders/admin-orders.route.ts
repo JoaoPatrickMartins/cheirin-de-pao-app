@@ -36,25 +36,173 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             type: 'object',
             description: 'KPIs do dia atual.',
             properties: {
-              breadsTodayCount: { type: 'integer', description: 'Total de pãezinhos a entregar hoje (soma de todos os pedidos SCHEDULED).' },
+              breadsTodayCount: { type: 'integer', description: 'Pães a entregar hoje — pedidos já materializados (Order com scheduledDate=hoje).' },
+              breadsTodayProjected: { type: 'integer', description: 'Pães previstos para hoje pela agenda semanal, ainda NÃO materializados como pedido.' },
+              breadsTomorrowCount: { type: 'integer', description: 'Pães a entregar amanhã — pedidos já materializados.' },
+              breadsTomorrowProjected: { type: 'integer', description: 'Pães previstos para amanhã pela agenda, ainda não materializados.' },
+              breadsByWeekday: {
+                type: 'array',
+                description: 'Pães materializados por dia da semana corrente (índices 0=Seg .. 6=Dom).',
+                items: { type: 'integer' },
+              },
+              breadsTodayTrendPct: { type: 'integer', description: 'Variação % de pães a entregar hoje vs. ontem.' },
+              revenueTrendPct: { type: 'integer', description: 'Variação % da receita de hoje vs. ontem.' },
+              clientsNewCount: { type: 'integer', description: 'Novos clientes nos últimos 7 dias.' },
               revenueToday: { type: 'number', description: 'Receita total do dia em reais (pagamentos aprovados com date=hoje).' },
               clientsCount: { type: 'integer', description: 'Total de clientes ativos cadastrados no sistema.' },
               condominiumsCount: { type: 'integer', description: 'Total de condomínios ativos.' },
-              cutoffTime: { type: 'string', description: 'Horário de corte de pedidos configurado (HH:MM).' },
-              revenueByType: {
-                type: 'object',
-                description: 'Breakdown de receita por método de pagamento.',
-                properties: {
-                  pix: { type: 'number', description: 'Receita via Pix em reais.' },
-                  card: { type: 'number', description: 'Receita via cartão em reais.' },
+              deliverySlots: {
+                type: 'array',
+                description: 'Slots de entrega ativos (config global), cada um com seu horário de corte.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    slotId: { type: 'string', description: 'Identificador do slot.' },
+                    label: { type: 'string', description: 'Rótulo de exibição (ex.: "Manhã").' },
+                    time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
+                    cutoffTime: { type: 'string', description: 'Horário de corte do slot (HH:MM).' },
+                  },
                 },
               },
+              revenueByType: {
+                type: 'object',
+                description: 'Breakdown de receita por tipo de compra.',
+                properties: {
+                  combos: { type: 'number', description: 'Receita via combos em reais.' },
+                  avulso: { type: 'number', description: 'Receita via compra avulsa/personalizada em reais.' },
+                },
+              },
+              stuckCount: { type: 'integer', description: 'Pedidos "no limbo": data de entrega passada e ainda sem desfecho.' },
             },
           },
         },
       },
     },
     ctrl.dashboard.bind(ctrl),
+  )
+
+  // Propriedades de uma linha do ledger (verificação geral / histórico / limbo)
+  const ledgerRowProps = {
+    orderId: { type: 'string' },
+    userId: { type: 'string' },
+    clientName: { type: 'string' },
+    condominiumId: { type: 'string' },
+    condominiumName: { type: 'string' },
+    block: { type: 'string' },
+    apartment: { type: 'string' },
+    quantity: { type: 'integer' },
+    slotId: { type: 'string' },
+    slotLabel: { type: 'string' },
+    type: { type: 'string' },
+    status: { type: 'string' },
+    scheduledDate: { type: 'string' },
+    courierId: { type: 'string' },
+    courierName: { type: 'string' },
+    separatedAt: { type: 'string' },
+    deliveredAt: { type: 'string' },
+    failedAt: { type: 'string' },
+    failureReason: { type: 'string' },
+    cancelReason: { type: 'string' },
+    refunded: { type: 'boolean' },
+  }
+
+  // GET /admin/orders — ledger de pedidos (verificação geral + histórico)
+  fastify.get(
+    '/admin/orders',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Ledger de pedidos (verificação geral / histórico)',
+        description:
+          'Lista pedidos com filtros (intervalo de datas, status, condomínio, entregador, busca por cliente/apto) e paginação. Garante que nenhum pedido fique invisível: cobre futuros agendados e histórico (entregue/não entregue/cancelado).',
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Data inicial (ISO/YYYY-MM-DD).' },
+            to: { type: 'string', description: 'Data final (ISO/YYYY-MM-DD).' },
+            status: { type: 'string', description: 'CSV de status (ex.: "DELIVERED,NOT_DELIVERED").' },
+            condominiumId: { type: 'string' },
+            courierId: { type: 'string' },
+            q: { type: 'string', description: 'Busca por nome do cliente ou apartamento.' },
+            limit: { type: 'integer', description: 'Máx. de itens (1–200, default 50).' },
+            skip: { type: 'integer', description: 'Offset de paginação.' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              rows: { type: 'array', items: { type: 'object', properties: ledgerRowProps } },
+              total: { type: 'integer' },
+              hasMore: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.ledger.bind(ctrl),
+  )
+
+  // GET /admin/orders/stuck — pedidos parados (limbo)
+  fastify.get(
+    '/admin/orders/stuck',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Pedidos parados (limbo)',
+        description:
+          'Retorna pedidos cuja data de entrega já passou e que ainda não tiveram desfecho (não entregue, não cancelado). Base do alerta no Painel e do filtro "Parados".',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              rows: { type: 'array', items: { type: 'object', properties: ledgerRowProps } },
+              count: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.stuck.bind(ctrl),
+  )
+
+  // POST /admin/orders/:id/refund — estorno de créditos de um pedido
+  fastify.post(
+    '/admin/orders/:id/refund',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Estornar créditos de um pedido',
+        description:
+          'Devolve ao cliente os créditos de um pedido (CreditTransaction REFUND + incremento do saldo). Idempotente: bloqueia um segundo estorno do mesmo pedido (409). Usado no atalho do detalhe de pedidos não entregues/cancelados.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do pedido (MongoDB ObjectId).' } },
+        },
+        body: {
+          type: 'object',
+          properties: { reason: { type: 'string', description: 'Motivo do estorno (auditoria).' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              refundedCredits: { type: 'integer' },
+              creditBalance: { type: 'integer' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.refundOrder.bind(ctrl),
   )
 
   // GET /admin/orders/delivery-status — status de entregas do dia agrupadas por condomínio (07-06)
@@ -65,8 +213,15 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — dashboard'],
         summary: 'Status de entregas do dia por condomínio',
-        description: 'Retorna o status de entregas do dia atual agrupado por condomínio. Permite ao admin acompanhar o andamento das entregas em tempo real. Cada condomínio mostra o total de pedidos, quantos foram entregues e quais ainda estão pendentes.',
+        description: 'Retorna o status de entregas de um turno (slotId) do dia (date, default hoje), agrupado por condomínio. Pipeline por turno: sem misturar manhã e tarde.',
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde). Omitido = todos.' },
+            date: { type: 'string', description: 'Data de entrega (YYYY-MM-DD, BRT). Default: hoje.' },
+          },
+        },
         response: {
           200: {
             type: 'array',
@@ -76,11 +231,9 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
               properties: {
                 condominiumId: { type: 'string', description: 'ID do condomínio.' },
                 condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                totalOrders: { type: 'integer', description: 'Total de pedidos para hoje neste condomínio.' },
-                deliveredCount: { type: 'integer', description: 'Pedidos com status DELIVERED.' },
-                pendingCount: { type: 'integer', description: 'Pedidos ainda SCHEDULED ou OUT_FOR_DELIVERY.' },
-                courierId: { type: 'string', description: 'ID do entregador atribuído (se houver).' },
-                courierName: { type: 'string', description: 'Nome do entregador atribuído.' },
+                scheduled: { type: 'integer', description: 'Total de pedidos agendados para hoje neste condomínio (status != CANCELLED).' },
+                delivered: { type: 'integer', description: 'Pedidos com status DELIVERED.' },
+                orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos do grupo (para atribuição em batch).' },
               },
             },
           },
@@ -98,30 +251,44 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — dashboard'],
         summary: 'Sugestão de divisão de entregas entre entregadores',
-        description: 'Gera uma sugestão automática de divisão de condomínios entre os entregadores disponíveis, usando algoritmo greedy para balancear a carga por quantidade de pãezinhos. O admin pode aceitar a sugestão ou ajustar manualmente via /admin/orders/assign-courier. Considera apenas entregadores não bloqueados.',
+        description: 'Gera a sugestão de divisão de condomínios entre entregadores para um turno (slotId) do dia (date, default hoje), balanceando por quantidade. Pipeline por turno: cada entregador recebe só o turno selecionado.',
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde). Omitido = todos.' },
+            date: { type: 'string', description: 'Data de entrega (YYYY-MM-DD, BRT). Default: hoje.' },
+          },
+        },
         response: {
           200: {
-            type: 'array',
-            description: 'Sugestão de atribuição de condomínios por entregador.',
-            items: {
-              type: 'object',
-              properties: {
-                courierId: { type: 'string', description: 'ID do entregador.' },
-                courierName: { type: 'string', description: 'Nome do entregador.' },
-                condominiums: {
-                  type: 'array',
-                  description: 'Lista de condomínios sugeridos para este entregador.',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      condominiumId: { type: 'string', description: 'ID do condomínio.' },
-                      condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                      totalBreads: { type: 'integer', description: 'Total de pãezinhos neste condomínio.' },
+            type: 'object',
+            description: 'Estado da divisão: sugestão (approved=false) ou divisão real aprovada (approved=true).',
+            properties: {
+              approved: { type: 'boolean', description: 'true quando a divisão já foi aprovada/despachada no dia/turno.' },
+              assignments: {
+                type: 'array',
+                description: 'Atribuição de condomínios por entregador (sugerida ou real).',
+                items: {
+                  type: 'object',
+                  properties: {
+                    courierId: { type: 'string', description: 'ID do entregador.' },
+                    courierName: { type: 'string', description: 'Nome do entregador.' },
+                    condominiums: {
+                      type: 'array',
+                      description: 'Lista de condomínios atribuídos a este entregador.',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          condominiumId: { type: 'string', description: 'ID do condomínio.' },
+                          condominiumName: { type: 'string', description: 'Nome do condomínio.' },
+                          quantity: { type: 'integer', description: 'Total de pãezinhos neste condomínio.' },
+                        },
+                      },
                     },
+                    total: { type: 'integer', description: 'Total de pãezinhos atribuídos a este entregador.' },
                   },
                 },
-                totalBreads: { type: 'integer', description: 'Total de pãezinhos atribuídos a este entregador.' },
               },
             },
           },
@@ -129,6 +296,52 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.divisionSuggestion.bind(ctrl),
+  )
+
+  // 07-09: aprovação da divisão — despacha os pedidos (SEPARATED → OUT_FOR_DELIVERY)
+  // gravando o entregador de cada grupo. Rota estática (antes da dinâmica /:id).
+  fastify.post(
+    '/admin/orders/approve-division',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Aprovar divisão de entregas',
+        description: 'Despacha os pedidos separados de cada entregador (SEPARATED → OUT_FOR_DELIVERY) gravando o courierId. Idempotente: só afeta pedidos ainda SEPARATED. Após aprovar, a divisão fica visível ao entregador e o progresso de entregas é acompanhado em tempo real pelo admin.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['assignments'],
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde) — informativo.' },
+            date: { type: 'string', description: 'Data (YYYY-MM-DD) — informativo.' },
+            assignments: {
+              type: 'array',
+              description: 'Grupos entregador → pedidos a despachar.',
+              items: {
+                type: 'object',
+                required: ['courierId', 'orderIds'],
+                properties: {
+                  courierId: { type: 'string', description: 'ID do entregador.' },
+                  orderIds: { type: 'array', items: { type: 'string' }, description: 'Pedidos a atribuir/despachar.' },
+                },
+              },
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Divisão aprovada.',
+            properties: {
+              ok: { type: 'boolean', description: 'Indica sucesso da operação.' },
+              count: { type: 'integer', description: 'Número de pedidos despachados (SEPARATED → OUT_FOR_DELIVERY).' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.approveDivision.bind(ctrl),
   )
 
   // D-13: endpoint de atribuicao de entregador em batch
@@ -158,7 +371,8 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             type: 'object',
             description: 'Atribuição realizada.',
             properties: {
-              updatedCount: { type: 'integer', description: 'Número de pedidos atualizados com o novo entregador.' },
+              ok: { type: 'boolean', description: 'Indica sucesso da operação.' },
+              count: { type: 'integer', description: 'Número de pedidos atualizados com o novo entregador.' },
             },
           },
         },
@@ -175,7 +389,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['admin — dashboard'],
         summary: 'Atualizar status de pedido',
-        description: 'Atualiza o status de um pedido. Transições válidas: SCHEDULED → OUT_FOR_DELIVERY → DELIVERED. Não é possível regredir status. Quando status=DELIVERED, registra deliveredAt com timestamp atual e dispara push para o cliente.',
+        description: 'Atualiza o status de um pedido no ciclo de vida v2 (SCHEDULED → SEPARATED → OUT_FOR_DELIVERY → DELIVERED, com desfecho alternativo NOT_DELIVERED). Registra o marco de tempo correspondente (separatedAt/deliveredAt/failedAt) e, em NOT_DELIVERED, o motivo. Quando status=DELIVERED, dispara push para o cliente. Cancelamento é feito no fluxo de admin-clients (que também estorna créditos).',
         security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
@@ -188,7 +402,8 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
           type: 'object',
           required: ['status'],
           properties: {
-            status: { type: 'string', enum: ['OUT_FOR_DELIVERY', 'DELIVERED'], description: 'Novo status do pedido. Transições: SCHEDULED→OUT_FOR_DELIVERY ou OUT_FOR_DELIVERY→DELIVERED.' },
+            status: { type: 'string', enum: ['SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'], description: 'Novo status do pedido. Transições válidas em VALID_TRANSITIONS (ex.: SEPARATED→OUT_FOR_DELIVERY, OUT_FOR_DELIVERY→DELIVERED|NOT_DELIVERED).' },
+            reason: { type: 'string', description: 'Motivo (opcional) — usado principalmente em NOT_DELIVERED (cliente ausente, endereço, etc.).' },
           },
         },
         response: {
@@ -196,9 +411,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             type: 'object',
             description: 'Status atualizado com sucesso.',
             properties: {
-              id: { type: 'string', description: 'ID do pedido.' },
-              status: { type: 'string', description: 'Novo status aplicado.' },
-              deliveredAt: { type: 'string', description: 'Timestamp de entrega (quando status=DELIVERED).' },
+              ok: { type: 'boolean', description: 'Indica sucesso da operação.' },
             },
           },
         },

@@ -142,18 +142,28 @@ export class AdminFinancialService {
       },
     })
 
+    // $runCommandRaw retorna Extended JSON: o _id (ObjectId) volta como { $oid: "..." },
+    // não como string. Normalizamos para a string hex antes de usar no Prisma.
     const rawResult = await this.prisma.$runCommandRaw({
       aggregate: 'Payment',
       pipeline: pipeline as unknown as import('@prisma/client/runtime/library').InputJsonValue,
       cursor: {},
-    }) as { cursor?: { firstBatch?: Array<{ _id: string; total: number }> } }
+    }) as { cursor?: { firstBatch?: Array<{ _id: unknown; total: number }> } }
 
     const firstBatch = rawResult?.cursor?.firstBatch ?? []
 
+    const extractId = (raw: unknown): string => {
+      if (typeof raw === 'string') return raw
+      if (raw && typeof raw === 'object' && '$oid' in raw) {
+        return String((raw as { $oid: unknown }).$oid ?? '')
+      }
+      return ''
+    }
+
     // Buscar nomes dos condomínios
     const condoIds = firstBatch
-      .map((row) => row._id)
-      .filter((id): id is string => Boolean(id))
+      .map((row) => extractId(row._id))
+      .filter((id) => id.length > 0)
 
     const condominiums = condoIds.length > 0
       ? await this.prisma.condominium.findMany({
@@ -164,11 +174,14 @@ export class AdminFinancialService {
 
     const condoNameMap = new Map(condominiums.map((c) => [c.id, c.name]))
 
-    const byCondominium = firstBatch.map((row) => ({
-      condominiumId: String(row._id ?? ''),
-      condominiumName: condoNameMap.get(String(row._id ?? '')) ?? undefined,
-      total: row.total ?? 0,
-    }))
+    const byCondominium = firstBatch.map((row) => {
+      const id = extractId(row._id)
+      return {
+        condominiumId: id,
+        condominiumName: condoNameMap.get(id) ?? undefined,
+        total: row.total ?? 0,
+      }
+    })
 
     return { total, byType: { combos, avulso }, byCondominium }
   }

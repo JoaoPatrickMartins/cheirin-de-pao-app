@@ -24,5 +24,8 @@ export const CreateSupplierSchema = z.object({
 
 export type CreateSupplierBody = z.infer<typeof CreateSupplierSchema>
 
-export const UpdateSupplierSchema = CreateSupplierSchema.partial()
+export const UpdateSupplierSchema = CreateSupplierSchema.partial().extend({
+  // Ativar/desativar o fornecedor. Só editável via update.
+  isActive: z.boolean().optional(),
+})
 export type UpdateSupplierBody = z.infer<typeof UpdateSupplierSchema>

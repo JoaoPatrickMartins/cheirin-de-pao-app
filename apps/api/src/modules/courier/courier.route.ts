@@ -26,45 +26,69 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
         response: {
           200: {
             type: 'object',
-            description: 'Pedidos do dia agrupados por condomínio com rota otimizada.',
+            description: 'Pedidos do dia agrupados por condomínio (condos) + rota otimizada (route).',
             properties: {
-              route: {
+              condos: {
                 type: 'array',
-                description: 'Sequência otimizada de condomínios para entrega (ordem sugerida pelo OSRM).',
+                description: 'Condomínios da rota, cada um com seus stops (pedidos) ordenados por apartamento.',
                 items: {
                   type: 'object',
                   properties: {
                     condominiumId: { type: 'string', description: 'ID do condomínio.' },
                     condominiumName: { type: 'string', description: 'Nome do condomínio.' },
                     address: { type: 'string', description: 'Endereço completo para navegação.' },
-                    coordinates: {
-                      type: 'object',
-                      description: 'Coordenadas para o mapa Leaflet.',
-                      properties: {
-                        lat: { type: 'number', description: 'Latitude.' },
-                        lng: { type: 'number', description: 'Longitude.' },
-                      },
-                    },
-                    orders: {
+                    lat: { type: 'number', nullable: true, description: 'Latitude (null se não geocodificado).' },
+                    lng: { type: 'number', nullable: true, description: 'Longitude (null se não geocodificado).' },
+                    stops: {
                       type: 'array',
                       description: 'Pedidos a entregar neste condomínio.',
                       items: {
                         type: 'object',
                         properties: {
-                          id: { type: 'string', description: 'ID do pedido.' },
-                          clientName: { type: 'string', description: 'Nome do cliente.' },
+                          orderId: { type: 'string', description: 'ID do pedido.' },
                           apartment: { type: 'string', description: 'Apartamento.' },
-                          block: { type: 'string', description: 'Bloco (se aplicável).' },
+                          block: { type: 'string', nullable: true, description: 'Bloco (se aplicável).' },
+                          clientName: { type: 'string', description: 'Nome do cliente.' },
                           quantity: { type: 'integer', description: 'Quantidade de pãezinhos.' },
                           status: { type: 'string', description: 'Status atual do pedido.' },
+                          sortKey: { type: 'integer', description: 'Chave de ordenação (apartamento numérico).' },
+                          slotId: { type: 'string', description: 'Turno (manha/tarde) da entrega.' },
+                          slotLabel: { type: 'string', description: 'Rótulo do turno (ex.: Manhã, Tarde).' },
                         },
                       },
                     },
                   },
                 },
               },
+              totalStops: { type: 'integer', description: 'Total de pedidos/paradas a entregar hoje.' },
               totalBreads: { type: 'integer', description: 'Total de pãezinhos a entregar hoje.' },
-              totalOrders: { type: 'integer', description: 'Total de pedidos a entregar hoje.' },
+              slots: {
+                type: 'array',
+                description: 'Turnos distintos presentes na rota de hoje (ordenados por horário).',
+                items: {
+                  type: 'object',
+                  properties: {
+                    slotId: { type: 'string', description: 'ID do turno (manha/tarde).' },
+                    label: { type: 'string', description: 'Rótulo do turno (ex.: Manhã).' },
+                    emoji: { type: 'string', description: 'Emoji do turno (ex.: ☀️).' },
+                    time: { type: 'string', description: 'Horário de entrega do turno (HH:mm).' },
+                  },
+                },
+              },
+              route: {
+                type: 'object',
+                nullable: true,
+                description: 'Rota OSRM otimizada (null quando OSRM falha ou há menos de 2 paradas geocodificadas).',
+                properties: {
+                  distanceKm: { type: 'string', description: 'Distância total em km (1 casa decimal).' },
+                  durationMin: { type: 'integer', description: 'Duração estimada em minutos.' },
+                  geometry: {
+                    type: 'array',
+                    description: 'Polilinha [lat, lng] para o Leaflet.',
+                    items: { type: 'array', items: { type: 'number' } },
+                  },
+                },
+              },
             },
           },
         },
@@ -104,5 +128,36 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.confirmDelivery.bind(ctrl),
+  )
+
+  // PATCH /courier/orders/:id/not-delivered — marca a entrega como não realizada
+  fastify.patch(
+    '/courier/orders/:id/not-delivered',
+    {
+      preHandler: [fastify.authenticate, fastify.requireCourier],
+      schema: {
+        tags: ['courier'],
+        summary: 'Marcar entrega como não realizada',
+        description:
+          'Registra que um pedido não pôde ser entregue (cliente ausente, endereço, etc.), transicionando o status para NOT_DELIVERED com o motivo. O entregador só pode marcar pedidos atribuídos a ele. O crédito do cliente permanece debitado (estorno é decisão manual do admin).',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do pedido (MongoDB ObjectId).' } },
+        },
+        body: {
+          type: 'object',
+          properties: { reason: { type: 'string', description: 'Motivo da não-entrega.' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: { ok: { type: 'boolean', description: 'Indica sucesso da operação.' } },
+          },
+        },
+      },
+    },
+    ctrl.markNotDelivered.bind(ctrl),
   )
 }

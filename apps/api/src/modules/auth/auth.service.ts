@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { FastifyInstance } from 'fastify'
 import { AuthRepository } from './auth.repository.js'
-import { sendSmsOtp, sendEmailOtp } from './otp.service.js'
+import { sendEmailOtp } from './otp.service.js'
 import type { RegisterBody, RegisterCourierBody } from './auth.schema.js'
 
 export class AuthService {
@@ -25,13 +25,15 @@ export class AuthService {
     return { raw, hash: this.hashValue(raw) }
   }
 
-  async sendOtp(userId: string, channel: 'sms' | 'email', dest: string): Promise<void> {
+  // OTP enviado apenas por e-mail neste primeiro momento. O segundo canal
+  // (WhatsApp) será adicionado depois reaproveitando esta mecânica.
+  async sendOtp(userId: string, email: string): Promise<void> {
     if (process.env.NODE_ENV === 'development') {
       const devCode = process.env.OTP_DEV_CODE ?? '1234'
       const existing = await this.repo.findActiveOtp(userId)
       if (!existing) {
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
-        await this.repo.createOtp({ userId, code: this.hashValue(devCode), channel, expiresAt })
+        await this.repo.createOtp({ userId, code: this.hashValue(devCode), channel: 'email', expiresAt })
       }
       return
     }
@@ -42,13 +44,9 @@ export class AuthService {
 
     const code = this.generateOtpCode()
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
-    await this.repo.createOtp({ userId, code: this.hashValue(code), channel, expiresAt })
+    await this.repo.createOtp({ userId, code: this.hashValue(code), channel: 'email', expiresAt })
 
-    if (channel === 'sms') {
-      await sendSmsOtp(dest, code)
-    } else {
-      await sendEmailOtp(dest, code)
-    }
+    await sendEmailOtp(email, code)
   }
 
   async createSessionForUser(
@@ -98,16 +96,12 @@ export class AuthService {
   async register(
     body: RegisterBody,
   ): Promise<{ userId: string } | { error: string; status: 409 }> {
-    const { phone, email, channel, name, cpf, birthDate, condominiumId, apartment, block } = body
+    const { phone, email, name, cpf, birthDate, condominiumId, apartment, block } = body
 
-    if (phone) {
-      const existing = await this.repo.findUserByPhone(phone)
-      if (existing) return { error: 'Telefone já cadastrado', status: 409 }
-    }
-    if (email) {
-      const existing = await this.repo.findUserByEmail(email)
-      if (existing) return { error: 'Email já cadastrado', status: 409 }
-    }
+    const existingPhone = await this.repo.findUserByPhone(phone)
+    if (existingPhone) return { error: 'Telefone já cadastrado', status: 409 }
+    const existingEmail = await this.repo.findUserByEmail(email)
+    if (existingEmail) return { error: 'Email já cadastrado', status: 409 }
 
     const user = await this.repo.createUser({
       name,
@@ -121,8 +115,7 @@ export class AuthService {
       block,
     })
 
-    const dest = (channel === 'sms' ? phone : email)!
-    await this.sendOtp(user.id, channel, dest)
+    await this.sendOtp(user.id, email)
     return { userId: user.id }
   }
 

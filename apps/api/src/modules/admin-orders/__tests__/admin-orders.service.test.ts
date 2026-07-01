@@ -147,6 +147,71 @@ describe('AdminOrdersService', () => {
       // Garante pelo menos uma chamada a prisma.notification.create
       expect(prisma.notification.create.mock.calls.length).toBeGreaterThanOrEqual(1)
     })
+
+    // Ciclo de vida v2: SCHEDULED → SEPARATED registra separatedAt
+    it('marca separatedAt ao transicionar SCHEDULED → SEPARATED', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        order: { id: 'order-01', userId: 'user-01', quantity: 3, status: 'SCHEDULED' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminOrdersService(fastify as any)
+      await service.updateOrderStatus('order-01', 'SEPARATED')
+
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'order-01' },
+          data: { status: 'SEPARATED', separatedAt: expect.any(Date) },
+        }),
+      )
+    })
+
+    // Ciclo de vida v2: SEPARATED → DELIVERED é válido (entrega após separação)
+    it('permite SEPARATED → DELIVERED e registra deliveredAt', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        order: { id: 'order-01', userId: 'user-01', quantity: 3, status: 'SEPARATED' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminOrdersService(fastify as any)
+      await service.updateOrderStatus('order-01', 'DELIVERED')
+
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: 'DELIVERED', deliveredAt: expect.any(Date) },
+        }),
+      )
+    })
+
+    // Ciclo de vida v2: OUT_FOR_DELIVERY → NOT_DELIVERED registra failedAt + failureReason
+    it('marca failedAt e failureReason ao transicionar para NOT_DELIVERED', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        order: { id: 'order-01', userId: 'user-01', quantity: 3, status: 'OUT_FOR_DELIVERY' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminOrdersService(fastify as any)
+      await service.updateOrderStatus('order-01', 'NOT_DELIVERED', 'Cliente ausente')
+
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: 'NOT_DELIVERED', failedAt: expect.any(Date), failureReason: 'Cliente ausente' },
+        }),
+      )
+    })
+
+    // Ciclo de vida v2: desfazer separação (SEPARATED → SCHEDULED) limpa separatedAt
+    it('limpa separatedAt ao desfazer separação (SEPARATED → SCHEDULED)', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        order: { id: 'order-01', userId: 'user-01', quantity: 3, status: 'SEPARATED' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminOrdersService(fastify as any)
+      await service.updateOrderStatus('order-01', 'SCHEDULED')
+
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: 'SCHEDULED', separatedAt: null },
+        }),
+      )
+    })
   })
 
   describe('createAndTrim', () => {

@@ -25,6 +25,7 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             quantity: { type: 'integer', minimum: 1, maximum: 20, description: 'Quantidade de pãezinhos para o pedido avulso (1–20).' },
             scheduledDate: { type: 'string', format: 'date', description: 'Data de entrega no formato ISO (YYYY-MM-DD). Deve ser futura e antes do cutoff do dia.' },
+            deliveryTime: { type: 'string', description: 'Horário do slot de entrega escolhido ("HH:MM"). Deve corresponder a um slot ativo do condomínio cujo corte ainda não passou para a data.' },
           },
         },
         response: {
@@ -62,6 +63,8 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
               quantity: { type: 'integer', description: 'Quantidade de pãezinhos do pedido.' },
               status: { type: 'string', description: 'Status atual: "SCHEDULED" (programado), "OUT_FOR_DELIVERY" (a caminho), "DELIVERED" (entregue).' },
               scheduledDate: { type: 'string', description: 'Data do pedido (hoje).' },
+              deliveryTime: { type: 'string', description: 'Horário do slot (HH:MM), quando disponível.' },
+              slotId: { type: 'string', description: 'Identificador estável do slot do pedido (manha | tarde).' },
               courierName: { type: 'string', description: 'Nome do entregador atribuído (quando disponível).' },
               deliveredAt: { type: 'string', description: 'Hora de entrega confirmada pelo entregador (ISO 8601), quando disponível.' },
             },
@@ -91,6 +94,7 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
               status: { type: 'string', description: 'Status: "SCHEDULED" ou "OUT_FOR_DELIVERY".' },
               scheduledDate: { type: 'string', description: 'Data da próxima entrega (ISO 8601).' },
               deliveryTime: { type: 'string', description: 'Horário do slot (HH:MM), quando disponível.' },
+              slotId: { type: 'string', description: 'Identificador estável do slot do pedido (manha | tarde).' },
             },
           },
         },
@@ -125,6 +129,8 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
                 quantity: { type: 'integer', description: 'Quantidade de pãezinhos.' },
                 status: { type: 'string', description: 'Status: "SCHEDULED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED".' },
                 scheduledDate: { type: 'string', description: 'Data de entrega programada.' },
+                deliveryTime: { type: 'string', description: 'Horário do slot (HH:MM), quando disponível.' },
+                slotId: { type: 'string', description: 'Identificador estável do slot do pedido (manha | tarde).' },
                 type: { type: 'string', description: 'Tipo: "SCHEDULE" (da agenda) ou "SINGLE" (avulso).' },
                 deliveredAt: { type: 'string', description: 'Data/hora de entrega confirmada, se entregue.' },
               },

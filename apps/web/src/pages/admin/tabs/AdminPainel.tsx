@@ -6,31 +6,45 @@ import { BarChart } from '../../../components/admin/BarChart'
 import { BreadMark } from '../../../components/brand/BreadMark'
 import { Icon } from '../../../components/brand/Icon'
 
-type AdminTab = 'painel' | 'pedido' | 'entregas' | 'clientes' | 'gestao'
+type AdminTab = 'painel' | 'pedido' | 'separacao' | 'entregas' | 'clientes' | 'gestao'
 
 interface DashboardData {
   breadsTodayCount: number
+  breadsTodayProjected: number
+  breadsTomorrowCount: number
+  breadsTomorrowProjected: number
+  breadsByWeekday: number[]
   revenueToday: number
+  breadsTodayTrendPct: number
+  revenueTrendPct: number
   clientsCount: number
+  clientsNewCount: number
   condominiumsCount: number
-  cutoffTime: string
+  deliverySlots: Array<{ slotId: string; label: string; time: string; cutoffTime: string }>
   revenueByType: {
     combos: number
     avulso: number
   }
+  stuckCount: number
 }
 
 const DAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+// breadsByWeekday vem indexado Seg..Dom; mapeia para o índice JS de getDay() (0=Dom)
+const WEEKDAY_TO_JS = [1, 2, 3, 4, 5, 6, 0]
 
-function buildBarChartData(currentDayOfWeek: number) {
-  // Seg a Dom (índices 1..7, mas JS usa 0=Dom)
-  // Exibir 7 colunas: Seg, Ter, Qua, Qui, Sex, Sáb, Dom
-  const orderedDays = [1, 2, 3, 4, 5, 6, 0] // Seg..Dom
-  return orderedDays.map((dayIndex) => ({
-    label: DAY_LABELS[dayIndex],
-    value: 1, // valor uniforme — sem dados históricos por dia no dashboard atual
-    highlight: dayIndex === currentDayOfWeek,
+function buildBarChartData(breadsByWeekday: number[], currentDayOfWeek: number) {
+  const series = breadsByWeekday.length === 7 ? breadsByWeekday : [0, 0, 0, 0, 0, 0, 0]
+  return series.map((value, i) => ({
+    label: DAY_LABELS[WEEKDAY_TO_JS[i]],
+    value,
+    highlight: WEEKDAY_TO_JS[i] === currentDayOfWeek,
   }))
+}
+
+// Formata um delta percentual em badge ("+12%" / "-5%"); positivo (ou zero) = verde.
+function trendPill(pct: number | undefined): { text: string; tone: 'good' | 'neutral' } | undefined {
+  if (pct === undefined || pct === null) return undefined
+  return { text: `${pct >= 0 ? '+' : ''}${pct}%`, tone: pct >= 0 ? 'good' : 'neutral' }
 }
 
 export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => void }) {
@@ -54,7 +68,7 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
   }, [])
 
   const currentDayOfWeek = new Date().getDay()
-  const barData = buildBarChartData(currentDayOfWeek)
+  const barData = buildBarChartData(data?.breadsByWeekday ?? [], currentDayOfWeek)
 
   const totalReceita = data ? data.revenueByType.combos + data.revenueByType.avulso : 0
   const combosPercent = totalReceita > 0 ? (data!.revenueByType.combos / totalReceita) * 100 : 50
@@ -97,6 +111,51 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
           </div>
         ) : (
           <>
+            {/* Alerta — pedidos no limbo (sem desfecho) */}
+            {data && data.stuckCount > 0 && (
+              <button
+                onClick={() => onNavigate('entregas')}
+                aria-label="Ver pedidos parados"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'rgba(194,65,12,0.10)',
+                  border: '1px solid rgba(194,65,12,0.30)',
+                  borderRadius: 16,
+                  padding: 14,
+                  marginBottom: 12,
+                  cursor: 'pointer',
+                }}
+              >
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    background: 'rgba(194,65,12,0.16)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon name="alert" size={20} color="var(--color-bad, #C2410C)" stroke={2.2} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-bad, #C2410C)', margin: 0, lineHeight: 1.25 }}>
+                    {data.stuckCount} pedido{data.stuckCount > 1 ? 's' : ''} parado{data.stuckCount > 1 ? 's' : ''}
+                  </p>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-sec)', margin: '2px 0 0', lineHeight: 1.3 }}>
+                    Data passada sem desfecho — verifique em Entregas › Histórico › Parados
+                  </p>
+                </div>
+                <Icon name="chevR" size={18} color="var(--color-bad, #C2410C)" stroke={2} />
+              </button>
+            )}
+
             {/* Grade 2x2 de KpiCards */}
             <div
               style={{
@@ -108,21 +167,27 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
             >
               <KpiCard
                 icon="bag"
-                value={data?.breadsTodayCount ?? 0}
-                label="Pães hoje"
-                pill={{ text: '+12%', tone: 'good' }}
+                value={
+                  <>
+                    {data?.breadsTodayCount ?? 0}{' '}
+                    <span style={{ fontSize: 19 }}>🥖</span>
+                  </>
+                }
+                label="A entregar hoje"
+                pill={trendPill(data?.breadsTodayTrendPct)}
+                sub={data && data.breadsTodayProjected > 0 ? `+${data.breadsTodayProjected} previstos (agenda)` : undefined}
               />
               <KpiCard
                 icon="trend"
                 value={formatCurrency(data?.revenueToday ?? 0)}
                 label="Receita do dia"
-                pill={{ text: '+8%', tone: 'good' }}
+                pill={trendPill(data?.revenueTrendPct)}
               />
               <KpiCard
                 icon="users"
                 value={data?.clientsCount ?? 0}
                 label="Clientes"
-                pill={{ text: '+3', tone: 'good' }}
+                pill={data && data.clientsNewCount > 0 ? { text: `+${data.clientsNewCount}`, tone: 'good' } : undefined}
               />
               <KpiCard
                 icon="building"
@@ -197,7 +262,9 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
                       lineHeight: 1.2,
                     }}
                   >
-                    CORTE {data?.cutoffTime ?? '20:00'} · ABERTO
+                    {data && data.deliverySlots.length > 0
+                      ? `CORTE · ${data.deliverySlots.map((s) => `${s.label} ${s.cutoffTime}`).join(' · ')}`
+                      : 'CORTE · ABERTO'}
                   </p>
                   <p
                     style={{
@@ -210,7 +277,8 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
                       lineHeight: 1.2,
                     }}
                   >
-                    Pedido de amanhã · {data?.breadsTodayCount ?? 0} pães
+                    Pedido de amanhã · {data?.breadsTomorrowCount ?? 0} pães
+                    {data && data.breadsTomorrowProjected > 0 ? ` · +${data.breadsTomorrowProjected} previstos` : ''}
                   </p>
                 </div>
 

@@ -4,8 +4,8 @@ import { Icon } from '../../../components/brand/Icon'
 
 // ------------------------------------------------------------------ tipos
 interface AvulsoSettings {
-  maxQuantity: number
-  pricePerBread: number
+  limit: number
+  unitPrice: number
   referenceCombo?: {
     name: string
     price: number
@@ -30,6 +30,7 @@ export function AdminAvulso({ onBack }: AdminAvulsoProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -37,8 +38,8 @@ export function AdminAvulso({ onBack }: AdminAvulsoProps) {
         const res = await apiFetch('/admin/settings/avulso')
         if (res.ok) {
           const data = (await res.json()) as AvulsoSettings
-          setLimite(data.maxQuantity)
-          setPrecoPorao(data.pricePerBread)
+          if (typeof data.limit === 'number' && data.limit > 0) setLimite(data.limit)
+          if (typeof data.unitPrice === 'number' && data.unitPrice > 0) setPrecoPorao(data.unitPrice)
           if (data.referenceCombo) setReferenceCombo(data.referenceCombo)
         }
       } catch {
@@ -52,13 +53,16 @@ export function AdminAvulso({ onBack }: AdminAvulsoProps) {
 
   const handleSalvar = async () => {
     setError(null)
+    setSaved(false)
     setIsSaving(true)
     try {
       const res = await apiFetch('/admin/settings/avulso', {
         method: 'PATCH',
-        body: JSON.stringify({ maxQuantity: limite, pricePerBread: precoPorao }),
+        body: JSON.stringify({ limit: limite, unitPrice: precoPorao }),
       })
-      if (!res.ok) {
+      if (res.ok) {
+        setSaved(true)
+      } else {
         setError('Não foi possível salvar. Tente novamente.')
       }
     } catch {
@@ -184,7 +188,15 @@ export function AdminAvulso({ onBack }: AdminAvulsoProps) {
                     A partir daqui, só via combo
                   </p>
                 </div>
-                <NumberStepper value={limite} min={1} max={100} onChange={setLimite} />
+                <NumberStepper
+                  value={limite}
+                  min={1}
+                  max={100}
+                  onChange={(v) => {
+                    setSaved(false)
+                    setLimite(v)
+                  }}
+                />
               </div>
 
               {/* Separador */}
@@ -222,7 +234,15 @@ export function AdminAvulso({ onBack }: AdminAvulsoProps) {
                     Compra personalizada
                   </p>
                 </div>
-                <PriceStepper value={precoPorao} step={0.05} min={0.05} onChange={setPrecoPorao} />
+                <PriceStepper
+                  value={precoPorao}
+                  step={0.05}
+                  min={0.05}
+                  onChange={(v) => {
+                    setSaved(false)
+                    setPrecoPorao(v)
+                  }}
+                />
               </div>
             </div>
 
@@ -338,6 +358,21 @@ export function AdminAvulso({ onBack }: AdminAvulsoProps) {
                 }}
               >
                 {error}
+              </p>
+            )}
+
+            {/* Sucesso */}
+            {saved && !error && (
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: 'var(--color-text-sec)',
+                  margin: 0,
+                }}
+              >
+                Configuração salva e aplicada aos novos pedidos.
               </p>
             )}
 

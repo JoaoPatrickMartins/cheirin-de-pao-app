@@ -42,6 +42,7 @@ export const Ic: Record<string, string> = {
   refresh: 'M21 12a9 9 0 1 1-3-6.7M21 4v4h-4',
   users: 'M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM2 20c0-3.3 3-5.5 7-5.5s7 2.2 7 5.5M16 4.5a4 4 0 0 1 0 7.5M18 14.5c2.5.6 4 2.2 4 4.5',
   power: 'M12 3v9M6.3 7.3a8 8 0 1 0 11.4 0',
+  search: 'M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16ZM21 21l-4.35-4.35',
 }
 
 interface IconProps {

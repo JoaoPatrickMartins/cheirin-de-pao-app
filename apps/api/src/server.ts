@@ -24,7 +24,11 @@ import { adminSuppliersRoute } from './modules/admin-suppliers/admin-suppliers.r
 import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.route.js'
 import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
 import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-supplier-orders.route.js'
+import { adminSeparationRoute } from './modules/admin-separation/admin-separation.route.js'
+import { ensureIndexes } from './lib/ensure-indexes.js'
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
+import { adminReportsRoute } from './modules/admin-reports/admin-reports.route.js'
+import { analyticsRoute } from './modules/analytics/analytics.route.js'
 import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
 import { courierRoute } from './modules/courier/courier.route.js'
 import { clientProfileRoute } from './modules/client-profile/client-profile.route.js'
@@ -49,8 +53,6 @@ const envSchema = {
     // Phase 2 additions:
     NODE_ENV: { type: 'string', default: 'development' },
     OTP_DEV_CODE: { type: 'string', default: '1234' },
-    ZENVIA_TOKEN: { type: 'string' },
-    ZENVIA_FROM: { type: 'string' },
     RESEND_API_KEY: { type: 'string' },
     RESEND_FROM: { type: 'string' },
     ADMIN_NAME: { type: 'string' },
@@ -136,6 +138,8 @@ const start = async () => {
           { name: 'admin — clients', description: 'Gestão de clientes' },
           { name: 'admin — supplier-orders', description: 'Pedido ao fornecedor, PDF e Excel' },
           { name: 'admin — financial', description: 'Relatório financeiro por período' },
+          { name: 'admin — reports', description: 'Relatórios: acesso, login e conversão' },
+          { name: 'analytics', description: 'Ingestão de eventos de acesso/login (público)' },
           { name: 'admin — payments', description: 'Lista de pagamentos e estornos' },
           { name: 'saved-cards', description: 'Cartões salvos do cliente (MP Customer API)' },
         ],
@@ -184,14 +188,17 @@ const start = async () => {
     await fastify.register(ordersRoute)         // POST /orders — pedido avulso (SCHED-01)
     await fastify.register(notificationsRoute)  // POST /users/push-token (D-09)
     await fastify.register(adminOrdersRoute)    // PATCH /admin/orders/:id/status (ACOMP-01) + GET /admin/dashboard (07-06)
-    await fastify.register(adminSettingsRoute)       // Phase 7 — GET/PATCH /admin/settings/cutoff + /avulso (07-02)
+    await fastify.register(adminSettingsRoute)       // Phase 7 — GET/PATCH /admin/settings/slots + /avulso (07-02)
     await fastify.register(adminCondominiumsRoute)   // Phase 7 — CRUD /admin/condominiums (07-02)
     await fastify.register(adminCombosRoute)         // Phase 7 — CRUD /admin/combos + /promotion (07-02)
     await fastify.register(adminSuppliersRoute)      // Phase 7 — CRUD /admin/suppliers (07-03)
     await fastify.register(adminCouriersRoute)       // Phase 7 — CRUD /admin/couriers (07-03)
     await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)
     await fastify.register(adminSupplierOrdersRoute)  // Phase 7 — GET/POST /admin/supplier-orders + PDF/Excel (ADMO-05..09)
+    await fastify.register(adminSeparationRoute)      // Separação — GET board + PATCH conclude/orders (gate da entrega)
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
+    await fastify.register(adminReportsRoute)   // GET /admin/reports/access — acesso/login/conversão
+    await fastify.register(analyticsRoute)      // POST /analytics/event — ingestão pública de acesso/login
     await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
     await fastify.register(courierRoute)        // GET /courier/orders/today + PATCH /courier/orders/:id/confirm (COUR-01/02)
     await fastify.register(clientProfileRoute)  // Phase 11 — GET/PATCH /client/profile, POST contact/change (CONF-02..06)
@@ -202,6 +209,10 @@ const start = async () => {
     const host = process.env.API_HOST ?? '0.0.0.0'
 
     await fastify.listen({ port, host })
+
+    // Garante os índices de runtime — roda também em bancos novos/vazios.
+    // Idempotente e best-effort: não bloqueia nem derruba o boot se o Atlas estiver lento/indisponível.
+    void ensureIndexes(fastify.prisma, fastify.log)
   } catch (err) {
     fastify.log.error(err)
     process.exit(1)

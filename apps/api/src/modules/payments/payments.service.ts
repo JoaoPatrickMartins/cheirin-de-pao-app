@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { PaymentsRepository } from './payments.repository.js'
 import { StripeService } from './stripe.service.js'
+import { effectiveComboPrice } from '../../lib/combo-pricing.js'
 
 export class PaymentsService {
   private repo: PaymentsRepository
@@ -23,7 +24,12 @@ export class PaymentsService {
     if (comboId) {
       const combo = await this.prisma.combo.findUnique({ where: { id: comboId } })
       if (!combo) throw { error: 'Combo não encontrado', status: 404 }
-      const amount = Math.round(combo.price * 100) / 100
+      // Aplica a promoção ativa (se houver) para cobrar exatamente o preço exibido.
+      const promo = await this.prisma.promotion.findFirst({
+        where: { comboId, isActive: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      const amount = effectiveComboPrice(combo.price, promo)
       return { amount, quantity: combo.quantity, description: `Compra ${combo.name} — Cheirin de Pão` }
     }
     if (customQuantity) {
@@ -159,6 +165,10 @@ export class PaymentsService {
     if (!ar?.active || !ar.comboId) return { ok: false, reason: 'inactive' }
     // Consentimento explícito é obrigatório para cobrar sem CVV (off_session)
     if (!user.offSessionConsentAt) return { ok: false, reason: 'consent' }
+    // Rede de segurança: nunca cobrar num combo desativado (a desativação já desliga
+    // o autoRecharge, mas isto cobre configs antigas que escaparam da cascata).
+    const combo = await this.prisma.combo.findUnique({ where: { id: ar.comboId } })
+    if (!combo || combo.isActive === false) return { ok: false, reason: 'combo_inactive' }
 
     const card = await this.prisma.savedCard.findFirst({ where: { userId, isDefault: true } })
     if (!card?.stripePaymentMethodId) return { ok: false, reason: 'no_card' }

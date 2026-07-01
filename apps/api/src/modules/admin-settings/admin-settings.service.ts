@@ -1,11 +1,19 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { isPastCutoffForDelivery, nextDeliveryDateStr, brtDateStr } from '../../lib/cutoff.js'
+import {
+  getGlobalDeliverySlots,
+  setGlobalDeliverySlots,
+  normalizeSlot,
+  type GlobalDeliverySlot,
+  type SlotPatch,
+} from '../../lib/delivery-slots.js'
 
 /**
- * AdminSettingsService — gerencia configurações globais (horário de corte + avulso).
+ * AdminSettingsService — gerencia configurações globais (slots de entrega/cutoff + avulso).
  *
- * T-07-02-02: setCutoffTime — valor já validado pelo Zod no controller.
+ * Config global de slots é a fonte da verdade dos horários de corte (um por slot);
+ * ao salvar, é propagada para todos os condomínios (ver lib/delivery-slots).
  * Push processCutoff é best-effort — falha silenciosa.
  */
 
@@ -24,26 +32,19 @@ export class AdminSettingsService {
   }
 
   /**
-   * Retorna o horário de corte configurado ('HH:MM').
-   * Default: '20:00' quando ainda não configurado.
+   * Retorna a config global de slots de entrega (fonte da verdade).
+   * Substitui o antigo cutoff global único — agora há um cutoffTime por slot.
    */
-  async getCutoffTime(): Promise<string> {
-    const setting = await this.prisma.setting.findUnique({
-      where: { key: 'cutoffTime' },
-    })
-    return setting?.value ?? '20:00'
+  async getDeliverySlots(): Promise<GlobalDeliverySlot[]> {
+    return getGlobalDeliverySlots(this.prisma)
   }
 
   /**
-   * Atualiza (upsert) o horário de corte.
-   * Valor deve seguir o formato HH:MM (validado via Zod no controller antes de chegar aqui).
+   * Aplica edições na config global de slots e propaga para todos os condomínios.
+   * Apenas cutoffTime/label/emoji/isActive são editáveis (time/slotId/name read-only).
    */
-  async setCutoffTime(time: string): Promise<void> {
-    await this.prisma.setting.upsert({
-      where: { key: 'cutoffTime' },
-      create: { key: 'cutoffTime', value: time },
-      update: { value: time },
-    })
+  async setDeliverySlots(patches: SlotPatch[]): Promise<GlobalDeliverySlot[]> {
+    return setGlobalDeliverySlots(this.prisma, patches)
   }
 
   /**
@@ -89,7 +90,16 @@ export class AdminSettingsService {
    * `deliveryWhen`: "hoje" | "amanhã" — quando é a próxima entrega desse slot.
    */
   async getCutoffStatusByCondo(condominiumId: string): Promise<{
-    slots: Array<{ name: string; time: string; cutoffTime: string; locked: boolean; deliveryWhen: string }>
+    slots: Array<{
+      slotId: string
+      name: string
+      label: string
+      emoji: string
+      time: string
+      cutoffTime: string
+      locked: boolean
+      deliveryWhen: string
+    }>
   }> {
     const condo = await this.prisma.condominium.findUnique({
       where: { id: condominiumId },
@@ -100,11 +110,21 @@ export class AdminSettingsService {
     const tomorrow = brtDateStr(now, 1)
     const slots = (condo?.deliverySlots ?? [])
       .filter((s) => s.isActive)
-      .map((s) => {
+      .map((raw) => {
+        const s = normalizeSlot(raw)
         const deliveryStr = nextDeliveryDateStr(s.time, now)
         const locked = isPastCutoffForDelivery(s.time, s.cutoffTime, deliveryStr, now)
         const deliveryWhen = deliveryStr === today ? 'hoje' : deliveryStr === tomorrow ? 'amanhã' : deliveryStr
-        return { name: s.name, time: s.time, cutoffTime: s.cutoffTime, locked, deliveryWhen }
+        return {
+          slotId: s.slotId,
+          name: s.name,
+          label: s.label,
+          emoji: s.emoji,
+          time: s.time,
+          cutoffTime: s.cutoffTime,
+          locked,
+          deliveryWhen,
+        }
       })
     return { slots }
   }

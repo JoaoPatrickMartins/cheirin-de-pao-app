@@ -30,10 +30,20 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
                 name: { type: 'string', description: 'Nome do combo.' },
                 quantity: { type: 'integer', description: 'Quantidade de pãezinhos incluídos.' },
                 price: { type: 'number', description: 'Preço em reais.' },
-                tag: { type: 'string', description: 'Tag promocional (ex: "Mais Popular").' },
-                isOnPromotion: { type: 'boolean', description: 'Se está em promoção ativa.' },
+                tag: { type: 'string', nullable: true, description: 'Tag promocional (ex: "Mais Popular").' },
                 isActive: { type: 'boolean', description: 'Se o combo está disponível para compra.' },
                 createdAt: { type: 'string', description: 'Data de criação.' },
+                discount: {
+                  type: 'object',
+                  nullable: true,
+                  description: 'Promoção ativa do combo (null se não houver).',
+                  properties: {
+                    type: { type: 'string', description: 'Tipo de desconto ("PERCENT" ou "FIXED").' },
+                    value: { type: 'number', description: 'Valor do desconto.' },
+                    expiresAt: { type: 'string', nullable: true, description: 'Fim da promoção (ISO 8601).' },
+                    active: { type: 'boolean', description: 'Se a promoção está ativa.' },
+                  },
+                },
               },
             },
           },
@@ -41,6 +51,42 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.list.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/combos/:id',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — combos'],
+        summary: 'Obter combo por ID (admin)',
+        description: 'Retorna os dados completos de um combo específico para preencher o formulário de edição. Retorna 404 se o combo não existir. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do combo (MongoDB ObjectId).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Combo encontrado.',
+            properties: {
+              id: { type: 'string', description: 'ID do combo (MongoDB ObjectId).' },
+              name: { type: 'string', description: 'Nome do combo.' },
+              quantity: { type: 'integer', description: 'Quantidade de pãezinhos incluídos.' },
+              price: { type: 'number', description: 'Preço em reais.' },
+              tag: { type: 'string', nullable: true, description: 'Tag de destaque (ex: "Mais Popular").' },
+              isActive: { type: 'boolean', description: 'Se o combo está disponível para compra.' },
+              createdAt: { type: 'string', description: 'Data de criação.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getById.bind(ctrl),
   )
 
   fastify.post(
@@ -71,6 +117,9 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
               name: { type: 'string', description: 'Nome do combo.' },
               quantity: { type: 'integer', description: 'Quantidade de pãezinhos.' },
               price: { type: 'number', description: 'Preço do combo.' },
+              tag: { type: 'string', nullable: true, description: 'Tag de destaque.' },
+              isActive: { type: 'boolean', description: 'Se o combo está disponível para compra.' },
+              createdAt: { type: 'string', description: 'Data de criação.' },
             },
           },
         },
@@ -113,6 +162,12 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               id: { type: 'string', description: 'ID do combo.' },
               name: { type: 'string', description: 'Nome atualizado.' },
+              quantity: { type: 'integer', description: 'Quantidade de pãezinhos.' },
+              price: { type: 'number', description: 'Preço em reais.' },
+              tag: { type: 'string', nullable: true, description: 'Tag de destaque.' },
+              isActive: { type: 'boolean', description: 'Se o combo está disponível para compra.' },
+              createdAt: { type: 'string', description: 'Data de criação.' },
+              affectedAutoRecharge: { type: 'integer', description: 'Clientes cuja compra automática foi desligada por este update (ao desativar o combo).' },
             },
           },
         },
@@ -176,8 +231,8 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
             type: 'object',
             description: 'Status de promoção atualizado.',
             properties: {
-              id: { type: 'string', description: 'ID do combo.' },
-              isOnPromotion: { type: 'boolean', description: 'Novo status de promoção.' },
+              ok: { type: 'boolean', description: 'Indica sucesso da operação.' },
+              active: { type: 'boolean', description: 'Novo status de promoção (true = ativa).' },
             },
           },
         },

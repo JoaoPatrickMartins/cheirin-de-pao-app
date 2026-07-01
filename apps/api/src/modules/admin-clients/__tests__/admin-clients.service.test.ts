@@ -75,16 +75,55 @@ function makeFastifyMock(overrides: {
     user: {
       findMany: vi.fn().mockResolvedValue(clientList),
       findUnique: vi.fn().mockResolvedValue(client),
+      findFirst: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue({ ...client, isBlocked: !(client?.isBlocked ?? false) }),
     },
     schedule: {
       findFirst: vi.fn().mockResolvedValue(schedule),
+      update: vi.fn().mockResolvedValue({ id: 'schedule-01', isActive: false }),
     },
     order: {
       findMany: vi.fn().mockResolvedValue(orders),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({ id: 'ord-1', status: 'CANCELLED' }),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { quantity: 0 }, _count: 0 }),
+      count: vi.fn().mockResolvedValue(0),
+    },
+    delivery: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    payment: {
+      aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    savedCard: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    combo: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+    condominium: {
+      findUnique: vi.fn().mockResolvedValue({ id: 'condo-01', name: 'Condomínio Teste' }),
+    },
+    session: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({ id: 'sess-01', isRevoked: true }),
+    },
+    adminNote: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'note-01', userId: 'user-01', body: 'nota', createdAt: new Date() }),
+      delete: vi.fn().mockResolvedValue({ id: 'note-01' }),
     },
     creditTransaction: {
       findFirst: vi.fn().mockResolvedValue(lastTransaction),
+      findMany: vi.fn().mockResolvedValue(
+        lastTransaction
+          ? [{ userId: lastTransaction.userId, createdAt: lastTransaction.createdAt }]
+          : [],
+      ),
       create: vi.fn().mockResolvedValue({ id: 'tx-02', userId: 'user-01', type: 'ADMIN_GRANT', quantity: 5 }),
     },
     $transaction: vi.fn().mockResolvedValue([
@@ -133,7 +172,7 @@ describe('AdminClientsService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminClientsService(fastify as any)
 
-      await service.list('condo-01')
+      await service.list({ condominiumId: 'condo-01' })
 
       expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -142,21 +181,22 @@ describe('AdminClientsService', () => {
       )
     })
 
-    it('busca último CreditTransaction tipo PURCHASE para cada cliente', async () => {
+    it('resolve lastPurchaseAt via CreditTransaction PURCHASE em uma única query (sem N+1)', async () => {
       const { fastify, prisma } = makeFastifyMock()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminClientsService(fastify as any)
 
       const result = await service.list()
 
-      expect(prisma.creditTransaction.findFirst).toHaveBeenCalledWith(
+      expect(prisma.creditTransaction.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 'user-01', type: 'PURCHASE' },
+          where: { userId: { in: ['user-01'] }, type: 'PURCHASE' },
           orderBy: { createdAt: 'desc' },
         }),
       )
-      // Verifica que lastPurchaseAt está no retorno
-      expect(result[0]).toHaveProperty('lastPurchaseAt')
+      // Verifica formato paginado e lastPurchaseAt no item
+      expect(result.total).toBe(1)
+      expect(result.items[0]).toHaveProperty('lastPurchaseAt')
     })
 
     it('lastPurchaseAt é null quando não há transação', async () => {
@@ -166,7 +206,7 @@ describe('AdminClientsService', () => {
 
       const result = await service.list()
 
-      expect(result[0].lastPurchaseAt).toBeNull()
+      expect(result.items[0].lastPurchaseAt).toBeNull()
     })
   })
 
@@ -181,7 +221,7 @@ describe('AdminClientsService', () => {
       expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'user-01' } })
       expect(prisma.schedule.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 'user-01', isActive: true },
+          where: { userId: 'user-01' },
         }),
       )
       expect(prisma.order.findMany).toHaveBeenCalledWith(
@@ -192,6 +232,29 @@ describe('AdminClientsService', () => {
       expect(result).toHaveProperty('client')
       expect(result).toHaveProperty('schedule')
       expect(result).toHaveProperty('recentOrders')
+    })
+
+    it('inclui condomínio e métricas agregadas', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.getDetail('user-01')
+
+      expect(prisma.payment.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-01', status: 'PAID' } }),
+      )
+      expect(prisma.order.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-01', status: 'DELIVERED' } }),
+      )
+      expect(prisma.condominium.findUnique).toHaveBeenCalled()
+      expect(result).toHaveProperty('condominium')
+      expect(result.metrics).toMatchObject({
+        totalSpent: expect.any(Number),
+        breadsDelivered: expect.any(Number),
+        ordersCount: expect.any(Number),
+        weeklyBreads: expect.any(Number),
+      })
     })
 
     it('lança { statusCode: 404 } quando cliente não existe', async () => {
@@ -219,6 +282,269 @@ describe('AdminClientsService', () => {
     })
   })
 
+  describe('updateClient', () => {
+    it('atualiza nome e contato do cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await service.updateClient('user-01', { name: 'João Editado', phone: '11999990000' })
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-01' },
+          data: expect.objectContaining({ name: 'João Editado', phone: '11999990000' }),
+        }),
+      )
+    })
+
+    it('lança { statusCode: 404 } quando cliente não existe', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.updateClient('x', { name: 'Nome' })).rejects.toMatchObject({ statusCode: 404 })
+    })
+
+    it('lança { statusCode: 409 } quando telefone já pertence a outro cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.user.findFirst.mockResolvedValueOnce({ id: 'outro-user' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.updateClient('user-01', { phone: '11888887777' })).rejects.toMatchObject({
+        statusCode: 409,
+      })
+    })
+  })
+
+  describe('getCreditHistory', () => {
+    it('busca transações do cliente ordenadas e retorna array', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.getCreditHistory('user-01', 25)
+
+      expect(prisma.creditTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-01' },
+          orderBy: { createdAt: 'desc' },
+          take: 25,
+        }),
+      )
+      expect(Array.isArray(result)).toBe(true)
+    })
+
+    it('lança { statusCode: 404 } quando não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.getCreditHistory('x')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('getPayments', () => {
+    it('marca refundable e rotula compra avulsa', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.payment.findMany.mockResolvedValueOnce([
+        { id: 'pay-1', userId: 'user-01', amount: 50, method: 'PIX', status: 'PAID', stripePaymentIntentId: 'pi_1', comboId: null, customQuantity: 30, createdAt: new Date() },
+        { id: 'pay-2', userId: 'user-01', amount: 20, method: 'PIX', status: 'PENDING', stripePaymentIntentId: null, comboId: null, customQuantity: 12, createdAt: new Date() },
+      ])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.getPayments('user-01')
+
+      expect(result[0]).toMatchObject({ id: 'pay-1', refundable: true, label: 'Compra avulsa', quantity: 30 })
+      expect(result[1]).toMatchObject({ id: 'pay-2', refundable: false })
+    })
+  })
+
+  describe('getPaymentMethods', () => {
+    it('retorna cartões e auto-recarga', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.getPaymentMethods('user-01')
+
+      expect(result).toHaveProperty('cards')
+      expect(result).toHaveProperty('autoRecharge')
+      expect(Array.isArray(result.cards)).toBe(true)
+    })
+
+    it('lança { statusCode: 404 } quando não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.getPaymentMethods('x')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('getOrders', () => {
+    it('mescla dados de entrega (courier, deliveredAt) por pedido', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findMany.mockResolvedValueOnce([
+        { id: 'ord-1', userId: 'user-01', type: 'SCHEDULED', quantity: 2, status: 'DELIVERED', scheduledDate: new Date(), slotId: 'manha', deliveryTime: '06:30', courierId: 'cou-1' },
+      ])
+      prisma.delivery.findMany.mockResolvedValueOnce([
+        { orderId: 'ord-1', deliveredAt: new Date('2026-06-20'), confirmedAt: new Date('2026-06-20'), status: 'CONFIRMED' },
+      ])
+      prisma.user.findMany.mockResolvedValueOnce([{ id: 'cou-1', name: 'Entregador X' }])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.getOrders('user-01')
+
+      expect(result[0]).toMatchObject({
+        id: 'ord-1',
+        status: 'DELIVERED',
+        courierName: 'Entregador X',
+        deliveryStatus: 'CONFIRMED',
+      })
+      expect(result[0].deliveredAt).toBeTruthy()
+    })
+
+    it('lança { statusCode: 404 } quando não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.getOrders('x')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('cancelOrder', () => {
+    it('cancela pedido SCHEDULED e devolve créditos quando refundCredits=true', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'user-01', status: 'SCHEDULED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.cancelOrder('user-01', 'ord-1', true, 'admin-01')
+
+      expect(prisma.$transaction).toHaveBeenCalled()
+      // com refund: cria CreditTransaction REFUND + incrementa saldo
+      expect(prisma.creditTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantity: 2, adminId: 'admin-01' }) }),
+      )
+      expect(result).toMatchObject({ id: 'ord-1', status: 'CANCELLED', refundedCredits: 2 })
+    })
+
+    it('não cria transação de crédito quando refundCredits=false', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'user-01', status: 'SCHEDULED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.cancelOrder('user-01', 'ord-1', false, 'admin-01')
+
+      expect(prisma.creditTransaction.create).not.toHaveBeenCalled()
+      expect(result.refundedCredits).toBe(0)
+    })
+
+    it('lança 422 quando pedido não é SCHEDULED', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'user-01', status: 'DELIVERED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.cancelOrder('user-01', 'ord-1', true, 'admin-01')).rejects.toMatchObject({ statusCode: 422 })
+    })
+
+    it('lança 404 quando pedido pertence a outro cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.order.findUnique.mockResolvedValueOnce({ id: 'ord-1', userId: 'outro', status: 'SCHEDULED', quantity: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.cancelOrder('user-01', 'ord-1', true, 'admin-01')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('setScheduleActive', () => {
+    it('pausa a agenda (isActive=false)', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const result = await service.setScheduleActive('user-01', false)
+
+      expect(prisma.schedule.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'schedule-01' }, data: { isActive: false } }),
+      )
+      expect(result.isActive).toBe(false)
+    })
+
+    it('lança 404 quando não há agenda', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.schedule.findFirst.mockResolvedValueOnce(null)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.setScheduleActive('user-01', false)).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('sessões', () => {
+    it('lista sessões ativas (não revogadas, não expiradas)', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.getSessions('user-01')
+      expect(prisma.session.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ userId: 'user-01', isRevoked: false }) }),
+      )
+    })
+
+    it('revoga sessão do cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.session.findUnique.mockResolvedValueOnce({ id: 'sess-01', userId: 'user-01' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      const result = await service.revokeSession('user-01', 'sess-01')
+      expect(prisma.session.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'sess-01' }, data: { isRevoked: true } }),
+      )
+      expect(result.isRevoked).toBe(true)
+    })
+
+    it('lança 404 ao revogar sessão de outro cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.session.findUnique.mockResolvedValueOnce({ id: 'sess-01', userId: 'outro' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.revokeSession('user-01', 'sess-01')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  describe('notas internas', () => {
+    it('cria nota com adminId', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.addNote('user-01', 'Cliente VIP', 'admin-01')
+      expect(prisma.adminNote.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { userId: 'user-01', adminId: 'admin-01', body: 'Cliente VIP' } }),
+      )
+    })
+
+    it('exclui nota do cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.adminNote.findUnique.mockResolvedValueOnce({ id: 'note-01', userId: 'user-01' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      const result = await service.deleteNote('user-01', 'note-01')
+      expect(prisma.adminNote.delete).toHaveBeenCalledWith({ where: { id: 'note-01' } })
+      expect(result.deleted).toBe(true)
+    })
+
+    it('lança 404 ao excluir nota de outro cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.adminNote.findUnique.mockResolvedValueOnce({ id: 'note-01', userId: 'outro' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await expect(service.deleteNote('user-01', 'note-01')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
   describe('blockToggle', () => {
     it('altera User.isBlocked para true (bloquear)', async () => {
       const { fastify, prisma } = makeFastifyMock({
@@ -241,7 +567,35 @@ describe('AdminClientsService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'user-01' },
-          data: { isBlocked: true },
+          data: expect.objectContaining({ isBlocked: true }),
+        }),
+      )
+    })
+
+    it('grava motivo + quem/quando ao bloquear', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', 'Pagamento pendente', 'admin-01')
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ isBlocked: true, blockReason: 'Pagamento pendente', blockedById: 'admin-01' }),
+        }),
+      )
+    })
+
+    it('limpa o contexto de bloqueio ao desbloquear', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: true },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', undefined, 'admin-01')
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ isBlocked: false, blockReason: null, blockedAt: null, blockedById: null }),
         }),
       )
     })

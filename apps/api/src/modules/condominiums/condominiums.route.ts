@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify'
+import { normalizeSlot } from '../../lib/delivery-slots.js'
 
 export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
   /**
@@ -23,7 +24,10 @@ export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
           items: {
             type: 'object',
             properties: {
+              slotId: { type: 'string', description: 'Identificador estável do slot (manha | tarde).' },
               name: { type: 'string', description: '"manha" ou "tarde".' },
+              label: { type: 'string', description: 'Rótulo de exibição (ex.: "Manhã").' },
+              emoji: { type: 'string', description: 'Emoji de exibição do slot.' },
               time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
               cutoffTime: { type: 'string', description: 'Horário de corte (HH:MM).' },
               isActive: { type: 'boolean', description: 'Slot ativo.' },
@@ -58,7 +62,7 @@ export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
       return reply.code(404).send({ message: 'Condomínio não encontrado' })
     }
 
-    const activeSlots = condo.deliverySlots.filter((s) => s.isActive)
+    const activeSlots = condo.deliverySlots.filter((s) => s.isActive).map(normalizeSlot)
     return reply.send(activeSlots)
   })
 
@@ -93,7 +97,9 @@ export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
     },
   }, async (_request, reply) => {
     try {
+      // Apenas condomínios ativos aparecem no cadastro — desativados somem para novos clientes.
       const condominiums = await fastify.prisma.condominium.findMany({
+        where: { isActive: true },
         orderBy: { name: 'asc' },
       })
       const result = condominiums.map((c) => ({

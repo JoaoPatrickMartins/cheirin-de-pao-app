@@ -24,6 +24,7 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
               price: { type: 'number', description: 'Preço total do combo em reais.' },
               tag: { type: 'string', description: 'Tag promocional opcional (ex: "Mais Popular", "Melhor Custo-Benefício").' },
               isOnPromotion: { type: 'boolean', description: 'true se o combo está em promoção ativa.' },
+              antes: { type: 'number', description: 'Preço original (antes do desconto). Presente apenas quando isOnPromotion=true; usado para o preço riscado.' },
             },
           },
         },
@@ -85,6 +86,32 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.getCreditHistory.bind(ctrl),
   )
 
+  fastify.get(
+    '/users/me/auto-recharge',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['credits'],
+        summary: 'Status da recarga automática',
+        description: 'Retorna o estado atual da recarga automática (ativa/inativa + combo), para badges de status e pré-preenchimento da tela de configuração.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              active: { type: 'boolean' },
+              comboId: { type: 'string', nullable: true },
+              comboName: { type: 'string', nullable: true },
+              comboQuantity: { type: 'integer', nullable: true },
+              price: { type: 'number', nullable: true },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getAutoRecharge.bind(ctrl),
+  )
+
   fastify.put(
     '/users/me/auto-recharge',
     {
@@ -92,31 +119,22 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['credits'],
         summary: 'Configurar recarga automática',
-        description: 'Configura a recarga automática de créditos do cliente. Mode "acabar" dispara recarga quando o saldo chega a zero. Mode "semanal" dispara toda semana no weekday configurado. Requer que o cliente tenha um card-token salvo para cobranças automáticas.',
+        description: 'Liga/desliga e configura a recarga automática (campo active + comboId). A recarga é cobrada sem CVV no cartão padrão, no corte da agenda, quando o saldo não cobre a entrega.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['mode', 'comboId'],
+          required: ['active'],
           properties: {
-            mode: { type: 'string', enum: ['acabar', 'semanal'], description: '"acabar": recarga automática quando créditos acabam. "semanal": recarga em dia fixo da semana.' },
-            weekday: { type: 'integer', minimum: 0, maximum: 6, description: 'Dia da semana para recarga (0=domingo, 6=sábado). Obrigatório quando mode="semanal".' },
-            comboId: { type: 'string', description: 'ID do combo a comprar automaticamente na recarga.' },
+            active: { type: 'boolean', description: 'Liga/desliga a recarga automática.' },
+            comboId: { type: 'string', description: 'Combo a recarregar. Obrigatório ao ativar.' },
           },
         },
         response: {
           200: {
             type: 'object',
-            description: 'Configuração de recarga automática salva.',
+            description: 'Configuração salva.',
             properties: {
-              autoRecharge: {
-                type: 'object',
-                description: 'Configuração atual de recarga automática.',
-                properties: {
-                  mode: { type: 'string', description: 'Modo configurado: "acabar" ou "semanal".' },
-                  weekday: { type: 'integer', description: 'Dia da semana (quando mode=semanal).' },
-                  comboId: { type: 'string', description: 'ID do combo configurado.' },
-                },
-              },
+              ok: { type: 'boolean' },
             },
           },
         },

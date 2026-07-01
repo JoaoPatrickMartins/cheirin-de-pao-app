@@ -2,10 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../../components/brand/Icon'
-
-type Mode = 'acabar' | 'semanal'
-type Weekday = 'Dom' | 'Seg' | 'Ter' | 'Qua' | 'Qui' | 'Sex' | 'Sáb'
-const WEEKDAYS: Weekday[] = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+import { BreadMark } from '../../components/brand/BreadMark'
+import ComboCard from '../../components/client/ComboCard'
 
 interface Combo {
   id: string
@@ -13,16 +11,15 @@ interface Combo {
   quantity: number
   price: number
   isActive: boolean
+  tag?: string
+  antes?: number
 }
 
-const formatBRL = (val: number) =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const formatBRL = (val: number) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export function AutoBuyScreen() {
   const navigate = useNavigate()
   const [isOn, setIsOn] = useState(false)
-  const [mode, setMode] = useState<Mode>('acabar')
-  const [weekday, setWeekday] = useState<Weekday>('Seg')
   const [combos, setCombos] = useState<Combo[]>([])
   const [selectedComboId, setSelectedComboId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -33,41 +30,43 @@ export function AutoBuyScreen() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await apiFetch('/combos')
-        if (res.ok) {
-          const data = (await res.json()) as Combo[]
-          setCombos(data)
-          if (data.length > 0) setSelectedComboId(data[0].id)
+        const [combosRes, statusRes] = await Promise.all([
+          apiFetch('/combos'),
+          apiFetch('/users/me/auto-recharge'),
+        ])
+        const combosData = combosRes.ok ? ((await combosRes.json()) as Combo[]) : []
+        setCombos(combosData)
+
+        let preselected: string | null = combosData[0]?.id ?? null
+        if (statusRes.ok) {
+          const st = (await statusRes.json()) as { active: boolean; comboId: string | null }
+          setIsOn(st.active)
+          if (st.comboId && combosData.some((c) => c.id === st.comboId)) preselected = st.comboId
         }
+        setSelectedComboId(preselected)
       } catch {
-        // combos são opcionais para carregar a tela
+        // estado padrão (desligado) se falhar
       } finally {
         setIsLoading(false)
       }
     }
-    load()
+    void load()
   }, [])
 
+  const selectedCombo = combos.find((c) => c.id === selectedComboId)
+
   const handleSave = async () => {
-    if (!selectedComboId) return
+    if (isOn && !selectedComboId) return
     setIsSaving(true)
     setError(null)
     try {
-      const body: { mode: Mode; weekday?: string; comboId: string; active: boolean } = {
-        mode,
-        comboId: selectedComboId,
-        active: isOn,
-      }
-      if (mode === 'semanal') body.weekday = weekday
-
       const res = await apiFetch('/users/me/auto-recharge', {
         method: 'PUT',
-        body: JSON.stringify(body),
+        body: JSON.stringify({ active: isOn, comboId: selectedComboId ?? undefined }),
       })
-
       if (res.ok) {
         setSaved(true)
-        setTimeout(() => navigate(-1), 1200)
+        setTimeout(() => navigate(-1), 1100)
       } else {
         const err = (await res.json()) as { error?: string }
         setError(err.error ?? 'Não foi possível salvar. Tente novamente.')
@@ -79,348 +78,281 @@ export function AutoBuyScreen() {
     }
   }
 
-  const selectedCombo = combos.find((c) => c.id === selectedComboId)
-  const ctaLabel =
-    isOn && selectedCombo
-      ? `Ativar — ${selectedCombo.name} (${formatBRL(selectedCombo.price)})`
-      : 'Salvar'
+  const ctaLabel = saved
+    ? 'Salvo!'
+    : isOn
+      ? selectedCombo
+        ? `Ativar · ${selectedCombo.name} · ${formatBRL(selectedCombo.price)}`
+        : 'Selecione um combo'
+      : 'Salvar (desativada)'
 
   return (
     <div
       style={{
-        minHeight: 'calc(100dvh - 56px - env(safe-area-inset-bottom))',
+        minHeight: '100dvh',
         background: 'var(--color-app-bg)',
-        padding: '20px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 24,
       }}
     >
-      {/* Header com toggle mestre */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* AppBar */}
+      <div
+        style={{
+          paddingTop: 'calc(6px + env(safe-area-inset-top))',
+          padding: '6px 20px 8px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <button
+          onClick={() => navigate(-1)}
+          aria-label="Voltar"
+          style={{
+            minHeight: 44,
+            width: 38,
+            height: 38,
+            borderRadius: 12,
+            border: '1.5px solid var(--color-border)',
+            background: 'var(--color-surface-2)',
+            cursor: 'pointer',
+            display: 'grid',
+            placeItems: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <Icon name="arrowL" size={20} color="var(--color-text)" />
+        </button>
         <h1
           style={{
             fontFamily: 'var(--font-display)',
-            fontWeight: 700,
             fontSize: 21,
-            color: 'var(--color-text)',
+            fontWeight: 600,
             letterSpacing: '-0.02em',
+            color: 'var(--color-text)',
             margin: 0,
           }}
         >
           Compra automática
         </h1>
-        <button
-          onClick={() => setIsOn(!isOn)}
-          aria-label={isOn ? 'desativar compra automática' : 'ativar compra automática'}
-          style={{
-            width: 52,
-            height: 30,
-            borderRadius: 999,
-            border: 'none',
-            background: isOn ? 'var(--color-accent)' : 'var(--color-border)',
-            cursor: 'pointer',
-            position: 'relative',
-            transition: 'background .2s',
-            padding: 0,
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              top: 3,
-              left: isOn ? 25 : 3,
-              width: 24,
-              height: 24,
-              borderRadius: '50%',
-              background: 'white',
-              transition: 'left .2s',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-            }}
-          />
-        </button>
       </div>
 
-      {isOn && (
-        <>
-          {/* Seleção de modo */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p
-              style={{
-                fontFamily: 'var(--font-body)',
-                fontWeight: 600,
-                fontSize: 12.5,
-                letterSpacing: '0.04em',
-                color: 'var(--color-text-sec)',
-                margin: 0,
-              }}
-            >
-              QUANDO COMPRAR?
-            </p>
-            {(
-              [
-                { value: 'acabar' as Mode, label: 'Quando estiver acabando' },
-                { value: 'semanal' as Mode, label: 'Toda semana' },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setMode(opt.value)}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px 120px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {/* Card mestre — neutro quando desativado; espresso premium (identidade da Home) quando ativado */}
+        <div
+          style={{
+            borderRadius: 'var(--radius-card)',
+            overflow: 'hidden',
+            boxShadow: 'var(--shadow-soft)',
+            background: isOn ? 'linear-gradient(135deg, #1E1207, #2E1D0D)' : 'var(--color-surface)',
+            border: isOn ? 'none' : '1px solid var(--color-border-2)',
+            position: 'relative',
+            padding: '22px',
+            transition: 'background .25s ease',
+          }}
+        >
+          {/* Watermark do pão — só no estado ativado (espresso) */}
+          {isOn && (
+            <div style={{ position: 'absolute', bottom: -54, right: -34, opacity: 0.1, pointerEvents: 'none' }}>
+              <BreadMark size={200} color="#E3AC3F" />
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, position: 'relative' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '14px 16px',
-                  borderRadius: 16,
-                  border:
-                    mode === opt.value
-                      ? '2px solid var(--color-accent)'
-                      : '2px solid var(--color-border-2)',
-                  background: 'var(--color-surface)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  minHeight: 44,
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: isOn ? '#C7B595' : 'var(--color-text-ter)',
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  margin: '0 0 7px',
                 }}
               >
-                <div
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: '50%',
-                    border:
-                      mode === opt.value
-                        ? '2px solid var(--color-accent)'
-                        : '2px solid var(--color-border)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {mode === opt.value && (
-                    <div
-                      style={{
-                        width: 13,
-                        height: 13,
-                        borderRadius: '50%',
-                        background: 'var(--color-accent)',
-                      }}
-                    />
-                  )}
-                </div>
+                Recarga automática
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '0 0 9px' }}>
                 <span
                   style={{
-                    fontFamily: 'var(--font-body)',
-                    fontWeight: 600,
-                    fontSize: 14,
-                    color: 'var(--color-text)',
+                    width: 9,
+                    height: 9,
+                    borderRadius: '50%',
+                    background: isOn ? '#E3AC3F' : 'var(--color-border)',
+                    boxShadow: isOn ? '0 0 0 4px rgba(227,172,63,0.18)' : 'none',
+                    flexShrink: 0,
+                    transition: 'background .2s, box-shadow .2s',
                   }}
-                >
-                  {opt.label}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {/* Chips de dia da semana */}
-          {mode === 'semanal' && (
-            <div>
-              <p
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontWeight: 600,
-                  fontSize: 12.5,
-                  letterSpacing: '0.04em',
-                  color: 'var(--color-text-sec)',
-                  margin: '0 0 10px 0',
-                }}
-              >
-                DIA DA SEMANA
-              </p>
-              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-                {WEEKDAYS.map((day) => (
-                  <button
-                    key={day}
-                    onClick={() => setWeekday(day)}
-                    style={{
-                      minHeight: 44,
-                      padding: '8px 14px',
-                      borderRadius: 'var(--radius-btn)',
-                      border:
-                        weekday === day
-                          ? '1.5px solid var(--color-accent)'
-                          : '1.5px solid var(--color-border)',
-                      background:
-                        weekday === day ? 'var(--color-accent)' : 'var(--color-surface)',
-                      color:
-                        weekday === day
-                          ? 'var(--color-primary-btn-text)'
-                          : 'var(--color-text)',
-                      fontFamily: 'var(--font-body)',
-                      fontWeight: 600,
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {day}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Seleção de combo */}
-          {!isLoading && combos.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontWeight: 600,
-                  fontSize: 12.5,
-                  letterSpacing: '0.04em',
-                  color: 'var(--color-text-sec)',
-                  margin: 0,
-                }}
-              >
-                QUAL COMBO?
-              </p>
-              {combos.map((combo) => (
-                <button
-                  key={combo.id}
-                  onClick={() => setSelectedComboId(combo.id)}
+                />
+                <span
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '14px 16px',
-                    borderRadius: 16,
-                    border:
-                      selectedComboId === combo.id
-                        ? '2px solid var(--color-accent)'
-                        : '2px solid var(--color-border-2)',
-                    background: 'var(--color-surface)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    minHeight: 44,
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 800,
+                    fontSize: 24,
+                    color: isOn ? '#FAF5EC' : 'var(--color-text)',
+                    lineHeight: 1,
+                    letterSpacing: '-0.02em',
                   }}
                 >
-                  <div
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: '50%',
-                      border:
-                        selectedComboId === combo.id
-                          ? '2px solid var(--color-accent)'
-                          : '2px solid var(--color-border)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {selectedComboId === combo.id && (
-                      <div
-                        style={{
-                          width: 11,
-                          height: 11,
-                          borderRadius: '50%',
-                          background: 'var(--color-accent)',
-                        }}
-                      />
-                    )}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <p
-                      style={{
-                        fontFamily: 'var(--font-body)',
-                        fontWeight: 600,
-                        fontSize: 14,
-                        color: 'var(--color-text)',
-                        margin: 0,
-                      }}
-                    >
-                      {combo.name}
-                    </p>
-                    <p
-                      style={{
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 13,
-                        color: 'var(--color-text-sec)',
-                        margin: 0,
-                      }}
-                    >
-                      {combo.quantity} pães
-                    </p>
-                  </div>
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-display)',
-                      fontWeight: 700,
-                      fontSize: 16,
-                      color: 'var(--color-accent)',
-                      margin: 0,
-                    }}
-                  >
-                    {formatBRL(combo.price)}
-                  </p>
-                </button>
-              ))}
+                  {isOn ? 'Ativada' : 'Desativada'}
+                </span>
+              </div>
+
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                  margin: 0,
+                  color: isOn ? '#9A876B' : 'var(--color-text-sec)',
+                  maxWidth: '94%',
+                }}
+              >
+                Quando o saldo não cobrir uma entrega agendada, recarregamos sozinho no seu
+                cartão padrão — sem CVV. Você nunca fica sem pãezinhos.
+              </p>
             </div>
-          )}
+            <Toggle on={isOn} onToggle={() => setIsOn((v) => !v)} disabled={isLoading} />
+          </div>
+        </div>
 
-          {/* Nota de cobrança */}
-          <p
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 13,
-              color: 'var(--color-text-sec)',
-              margin: 0,
-            }}
-          >
-            A recarga é cobrada automaticamente no seu cartão padrão, sem CVV, quando o saldo
-            não cobrir uma entrega agendada. Você precisa de um cartão salvo e recebe um aviso a
-            cada cobrança. Ative apenas se concordar com cobranças automáticas nesse cartão.
-          </p>
-        </>
-      )}
+        {/* Seleção de combo (só quando ligada) */}
+        {isOn && (
+          <div>
+            <SectionLabel>QUAL COMBO RECARREGAR?</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {isLoading && [0, 1, 2].map((i) => <SkeletonRow key={i} />)}
+              {!isLoading &&
+                combos.map((combo) => (
+                  <ComboCard
+                    key={combo.id}
+                    combo={combo}
+                    selected={selectedComboId === combo.id}
+                    onSelect={() => setSelectedComboId(combo.id)}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
 
-      {error && (
-        <p style={{ color: 'var(--color-accent)', fontSize: 14, margin: 0 }}>{error}</p>
-      )}
-
-      {saved && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="check" size={18} color="var(--color-good)" />
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-good)', margin: 0 }}>
-            Preferência salva!
+        {/* Nota de consentimento */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            background: 'var(--color-surface-2)',
+            borderRadius: 14,
+            padding: '12px 14px',
+          }}
+        >
+          <Icon name="card" size={18} color="var(--color-text-ter)" />
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, lineHeight: 1.5, color: 'var(--color-text-sec)', margin: 0 }}>
+            Requer um cartão salvo (padrão). Ao ativar, você concorda com cobranças automáticas
+            sem CVV nesse cartão. Você recebe um aviso a cada recarga e pode desativar quando quiser.
           </p>
         </div>
-      )}
 
-      {/* CTA */}
-      <button
-        onClick={handleSave}
-        disabled={isSaving || (isOn && !selectedComboId)}
+        {error && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: '#C0392B', margin: 0 }}>{error}</p>
+        )}
+      </div>
+
+      {/* CTA fixa */}
+      <div
         style={{
-          width: '100%',
-          minHeight: 52,
-          borderRadius: 'var(--radius-btn)',
-          border: 'none',
-          background: 'var(--color-accent)',
-          color: 'var(--color-primary-btn-text)',
-          fontFamily: 'var(--font-display)',
-          fontWeight: 700,
-          fontSize: 16,
-          cursor: isSaving || (isOn && !selectedComboId) ? 'default' : 'pointer',
-          opacity: isSaving || (isOn && !selectedComboId) ? 0.7 : 1,
-          marginTop: 'auto',
+          position: 'fixed',
+          bottom: 'calc(56px + env(safe-area-inset-bottom))',
+          left: 0,
+          right: 0,
+          padding: '10px 20px 12px',
+          background: 'var(--color-app-bg)',
+          borderTop: '1px solid var(--color-border-2)',
         }}
       >
-        {isSaving ? 'Salvando...' : ctaLabel}
-      </button>
+        <button
+          onClick={() => void handleSave()}
+          disabled={isSaving || isLoading || (isOn && !selectedComboId)}
+          style={{
+            width: '100%',
+            minHeight: 52,
+            borderRadius: 'var(--radius-btn)',
+            border: 'none',
+            background: saved ? 'var(--color-good)' : 'var(--color-espresso)',
+            color: 'var(--color-primary-btn-text)',
+            fontFamily: 'var(--font-display)',
+            fontWeight: 600,
+            fontSize: 15,
+            cursor: isSaving || isLoading || (isOn && !selectedComboId) ? 'default' : 'pointer',
+            opacity: isSaving || isLoading || (isOn && !selectedComboId) ? 0.65 : 1,
+            transition: 'opacity .15s, background .2s',
+          }}
+        >
+          {isSaving ? 'Salvando…' : ctaLabel}
+        </button>
+      </div>
     </div>
+  )
+}
+
+// ── Sub-componentes ───────────────────────────────────────────────────────────
+function Toggle({ on, onToggle, disabled }: { on: boolean; onToggle: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={disabled}
+      role="switch"
+      aria-checked={on}
+      aria-label={on ? 'desativar compra automática' : 'ativar compra automática'}
+      style={{
+        width: 52,
+        height: 30,
+        borderRadius: 999,
+        border: 'none',
+        position: 'relative',
+        flexShrink: 0,
+        cursor: disabled ? 'default' : 'pointer',
+        background: on ? '#E3AC3F' : 'var(--color-border)',
+        transition: 'background .2s',
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: on ? 25 : 3,
+          width: 24,
+          height: 24,
+          borderRadius: '50%',
+          background: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+          transition: 'left .2s',
+        }}
+      />
+    </button>
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      style={{
+        fontFamily: 'var(--font-body)',
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: '0.05em',
+        color: 'var(--color-text-ter)',
+        margin: '0 0 10px',
+      }}
+    >
+      {children}
+    </p>
+  )
+}
+
+function SkeletonRow() {
+  return (
+    <div style={{ height: 90, borderRadius: 22, background: 'var(--color-surface-2)' }} />
   )
 }

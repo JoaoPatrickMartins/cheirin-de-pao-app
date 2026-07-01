@@ -15,7 +15,7 @@ import { useSchedule, WeeklyQty } from '../../hooks/useSchedule'
 import { Icon } from '../../components/brand/Icon'
 import StepperInline from '../../components/client/StepperInline'
 import DeliveryTimeChips, { DeliverySlot } from '../../components/client/DeliveryTimeChips'
-import BannerCobertura from '../../components/client/BannerCobertura'
+import { AutoRechargeBanner } from '../../components/client/AutoRechargeBanner'
 import { apiFetch } from '../../lib/apiFetch'
 
 // Dados dos 7 dias da semana
@@ -50,15 +50,16 @@ export function ScheduleScreen() {
     isLoading,
     isSaving,
     consumoSemanal,
-    cobre,
   } = useSchedule(creditBalance)
 
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
-  // D-05: isMultiSlot quando há 2+ slots ativos no condomínio
+  // Etapa B: a agenda (days) é indexada por slotId. Chave estável do slot:
+  const keyOf = (s: DeliverySlot) => s.slotId ?? s.name
+  // Usa o layout por-slot sempre que houver ao menos 1 slot ativo (1 ou 2 turnos).
   const activeSlots = slots.filter((s) => s.isActive)
-  const isMultiSlot = activeSlots.length >= 2
+  const isMultiSlot = activeSlots.length >= 1
 
   useEffect(() => {
     const fetchSlots = async () => {
@@ -72,12 +73,12 @@ export function ScheduleScreen() {
           // evitando uma corrida com o load() do GET /schedules/me que sobrescrevia a agenda
           // salva com zeros ao recarregar/trocar de aba.
           const activos = data.filter((s) => s.isActive)
-          if (activos.length >= 2) {
+          if (activos.length >= 1) {
             setDays((prev) => {
               if (Object.keys(prev).length > 0) return prev
               const initDays: Record<string, WeeklyQty> = {}
               activos.forEach((slot) => {
-                initDays[slot.time] = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+                initDays[slot.slotId ?? slot.name] = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
               })
               return initDays
             })
@@ -257,7 +258,7 @@ export function ScheduleScreen() {
           ) : (
             <div>
               {activeSlots.map((slot, idx) => (
-                <div key={slot.time} style={{ marginTop: idx > 0 ? 24 : 0 }}>
+                <div key={keyOf(slot)} style={{ marginTop: idx > 0 ? 24 : 0 }}>
                   {/* Separador entre seções (exceto a primeira) */}
                   {idx > 0 && (
                     <div
@@ -289,14 +290,15 @@ export function ScheduleScreen() {
                         letterSpacing: '-0.02em',
                       }}
                     >
-                      {slot.name === 'manha' ? '☀️ Manhã' : '🌙 Tarde'} · {slot.time}
+                      {slot.emoji ?? (slot.name === 'manha' ? '☀️' : '🌙')}{' '}
+                      {slot.label ?? (slot.name === 'manha' ? 'Manhã' : 'Tarde')} · {slot.time}
                     </span>
                   </div>
 
                   {/* 7 day-rows para este slot */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {DAYS.map(({ label, key }) => {
-                      const v = (days[slot.time] ?? DEFAULT_WEEKLY_QTY)[key]
+                      const v = (days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY)[key]
                       return (
                         <div
                           key={key}
@@ -344,10 +346,11 @@ export function ScheduleScreen() {
                             min={0}
                             max={12}
                             value={v}
+                            showUnit
                             onChange={(newV) =>
                               setDays({
                                 ...days,
-                                [slot.time]: { ...(days[slot.time] ?? DEFAULT_WEEKLY_QTY), [key]: newV },
+                                [keyOf(slot)]: { ...(days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY), [key]: newV },
                               })
                             }
                           />
@@ -440,6 +443,7 @@ export function ScheduleScreen() {
                         min={0}
                         max={12}
                         value={v}
+                        showUnit
                         onChange={(newV) => setWeeklyQty({ ...weeklyQty, [key]: newV })}
                       />
                     </div>
@@ -450,43 +454,34 @@ export function ScheduleScreen() {
           </>
         )}
 
-        {/* Card "Lembrar de reconfigurar" */}
+        {/* Compra automática — destaque (acima do reconfigurar; read-only, configura no menu) */}
+        <div style={{ marginTop: 16 }}>
+          <AutoRechargeBanner />
+        </div>
+
+        {/* Lembrete de reconfigurar — secundário (menos peso visual) */}
         <div
           style={{
-            background: 'var(--color-surface)',
-            borderRadius: 'var(--radius-card)',
+            background: 'transparent',
+            borderRadius: 14,
             border: '1px solid var(--color-border-2)',
-            padding: 16,
+            padding: '10px 14px',
             marginTop: 16,
             display: 'flex',
             alignItems: 'center',
-            gap: 13,
+            gap: 11,
           }}
         >
-          {/* Ícone container */}
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 12,
-              background: 'var(--color-surface-2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <Icon name="repeat" size={20} color="var(--color-accent)" />
-          </div>
+          <Icon name="bell" size={16} color="var(--color-text-ter)" />
 
           {/* Textos */}
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <p
               style={{
                 fontFamily: 'var(--font-body)',
-                fontWeight: 700,
-                fontSize: 14.5,
-                color: 'var(--color-text)',
+                fontWeight: 600,
+                fontSize: 13,
+                color: 'var(--color-text-sec)',
                 margin: 0,
               }}
             >
@@ -495,22 +490,22 @@ export function ScheduleScreen() {
             <p
               style={{
                 fontFamily: 'var(--font-body)',
-                fontSize: 12,
+                fontSize: 11.5,
                 color: 'var(--color-text-ter)',
-                margin: '2px 0 0 0',
+                margin: '1px 0 0 0',
               }}
             >
               Aviso no domingo à noite p/ ajustar a semana
             </p>
           </div>
 
-          {/* Switch toggle */}
+          {/* Switch toggle (menor) */}
           <button
             onClick={() => setNotifyReconfigure(!notifyReconfigure)}
             aria-label={notifyReconfigure ? 'desativar lembrete' : 'ativar lembrete'}
             style={{
-              width: 48,
-              height: 28,
+              width: 42,
+              height: 24,
               borderRadius: 999,
               border: 'none',
               background: notifyReconfigure ? 'var(--color-gold)' : 'var(--color-border)',
@@ -525,9 +520,9 @@ export function ScheduleScreen() {
               style={{
                 position: 'absolute',
                 top: 3,
-                left: notifyReconfigure ? 23 : 3,
-                width: 22,
-                height: 22,
+                left: notifyReconfigure ? 21 : 3,
+                width: 18,
+                height: 18,
                 borderRadius: '50%',
                 background: notifyReconfigure ? 'var(--color-espresso)' : 'var(--color-surface)',
                 transition: 'left .2s',
@@ -537,14 +532,6 @@ export function ScheduleScreen() {
           </button>
         </div>
 
-        {/* BannerCobertura */}
-        <BannerCobertura
-          semana={consumoSemanal}
-          saldo={creditBalance}
-          cobre={cobre}
-          onCombos={() => navigate('/client/creditos')}
-          onAutoBuy={() => navigate('/client/creditos/recorrente')}
-        />
       </div>
 
       {/* Footer fixo */}

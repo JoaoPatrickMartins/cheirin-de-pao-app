@@ -54,19 +54,15 @@ export class AuthController {
       return reply.status(400).send({ error: 'Dados inválidos.' })
     }
     try {
-      const { phone, email } = body
-      // Resolve userId from phone or email
-      const user = phone
-        ? await this.fastify.prisma.user.findFirst({ where: { phone } })
-        : await this.fastify.prisma.user.findFirst({ where: { email } })
+      const { email } = body
+      // Resolve userId pelo e-mail (acesso apenas por e-mail neste momento)
+      const user = await this.fastify.prisma.user.findFirst({ where: { email } })
 
       if (!user) {
         return reply.status(404).send({ error: 'Usuário não encontrado' })
       }
 
-      const channel = phone ? 'sms' : 'email'
-      const dest = (phone ?? email)!
-      await this.service.sendOtp(user.id, channel, dest)
+      await this.service.sendOtp(user.id, email)
       return reply.status(200).send({ ok: true, userId: user.id })
     } catch (err) {
       this.fastify.log.error(err)

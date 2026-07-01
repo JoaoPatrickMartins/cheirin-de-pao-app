@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PhoneSchema } from '@cheirin-de-pao/shared'
 
 /**
  * Schema de validação para criação de entregador.
@@ -8,7 +9,7 @@ import { z } from 'zod'
 export const CreateCourierSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
   cpf: z.string().regex(/^\d{11}$/, 'CPF deve ter 11 dígitos'),
-  phone: z.string().optional(),
+  phone: PhoneSchema.optional(),
   email: z.string().email('E-mail inválido').optional(),
 })
 

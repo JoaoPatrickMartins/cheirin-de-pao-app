@@ -29,19 +29,39 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
                 id: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
                 name: { type: 'string', description: 'Nome do condomínio.' },
                 type: { type: 'string', description: 'Tipo: SINGLE_ENTRANCE (entrada única) ou BLOCKS (por blocos).' },
+                numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
                 address: {
                   type: 'object',
                   description: 'Endereço completo do condomínio.',
                   properties: {
                     street: { type: 'string', description: 'Logradouro.' },
                     number: { type: 'string', description: 'Número.' },
-                    complement: { type: 'string', description: 'Complemento (opcional).' },
+                    complement: { type: 'string', nullable: true, description: 'Complemento (opcional).' },
                     city: { type: 'string', description: 'Cidade.' },
                     state: { type: 'string', description: 'Estado (sigla UF).' },
                     zip: { type: 'string', description: 'CEP.' },
                   },
                 },
+                isActive: { type: 'boolean', description: 'Se o condomínio está ativo (atendido).' },
+                clientCount: { type: 'integer', description: 'Clientes ativos (não bloqueados) vinculados a este condomínio.' },
+                deliverySlots: {
+                  type: 'array',
+                  description: 'Slots de entrega configurados.',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      slotId: { type: 'string', nullable: true, description: 'Identificador estável do slot.' },
+                      name: { type: 'string', description: 'Nome interno do slot.' },
+                      label: { type: 'string', nullable: true, description: 'Rótulo de exibição.' },
+                      emoji: { type: 'string', nullable: true, description: 'Emoji de exibição.' },
+                      time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
+                      cutoffTime: { type: 'string', description: 'Horário de corte (HH:MM).' },
+                      isActive: { type: 'boolean', description: 'Se o slot está ativo.' },
+                    },
+                  },
+                },
                 createdAt: { type: 'string', description: 'Data de criação.' },
+                updatedAt: { type: 'string', description: 'Data da última atualização.' },
               },
             },
           },
@@ -49,6 +69,73 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.list.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/condominiums/:id',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — condominiums'],
+        summary: 'Detalhar condomínio (admin)',
+        description: 'Retorna um condomínio por id com dados completos (nome, tipo, endereço, coordenadas e slots). Usado pelo formulário de edição. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Condomínio.',
+            properties: {
+              id: { type: 'string', description: 'ID do condomínio (MongoDB ObjectId).' },
+              name: { type: 'string', description: 'Nome do condomínio.' },
+              type: { type: 'string', description: 'Tipo: SINGLE_ENTRANCE ou BLOCKS.' },
+              numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
+              address: {
+                type: 'object',
+                description: 'Endereço completo do condomínio.',
+                properties: {
+                  street: { type: 'string', description: 'Logradouro.' },
+                  number: { type: 'string', description: 'Número.' },
+                  complement: { type: 'string', nullable: true, description: 'Complemento (opcional).' },
+                  city: { type: 'string', description: 'Cidade.' },
+                  state: { type: 'string', description: 'Estado (sigla UF).' },
+                  zip: { type: 'string', description: 'CEP.' },
+                },
+              },
+              lat: { type: 'number', nullable: true, description: 'Latitude (manual ou geocodificada).' },
+              lng: { type: 'number', nullable: true, description: 'Longitude (manual ou geocodificada).' },
+              approxLocation: { type: 'boolean', description: 'true se a localização é aproximada (centro da cidade).' },
+              isActive: { type: 'boolean', description: 'Se o condomínio está ativo.' },
+              deliverySlots: {
+                type: 'array',
+                description: 'Slots de entrega configurados.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    slotId: { type: 'string', nullable: true, description: 'Identificador estável do slot.' },
+                    name: { type: 'string', description: 'Nome interno do slot.' },
+                    label: { type: 'string', nullable: true, description: 'Rótulo de exibição.' },
+                    emoji: { type: 'string', nullable: true, description: 'Emoji de exibição.' },
+                    time: { type: 'string', description: 'Horário de entrega (HH:MM).' },
+                    cutoffTime: { type: 'string', description: 'Horário de corte (HH:MM).' },
+                    isActive: { type: 'boolean', description: 'Se o slot está ativo.' },
+                  },
+                },
+              },
+              createdAt: { type: 'string', description: 'Data de criação.' },
+              updatedAt: { type: 'string', description: 'Data da última atualização.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.detail.bind(ctrl),
   )
 
   fastify.post(
@@ -66,6 +153,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: 'string', description: 'Nome do condomínio (ex: Residencial das Palmeiras).' },
             type: { type: 'string', enum: ['SINGLE_ENTRANCE', 'BLOCKS'], description: 'SINGLE_ENTRANCE: uma entrada para todos. BLOCKS: dividido por blocos — clientes devem informar o bloco.' },
+            numBlocks: { type: 'integer', minimum: 1, description: 'Número de blocos/torres (obrigatório quando type == BLOCKS).' },
             address: {
               type: 'object',
               required: ['street', 'number', 'city', 'state', 'zip'],
@@ -89,6 +177,21 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
               id: { type: 'string', description: 'ID do condomínio criado.' },
               name: { type: 'string', description: 'Nome do condomínio.' },
               type: { type: 'string', description: 'Tipo do condomínio.' },
+              numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
+              address: {
+                type: 'object',
+                description: 'Endereço completo.',
+                properties: {
+                  street: { type: 'string', description: 'Logradouro.' },
+                  number: { type: 'string', description: 'Número.' },
+                  complement: { type: 'string', nullable: true, description: 'Complemento.' },
+                  city: { type: 'string', description: 'Cidade.' },
+                  state: { type: 'string', description: 'UF.' },
+                  zip: { type: 'string', description: 'CEP.' },
+                },
+              },
+              isActive: { type: 'boolean', description: 'Se o condomínio está ativo.' },
+              createdAt: { type: 'string', description: 'Data de criação.' },
             },
           },
         },
@@ -119,6 +222,8 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             name: { type: 'string', description: 'Novo nome do condomínio.' },
             type: { type: 'string', enum: ['SINGLE_ENTRANCE', 'BLOCKS'], description: 'Novo tipo de condomínio.' },
+            numBlocks: { type: 'integer', minimum: 1, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
+            isActive: { type: 'boolean', description: 'Ativar (true) ou desativar (false) o atendimento ao condomínio.' },
             address: {
               type: 'object',
               description: 'Endereço parcialmente atualizado.',
@@ -140,6 +245,21 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               id: { type: 'string', description: 'ID do condomínio.' },
               name: { type: 'string', description: 'Nome atualizado.' },
+              type: { type: 'string', description: 'Tipo do condomínio.' },
+              numBlocks: { type: 'integer', nullable: true, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
+              address: {
+                type: 'object',
+                description: 'Endereço completo.',
+                properties: {
+                  street: { type: 'string', description: 'Logradouro.' },
+                  number: { type: 'string', description: 'Número.' },
+                  complement: { type: 'string', nullable: true, description: 'Complemento.' },
+                  city: { type: 'string', description: 'Cidade.' },
+                  state: { type: 'string', description: 'UF.' },
+                  zip: { type: 'string', description: 'CEP.' },
+                },
+              },
+              isActive: { type: 'boolean', description: 'Se o condomínio está ativo.' },
             },
           },
         },
@@ -187,7 +307,10 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
                 items: {
                   type: 'object',
                   properties: {
+                    slotId: { type: 'string', nullable: true, description: 'Identificador estável do slot.' },
                     name: { type: 'string', description: 'Nome do slot (manha ou tarde).' },
+                    label: { type: 'string', nullable: true, description: 'Rótulo de exibição.' },
+                    emoji: { type: 'string', nullable: true, description: 'Emoji de exibição.' },
                     time: { type: 'string', description: 'Horário de entrega.' },
                     cutoffTime: { type: 'string', description: 'Horário limite de pedido.' },
                     isActive: { type: 'boolean', description: 'Se o slot está ativo.' },

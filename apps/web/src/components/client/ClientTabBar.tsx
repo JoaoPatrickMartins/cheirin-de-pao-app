@@ -3,14 +3,16 @@ import { Icon, Ic } from '../brand/Icon'
 
 interface TabItem {
   label: string
-  icon: keyof typeof Ic
+  icon?: keyof typeof Ic
+  /** Usa o símbolo da marca (BreadMark) em vez de um ícone do set. */
+  brand?: boolean
   path: string
 }
 
 const TABS: TabItem[] = [
   { label: 'Início',   icon: 'home',     path: '/client/home'     },
   { label: 'Agenda',   icon: 'calendar', path: '/client/agenda'   },
-  { label: 'Créditos', icon: 'coin',     path: '/client/creditos' },
+  { label: 'Pães',     brand: true,      path: '/client/creditos' },
   { label: 'Pedidos',  icon: 'bag',      path: '/client/pedidos'  },
   { label: 'Perfil',   icon: 'user',     path: '/client/perfil'   },
 ]
@@ -44,6 +46,7 @@ export function ClientTabBar() {
             key={tab.path}
             onClick={() => navigate(tab.path)}
             data-active={isActive ? 'true' : 'false'}
+            data-tour={`tab-${tab.path.split('/').pop()}`}
             aria-label={tab.label}
             aria-current={isActive ? 'page' : undefined}
             style={{
@@ -60,12 +63,34 @@ export function ClientTabBar() {
               padding: '4px 0',
             }}
           >
-            <Icon
-              name={tab.icon}
-              size={22}
-              stroke={isActive ? 2.2 : 1.9}
-              color={isActive ? 'var(--color-gold)' : 'var(--color-text-ter)'}
-            />
+            {tab.brand ? (
+              // Símbolo da marca (BreadMark) com viewBox recortado e centrado no conteúdo,
+              // pra preencher e centralizar a caixa de 22px IGUAL aos ícones de linha
+              // (sem wrapper/transform). viewBox = janela 84×84 centrada em (50, 52.6),
+              // o centro visual do desenho. Paths idênticos ao BreadMark não-reduzido.
+              <svg
+                width={22}
+                height={22}
+                viewBox="8 10.6 84 84"
+                fill="none"
+                stroke={isActive ? 'var(--color-gold)' : 'var(--color-text-ter)'}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M22 80 C22 58 34 48 50 48 C66 48 78 58 78 80" strokeWidth={isActive ? 9 : 8} />
+                <path d="M50 48 C45 39 55 34 50 24" strokeWidth={isActive ? 6.2 : 5.5} />
+                <path d="M36 52 C32 45 39 41 36 34" strokeWidth={4.5} opacity={0.85} />
+                <path d="M64 52 C60 45 67 41 64 34" strokeWidth={4.5} opacity={0.85} />
+              </svg>
+            ) : (
+              <Icon
+                name={tab.icon!}
+                size={22}
+                stroke={isActive ? 2.2 : 1.9}
+                color={isActive ? 'var(--color-gold)' : 'var(--color-text-ter)'}
+              />
+            )}
             <span
               style={{
                 fontFamily: 'var(--font-body)',

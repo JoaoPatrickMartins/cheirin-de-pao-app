@@ -1,6 +1,12 @@
 // OrdersService unit tests — Fase 4 / Plano 04-03
 // Requirements: SCHED-01 (pedido avulso com reserva atômica de créditos)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { brtDateStr, isPastCutoffForDelivery } from '../../../lib/cutoff.js'
+
+/** A tarde de hoje (15:30/corte 10:00) já fechou? Usado para tornar o teste de "hoje" determinístico. */
+function isPastCutoffTodayTarde(): boolean {
+  return isPastCutoffForDelivery('15:30', '10:00', brtDateStr(new Date(), 0))
+}
 
 // ── helpers de mock ──────────────────────────────────────────────────────────
 
@@ -22,10 +28,20 @@ function makeFastifyMock(overrides: {
   transactionError?: unknown
   orderFindFirst?: unknown
   orderFindMany?: unknown[]
+  condominiumId?: string
+  deliverySlots?: { name: string; time: string; cutoffTime: string; isActive: boolean }[]
 } = {}) {
-  const { creditBalance = 10, transactionError, orderFindFirst = null, orderFindMany = [] } = overrides
+  const {
+    creditBalance = 10,
+    transactionError,
+    orderFindFirst = null,
+    orderFindMany = [],
+    condominiumId,
+    deliverySlots = [],
+  } = overrides
 
-  const user = { id: 'user-01', creditBalance }
+  const user = { id: 'user-01', creditBalance, condominiumId }
+  const condominium = { findUnique: vi.fn().mockResolvedValue({ deliverySlots }) }
 
   // prisma.$transaction chama a função passada com um tx simulado
   const txUser = {
@@ -57,7 +73,7 @@ function makeFastifyMock(overrides: {
 
   return {
     fastify: {
-      prisma: { $transaction: transaction, user: txUser, order: orderMock },
+      prisma: { $transaction: transaction, user: txUser, order: orderMock, condominium },
       log: { error: vi.fn() },
     } as unknown,
     txUser,
@@ -145,6 +161,110 @@ describe('OrdersService', () => {
     await expect(
       service.createSingleOrder('user-01', { quantity: 2, scheduledDate: pastDate }),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Data inválida' })
+  })
+
+  it('createSingleOrder grava deliveryTime do slot escolhido quando o corte está aberto', async () => {
+    const { fastify, txOrder } = makeFastifyMock({
+      creditBalance: 10,
+      condominiumId: 'condo-01',
+      // tarde: corte é no próprio dia da entrega (15:30 > 10:00) → data futura está sempre aberta
+      deliverySlots: [{ name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
+    })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await service.createSingleOrder('user-01', {
+      quantity: 2,
+      scheduledDate: makeFutureDateStr(5),
+      deliveryTime: '15:30',
+    })
+
+    expect(txOrder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: 'SINGLE', deliveryTime: '15:30' }),
+      }),
+    )
+  })
+
+  it('createSingleOrder aceita HOJE no slot da tarde quando o corte ainda não passou', async () => {
+    // tarde 15:30 / corte 10:00: entrega hoje fecha às 10:00 BRT de hoje.
+    // Só validamos a aceitação quando o corte ainda não passou (antes das 10:00 BRT).
+    const cutoffPast = isPastCutoffTodayTarde()
+    if (cutoffPast) return // após o corte, este caminho não se aplica (coberto pelo teste de rejeição)
+
+    const { fastify, txOrder } = makeFastifyMock({
+      creditBalance: 10,
+      condominiumId: 'condo-01',
+      deliverySlots: [{ name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
+    })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await service.createSingleOrder('user-01', {
+      quantity: 1,
+      scheduledDate: brtDateStr(new Date(), 0),
+      deliveryTime: '15:30',
+    })
+
+    expect(txOrder.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deliveryTime: '15:30' }) }),
+    )
+  })
+
+  it('createSingleOrder rejeita HOJE no slot da manhã (corte da manhã é sempre na véspera)', async () => {
+    const { fastify } = makeFastifyMock({
+      creditBalance: 10,
+      condominiumId: 'condo-01',
+      deliverySlots: [{ name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true }],
+    })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await expect(
+      service.createSingleOrder('user-01', {
+        quantity: 1,
+        scheduledDate: brtDateStr(new Date(), 0),
+        deliveryTime: '06:30',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Prazo de pedido encerrado para este horário' })
+  })
+
+  it('createSingleOrder rejeita HOJE quando o condomínio não tem slots (piso permanece amanhã)', async () => {
+    const { fastify } = makeFastifyMock({ creditBalance: 10, condominiumId: 'condo-01', deliverySlots: [] })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await expect(
+      service.createSingleOrder('user-01', { quantity: 1, scheduledDate: brtDateStr(new Date(), 0) }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Data inválida' })
+  })
+
+  it('createSingleOrder rejeita deliveryTime que não corresponde a um slot ativo', async () => {
+    const { fastify } = makeFastifyMock({
+      creditBalance: 10,
+      condominiumId: 'condo-01',
+      deliverySlots: [{ name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
+    })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await expect(
+      service.createSingleOrder('user-01', {
+        quantity: 2,
+        scheduledDate: makeFutureDateStr(5),
+        deliveryTime: '09:00',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Horário de entrega indisponível' })
   })
 
   // ── Casos 05-03a,b,c: getTodayOrder ──────────────────────────────────────

@@ -75,6 +75,11 @@ function makeFastifyMock(overrides: {
     condominium: {
       findUnique: vi.fn().mockResolvedValue(condominium),
     },
+    // getGlobalDeliverySlots (rótulos de turno) consulta setting.findUnique;
+    // null => usa DEFAULT_DELIVERY_SLOTS.
+    setting: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-new' }),
       findMany: vi.fn().mockResolvedValue(makeNotifications(notificationCount)),
@@ -208,11 +213,12 @@ describe('CourierService', () => {
       // Deve resolver sem lancar — AdminOrdersService chama prisma.order.update
       await expect(service.confirmDelivery('order-01', 'courier-01')).resolves.toBeUndefined()
 
-      // Verifica que prisma.order.update foi chamado (via AdminOrdersService)
+      // Verifica que prisma.order.update foi chamado (via AdminOrdersService),
+      // registrando também o marco deliveredAt (ciclo de vida v2)
       expect(prisma.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'order-01' },
-          data: { status: 'DELIVERED' },
+          data: { status: 'DELIVERED', deliveredAt: expect.any(Date) },
         }),
       )
     })
@@ -326,6 +332,39 @@ describe('CourierService', () => {
       expect(stops[0].apartment).toBe('9')
       expect(stops[1].apartment).toBe('10')
       expect(stops[2].apartment).toBe('101')
+    })
+  })
+
+  describe('markNotDelivered', () => {
+    it('marca NOT_DELIVERED com motivo quando o pedido é do entregador', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        order: { id: 'order-01', userId: 'user-01', courierId: 'courier-01', quantity: 3, status: 'OUT_FOR_DELIVERY' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new CourierService(fastify as any)
+      await service.markNotDelivered('order-01', 'courier-01', 'Cliente ausente')
+
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: 'NOT_DELIVERED', failedAt: expect.any(Date), failureReason: 'Cliente ausente' },
+        }),
+      )
+    })
+
+    it('lança 403 quando o pedido não pertence ao entregador', async () => {
+      const { fastify } = makeFastifyMock({
+        order: { id: 'order-01', userId: 'user-01', courierId: 'outro-courier', quantity: 3, status: 'OUT_FOR_DELIVERY' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new CourierService(fastify as any)
+      await expect(service.markNotDelivered('order-01', 'courier-01')).rejects.toMatchObject({ statusCode: 403 })
+    })
+
+    it('lança 404 quando o pedido não existe', async () => {
+      const { fastify } = makeFastifyMock({ order: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new CourierService(fastify as any)
+      await expect(service.markNotDelivered('x', 'courier-01')).rejects.toMatchObject({ statusCode: 404 })
     })
   })
 })

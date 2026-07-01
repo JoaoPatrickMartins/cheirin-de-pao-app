@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { ConfirmDeliveryParams } from './courier.schema.js'
+import { ConfirmDeliveryParams, NotDeliveredBody } from './courier.schema.js'
 import { CourierService } from './courier.service.js'
 
 type ZodIssue = { message: string }
@@ -67,6 +67,37 @@ export class CourierController {
       // T-06-01: courierId do JWT — nunca do body nem dos params
       const courierId = request.user!.id
       await this.service.confirmDelivery(params.id, courierId)
+      return reply.status(200).send({ ok: true })
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 403) return reply.status(403).send({ error: e.message })
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 422) return reply.status(422).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * PATCH /courier/orders/:id/not-delivered
+   *
+   * Marca a entrega como NÃO entregue, com motivo opcional.
+   * courierId extraido de request.user.id (JWT) — NUNCA do body.
+   */
+  async markNotDelivered(request: FastifyRequest, reply: FastifyReply) {
+    let params: ReturnType<typeof ConfirmDeliveryParams.parse>
+    let body: ReturnType<typeof NotDeliveredBody.parse>
+    try {
+      params = ConfirmDeliveryParams.parse(request.params)
+      body = NotDeliveredBody.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados invalidos.' })
+    }
+
+    try {
+      const courierId = request.user!.id
+      await this.service.markNotDelivered(params.id, courierId, body.reason)
       return reply.status(200).send({ ok: true })
     } catch (err) {
       this.fastify.log.error(err)

@@ -40,9 +40,19 @@ export class AdminPaymentsService {
       payments.map(async (payment) => {
         const user = await this.prisma.user.findUnique({
           where: { id: payment.userId },
-          select: { id: true, name: true, email: true },
+          select: { name: true },
         })
-        return { ...payment, user: user ?? undefined }
+        return {
+          id: payment.id,
+          userId: payment.userId,
+          userName: user?.name ?? '—',
+          amount: payment.amount,
+          method: payment.method,
+          status: payment.status,
+          comboId: payment.comboId,
+          customQuantity: payment.customQuantity,
+          createdAt: payment.createdAt,
+        }
       }),
     )
 
@@ -60,10 +70,22 @@ export class AdminPaymentsService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: payment.userId },
-      select: { id: true, name: true, email: true, phone: true },
+      select: { name: true },
     })
 
-    return { ...payment, user: user ?? undefined }
+    return {
+      id: payment.id,
+      userId: payment.userId,
+      userName: user?.name ?? '—',
+      amount: payment.amount,
+      method: payment.method,
+      status: payment.status,
+      mercadoPagoId: payment.mercadoPagoId,
+      stripePaymentIntentId: payment.stripePaymentIntentId,
+      comboId: payment.comboId,
+      customQuantity: payment.customQuantity,
+      createdAt: payment.createdAt,
+    }
   }
 
   /**

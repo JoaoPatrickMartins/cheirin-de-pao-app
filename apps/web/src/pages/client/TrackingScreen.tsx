@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useOrderTracking, TodayOrder } from '../../hooks/useOrderTracking'
 import { apiFetch } from '../../lib/apiFetch'
-import { Icon } from '../../components/brand/Icon'
+import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
 
 interface HistoryOrder {
@@ -10,8 +10,33 @@ interface HistoryOrder {
   status: 'SCHEDULED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED'
   quantity: number
   scheduledDate: string
+  deliveryTime?: string
+  slotId?: string
   type: 'SCHEDULED' | 'SINGLE'
 }
+
+// Casa um pedido ao slot do condomínio: por slotId (Etapa B) com fallback ao horário (legado).
+function matchSlot(order: { slotId?: string; deliveryTime?: string }, slots: CondoSlot[]): CondoSlot | undefined {
+  if (order.slotId) {
+    const bySlot = slots.find((s) => (s.slotId ?? s.name) === order.slotId)
+    if (bySlot) return bySlot
+  }
+  return order.deliveryTime ? slots.find((s) => s.time === order.deliveryTime) : undefined
+}
+
+interface CondoSlot {
+  slotId?: string
+  name: string
+  label?: string
+  emoji?: string
+  time: string
+  cutoffTime: string
+  isActive: boolean
+}
+
+// Fallback de rótulos/emoji caso a API não traga label/emoji (slots legados)
+const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
+const SLOT_EMOJI: Record<string, string> = { manha: '☀️', tarde: '🌙' }
 
 const STATUSES = ['SCHEDULED', 'OUT_FOR_DELIVERY', 'DELIVERED'] as const
 
@@ -31,7 +56,7 @@ const STEPS: { key: StepKey; label: string; desc: string }[] = [
   {
     key: 'DELIVERED',
     label: 'Entregue',
-    desc: 'Pãezinhos na sua porta. Bom dia!',
+    desc: 'Pãezinhos quentinhos na sua porta.',
   },
 ]
 
@@ -75,26 +100,27 @@ function formatHistoryDate(dateStr: string): string {
   }).format(new Date(dateStr))
 }
 
-function formatHistoryTime(dateStr: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'America/Sao_Paulo',
-  }).format(new Date(dateStr))
-}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 interface PillProps {
   children: React.ReactNode
-  tone: 'good' | 'neutral'
+  tone: 'good' | 'neutral' | 'scheduled' | 'transit' | 'delivered'
   dot?: boolean
+  iconName?: keyof typeof Ic
   ariaLive?: 'polite' | 'off'
 }
 
-function Pill({ children, tone, dot, ariaLive }: PillProps) {
+function Pill({ children, tone, dot, iconName, ariaLive }: PillProps) {
   const toneStyles: Record<string, React.CSSProperties> = {
+    // tons suaves usados na timeline ("agora")
     good: { background: 'var(--color-good-soft)', color: 'var(--color-good)' },
     neutral: { background: 'var(--color-surface-2)', color: 'var(--color-text-sec)' },
+    // status do histórico — fundo claro + texto escuro da MESMA família de cor (estilo "agora")
+    scheduled: { background: 'var(--color-surface-2)', color: 'var(--color-text-sec)' },
+    transit: { background: 'var(--color-gold-soft)', color: 'var(--color-accent)' },
+    delivered: { background: 'var(--color-good-soft)', color: 'var(--color-good)' },
   }
+  const fg = toneStyles[tone].color as string
   return (
     <div
       aria-live={ariaLive}
@@ -116,10 +142,13 @@ function Pill({ children, tone, dot, ariaLive }: PillProps) {
             width: 6,
             height: 6,
             borderRadius: '50%',
-            background: 'var(--color-good)',
+            background: fg,
             flexShrink: 0,
           }}
         />
+      )}
+      {iconName && (
+        <Icon name={iconName} size={13} color={fg} stroke={2.6} aria-hidden="true" />
       )}
       {children}
     </div>
@@ -127,12 +156,28 @@ function Pill({ children, tone, dot, ariaLive }: PillProps) {
 }
 
 function StatusPill({ status }: { status: string }) {
-  if (status === 'OUT_FOR_DELIVERY') return <Pill tone="good" dot>A caminho</Pill>
-  if (status === 'DELIVERED') return <Pill tone="neutral">Entregue</Pill>
-  return <Pill tone="neutral">Agendado</Pill>
+  if (status === 'OUT_FOR_DELIVERY') return <Pill tone="transit" dot>A caminho</Pill>
+  if (status === 'DELIVERED') return <Pill tone="delivered" iconName="check">Entregue</Pill>
+  return <Pill tone="scheduled" iconName="clock">Agendado</Pill>
 }
 
-function HeroCard({ order }: { order: TodayOrder }) {
+function HeroCard({
+  order,
+  isToday,
+  slotLabel,
+  displayTime,
+}: {
+  order: TodayOrder
+  isToday: boolean
+  slotLabel?: string
+  displayTime?: string
+}) {
+  // Linha de slot + horário previsto. `displayTime` vem do slot ATUAL (dinâmico) quando o
+  // slot é reconhecido; senão cai no snapshot do pedido. Avulsos sem slot caem em copy neutra.
+  const slotTime = [slotLabel, displayTime ? `previsto ${displayTime}` : null]
+    .filter(Boolean)
+    .join(' · ')
+  const subtitle = slotTime || (isToday ? 'Entrega no seu condomínio' : 'Sua próxima entrega')
   return (
     <div
       style={{
@@ -189,13 +234,18 @@ function HeroCard({ order }: { order: TodayOrder }) {
           margin: '4px 0 0',
         }}
       >
-        Entrega no seu condomínio
+        {subtitle}
       </p>
     </div>
   )
 }
 
 function Timeline({ order }: { order: TodayOrder }) {
+  // Cumprimento da etapa "Entregue" conforme o horário do slot (manhã/tarde/noite).
+  const hour = order.deliveryTime ? parseInt(order.deliveryTime.split(':')[0], 10) : null
+  const greeting =
+    hour === null ? 'Aproveite!' : hour < 12 ? 'Bom dia!' : hour < 18 ? 'Boa tarde!' : 'Boa noite!'
+
   return (
     <div role="list" style={{ paddingLeft: 6, position: 'relative', marginBottom: 18 }}>
       {STEPS.map((step, i) => {
@@ -285,7 +335,7 @@ function Timeline({ order }: { order: TodayOrder }) {
                   lineHeight: 1.45,
                 }}
               >
-                {step.desc}
+                {step.key === 'DELIVERED' ? `${step.desc} ${greeting}` : step.desc}
               </p>
             </div>
           </div>
@@ -297,9 +347,20 @@ function Timeline({ order }: { order: TodayOrder }) {
 
 export function TrackingScreen() {
   const navigate = useNavigate()
-  const { order } = useOrderTracking()
+  // fallbackToNext: mostra a próxima entrega agendada mesmo antes da meia-noite
+  // (mesmo comportamento do card da Home).
+  const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const [history, setHistory] = useState<HistoryOrder[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [slots, setSlots] = useState<CondoSlot[]>([])
+
+  useEffect(() => {
+    // Slots do condomínio para resolver o nome real (manhã/tarde) pelo deliveryTime
+    apiFetch('/client/condominium/slots')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: CondoSlot[]) => setSlots(Array.isArray(data) ? data : []))
+      .catch(() => setSlots([]))
+  }, [])
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -318,6 +379,14 @@ export function TrackingScreen() {
   }, [])
 
   const visibleHistory = history.filter((o) => o.status !== 'CANCELLED')
+
+  // Nome do slot (manhã/tarde) cruzando o pedido (por slotId; fallback horário) com os slots
+  const heroSlot = order ? matchSlot(order, slots) : undefined
+  const slotLabel = heroSlot
+    ? (heroSlot.label ?? SLOT_LABEL[heroSlot.name] ?? heroSlot.name).toLowerCase()
+    : undefined
+  // Horário exibido: do slot ATUAL (dinâmico) quando reconhecido; senão snapshot do pedido.
+  const heroTime = heroSlot?.time ?? order?.deliveryTime
 
   return (
     <div
@@ -367,11 +436,11 @@ export function TrackingScreen() {
       </div>
 
       <div style={{ padding: '0 20px 24px' }}>
-        {order && <HeroCard order={order} />}
+        {order && <HeroCard order={order} isToday={isToday} slotLabel={slotLabel} displayTime={heroTime} />}
         {order && <Timeline order={order} />}
 
-        {/* Card do entregador — placeholder estático (Fase 6) */}
-        {order && (
+        {/* Card do entregador — só quando a entrega já saiu (sem telefone, Fase 6) */}
+        {order && order.status === 'OUT_FOR_DELIVERY' && (
           <div
             style={{
               display: 'flex',
@@ -420,23 +489,6 @@ export function TrackingScreen() {
                 A definir
               </p>
             </div>
-            <button
-              aria-label="Ligar para o entregador"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                background: 'var(--color-gold-soft)',
-                border: 'none',
-                display: 'grid',
-                placeItems: 'center',
-                cursor: 'pointer',
-                flexShrink: 0,
-                padding: 2,
-              }}
-            >
-              <Icon name="phone" size={19} color="var(--color-accent)" />
-            </button>
           </div>
         )}
 
@@ -497,8 +549,17 @@ export function TrackingScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {visibleHistory.map((o) => {
               const dateLabel = formatHistoryDate(o.scheduledDate)
-              const timeLabel = formatHistoryTime(o.scheduledDate)
+              const matched = matchSlot(o, slots)
+              const slotEmoji = matched ? matched.emoji ?? SLOT_EMOJI[matched.name] ?? '' : ''
+              const slotName2 = matched ? matched.label ?? SLOT_LABEL[matched.name] : undefined
+              // Horário do slot ATUAL (dinâmico) quando reconhecido; senão o snapshot do pedido.
+              const displayTime = matched?.time ?? o.deliveryTime
+              // "☀️ Manhã · 06:00" — ou só o horário se o slot não for reconhecido
+              const slotText = displayTime
+                ? `${slotEmoji ? slotEmoji + ' ' : ''}${slotName2 ? cap(slotName2) + ' · ' : ''}${displayTime}`
+                : null
               const typeLabel = o.type === 'SINGLE' ? 'Pedido único' : 'Agendamento'
+              const qtyText = o.quantity === 1 ? '1 pão' : `${o.quantity} pães`
               return (
                 <div
                   key={o.id}
@@ -508,6 +569,7 @@ export function TrackingScreen() {
                     gap: 13,
                     padding: 14,
                     background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border-2)',
                     borderRadius: 'var(--radius-card)',
                     alignItems: 'center',
                   }}
@@ -529,7 +591,7 @@ export function TrackingScreen() {
                       color="var(--color-accent)"
                     />
                   </div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <p
                       style={{
                         fontFamily: 'var(--font-body)',
@@ -541,15 +603,28 @@ export function TrackingScreen() {
                     >
                       {dateLabel}
                     </p>
+                    {slotText && (
+                      <p
+                        style={{
+                          fontFamily: 'var(--font-body)',
+                          fontWeight: 600,
+                          fontSize: 13,
+                          color: 'var(--color-text-sec)',
+                          margin: '2px 0 0',
+                        }}
+                      >
+                        {slotText}
+                      </p>
+                    )}
                     <p
                       style={{
                         fontFamily: 'var(--font-body)',
-                        fontSize: 12.5,
+                        fontSize: 12,
                         color: 'var(--color-text-ter)',
                         margin: '1px 0 0',
                       }}
                     >
-                      {typeLabel} · {timeLabel} · {o.quantity} pães
+                      {typeLabel} · {qtyText}
                     </p>
                   </div>
                   <StatusPill status={o.status} />

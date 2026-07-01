@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { UpdateCutoffSchema, UpdateAvulsoSchema } from './admin-settings.schema.js'
+import { UpdateSlotsSchema, UpdateAvulsoSchema } from './admin-settings.schema.js'
 import { AdminSettingsService } from './admin-settings.service.js'
 
 type ZodIssue = { message: string }
@@ -50,18 +50,17 @@ export class AdminSettingsController {
   }
 
   /**
-   * GET /admin/settings/cutoff
-   * Retorna o horário de corte configurado.
+   * GET /admin/settings/slots
+   * Retorna a config global de slots de entrega (com cutoffTime por slot).
    */
-  async getCutoff(request: FastifyRequest, reply: FastifyReply) {
-    // T-07-02-01: Role check inline
+  async getSlots(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
     }
 
     try {
-      const cutoffTime = await this.service.getCutoffTime()
-      return reply.status(200).send({ cutoffTime })
+      const slots = await this.service.getDeliverySlots()
+      return reply.status(200).send({ slots })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
@@ -69,18 +68,19 @@ export class AdminSettingsController {
   }
 
   /**
-   * PATCH /admin/settings/cutoff
-   * Atualiza o horário de corte. Body: { cutoffTime: 'HH:MM' }
-   * T-07-02-02: Zod regex valida formato antes de upsert.
+   * PATCH /admin/settings/slots
+   * Edita a config global de slots e propaga para todos os condomínios.
+   * Body: { slots: [{ slotId, cutoffTime?, label?, emoji?, isActive? }] }
+   * `time`/`name`/`slotId` NÃO são editáveis (read-only — ver Etapa B).
    */
-  async setCutoff(request: FastifyRequest, reply: FastifyReply) {
+  async setSlots(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
     }
 
-    let body: ReturnType<typeof UpdateCutoffSchema.parse>
+    let body: ReturnType<typeof UpdateSlotsSchema.parse>
     try {
-      body = UpdateCutoffSchema.parse(request.body)
+      body = UpdateSlotsSchema.parse(request.body)
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ error: zodMessage(err) })
@@ -89,8 +89,8 @@ export class AdminSettingsController {
     }
 
     try {
-      await this.service.setCutoffTime(body.cutoffTime)
-      return reply.status(200).send({ ok: true, cutoffTime: body.cutoffTime })
+      const slots = await this.service.setDeliverySlots(body.slots)
+      return reply.status(200).send({ ok: true, slots })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })

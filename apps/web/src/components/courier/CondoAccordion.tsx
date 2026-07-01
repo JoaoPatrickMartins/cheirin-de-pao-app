@@ -16,6 +16,9 @@ interface CondoAccordionProps {
   isOpen: boolean
   onToggle: () => void
   confirmedIds: Set<string>
+  notDeliveredIds?: Set<string>
+  // Repassa para as paradas exibirem o turno (quando a rota mistura manhã e tarde).
+  showSlot?: boolean
   onConfirm: (stop: Stop) => void
 }
 
@@ -25,9 +28,12 @@ export function CondoAccordion({
   isOpen,
   onToggle,
   confirmedIds,
+  notDeliveredIds = new Set(),
+  showSlot = false,
   onConfirm,
 }: CondoAccordionProps) {
-  const feitas = condo.stops.filter((s) => confirmedIds.has(s.orderId)).length
+  // "Resolvidas" = entregues OU marcadas como não entregues (ambas saem da fila de ação)
+  const feitas = condo.stops.filter((s) => confirmedIds.has(s.orderId) || notDeliveredIds.has(s.orderId)).length
   const total = condo.stops.length
   const isAllDone = feitas === total && total > 0
 
@@ -186,6 +192,8 @@ export function CondoAccordion({
               stop={stop}
               order={idx + 1}
               isConfirmed={confirmedIds.has(stop.orderId)}
+              isNotDelivered={notDeliveredIds.has(stop.orderId)}
+              showSlot={showSlot}
               onPress={onConfirm}
             />
           ))}

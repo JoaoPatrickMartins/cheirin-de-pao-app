@@ -9,7 +9,10 @@
  */
 
 export interface DeliverySlot {
+  slotId?: string     // identificador estável (manha | tarde)
   name: string        // "manha" | "tarde"
+  label?: string      // rótulo de exibição (ex.: "Manhã")
+  emoji?: string      // emoji de exibição
   time: string        // "06:30"
   cutoffTime: string
   isActive: boolean
