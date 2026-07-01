@@ -17,6 +17,8 @@ export const CreateCondominiumSchema = z.object({
   type: z.enum(['SINGLE_ENTRANCE', 'BLOCKS'], {
     message: 'Tipo inválido. Use SINGLE_ENTRANCE ou BLOCKS.',
   }),
+  // Número de blocos/torres — relevante apenas quando type == BLOCKS.
+  numBlocks: z.number().int().min(1, 'Número de blocos deve ser ao menos 1').optional(),
   // Coordenadas manuais (opcionais) — quando informadas, têm prioridade sobre a
   // geocodificação automática do endereço.
   lat: z.number().optional(),
@@ -25,7 +27,10 @@ export const CreateCondominiumSchema = z.object({
 
 export type CreateCondominiumBody = z.infer<typeof CreateCondominiumSchema>
 
-export const UpdateCondominiumSchema = CreateCondominiumSchema.partial()
+export const UpdateCondominiumSchema = CreateCondominiumSchema.partial().extend({
+  // Ativar/desativar o condomínio (atendimento). Só editável via update.
+  isActive: z.boolean().optional(),
+})
 export type UpdateCondominiumBody = z.infer<typeof UpdateCondominiumSchema>
 
 export const SlotUpdateSchema = z.object({

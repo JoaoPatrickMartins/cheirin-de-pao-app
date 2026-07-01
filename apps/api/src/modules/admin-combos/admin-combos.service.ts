@@ -46,6 +46,15 @@ export class AdminCombosService {
   }
 
   /**
+   * Busca um combo por ID (para edição). Lança 404 se não encontrar.
+   */
+  async getById(id: string) {
+    const combo = await this.repository.findById(id)
+    if (!combo) throw { statusCode: 404, message: 'Combo não encontrado' }
+    return combo
+  }
+
+  /**
    * Cria um novo combo.
    */
   async create(data: CreateComboBody) {
@@ -58,7 +67,16 @@ export class AdminCombosService {
   async update(id: string, data: UpdateComboBody) {
     const existing = await this.repository.findById(id)
     if (!existing) throw { statusCode: 404, message: 'Combo não encontrado' }
-    return this.repository.update(id, data)
+
+    // Desativar o combo desliga a compra automática dos clientes que o usam —
+    // evita cobrá-los em um combo que não existe mais na loja.
+    let affectedAutoRecharge = 0
+    if (data.isActive === false && existing.isActive) {
+      affectedAutoRecharge = await this.repository.disableAutoRechargeForCombo(id)
+    }
+
+    const updated = await this.repository.update(id, data)
+    return { ...updated, affectedAutoRecharge }
   }
 
   /**

@@ -11,7 +11,6 @@ export function ContactEditScreen() {
   const auth = useAuth()
 
   const [step, setStep] = useState<0 | 1>(0)
-  const [channel, setChannel] = useState<'sms' | 'email'>('sms')
   const [contactValue, setContactValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -22,7 +21,7 @@ export function ContactEditScreen() {
     setLoading(true)
     setError(null)
     try {
-      const body = channel === 'sms' ? { phone: contactValue.trim() } : { email: contactValue.trim() }
+      const body = { email: contactValue.trim() }
       const res = await apiFetch('/client/profile/contact/request-change', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -51,7 +50,7 @@ export function ContactEditScreen() {
         body: JSON.stringify({ code }),
       })
       if (res.ok) {
-        auth.updateUser(channel === 'sms' ? { phone: contactValue.trim() } : { email: contactValue.trim() })
+        auth.updateUser({ email: contactValue.trim() })
         navigate('/client/perfil')
       } else if (res.status === 401) {
         const data = (await res.json()) as { error?: string }
@@ -138,17 +137,14 @@ export function ContactEditScreen() {
         }}
       >
         <StepIndicator current={1} total={2} />
-        <h2 style={headingStyle}>Qual é o novo contato?</h2>
-        <p style={subtitleStyle}>Você receberá um código de verificação.</p>
-
-        <ChannelToggle selected={channel} onChange={setChannel} />
-        <div style={{ height: 16 }} />
+        <h2 style={headingStyle}>Qual é o novo e-mail?</h2>
+        <p style={subtitleStyle}>Você receberá um código de verificação por e-mail.</p>
 
         <input
-          type={channel === 'sms' ? 'tel' : 'email'}
-          inputMode={channel === 'sms' ? 'tel' : 'email'}
-          autoComplete={channel === 'sms' ? 'tel' : 'email'}
-          placeholder={channel === 'sms' ? '+55 (11) 99999-9999' : 'seu@email.com'}
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          placeholder="seu@email.com"
           value={contactValue}
           onChange={(e) => { setContactValue(e.target.value); setError(null) }}
           disabled={loading}
@@ -244,40 +240,6 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
     >
       Passo {current} de {total}
     </p>
-  )
-}
-
-function ChannelToggle({
-  selected,
-  onChange,
-}: {
-  selected: 'sms' | 'email'
-  onChange: (v: 'sms' | 'email') => void
-}) {
-  return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      {(['sms', 'email'] as const).map((ch) => (
-        <button
-          key={ch}
-          onClick={() => onChange(ch)}
-          style={{
-            flex: 1,
-            minHeight: 44,
-            borderRadius: 'var(--radius-field)',
-            border: `1.5px solid ${selected === ch ? 'var(--color-accent)' : 'var(--color-border)'}`,
-            background: selected === ch ? 'var(--color-surface)' : 'transparent',
-            fontFamily: 'var(--font-body)',
-            fontSize: 14,
-            fontWeight: selected === ch ? 700 : 500,
-            color: selected === ch ? 'var(--color-accent)' : 'var(--color-text-sec)',
-            cursor: 'pointer',
-            transition: 'border-color 0.15s, color 0.15s',
-          }}
-        >
-          {ch === 'sms' ? 'SMS' : 'E-mail'}
-        </button>
-      ))}
-    </div>
   )
 }
 

@@ -29,11 +29,6 @@ interface DeliveryStatus {
   orderIds: string[]
 }
 
-const TABS: Array<{ key: Segment; label: string }> = [
-  { key: 'hoje', label: 'Hoje' },
-  { key: 'historico', label: 'Histórico' },
-]
-
 // Filtros de status do histórico
 type HistFilter = 'todos' | 'DELIVERED' | 'NOT_DELIVERED' | 'CANCELLED' | 'parados'
 const HIST_FILTERS: Array<{ key: HistFilter; label: string }> = [
@@ -218,13 +213,69 @@ export function AdminEntregas() {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
-      <AdminHead sub={`Controle do dia · ${formatDateShort()}`} titulo="Entregas" />
+      {segment === 'historico' ? (
+        // Histórico — header com seta de voltar (espelha o padrão de Pedidos)
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '4px 20px 14px' }}>
+          <button
+            onClick={() => setSegment('hoje')}
+            aria-label="Voltar para as entregas do dia"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 11,
+              background: 'var(--color-surface-2)',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="chevL" size={20} color="var(--color-text)" stroke={2.2} />
+          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, minWidth: 0 }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-text-ter)', margin: 0, lineHeight: 1.3 }}>
+              Entregas
+            </p>
+            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--color-text)', margin: 0, lineHeight: 1.2 }}>
+              Histórico
+            </h1>
+          </div>
+        </div>
+      ) : (
+        <AdminHead
+          sub={`Controle do dia · ${formatDateShort()}`}
+          titulo="Entregas"
+          action={
+            <button
+              onClick={() => setSegment('historico')}
+              aria-label="Histórico de entregas"
+              title="Histórico de entregas"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 13px',
+                borderRadius: 999,
+                border: '1px solid var(--color-border-2)',
+                background: 'var(--color-surface)',
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 12.5,
+                color: 'var(--color-text)',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-soft)',
+              }}
+            >
+              <Icon name="clock" size={15} color="var(--color-accent)" stroke={2} />
+              Histórico
+            </button>
+          }
+        />
+      )}
 
       <div style={{ padding: '0 20px' }}>
-        <div style={{ marginBottom: 16 }}>
-          <SegmentedControl<Segment> tabs={TABS} value={segment} onChange={setSegment} />
-        </div>
-
         {/* Seletor de turno — pipeline por turno (só na operação do dia) */}
         {segment === 'hoje' && slots.length > 1 && (
           <div style={{ marginBottom: 16 }}>

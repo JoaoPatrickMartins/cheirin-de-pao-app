@@ -388,7 +388,7 @@ export function SingleScreen() {
           </p>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             {/* warn === accent no tema claro (#B0702A) — cor mantida pelo componente em ambos os estados */}
-            <QuantityStepper min={1} max={20} value={qtd} onChange={setQtd} />
+            <QuantityStepper min={1} max={20} value={qtd} onChange={setQtd} showUnit />
           </div>
         </div>
 

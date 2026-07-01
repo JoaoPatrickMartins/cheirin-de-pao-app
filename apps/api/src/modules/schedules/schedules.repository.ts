@@ -84,4 +84,27 @@ export class SchedulesRepository {
       data: { creditBalance: { decrement: amount } },
     })
   }
+
+  /** O ciclo (condomínio, slot, dia de entrega) já foi materializado? (marca persistida) */
+  async isCycleMaterialized(condominiumId: string, slotId: string, deliveryDate: string): Promise<boolean> {
+    const row = await this.prisma.materializedCycle.findFirst({
+      where: { condominiumId, slotId, deliveryDate },
+      select: { id: true },
+    })
+    return !!row
+  }
+
+  /** Marca o ciclo como materializado (idempotente via unique composto). */
+  async markCycleMaterialized(condominiumId: string, slotId: string, deliveryDate: string): Promise<void> {
+    await this.prisma.materializedCycle.upsert({
+      where: { condominiumId_slotId_deliveryDate: { condominiumId, slotId, deliveryDate } },
+      create: { condominiumId, slotId, deliveryDate },
+      update: {},
+    })
+  }
+
+  /** Remove marcas de ciclos antigos (entrega anterior a `beforeDate`, YYYY-MM-DD). */
+  deleteCyclesBefore(beforeDate: string) {
+    return this.prisma.materializedCycle.deleteMany({ where: { deliveryDate: { lt: beforeDate } } })
+  }
 }

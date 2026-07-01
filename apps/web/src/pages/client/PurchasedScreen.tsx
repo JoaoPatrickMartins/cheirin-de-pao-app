@@ -31,7 +31,7 @@ export function PurchasedScreen() {
 
   const qtyLabel = quantity === 1 ? '1 pãozinho' : `${quantity} pãezinhos`
 
-  let title = 'Créditos na conta!'
+  let title = 'Pães na conta!'
   let subtitle = `+${quantity} pães adicionados. Agora é só deixar a agenda no jeito.`
   if (isOrder) {
     const verb = quantity === 1 ? 'chega' : 'chegam'

@@ -54,6 +54,106 @@
 }
 
 /* ============================================================
+   Home — animações ambientes (sutis, premium).
+   A regra prefers-reduced-motion acima zera todas elas (animation
+   com fill "both" salta direto para o estado final). As animações
+   de entrada/gesto (framer-motion) são neutralizadas via
+   <MotionConfig reducedMotion="user"> na HomeScreen.
+   ============================================================ */
+
+/* Brilho diagonal que cruza o card espresso uma vez na entrada */
+@keyframes cdp-sheen {
+  0%   { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translateX(240%) skewX(-18deg); opacity: 0; }
+}
+.cdp-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.08) 44%,
+    rgba(255, 255, 255, 0.16) 50%,
+    rgba(255, 255, 255, 0.08) 56%,
+    transparent
+  );
+  animation: cdp-sheen 1.5s cubic-bezier(0.4, 0, 0.2, 1) 0.45s 1 both;
+}
+
+/* Flutuação lenta do símbolo de fundo (marca d'água) */
+@keyframes cdp-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+.cdp-float { animation: cdp-float 6.5s ease-in-out infinite; }
+
+/* Anel pulsante do status "A caminho" (sensação de tempo real) */
+@keyframes cdp-pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  70%  { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.cdp-live-dot { position: relative; }
+.cdp-live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  /* mesmo tom do ponto (accent/dourado) — alinhado ao status "A caminho" do histórico */
+  background: var(--color-accent);
+  animation: cdp-pulse-ring 1.8s ease-out infinite;
+}
+
+/* Sininho: balanço único quando há notificações não lidas */
+@keyframes cdp-wiggle {
+  0%, 100% { transform: rotate(0); }
+  20%      { transform: rotate(-13deg); }
+  40%      { transform: rotate(10deg); }
+  60%      { transform: rotate(-6deg); }
+  80%      { transform: rotate(3deg); }
+}
+.cdp-wiggle {
+  animation: cdp-wiggle 0.7s ease-in-out 0.55s 1 both;
+  transform-origin: 50% 15%;
+  display: inline-flex;
+}
+
+/* Pulso suave do ponto dourado de notificação */
+@keyframes cdp-dot-pulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.35); opacity: 0.7; }
+}
+.cdp-bell-dot { animation: cdp-dot-pulse 2.2s ease-in-out infinite; }
+
+/* Shimmer do skeleton dos próximos dias */
+@keyframes cdp-shimmer {
+  0%   { background-position: -150% 0; }
+  100% { background-position: 150% 0; }
+}
+.cdp-shimmer {
+  background: linear-gradient(90deg, var(--color-surface-2) 25%, #efe4d0 50%, var(--color-surface-2) 75%);
+  background-size: 200% 100%;
+  animation: cdp-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Carrossel horizontal (próximas entregas) — swipe nativo, sem scrollbar visível */
+.cdp-carousel {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scroll-padding-left: 2px;
+}
+.cdp-carousel::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================================
    Mercado Pago — CardPayment Brick (campos seguros em iframes)
    Número, Validade e CVV são iframes cross-origin. No layout
    "split" (validade + CVV lado a lado) o MP injeta um div overlay

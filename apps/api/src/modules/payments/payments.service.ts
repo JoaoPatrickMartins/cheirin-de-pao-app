@@ -165,6 +165,10 @@ export class PaymentsService {
     if (!ar?.active || !ar.comboId) return { ok: false, reason: 'inactive' }
     // Consentimento explícito é obrigatório para cobrar sem CVV (off_session)
     if (!user.offSessionConsentAt) return { ok: false, reason: 'consent' }
+    // Rede de segurança: nunca cobrar num combo desativado (a desativação já desliga
+    // o autoRecharge, mas isto cobre configs antigas que escaparam da cascata).
+    const combo = await this.prisma.combo.findUnique({ where: { id: ar.comboId } })
+    if (!combo || combo.isActive === false) return { ok: false, reason: 'combo_inactive' }
 
     const card = await this.prisma.savedCard.findFirst({ where: { userId, isDefault: true } })
     if (!card?.stripePaymentMethodId) return { ok: false, reason: 'no_card' }

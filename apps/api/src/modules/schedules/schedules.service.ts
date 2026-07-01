@@ -4,7 +4,21 @@ import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { PaymentsService } from '../payments/payments.service.js'
-import { nowHHMM, targetDeliveryDate, dayKeyOf, brtDayRange, type DayKey } from '../../lib/cutoff.js'
+import {
+  nowHHMM,
+  targetDeliveryDate,
+  dayKeyOf,
+  brtDayRange,
+  brtDateStr,
+  brtNoonFromStr,
+  isPastCutoffForDelivery,
+  nextDeliveryDateStr,
+  cutoffInstantForDelivery,
+  type DayKey,
+} from '../../lib/cutoff.js'
+
+/** Teto de tentativas de cobrança auto-recarga por (user, slot, dia) — anti-spam de cartão. */
+const MAX_RECHARGE_ATTEMPTS = 3
 
 // D-09: Helper puro que calcula consumo semanal total independente de modo (multi-slot ou legado)
 function getConsumoSemanal(schedule: { days: unknown; weeklyQty: unknown }): number {
@@ -30,6 +44,12 @@ export class SchedulesService {
   private notificationsService: NotificationsService
   private payments: PaymentsService
 
+  // Anti-spam de cobrança na janela T-2h: nº de cobranças por `${user}|${slot}|${dia}`.
+  // Em memória (compartilhado entre ticks; instância única em cron.ts) — resetar no restart só
+  // permite no máx. +MAX_RECHARGE_ATTEMPTS cobranças, aceitável. O marcador de CICLO materializado
+  // (backfill 1x) é PERSISTIDO no banco (MaterializedCycle) — sobrevive a restart e à meia-noite.
+  private autoRechargeAttempts = new Map<string, number>()
+
   constructor(private fastify: FastifyInstance) {
     this.repo = new SchedulesRepository(fastify)
     this.notificationsService = new NotificationsService(fastify)
@@ -53,12 +73,24 @@ export class SchedulesService {
    * Cria as orders de UM slot de UM condomínio para a `deliveryDate` informada.
    * Idempotente: pula se já existe Order para (user, slot, dia) — seguro p/ cron por minuto.
    * Preenche `condominiumId` + `deliveryTime` e debita créditos (transação por order).
+   *
+   * @param opts.onlyAutoRecharge só processa clientes com recarga automática ativa (pré-confirmação T-2h).
+   * @param opts.rechargeAttempts mapa compartilhado de tentativas `${user}|${slot}|${dia}` → nº; com
+   *   `maxRechargeAttempts`, limita re-cobranças no modo janela (anti-spam de cartão). Sem ele = ilimitado.
+   * @param opts.maxRechargeAttempts teto de tentativas de cobrança por (user, slot, dia).
+   * @param opts.suppressInsufficientPush não envia o push "sem saldo" (a janela suprime; o corte avisa 1x).
    */
   async createOrdersForCondoSlot(
     condominiumId: string,
     slot: { slotId: string; time: string },
     dayKey: DayKey,
     deliveryDate: Date,
+    opts: {
+      onlyAutoRecharge?: boolean
+      rechargeAttempts?: Map<string, number>
+      maxRechargeAttempts?: number
+      suppressInsufficientPush?: boolean
+    } = {},
   ): Promise<void> {
     const schedules = await this.prisma.schedule.findMany({
       where: { condominiumId, isActive: true },
@@ -89,21 +121,36 @@ export class SchedulesService {
         const user = await this.repo.findUserById(schedule.userId)
         if (!user) continue
 
+        // Pré-confirmação T-2h: processa SÓ quem tem recarga automática ativa.
+        // Os demais (recarga manual/avulso) seguem sendo materializados no corte.
+        if (opts.onlyAutoRecharge) {
+          const ar = user.autoRecharge as { active?: boolean } | null
+          if (!ar?.active) continue
+        }
+
         let balance = user.creditBalance
 
-        // Saldo insuficiente: tenta a recarga automática (sem CVV) JUST-IN-TIME.
+        // Saldo insuficiente: tenta a recarga automática (sem CVV).
         // chargeAutoRecharge é self-validating (só cobra se ativa + consentida + cartão padrão).
+        // Com rechargeAttempts+max, limita re-cobranças (anti-spam de cartão no modo janela).
         if (balance < qty) {
-          const result = await this.payments.chargeAutoRecharge(schedule.userId)
-          if (result.ok) {
-            const refreshed = await this.repo.findUserById(schedule.userId)
-            balance = refreshed?.creditBalance ?? balance
+          const attemptKey = `${schedule.userId}|${slot.slotId}|${dateLabel}`
+          const tracker = opts.rechargeAttempts
+          const tried = tracker?.get(attemptKey) ?? 0
+          const max = opts.maxRechargeAttempts ?? Number.POSITIVE_INFINITY
+          if (tried < max) {
+            if (tracker) tracker.set(attemptKey, tried + 1)
+            const result = await this.payments.chargeAutoRecharge(schedule.userId)
+            if (result.ok) {
+              const refreshed = await this.repo.findUserById(schedule.userId)
+              balance = refreshed?.creditBalance ?? balance
+            }
           }
         }
 
-        // Ainda insuficiente (recarga inativa/recusada): NÃO cria a order + avisa.
+        // Ainda insuficiente (recarga inativa/recusada): NÃO cria a order + avisa (1x — no corte).
         if (balance < qty) {
-          if (user.oneSignalPlayerId) {
+          if (!opts.suppressInsufficientPush && user.oneSignalPlayerId) {
             try {
               const osClient = createOsClient()
               const notification = new OneSignal.Notification()
@@ -182,6 +229,7 @@ export class SchedulesService {
    * Disparado pelo cron a cada minuto: para cada (condomínio ativo, slot ativo) cujo
    * `cutoffTime` casa com a hora BRT atual, cria as orders da data alvo (Regra A).
    * Substitui a criação à meia-noite — agora a order é "fechada" no corte de cada slot.
+   * Marca o ciclo como materializado (materializedCycles) p/ o backfill não reprocessar.
    */
   async createOrdersAtCutoff(now: Date = new Date()): Promise<void> {
     const hhmm = nowHHMM(now)
@@ -196,7 +244,100 @@ export class SchedulesService {
         this.fastify.log.info(
           `[schedules] corte ${hhmm} — ${condo.name} / slot ${slot.name} (${slot.time}) → gerando orders p/ ${deliveryDate.toISOString().split('T')[0]}`,
         )
-        await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate)
+        await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate, {
+          rechargeAttempts: this.autoRechargeAttempts,
+          maxRechargeAttempts: MAX_RECHARGE_ATTEMPTS,
+        })
+        await this.repo.markCycleMaterialized(condo.id, slotId, deliveryDate.toISOString().slice(0, 10))
+      }
+    }
+  }
+
+  /** Limpa o anti-spam de cobrança (em memória) de dias passados — chamado a cada minuto. */
+  private pruneCronState(now: Date): void {
+    const today = brtDateStr(now, 0)
+    for (const k of this.autoRechargeAttempts.keys()) {
+      if (k.slice(k.lastIndexOf('|') + 1) < today) this.autoRechargeAttempts.delete(k)
+    }
+  }
+
+  /** Remove marcas de ciclos materializados antigos (entrega < hoje-2). Chamado no cron diário. */
+  async cleanupOldMaterializedCycles(now: Date = new Date()): Promise<void> {
+    await this.repo.deleteCyclesBefore(brtDateStr(now, -2))
+  }
+
+  /**
+   * backfillMissedCutoffs — disparado pelo cron a cada minuto. Para cada slot, examina as entregas
+   * de HOJE e AMANHÃ (BRT) cujo corte (instante ABSOLUTO) já passou mas que ainda NÃO foram
+   * materializadas (marca persistida em MaterializedCycle) — ex.: servidor fora do ar no minuto
+   * exato do corte (node-cron não faz backfill). Materializa agora, 1x por ciclo.
+   *
+   * Por usar datas absolutas + marca persistida, recupera cortes mesmo CRUZANDO A MEIA-NOITE e
+   * SOBREVIVE A RESTART. Idempotente; cobrança limitada (anti-spam).
+   */
+  async backfillMissedCutoffs(now: Date = new Date()): Promise<void> {
+    const candidates = [brtDateStr(now, 0), brtDateStr(now, 1)]
+    const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
+
+    for (const condo of condominiums) {
+      for (const slot of condo.deliverySlots) {
+        if (!slot.isActive) continue
+        const slotId = slot.slotId ?? slot.name
+        for (const deliveryStr of candidates) {
+          // Só recupera cortes cujo instante absoluto já passou.
+          if (!isPastCutoffForDelivery(slot.time, slot.cutoffTime, deliveryStr, now)) continue
+          if (await this.repo.isCycleMaterialized(condo.id, slotId, deliveryStr)) continue
+
+          const deliveryDate = brtNoonFromStr(deliveryStr)
+          const dayKey = dayKeyOf(deliveryDate)
+          this.fastify.log.warn(
+            `[schedules] BACKFILL corte perdido — ${condo.name} / slot ${slot.name} (corte ${slot.cutoffTime}) → ${deliveryStr}`,
+          )
+          await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate, {
+            rechargeAttempts: this.autoRechargeAttempts,
+            maxRechargeAttempts: MAX_RECHARGE_ATTEMPTS,
+          })
+          await this.repo.markCycleMaterialized(condo.id, slotId, deliveryStr)
+        }
+      }
+    }
+  }
+
+  /**
+   * preconfirmAutoRechargeAhead — disparado pelo cron a cada minuto. `leadMinutes` antes do
+   * corte de cada slot, confirma ANTECIPADAMENTE as orders de quem tem recarga automática ativa:
+   * cobra o cartão off-session e cria a order, dando margem para a cobrança processar antes do
+   * corte (evita que uma demora deixe o agendado sem confirmar quando a auto-recarga está ativa).
+   *
+   * Só toca em clientes com auto-recarga ativa — os demais seguem sendo materializados no corte.
+   * Roda em JANELA `[corte − leadMinutes, corte)` usando o INSTANTE ABSOLUTO do corte (seguro p/
+   * janelas que cruzam a meia-noite): a cada minuto tenta confirmar quem ainda falta, com no máx.
+   * MAX_RECHARGE_ATTEMPTS cobranças por (user, slot, dia) — retenta falhas transitórias sem
+   * martelar o cartão (anti-spam). Suprime o push "sem saldo" na janela (o corte avisa 1x).
+   * Quem é confirmado vira Order e é pulado por idempotência nos minutos seguintes.
+   */
+  async preconfirmAutoRechargeAhead(now: Date = new Date(), leadMinutes = 120): Promise<void> {
+    this.pruneCronState(now)
+    const leadMs = leadMinutes * 60_000
+    const condominiums = await this.prisma.condominium.findMany({ where: { isActive: true } })
+
+    for (const condo of condominiums) {
+      for (const slot of condo.deliverySlots) {
+        if (!slot.isActive) continue
+        const deliveryStr = nextDeliveryDateStr(slot.time, now) // próxima entrega deste slot
+        const cutoffAt = cutoffInstantForDelivery(slot.time, slot.cutoffTime, deliveryStr).getTime()
+        // Janela [corte − lead, corte): instantes absolutos, robusto à meia-noite.
+        if (now.getTime() < cutoffAt - leadMs || now.getTime() >= cutoffAt) continue
+
+        const slotId = slot.slotId ?? slot.name
+        const deliveryDate = brtNoonFromStr(deliveryStr)
+        const dayKey = dayKeyOf(deliveryDate)
+        await this.createOrdersForCondoSlot(condo.id, { slotId, time: slot.time }, dayKey, deliveryDate, {
+          onlyAutoRecharge: true,
+          rechargeAttempts: this.autoRechargeAttempts,
+          maxRechargeAttempts: MAX_RECHARGE_ATTEMPTS,
+          suppressInsufficientPush: true,
+        })
       }
     }
   }

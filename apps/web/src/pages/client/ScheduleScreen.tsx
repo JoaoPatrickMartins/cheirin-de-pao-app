@@ -346,6 +346,7 @@ export function ScheduleScreen() {
                             min={0}
                             max={12}
                             value={v}
+                            showUnit
                             onChange={(newV) =>
                               setDays({
                                 ...days,
@@ -442,6 +443,7 @@ export function ScheduleScreen() {
                         min={0}
                         max={12}
                         value={v}
+                        showUnit
                         onChange={(newV) => setWeeklyQty({ ...weeklyQty, [key]: newV })}
                       />
                     </div>

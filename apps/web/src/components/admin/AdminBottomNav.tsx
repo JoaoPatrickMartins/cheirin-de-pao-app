@@ -10,7 +10,7 @@ interface TabItem {
 
 const TABS: TabItem[] = [
   { key: 'painel',    label: 'Painel',    icon: 'trend'    },
-  { key: 'pedido',    label: 'Compra',    icon: 'factory'  },
+  { key: 'pedido',    label: 'Pedidos',   icon: 'factory'  },
   { key: 'separacao', label: 'Separação', icon: 'list'     },
   { key: 'entregas',  label: 'Entregas',  icon: 'truck'    },
   { key: 'clientes',  label: 'Clientes',  icon: 'users'    },

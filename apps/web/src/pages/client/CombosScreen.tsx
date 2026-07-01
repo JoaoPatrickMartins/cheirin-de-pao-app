@@ -114,7 +114,7 @@ export function CombosScreen() {
             margin: '0 0 16px 0',
           }}
         >
-          Créditos
+          Pães
         </h1>
 
         {/* Segmented Control — "Pedido único" leva à tela de agendamento avulso */}
@@ -226,7 +226,7 @@ export function CombosScreen() {
                   margin: 0,
                 }}
               >
-                ✓ Créditos não expiram. Pause quando viajar.
+                ✓ Pães não expiram. Pause quando viajar.
               </p>
             </div>
           </div>

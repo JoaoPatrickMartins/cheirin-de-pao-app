@@ -1,5 +1,5 @@
 // AdminBottomNav unit tests
-// Requirements: navegação inferior Admin — 6 abas (Painel · Compra · Separação · Entregas · Clientes · Gestão)
+// Requirements: navegação inferior Admin — 6 abas (Painel · Pedidos · Separação · Entregas · Clientes · Gestão)
 // O logout foi movido para o fim da aba Gestão (não fica mais na bottom nav).
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
@@ -17,11 +17,11 @@ describe('AdminBottomNav', () => {
     expect(activeButton).toHaveAttribute('aria-current', 'page')
   })
 
-  it('inclui as novas abas Compra e Separação', () => {
+  it('inclui as abas Pedidos e Separação', () => {
     const onTabChange = vi.fn()
     render(<AdminBottomNav activeTab="painel" onTabChange={onTabChange} />)
 
-    expect(screen.getByRole('button', { name: 'Compra' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Pedidos' })).toBeDefined()
     expect(screen.getByRole('button', { name: 'Separação' })).toBeDefined()
   })
 

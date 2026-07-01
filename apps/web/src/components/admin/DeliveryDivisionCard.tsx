@@ -457,8 +457,8 @@ export function DeliveryDivisionCard({
             gap: 7,
             border: 'none',
             borderRadius: 14,
-            background: 'var(--color-gold)',
-            color: '#1E1207',
+            background: 'var(--color-espresso)',
+            color: '#FAF5EC',
             fontFamily: 'var(--font-body)',
             fontSize: 14,
             fontWeight: 700,
@@ -467,7 +467,7 @@ export function DeliveryDivisionCard({
             transition: 'opacity 0.15s ease',
           }}
         >
-          <Icon name="check" size={16} color="#1E1207" stroke={2.5} aria-hidden="true" />
+          <Icon name="check" size={16} color="#FAF5EC" stroke={2.5} aria-hidden="true" />
           {isApproving ? 'Aprovando...' : 'Aprovar divisão'}
         </button>
       ) : (

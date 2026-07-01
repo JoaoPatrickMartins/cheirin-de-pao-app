@@ -6,13 +6,12 @@ import { ResendTimer } from '../../components/auth/ResendTimer'
 import { Icon } from '../../components/brand/Icon'
 import { apiFetch } from '../../lib/apiFetch'
 
-type Step = 'phone-entry' | 'otp'
-type InputMode = 'phone' | 'email'
+type Step = 'email-entry' | 'otp'
 
 /**
- * LoginScreen — 2-step OTP login
+ * LoginScreen — 2-step OTP login (apenas e-mail neste primeiro momento)
  *
- * Step 1: phone or email entry → POST /auth/otp/send → advances to step 2
+ * Step 1: email entry → POST /auth/otp/send → advances to step 2
  * Step 2: OTP 4-digit entry → POST /auth/otp/verify → auth.login() → role-based redirect
  *
  * Design tokens: matches screens-onboarding.jsx LoginScreen with high fidelity (AUTH-04/05/08, UI-06)
@@ -21,8 +20,7 @@ export function LoginScreen() {
   const auth = useAuth()
   const navigate = useNavigate()
 
-  const [step, setStep] = useState<Step>('phone-entry')
-  const [inputMode, setInputMode] = useState<InputMode>('phone')
+  const [step, setStep] = useState<Step>('email-entry')
   const [inputValue, setInputValue] = useState('')
   const [userId, setUserId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
@@ -35,10 +33,7 @@ export function LoginScreen() {
     setIsLoading(true)
     setError(null)
     try {
-      const body =
-        inputMode === 'phone'
-          ? { phone: inputValue.trim() }
-          : { email: inputValue.trim() }
+      const body = { email: inputValue.trim() }
 
       const res = await apiFetch('/auth/otp/send', {
         method: 'POST',
@@ -125,7 +120,7 @@ export function LoginScreen() {
 
   const handleBack = () => {
     if (step === 'otp') {
-      setStep('phone-entry')
+      setStep('email-entry')
       setError(null)
     } else {
       navigate('/')
@@ -176,19 +171,13 @@ export function LoginScreen() {
           justifyContent: 'center',
         }}
       >
-        {step === 'phone-entry' ? (
-          <StepPhoneEntry
-            inputMode={inputMode}
+        {step === 'email-entry' ? (
+          <StepEmailEntry
             inputValue={inputValue}
             isLoading={isLoading}
             error={error}
             onInputChange={(v) => {
               setInputValue(v)
-              setError(null)
-            }}
-            onToggleMode={() => {
-              setInputMode((m) => (m === 'phone' ? 'email' : 'phone'))
-              setInputValue('')
               setError(null)
             }}
             onSubmit={sendOtp}
@@ -209,31 +198,25 @@ export function LoginScreen() {
 
 // ──────────────── Sub-components ────────────────
 
-interface StepPhoneEntryProps {
-  inputMode: InputMode
+interface StepEmailEntryProps {
   inputValue: string
   isLoading: boolean
   error: string | null
   onInputChange: (value: string) => void
-  onToggleMode: () => void
   onSubmit: () => void
 }
 
-function StepPhoneEntry({
-  inputMode,
+function StepEmailEntry({
   inputValue,
   isLoading,
   error,
   onInputChange,
-  onToggleMode,
   onSubmit,
-}: StepPhoneEntryProps) {
-  const isPhone = inputMode === 'phone'
+}: StepEmailEntryProps) {
   const [focused, setFocused] = useState(false)
 
-  const bodyText = isPhone
-    ? 'Enviamos um código por SMS para confirmar seu número. Sem senha pra decorar.'
-    : 'Enviamos um código por e-mail para confirmar seu endereço. Sem senha pra decorar.'
+  const bodyText =
+    'Enviamos um código por e-mail para confirmar seu endereço. Sem senha pra decorar.'
 
   return (
     <div>
@@ -271,10 +254,10 @@ function StepPhoneEntry({
       {/* Input field */}
       <div style={{ position: 'relative' }}>
         <input
-          type={isPhone ? 'tel' : 'email'}
-          inputMode={isPhone ? 'tel' : 'email'}
-          autoComplete={isPhone ? 'tel' : 'email'}
-          placeholder={isPhone ? '+55 (11) 99999-9999' : 'seu@email.com'}
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          placeholder="seu@email.com"
           value={inputValue}
           onChange={(e) => onInputChange(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -311,35 +294,6 @@ function StepPhoneEntry({
       >
         Enviar código
       </PrimaryButton>
-
-      {/* Toggle input mode link */}
-      <div
-        style={{
-          textAlign: 'center',
-          marginTop: 16,
-          fontFamily: 'var(--font-body)',
-          fontSize: 15,
-          fontWeight: 400,
-          color: 'var(--color-text-ter)',
-        }}
-      >
-        ou entre com{' '}
-        <button
-          onClick={onToggleMode}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            fontFamily: 'var(--font-body)',
-            fontSize: 15,
-            fontWeight: 700,
-            color: 'var(--color-accent)',
-            cursor: 'pointer',
-          }}
-        >
-          {isPhone ? 'e-mail' : 'telefone'}
-        </button>
-      </div>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { FastifyInstance } from 'fastify'
 import { ClientProfileRepository } from './client-profile.repository.js'
-import { sendSmsOtp, sendEmailOtp } from '../auth/otp.service.js'
+import { sendEmailOtp } from '../auth/otp.service.js'
 import type { UpdateProfileBody, ContactChangeRequestBody, ContactChangeConfirmBody } from './client-profile.schema.js'
 
 export class ClientProfileService {
@@ -78,25 +78,19 @@ export class ClientProfileService {
     const user = await this.repo.findUserById(userId)
     if (!user) return { error: 'Usuário não encontrado', status: 404 }
 
-    const field = body.phone ? 'phone' : 'email'
-    const value = (body.phone ?? body.email)!
-    const conflict = await this.repo.checkContactConflict(field, value)
+    const conflict = await this.repo.checkContactConflict('email', body.email)
     if (conflict && conflict.id !== userId) {
       return { error: 'Este contato já está associado a outra conta.', status: 422 }
     }
 
     const code = this.generateOtpCode()
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
-    // Encode new contact value in channel field as "sms:{phone}" or "email:{email}"
+    // Encode new contact value in channel field as "email:{email}"
     // so confirmContactChange can apply the update without an extra DB lookup
-    const channel = body.phone ? `sms:${body.phone}` : `email:${body.email}`
+    const channel = `email:${body.email}`
     await this.repo.createContactChangeOtp({ userId, code: this.hashValue(code), channel, expiresAt })
 
-    if (body.phone) {
-      await sendSmsOtp(body.phone, code)
-    } else if (body.email) {
-      await sendEmailOtp(body.email, code)
-    }
+    await sendEmailOtp(body.email, code)
 
     return { ok: true }
   }

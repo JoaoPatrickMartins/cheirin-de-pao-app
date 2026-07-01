@@ -13,7 +13,10 @@ export const CreateComboSchema = z.object({
 
 export type CreateComboBody = z.infer<typeof CreateComboSchema>
 
-export const UpdateComboSchema = CreateComboSchema.partial()
+export const UpdateComboSchema = CreateComboSchema.partial().extend({
+  // Ativar/desativar o combo. Só editável via update.
+  isActive: z.boolean().optional(),
+})
 export type UpdateComboBody = z.infer<typeof UpdateComboSchema>
 
 /**

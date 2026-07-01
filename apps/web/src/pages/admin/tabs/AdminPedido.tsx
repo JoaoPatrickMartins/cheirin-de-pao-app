@@ -8,6 +8,7 @@ import { CondominiumOrderDetail } from '../../../components/admin/CondominiumOrd
 import { SupplierOrderHistory } from '../../../components/admin/SupplierOrderHistory'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
 import { slotTabLabel } from '../../../lib/slots'
+import { cutoffInstantForDelivery } from '../../../lib/cutoff'
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -36,6 +37,7 @@ interface Supplier {
   name: string
   pricePerUnit: number
   isPrincipal: boolean
+  isActive: boolean
 }
 
 interface SlotCutoff {
@@ -45,6 +47,8 @@ interface SlotCutoff {
   time: string
   cutoffTime: string
   deliveryDate?: string // ISO — data de entrega do turno (Regra A)
+  cutoffAt?: string // ISO — instante absoluto do corte (vem de upcoming-days)
+  pastCutoff?: boolean // corte já passou (vem de upcoming-days)
   hasOrders?: boolean // há pedidos (materializados + previstos) neste turno
   generated?: boolean // compra deste turno já finalizada
 }
@@ -80,39 +84,43 @@ export function slotColor(slotId: string): string {
   return 'var(--text-sec)'
 }
 
-/** Minutos desde a meia-noite BRT (agora). */
-function brtNowMinutes(): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-    timeZone: 'America/Sao_Paulo',
-  }).formatToParts(new Date())
-  const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
-  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
-  return h * 60 + m
-}
-
-function hhmmToMin(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return (h || 0) * 60 + (m || 0)
+/**
+ * Instante absoluto (ms) do corte de um slot, considerando a DATA de entrega — não só a
+ * hora-do-dia. Usa `cutoffAt` quando o backend já o forneceu (upcoming-days); senão deriva de
+ * `deliveryDate` + `time` + `cutoffTime` (slots-status). `null` quando falta informação.
+ */
+function slotCutoffMs(s: SlotCutoff): number | null {
+  if (s.cutoffAt) {
+    const t = new Date(s.cutoffAt).getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  if (s.deliveryDate && s.time && s.cutoffTime) {
+    return cutoffInstantForDelivery(s.time, s.cutoffTime, s.deliveryDate.slice(0, 10)).getTime()
+  }
+  return null
 }
 
 /**
- * Próximo corte do dia: o slot com cutoffTime mais cedo ainda à frente do horário atual (BRT).
- * Retorna o tempo restante formatado e o label do slot — ou status encerrado se todos passaram.
+ * Próximo corte: o slot cujo INSTANTE de corte (absoluto, já ligado à data de entrega) ainda está
+ * à frente de `now`. Retorna o tempo restante formatado e o label — ou status encerrado se todos
+ * passaram. Compara instantes absolutos (não a hora-do-dia), então um dia futuro não aparece como
+ * "Encerrado" só porque o horário do corte já passou no relógio de hoje.
  */
-function nextCutoff(slots: SlotCutoff[] | null): { open: boolean; label?: string; remaining?: string } {
+export function nextCutoff(
+  slots: SlotCutoff[] | null,
+  now: Date = new Date(),
+): { open: boolean; label?: string; remaining?: string } {
   if (!slots || slots.length === 0) return { open: true }
-  const now = brtNowMinutes()
-  const upcoming = slots
-    .map((s) => ({ label: s.label, min: hhmmToMin(s.cutoffTime) }))
-    .filter((s) => s.min > now)
-    .sort((a, b) => a.min - b.min)
+  const nowMs = now.getTime()
+  const instants = slots
+    .map((s) => ({ label: s.label, at: slotCutoffMs(s) }))
+    .filter((s): s is { label: string; at: number } => s.at != null)
+  if (instants.length === 0) return { open: true } // sem info de corte → assume aberto
+  const upcoming = instants.filter((s) => s.at > nowMs).sort((a, b) => a.at - b.at)
   if (upcoming.length === 0) return { open: false }
-  const diff = upcoming[0].min - now
-  const h = Math.floor(diff / 60)
-  const m = diff % 60
+  const diffMin = Math.floor((upcoming[0].at - nowMs) / 60_000)
+  const h = Math.floor(diffMin / 60)
+  const m = diffMin % 60
   const remaining = h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}min`
   return { open: true, label: upcoming[0].label, remaining }
 }
@@ -202,8 +210,8 @@ function Footer({ label, totalLabel, totalValue, ctaLabel, ctaIcon, onCta, isLoa
           padding: '14px 20px',
           borderRadius: 16,
           border: 'none',
-          background: 'var(--color-accent)',
-          color: '#fff',
+          background: 'var(--color-espresso)',
+          color: '#FAF5EC',
           fontFamily: 'var(--font-body)',
           fontSize: 15,
           fontWeight: 700,
@@ -217,7 +225,7 @@ function Footer({ label, totalLabel, totalValue, ctaLabel, ctaIcon, onCta, isLoa
         }}
         aria-label={ctaLabel}
       >
-        {ctaIcon && <Icon name={ctaIcon} size={18} color="#fff" stroke={2.1} />}
+        {ctaIcon && <Icon name={ctaIcon} size={18} color="#FAF5EC" stroke={2.1} />}
         {ctaLabel}
       </button>
       {label && (
@@ -263,7 +271,59 @@ function formatIsoDate(iso: string): string {
   }
 }
 
-export function AdminPedido() {
+/** Coluna de estatística do card de resumo (mesmo padrão da tela interna do condomínio). */
+function Stat({ label, value, color, bread }: { label: string; value: number; color: string; bread?: boolean }) {
+  return (
+    <div style={{ flex: 1, textAlign: 'center', padding: '0 4px' }}>
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 21,
+          fontWeight: 800,
+          letterSpacing: '-0.02em',
+          fontVariantNumeric: 'tabular-nums',
+          lineHeight: 1,
+          color,
+        }}
+      >
+        {value}{bread ? ' 🥖' : ''}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: 9.5,
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+          color: 'var(--color-text-ter)',
+          marginTop: 4,
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  )
+}
+
+/** Divisória vertical entre estatísticas. */
+function Divider() {
+  return <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--color-border-2)', margin: '1px 0' }} />
+}
+
+interface AdminPedidoProps {
+  /** Data de entrega alvo (YYYY-MM-DD). Quando presente, a tela é escopada a este dia. */
+  deliveryDate?: string
+  /** Slots daquele dia (de upcoming-days). Evita refetch de slots-status no modo dia. */
+  daySlots?: SlotCutoff[]
+  /** Subtítulo desambiguado do header (ex.: "Entrega sáb de manhã · corte sex 22:00"). */
+  daySubtitle?: string
+  /** Volta para a lista de dias. Quando presente, mostra a seta e esconde o botão Histórico. */
+  onBack?: () => void
+}
+
+export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: AdminPedidoProps = {}) {
+  const dayMode = !!deliveryDate
+  const dateQuery = deliveryDate ? `&date=${deliveryDate}` : ''
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
   const [showHistory, setShowHistory] = useState(false)
   const [slotId, setSlotId] = useState<string>('')
@@ -302,8 +362,16 @@ export function AdminPedido() {
   // Busca inicial: draft + cutoff
   // ---------------------------------------------------------------------------
 
-  // Mount: carrega o estado dos turnos e abre no PRÓXIMO corte com pedido (não finalizado).
+  // Mount: no modo dia usa os slots recebidos; senão carrega o estado dos turnos (Regra A)
+  // e abre no PRÓXIMO corte com pedido (não finalizado).
   useEffect(() => {
+    // Modo dia: slots já vêm de upcoming-days — sem refetch de slots-status.
+    if (dayMode && daySlots) {
+      setSlots(daySlots)
+      if (daySlots.length > 0) setSlotId(smartDefaultSlot(daySlots))
+      else setIsLoading(false)
+      return
+    }
     void (async () => {
       try {
         const res = await apiFetch('/admin/supplier-orders/slots-status')
@@ -320,6 +388,7 @@ export function AdminPedido() {
       }
       setIsLoading(false)
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Troca de turno: recarrega a prévia + status APENAS daquele turno (pipeline por slot).
@@ -330,8 +399,8 @@ export function AdminPedido() {
       setIsLoading(true)
       try {
         const [draftRes, statusRes] = await Promise.all([
-          apiFetch(`/admin/supplier-orders/draft?slotId=${slotId}`),
-          apiFetch(`/admin/supplier-orders/generated-status?slotId=${slotId}`),
+          apiFetch(`/admin/supplier-orders/draft?slotId=${slotId}${dateQuery}`),
+          apiFetch(`/admin/supplier-orders/generated-status?slotId=${slotId}${dateQuery}`),
         ])
         if (cancelled) return
         if (draftRes.ok) setDraftData((await draftRes.json()) as CondoDraft[])
@@ -390,6 +459,9 @@ export function AdminPedido() {
 
   const cutoff = nextCutoff(slots)
 
+  // Total que o "Gerar direto" vai pedir = SÓ CONFIRMADOS (previstos não entram no pedido).
+  const expectedTotal = summary.confirmed
+
   // Lista filtrada pela busca
   const filteredCondos = (draftData ?? []).filter((c) =>
     query.trim() ? c.name.toLowerCase().includes(query.trim().toLowerCase()) : true,
@@ -423,7 +495,8 @@ export function AdminPedido() {
     try {
       const res = await apiFetch('/admin/suppliers')
       if (res.ok) {
-        const data = (await res.json()) as Supplier[]
+        // Só fornecedores ativos entram no pedido — inativos não podem ser usados.
+        const data = ((await res.json()) as Supplier[]).filter((s) => s.isActive)
         setSuppliers(data)
         // divisão inicial: 75/25 quando há fornecedor reserva; senão o principal leva tudo
         const hasReserva = data.some((s) => !s.isPrincipal)
@@ -454,12 +527,36 @@ export function AdminPedido() {
 
       const res = await apiFetch('/admin/supplier-orders', {
         method: 'POST',
-        body: JSON.stringify({ items, slotId }),
+        body: JSON.stringify({ items, slotId, ...(deliveryDate ? { date: deliveryDate } : {}) }),
       })
       if (res.ok) {
         const data = (await res.json()) as { id: string }
         setOrderId(data.id)
         setGenerated({ generated: true, orderId: data.id, totalQuantity: splitTotal })
+        setStep(3)
+      }
+    } catch {
+      // falha silenciosa
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  /**
+   * gerarDireto — "Gerar direto" (1 toque): cria o pedido com a quantidade esperada e o
+   * split padrão no backend, pulando os passos Ajustar/Dividir. Vai direto pro Pronto.
+   */
+  async function gerarDireto() {
+    setIsCreating(true)
+    try {
+      const res = await apiFetch('/admin/supplier-orders/quick', {
+        method: 'POST',
+        body: JSON.stringify({ slotId, ...(deliveryDate ? { date: deliveryDate } : {}) }),
+      })
+      if (res.ok) {
+        const data = (await res.json()) as { id: string }
+        setOrderId(data.id)
+        setGenerated({ generated: true, orderId: data.id, totalQuantity: expectedTotal })
         setStep(3)
       }
     } catch {
@@ -514,7 +611,12 @@ export function AdminPedido() {
   // Drill-down em tela cheia — detalhamento por cliente do condomínio selecionado
   if (detailCondoId) {
     return (
-      <CondominiumOrderDetail condominiumId={detailCondoId} slotId={slotId} onBack={() => setDetailCondoId(null)} />
+      <CondominiumOrderDetail
+        condominiumId={detailCondoId}
+        slotId={slotId}
+        date={deliveryDate}
+        onBack={() => setDetailCondoId(null)}
+      />
     )
   }
 
@@ -525,35 +627,86 @@ export function AdminPedido() {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      <AdminHead
-        sub={turnoLabel ? `Turno ${turnoLabel} · ${deliveryDateLabel}` : `Pedido ao fornecedor · ${deliveryDateLabel}`}
-        titulo="Compra"
-        action={
+      {dayMode ? (
+        // Modo dia: header com seta de voltar e data desambiguada (sem botão Histórico).
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '4px 20px 14px' }}>
           <button
-            onClick={() => setShowHistory(true)}
-            aria-label="Histórico de compras"
-            title="Histórico de compras"
+            onClick={onBack}
+            aria-label="Voltar para os dias"
             style={{
-              display: 'inline-flex',
+              width: 36,
+              height: 36,
+              borderRadius: 11,
+              background: 'var(--color-surface-2)',
+              border: 'none',
+              display: 'flex',
               alignItems: 'center',
-              gap: 6,
-              padding: '8px 13px',
-              borderRadius: 999,
-              border: '1px solid var(--color-border-2)',
-              background: 'var(--color-surface)',
-              fontFamily: 'var(--font-body)',
-              fontWeight: 700,
-              fontSize: 12.5,
-              color: 'var(--color-text)',
+              justifyContent: 'center',
               cursor: 'pointer',
-              boxShadow: 'var(--shadow-soft)',
+              flexShrink: 0,
             }}
           >
-            <Icon name="clock" size={15} color="var(--color-accent)" stroke={2} />
-            Histórico
+            <Icon name="chevL" size={20} color="var(--color-text)" stroke={2.2} />
           </button>
-        }
-      />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1, minWidth: 0 }}>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: 'var(--color-text-ter)',
+                margin: 0,
+                lineHeight: 1.3,
+              }}
+            >
+              {daySubtitle ?? (turnoLabel ? `Turno ${turnoLabel} · ${deliveryDateLabel}` : deliveryDateLabel)}
+            </p>
+            <h1
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 20,
+                fontWeight: 700,
+                letterSpacing: '-0.02em',
+                color: 'var(--color-text)',
+                margin: 0,
+                lineHeight: 1.2,
+              }}
+            >
+              Compra
+            </h1>
+          </div>
+        </div>
+      ) : (
+        <AdminHead
+          sub={turnoLabel ? `Turno ${turnoLabel} · ${deliveryDateLabel}` : `Pedido ao fornecedor · ${deliveryDateLabel}`}
+          titulo="Compra"
+          action={
+            <button
+              onClick={() => setShowHistory(true)}
+              aria-label="Histórico de compras"
+              title="Histórico de compras"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 13px',
+                borderRadius: 999,
+                border: '1px solid var(--color-border-2)',
+                background: 'var(--color-surface)',
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 12.5,
+                color: 'var(--color-text)',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-soft)',
+              }}
+            >
+              <Icon name="clock" size={15} color="var(--color-accent)" stroke={2} />
+              Histórico
+            </button>
+          }
+        />
+      )}
 
       <StepBar step={step} onStepClick={(i) => setStep(i as 0 | 1 | 2 | 3)} />
 
@@ -596,6 +749,27 @@ export function AdminPedido() {
                     >
                       Gerar de novo
                     </button>
+                  </div>
+                )}
+
+                {/* Faixa: rede de segurança (geração automática no corte) — só no modo dia */}
+                {dayMode && !generated?.generated && cutoff.open && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      background: 'var(--color-gold-soft)',
+                      border: '1px solid rgba(227,172,63,0.4)',
+                      borderRadius: 14,
+                      padding: '11px 13px',
+                      marginBottom: 16,
+                    }}
+                  >
+                    <Icon name="spark" size={16} color="var(--color-accent)" stroke={2} />
+                    <p style={{ margin: 0, fontFamily: 'var(--font-body)', fontSize: 12, color: '#6b531c', lineHeight: 1.4 }}>
+                      Sem ação, o pedido é gerado <b style={{ color: '#5a4413' }}>automaticamente 1h após o corte</b> com o split padrão. Você tem esse tempo para gerar agora ou ajustar.
+                    </p>
                   </div>
                 )}
 
@@ -699,127 +873,81 @@ export function AdminPedido() {
                 {/* Resumo (KPIs + split de turno + risco) + busca */}
                 {draftData && draftData.length > 0 && (
                   <>
+                    {/* Resumo coeso: confirmados / previstos / entregas + split de turno */}
                     <div
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(3, 1fr)',
-                        gap: 9,
+                        background: 'var(--color-surface)',
+                        border: '1px solid var(--color-border-2)',
+                        borderRadius: 16,
+                        padding: '13px 8px 6px',
+                        boxShadow: 'var(--shadow-soft)',
                         marginBottom: 14,
                       }}
                     >
-                      {[
-                        { v: summary.confirmed, k: 'confirmados', c: 'var(--color-text)', bread: true },
-                        { v: summary.projected, k: 'previstos', c: 'var(--color-accent)', bread: true },
-                        { v: summary.deliveries, k: 'entregas', c: 'var(--color-text)', bread: false },
-                      ].map((kpi) => (
-                        <div
-                          key={kpi.k}
-                          style={{
-                            background: 'var(--color-surface)',
-                            border: '1px solid var(--color-border-2)',
-                            borderRadius: 14,
-                            padding: '11px 12px',
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontFamily: 'var(--font-display)',
-                              fontSize: 20,
-                              fontWeight: 800,
-                              letterSpacing: '-0.02em',
-                              fontVariantNumeric: 'tabular-nums',
-                              lineHeight: 1,
-                              color: kpi.c,
-                            }}
-                          >
-                            {kpi.v}{kpi.bread ? ' 🥖' : ''}
-                          </div>
-                          <div
-                            style={{
-                              fontFamily: 'var(--font-body)',
-                              fontSize: 10.5,
-                              fontWeight: 600,
-                              color: 'var(--color-text-ter)',
-                              marginTop: 3,
-                            }}
-                          >
-                            {kpi.k}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                        <Stat label="Confirmados" value={summary.confirmed} color="var(--color-text)" bread />
+                        <Divider />
+                        <Stat label="Previstos" value={summary.projected} color="var(--color-accent)" bread />
+                        <Divider />
+                        <Stat label="Entregas" value={summary.deliveries} color="var(--color-text)" />
+                      </div>
 
-                    {/* Barra de split por turno */}
-                    {summary.slotTotal > 0 && (
-                      <>
-                        <div
-                          style={{
-                            display: 'flex',
-                            height: 8,
-                            borderRadius: 9,
-                            overflow: 'hidden',
-                            margin: '0 2px 8px',
-                            boxShadow: 'inset 0 0 0 1px var(--color-border-2)',
-                          }}
-                        >
-                          {summary.slotList.map((s) => (
+                      {summary.slotTotal > 0 && (
+                        <div style={{ borderTop: '1px solid var(--color-border-2)', margin: '10px 6px 0', paddingTop: 11 }}>
+                          {summary.slotList.length > 1 && (
                             <div
-                              key={s.slotId}
                               style={{
-                                width: `${(s.breads / summary.slotTotal) * 100}%`,
-                                background: slotColor(s.slotId),
+                                display: 'flex',
+                                height: 7,
+                                borderRadius: 8,
+                                overflow: 'hidden',
+                                marginBottom: 9,
+                                boxShadow: 'inset 0 0 0 1px var(--color-border-2)',
                               }}
-                            />
-                          ))}
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: 16,
-                            justifyContent: 'center',
-                            flexWrap: 'wrap',
-                            margin: '0 0 14px',
-                            fontFamily: 'var(--font-body)',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: 'var(--color-text-sec)',
-                          }}
-                        >
-                          {summary.slotList.map((s) => (
-                            <span key={s.slotId}>
-                              <i
-                                style={{
-                                  display: 'inline-block',
-                                  width: 9,
-                                  height: 9,
-                                  borderRadius: 3,
-                                  background: slotColor(s.slotId),
-                                  marginRight: 5,
-                                  verticalAlign: -1,
-                                }}
-                              />
-                              {s.label} {s.breads}
-                            </span>
-                          ))}
-                          {summary.risk > 0 && (
-                            <span style={{ color: 'var(--color-accent)' }}>
-                              <i
-                                style={{
-                                  display: 'inline-block',
-                                  width: 9,
-                                  height: 9,
-                                  borderRadius: 3,
-                                  background: 'var(--color-accent)',
-                                  marginRight: 5,
-                                  verticalAlign: -1,
-                                }}
-                              />
-                              {summary.risk} em risco
-                            </span>
+                            >
+                              {summary.slotList.map((s) => (
+                                <div
+                                  key={s.slotId}
+                                  style={{
+                                    width: `${(s.breads / summary.slotTotal) * 100}%`,
+                                    background: slotColor(s.slotId),
+                                  }}
+                                />
+                              ))}
+                            </div>
                           )}
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'center',
+                              gap: 16,
+                              flexWrap: 'wrap',
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 11.5,
+                              fontWeight: 600,
+                              color: 'var(--color-text-sec)',
+                            }}
+                          >
+                            {summary.slotList.map((s) => (
+                              <span key={s.slotId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <i style={{ width: 9, height: 9, borderRadius: 3, background: slotColor(s.slotId) }} />
+                                {s.label}
+                                <strong style={{ color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>
+                                  {s.breads}
+                                </strong>
+                              </span>
+                            ))}
+                            {summary.risk > 0 && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-accent)' }}>
+                                <i style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--color-accent)' }} />
+                                em risco
+                                <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{summary.risk}</strong>
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </>
-                    )}
+                      )}
+                    </div>
 
                     {/* Busca de condomínio */}
                     <div
@@ -1044,14 +1172,81 @@ export function AdminPedido() {
           </div>
 
           {!isLoading && draftData && draftData.length > 0 && (
-            <Footer
-              label=""
-              totalLabel="Total necessário"
-              totalValue={draftTotal}
-              ctaLabel={generated?.generated ? 'Ver no histórico de compras' : 'Encerrar corte e gerar pedido'}
-              ctaIcon={generated?.generated ? 'check' : 'scissors'}
-              onCta={generated?.generated ? () => setShowHistory(true) : goToStep1}
-            />
+            generated?.generated ? (
+              <Footer
+                label=""
+                totalLabel="Total necessário"
+                totalValue={draftTotal}
+                ctaLabel="Ver no histórico de compras"
+                ctaIcon="check"
+                onCta={() => setShowHistory(true)}
+              />
+            ) : (
+              // Não gerado: Gerar direto (1 toque) + Ajustar antes (fluxo manual completo).
+              <div
+                style={{
+                  position: 'sticky',
+                  bottom: 0,
+                  background: 'var(--color-app-bg)',
+                  borderTop: '1px solid var(--color-border-2)',
+                  padding: '12px 20px 16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 11 }}>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+                    Total a pedir
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-text)' }}>
+                    {expectedTotal} pães
+                  </span>
+                </div>
+                <button
+                  onClick={() => void gerarDireto()}
+                  disabled={isCreating || expectedTotal === 0}
+                  style={{
+                    width: '100%',
+                    padding: '14px 20px',
+                    borderRadius: 16,
+                    border: 'none',
+                    background: 'var(--color-espresso)',
+                    color: '#FAF5EC',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: isCreating ? 'wait' : 'pointer',
+                    opacity: isCreating || expectedTotal === 0 ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    minHeight: 44,
+                  }}
+                >
+                  <Icon name="spark" size={18} color="#FAF5EC" stroke={2.1} />
+                  Gerar direto{expectedTotal > 0 ? ` · ${expectedTotal} 🥖` : ''}
+                </button>
+                <button
+                  onClick={goToStep1}
+                  disabled={isLoadingSuppliers}
+                  style={{
+                    width: '100%',
+                    marginTop: 9,
+                    padding: '12px',
+                    borderRadius: 16,
+                    border: '1.5px solid var(--color-border)',
+                    background: 'transparent',
+                    color: 'var(--color-text-sec)',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 13.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    minHeight: 44,
+                  }}
+                >
+                  Ajustar antes de gerar (fluxo completo)
+                </button>
+              </div>
+            )
           )}
         </div>
       )}
@@ -1427,8 +1622,8 @@ export function AdminPedido() {
                 padding: '14px 20px',
                 borderRadius: 16,
                 border: 'none',
-                background: 'var(--color-accent)',
-                color: '#fff',
+                background: 'var(--color-espresso)',
+                color: '#FAF5EC',
                 fontFamily: 'var(--font-body)',
                 fontSize: 15,
                 fontWeight: 700,
@@ -1441,7 +1636,7 @@ export function AdminPedido() {
                 minHeight: 44,
               }}
             >
-              <Icon name="check" size={18} color="#fff" stroke={2.1} />
+              <Icon name="check" size={18} color="#FAF5EC" stroke={2.1} />
               Finalizar pedido
             </button>
           </div>

@@ -10,6 +10,7 @@ import { AdminEntregadores } from '../gestao/AdminEntregadores'
 import { AdminCondos } from '../gestao/AdminCondos'
 import { AdminPagamentos } from '../gestao/AdminPagamentos'
 import { AdminFinanceiro } from '../gestao/AdminFinanceiro'
+import { AdminRelatorios } from '../gestao/AdminRelatorios'
 
 // ------------------------------------------------------------------ tipos
 type AdminGestaoSub =
@@ -22,6 +23,7 @@ type AdminGestaoSub =
   | 'condos'
   | 'pagamentos'
   | 'financeiro'
+  | 'relatorios'
 
 interface HubItem {
   key: AdminGestaoSub
@@ -39,6 +41,7 @@ const HUB_ITEMS: HubItem[] = [
   { key: 'condos', icon: 'building', titulo: 'Condomínios', descricao: 'Locais atendidos' },
   { key: 'pagamentos', icon: 'card', titulo: 'Pagamentos', descricao: 'Status e estornos' },
   { key: 'financeiro', icon: 'trend', titulo: 'Financeiro', descricao: 'Receita por período' },
+  { key: 'relatorios', icon: 'doc', titulo: 'Relatórios', descricao: 'Acessos, login e conversão' },
 ]
 
 // ------------------------------------------------------------------ componente
@@ -57,6 +60,7 @@ export function AdminGestao() {
   if (sub === 'condos') return <AdminCondos onBack={onBack} />
   if (sub === 'pagamentos') return <AdminPagamentos onBack={onBack} />
   if (sub === 'financeiro') return <AdminFinanceiro onBack={onBack} />
+  if (sub === 'relatorios') return <AdminRelatorios onBack={onBack} />
 
   // Hub principal
   return (

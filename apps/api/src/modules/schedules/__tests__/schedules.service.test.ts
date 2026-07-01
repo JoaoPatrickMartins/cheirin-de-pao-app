@@ -789,6 +789,11 @@ describe('SchedulesService', () => {
               Promise.resolve(opts.users[where.id] ?? null),
             ),
           },
+          materializedCycle: {
+            findFirst: vi.fn().mockResolvedValue(null),
+            upsert: vi.fn().mockResolvedValue({}),
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+          },
           $transaction: transactionFn,
         },
       } as unknown as FastifyInstance
@@ -882,6 +887,158 @@ describe('SchedulesService', () => {
       await service.createOrdersAtCutoff()
 
       expect(createOrderFn).not.toHaveBeenCalled()
+    })
+  })
+
+  // ===========================================================================
+  // Pré-confirmação T-2h (janela + anti-spam) e backfill de cortes perdidos
+  // ===========================================================================
+  describe('preconfirmAutoRechargeAhead / backfillMissedCutoffs', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+      vi.useRealTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // Condomínio só com o slot da TARDE (corte 10:00, entrega 15:30 no mesmo dia).
+    const tardeOnlyCondo = {
+      id: 'condo-1',
+      name: 'Cond Teste',
+      isActive: true,
+      deliverySlots: [{ slotId: 'tarde', name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
+    }
+
+    function tardeSchedule(qty: number): ScheduleShape {
+      return {
+        id: 'sched-w-1',
+        userId: 'user-w-1',
+        condominiumId: 'condo-1',
+        isActive: true,
+        weeklyQty: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+        deliveryTime: '15:30',
+        notifyReconfigure: false,
+        days: { tarde: { seg: qty, ter: qty, qua: qty, qui: qty, sex: qty, sab: qty, dom: qty } },
+      }
+    }
+
+    // Mock com order + user + materializedCycle (backed by Set) + $transaction.
+    function mockFastifyWindow(opts: {
+      schedules: ScheduleShape[]
+      users: Record<string, UserShape>
+      createOrderFn?: ReturnType<typeof vi.fn>
+    }) {
+      const materialized = new Set<string>()
+      const createdOrders = new Set<string>() // rastreia orders criadas → idempotência realista
+      const createOrderFn =
+        opts.createOrderFn ??
+        vi.fn().mockImplementation(({ data }: { data: { userId: string; slotId: string } }) => {
+          createdOrders.add(`${data.userId}|${data.slotId}`)
+          return Promise.resolve({ id: 'o-1' })
+        })
+      const upsertFn = vi.fn().mockImplementation(({ where }: { where: { condominiumId_slotId_deliveryDate: { condominiumId: string; slotId: string; deliveryDate: string } } }) => {
+        const w = where.condominiumId_slotId_deliveryDate
+        materialized.add(`${w.condominiumId}|${w.slotId}|${w.deliveryDate}`)
+        return Promise.resolve({})
+      })
+      const transactionFn = vi.fn().mockImplementation(async (cb: (tx: object) => Promise<void>) =>
+        cb({
+          order: { create: createOrderFn },
+          user: { update: vi.fn().mockResolvedValue({}) },
+          creditTransaction: { create: vi.fn().mockResolvedValue({}) },
+        }),
+      )
+      const fastify = {
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        prisma: {
+          condominium: { findMany: vi.fn().mockResolvedValue([tardeOnlyCondo]) },
+          schedule: { findMany: vi.fn().mockResolvedValue(opts.schedules) },
+          order: {
+            findFirst: vi.fn().mockImplementation(({ where }: { where: { userId: string; slotId: string } }) =>
+              Promise.resolve(createdOrders.has(`${where.userId}|${where.slotId}`) ? { id: 'existing' } : null),
+            ),
+          },
+          user: {
+            findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
+              Promise.resolve(opts.users[where.id] ?? null),
+            ),
+          },
+          materializedCycle: {
+            findFirst: vi.fn().mockImplementation(({ where }: { where: { condominiumId: string; slotId: string; deliveryDate: string } }) =>
+              Promise.resolve(materialized.has(`${where.condominiumId}|${where.slotId}|${where.deliveryDate}`) ? { id: 'mc' } : null),
+            ),
+            upsert: upsertFn,
+            deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+          },
+          $transaction: transactionFn,
+        },
+      } as unknown as FastifyInstance
+      return { fastify, createOrderFn, upsertFn }
+    }
+
+    it('janela T-2h: no máximo 3 cobranças por (user, slot, dia) e push "sem saldo" SUPRIMIDO', async () => {
+      // 2026-06-22T11:30:00Z = segunda 08:30 BRT → dentro da janela [08:00, 10:00) do corte 10:00
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T11:30:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyWindow({
+        schedules: [tardeSchedule(1)],
+        users: { 'user-w-1': { id: 'user-w-1', creditBalance: 0, condominiumId: 'condo-1', autoRecharge: { active: true }, oneSignalPlayerId: 'p1' } },
+      })
+
+      const service = new SchedulesService(fastify)
+      const chargeSpy = vi
+        .spyOn((service as unknown as { payments: { chargeAutoRecharge: (id: string) => Promise<{ ok: boolean }> } }).payments, 'chargeAutoRecharge')
+        .mockResolvedValue({ ok: false })
+      const pushMock = (OneSignalModule as unknown as { _createNotificationMock: ReturnType<typeof vi.fn> })._createNotificationMock
+      pushMock.mockClear()
+
+      // 5 ticks dentro da janela
+      for (let i = 0; i < 5; i++) await service.preconfirmAutoRechargeAhead()
+
+      expect(chargeSpy).toHaveBeenCalledTimes(3) // teto anti-spam
+      expect(createOrderFn).not.toHaveBeenCalled() // saldo nunca suficiente → sem order
+      expect(pushMock).not.toHaveBeenCalled() // push suprimido na janela (o corte avisa 1x)
+    })
+
+    it('janela T-2h: cobrança que dá certo confirma a order e para de cobrar', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T11:30:00Z'))
+
+      const user = { id: 'user-w-1', creditBalance: 0, condominiumId: 'condo-1', autoRecharge: { active: true }, oneSignalPlayerId: 'p1' }
+      const { fastify, createOrderFn } = mockFastifyWindow({ schedules: [tardeSchedule(1)], users: { 'user-w-1': user } })
+
+      const service = new SchedulesService(fastify)
+      // 1ª cobrança credita saldo (simula recarga aprovada)
+      vi.spyOn((service as unknown as { payments: { chargeAutoRecharge: (id: string) => Promise<{ ok: boolean }> } }).payments, 'chargeAutoRecharge')
+        .mockImplementation(async () => {
+          user.creditBalance = 10
+          return { ok: true }
+        })
+
+      await service.preconfirmAutoRechargeAhead()
+      await service.preconfirmAutoRechargeAhead()
+
+      expect(createOrderFn).toHaveBeenCalledTimes(1) // confirmou 1x; depois idempotência pularia
+    })
+
+    it('backfill: materializa o ciclo 1x mesmo chamado várias vezes (marca persistida)', async () => {
+      // 2026-06-22T14:00:00Z = segunda 11:00 BRT → corte da tarde (10:00) JÁ passou
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T14:00:00Z'))
+
+      const { fastify, createOrderFn, upsertFn } = mockFastifyWindow({
+        schedules: [tardeSchedule(1)],
+        users: { 'user-w-1': { id: 'user-w-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.backfillMissedCutoffs()
+      await service.backfillMissedCutoffs()
+
+      expect(createOrderFn).toHaveBeenCalledTimes(1) // só 1 vez apesar de 2 chamadas
+      expect(upsertFn).toHaveBeenCalledTimes(1) // marcou o ciclo 1x
     })
   })
 })

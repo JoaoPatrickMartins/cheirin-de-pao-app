@@ -92,6 +92,30 @@ describe('AdminSuppliersService', () => {
     })
   })
 
+  describe('getById', () => {
+    it('retorna o fornecedor quando existe', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSuppliersService(fastify as any)
+
+      const result = await service.getById('supplier-01')
+
+      expect(prisma.supplier.findUnique).toHaveBeenCalledWith({ where: { id: 'supplier-01' } })
+      expect(result).toMatchObject({ id: 'supplier-01', name: 'Padaria Central' })
+    })
+
+    it('lança { statusCode: 404 } quando fornecedor não existe', async () => {
+      const { fastify } = makeFastifyMock({ supplier: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSuppliersService(fastify as any)
+
+      await expect(service.getById('id-inexistente')).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+  })
+
   describe('create', () => {
     it('cria fornecedor com isPrincipal=false sem desativar outros', async () => {
       const { fastify, prisma } = makeFastifyMock()
@@ -158,6 +182,41 @@ describe('AdminSuppliersService', () => {
           where: { isPrincipal: true },
           data: { isPrincipal: false },
         }),
+      )
+    })
+
+    it('bloqueia desativar o fornecedor principal (409) e não persiste', async () => {
+      const principal = {
+        id: 'supplier-01',
+        name: 'Padaria Principal',
+        cnpj: '12345678000190',
+        phone: null,
+        email: null,
+        pricePerUnit: 1.5,
+        isPrincipal: true,
+        isActive: true,
+        address: { street: 'R', number: '1', city: 'SP', state: 'SP', zip: '01310-100' },
+      }
+      const { fastify, prisma } = makeFastifyMock({ supplier: principal })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSuppliersService(fastify as any)
+
+      await expect(service.update('supplier-01', { isActive: false })).rejects.toMatchObject({
+        statusCode: 409,
+        message: expect.stringMatching(/principal/i),
+      })
+      expect(prisma.supplier.update).not.toHaveBeenCalled()
+    })
+
+    it('permite desativar fornecedor não-principal', async () => {
+      const { fastify, prisma } = makeFastifyMock() // default: isPrincipal=false, isActive=true
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSuppliersService(fastify as any)
+
+      await service.update('supplier-01', { isActive: false })
+
+      expect(prisma.supplier.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'supplier-01' }, data: { isActive: false } }),
       )
     })
   })

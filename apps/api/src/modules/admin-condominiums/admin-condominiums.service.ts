@@ -21,7 +21,11 @@ export class AdminCondominiumsService {
    * Lista todos os condomínios ordenados por nome (admin vê tudo, sem filtro isActive).
    */
   async list() {
-    return this.repository.findAll()
+    const condos = await this.repository.findAll()
+    if (condos.length === 0) return condos
+    const grouped = await this.repository.countClientsByCondominium(condos.map((c) => c.id))
+    const countMap = new Map(grouped.map((g) => [g.condominiumId, g._count._all]))
+    return condos.map((c) => ({ ...c, clientCount: countMap.get(c.id) ?? 0 }))
   }
 
   /**
@@ -60,9 +64,11 @@ export class AdminCondominiumsService {
     const existing = await this.repository.findById(id)
     if (!existing) throw { statusCode: 404, message: 'Condomínio não encontrado' }
 
-    const patch: Omit<UpdateCondominiumBody, 'lat' | 'lng'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean } = {
+    const patch: Omit<UpdateCondominiumBody, 'lat' | 'lng' | 'numBlocks'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean; numBlocks?: number | null } = {
       ...data,
     }
+    // Ao trocar para SINGLE_ENTRANCE, limpa numBlocks para não deixar valor órfão.
+    if (data.type === 'SINGLE_ENTRANCE') patch.numBlocks = null
     const hasManual = data.lat != null && data.lng != null
     if (hasManual) {
       patch.lat = data.lat

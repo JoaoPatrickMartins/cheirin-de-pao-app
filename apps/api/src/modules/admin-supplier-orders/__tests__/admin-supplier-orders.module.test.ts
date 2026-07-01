@@ -169,6 +169,43 @@ describe('AdminSupplierOrdersService', () => {
       expect(raf.risk).toBe('no-credit')
     })
 
+    it('NÃO marca risco no-credit quando o cliente tem recarga automática ativa', async () => {
+      const { fastify } = makeFastifyMock({
+        order: [],
+        schedule: [
+          { userId: 'user-03', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+        ],
+        // Mesmo cenário sem saldo do teste acima, mas com autoRecharge.active → o corte recarrega antes.
+        users: [{ id: 'user-03', name: 'Rafael Pinto', apartment: '301', block: 'A', creditBalance: 2, isBlocked: false, autoRecharge: { active: true, comboId: 'combo-01' } }],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const detail = await service.getCondominiumDetail('condo-01', 'manha')
+
+      expect(detail.projectedBreads).toBe(8)
+      expect(detail.riskCount).toBe(0)
+      const raf = detail.deliveries.find((d) => d.name === 'Rafael Pinto')!
+      expect(raf.source).toBe('projected')
+      expect(raf.risk).toBe('')
+    })
+
+    it('marca risco blocked mesmo com recarga automática ativa (bloqueio prevalece)', async () => {
+      const { fastify } = makeFastifyMock({
+        order: [],
+        schedule: [
+          { userId: 'user-05', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+        ],
+        users: [{ id: 'user-05', name: 'Lia Souza', apartment: '501', block: 'A', creditBalance: 0, isBlocked: true, autoRecharge: { active: true } }],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const detail = await service.getCondominiumDetail('condo-01', 'manha')
+
+      const lia = detail.deliveries.find((d) => d.name === 'Lia Souza')!
+      expect(lia.risk).toBe('blocked')
+      expect(detail.riskCount).toBe(1)
+    })
+
     it('marca risco blocked para cliente bloqueado (turno tarde)', async () => {
       const { fastify } = makeFastifyMock({
         order: [],
@@ -291,6 +328,55 @@ describe('AdminSupplierOrdersService', () => {
       const buf = await service.getExcelBuffer('po-01')
       expect(buf).toBeInstanceOf(Buffer)
       expect(buf.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('autoGenerateAtCutoff (rede de segurança 1h após o corte)', () => {
+    // Slot único 'tarde': entrega no mesmo dia (15:30) com corte 10:00 BRT (= 13:00 UTC).
+    // Logo, corte + janela de 1h ⇒ a rede de segurança só assume a partir de 14:00 UTC do dia.
+    const tardeOnly = [
+      { slotId: 'tarde', name: 'tarde', label: 'Tarde', emoji: '🌙', time: '15:30', cutoffTime: '10:00', isActive: true },
+    ]
+
+    // findFirst controla se já existe PurchaseOrder FINALIZED (pedido gerado) para o turno+data.
+    function makeService(existingFinalized: { id: string } | null = null) {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.setting.findUnique.mockResolvedValue({ value: JSON.stringify(tardeOnly) })
+      prisma.purchaseOrder.findFirst.mockResolvedValue(existingFinalized)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      // Isola a lógica de janela/idempotência — a geração em si é testada em createQuick/create.
+      const quickSpy = vi.spyOn(service, 'createQuick').mockResolvedValue({ id: 'po-auto' })
+      return { service, prisma, quickSpy }
+    }
+
+    it('NÃO gera dentro da janela manual de 1h após o corte', async () => {
+      const { service, quickSpy } = makeService()
+      // 2026-06-27 10:30 BRT (13:30 UTC) — 30min após o corte, ainda na janela manual.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 13, 30)))
+      expect(quickSpy).not.toHaveBeenCalled()
+    })
+
+    it('gera automaticamente passada 1h do corte quando não há pedido', async () => {
+      const { service, quickSpy } = makeService(null)
+      // 2026-06-27 11:30 BRT (14:30 UTC) — 1h30 após o corte, janela manual encerrada.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 14, 30)))
+      expect(quickSpy).toHaveBeenCalledTimes(1)
+      expect(quickSpy).toHaveBeenCalledWith('tarde', '2026-06-27')
+    })
+
+    it('NÃO gera se já foi gerado manualmente (pedido finalizado), mesmo passada a 1h', async () => {
+      const { service, quickSpy } = makeService({ id: 'po-manual' })
+      // Mesmo após a janela, o pedido manual finalizado torna a rede de segurança idempotente.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 14, 30)))
+      expect(quickSpy).not.toHaveBeenCalled()
+    })
+
+    it('respeita o atraso configurável (delayMinutes)', async () => {
+      const { service, quickSpy } = makeService(null)
+      // 14:30 UTC = 30min após o corte: com janela de 120min ainda NÃO gera.
+      await service.autoGenerateAtCutoff(new Date(Date.UTC(2026, 5, 27, 13, 30)), 120)
+      expect(quickSpy).not.toHaveBeenCalled()
     })
   })
 })

@@ -3,6 +3,7 @@ import { FastifyPluginAsync } from 'fastify'
 import cron from 'node-cron'
 import { SchedulesService } from '../modules/schedules/schedules.service.js'
 import { AdminSettingsService } from '../modules/admin-settings/admin-settings.service.js'
+import { AdminSupplierOrdersService } from '../modules/admin-supplier-orders/admin-supplier-orders.service.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -27,6 +28,13 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.info('[cron] sendLowCreditNotifications concluído')
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em sendLowCreditNotifications — servidor mantido ativo')
+      }
+
+      // Limpa marcas de ciclos materializados antigos (MaterializedCycle).
+      try {
+        await schedulesService.cleanupOldMaterializedCycles()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em cleanupOldMaterializedCycles — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },
@@ -68,13 +76,45 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // No cutoffTime de cada slot: (1) cria as Orders da data alvo (Regra A) e debita créditos,
   // (2) notifica clientes que ficaram sem pedido. Por minuto para suportar cortes fora de HH:00.
   const adminSettingsService = new AdminSettingsService(fastify)
+  const supplierOrdersService = new AdminSupplierOrdersService(fastify)
   cron.schedule(
     '* * * * *',
     async () => {
+      // Pré-confirmação T-2h: cobra a recarga automática com antecedência para não depender do
+      // exato minuto do corte (evita que demora de processamento deixe o agendado sem confirmar).
+      try {
+        await schedulesService.preconfirmAutoRechargeAhead()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em preconfirmAutoRechargeAhead — servidor mantido ativo')
+      }
+
       try {
         await schedulesService.createOrdersAtCutoff()
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em createOrdersAtCutoff — servidor mantido ativo')
+      }
+
+      // Backfill: recupera cortes cujo minuto exato foi perdido (servidor fora do ar), 1x por ciclo.
+      try {
+        await schedulesService.backfillMissedCutoffs()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em backfillMissedCutoffs — servidor mantido ativo')
+      }
+
+      // Lembrete T-30min: avisa os admins quando falta ~30min pro corte e há pedido pendente.
+      try {
+        await supplierOrdersService.sendCutoffReminders()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendCutoffReminders — servidor mantido ativo')
+      }
+
+      // Rede de segurança: 1h APÓS o corte (janela manual), gera o pedido ao fornecedor
+      // automaticamente se o admin não tiver gerado (com split padrão). Idempotente; recupera
+      // cortes cujo minuto foi perdido (não depende do minuto exato).
+      try {
+        await supplierOrdersService.autoGenerateAtCutoff()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em autoGenerateAtCutoff — servidor mantido ativo')
       }
 
       try {

@@ -34,7 +34,10 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: 'object',
           required: ['slotId'],
-          properties: { slotId: { type: 'string', description: 'Turno (manha/tarde).' } },
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde).' },
+            date: { type: 'string', description: 'Data de entrega YYYY-MM-DD. Sem ela, próxima entrega (Regra A).' },
+          },
         },
         response: {
           200: {
@@ -86,7 +89,10 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: 'object',
           required: ['slotId'],
-          properties: { slotId: { type: 'string', description: 'Turno (manha/tarde).' } },
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde).' },
+            date: { type: 'string', description: 'Data de entrega YYYY-MM-DD. Sem ela, próxima entrega (Regra A).' },
+          },
         },
         response: {
           200: {
@@ -145,6 +151,114 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.slotsStatus.bind(ctrl),
   )
 
+  // 1d. Próximos dias de entrega — alimenta a pré-tela "Dias em aberto"
+  fastify.get(
+    '/admin/supplier-orders/upcoming-days',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — supplier-orders'],
+        summary: 'Próximos dias de entrega para a aba Compra',
+        description:
+          'Lista os próximos N dias (default 7, BRT) com seus turnos: total de pães (confirmados + previstos), entregas, clientes em risco, se a compra já foi gerada e se o corte já passou. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            days: { type: 'string', description: 'Quantos dias retornar (1–31, default 7).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              days: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    date: { type: 'string', description: 'Dia de entrega (YYYY-MM-DD, BRT).' },
+                    totalBreads: { type: 'integer' },
+                    hasOrders: { type: 'boolean' },
+                    allGenerated: { type: 'boolean' },
+                    anyPending: { type: 'boolean' },
+                    slots: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          slotId: { type: 'string' },
+                          label: { type: 'string' },
+                          emoji: { type: 'string' },
+                          time: { type: 'string' },
+                          cutoffTime: { type: 'string' },
+                          cutoffAt: { type: 'string', description: 'Instante do corte (ISO).' },
+                          deliveryDate: { type: 'string' },
+                          breads: { type: 'integer', description: 'Confirmados (o que será pedido).' },
+                          projectedBreads: { type: 'integer', description: 'Previstos pela agenda (contexto).' },
+                          deliveries: { type: 'integer' },
+                          riskCount: { type: 'integer' },
+                          generated: { type: 'boolean' },
+                          pastCutoff: { type: 'boolean' },
+                          hasOrders: { type: 'boolean' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.upcomingDays.bind(ctrl),
+  )
+
+  // 1e. Split padrão (percentual do fornecedor principal) — usado pelo "Gerar direto"/rede de segurança
+  fastify.get(
+    '/admin/supplier-orders/default-split',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — supplier-orders'],
+        summary: 'Split padrão de compra (percentual do principal)',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: { principalPercent: { type: 'integer', description: '0–100' } },
+          },
+        },
+      },
+    },
+    ctrl.getDefaultSplit.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/supplier-orders/default-split',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — supplier-orders'],
+        summary: 'Definir split padrão de compra (percentual do principal)',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['principalPercent'],
+          properties: { principalPercent: { type: 'integer', minimum: 0, maximum: 100 } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: { principalPercent: { type: 'integer' } },
+          },
+        },
+      },
+    },
+    ctrl.setDefaultSplit.bind(ctrl),
+  )
+
   // 1b. Detalhe por condomínio — também ANTES de /:id (rota mais específica primeiro)
   fastify.get(
     '/admin/supplier-orders/draft/:condominiumId',
@@ -165,7 +279,10 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: 'object',
           required: ['slotId'],
-          properties: { slotId: { type: 'string', description: 'Turno (manha/tarde).' } },
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde).' },
+            date: { type: 'string', description: 'Data de entrega YYYY-MM-DD. Sem ela, próxima entrega (Regra A).' },
+          },
         },
         response: {
           200: {
@@ -254,6 +371,7 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
             },
             cutoffTime: { type: 'string', description: 'Horário de corte específico para este pedido (HH:MM). Opcional.' },
             slotId: { type: 'string', description: 'Turno (manha/tarde) — o pedido é por turno.' },
+            date: { type: 'string', description: 'Data de entrega YYYY-MM-DD. Sem ela, próxima entrega (Regra A).' },
           },
         },
         response: {
@@ -268,6 +386,36 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.create.bind(ctrl),
+  )
+
+  // 2b. Gerar direto — cria o pedido do turno com quantidade esperada + split padrão
+  fastify.post(
+    '/admin/supplier-orders/quick',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — supplier-orders'],
+        summary: 'Gerar direto (1 toque) o pedido ao fornecedor',
+        description:
+          'Cria e finaliza o pedido do turno usando a quantidade esperada (confirmados + previstos) e o split padrão (principal leva tudo, ou 75/25 com reserva). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['slotId'],
+          properties: {
+            slotId: { type: 'string', description: 'Turno (manha/tarde).' },
+            date: { type: 'string', description: 'Data de entrega YYYY-MM-DD. Sem ela, próxima entrega (Regra A).' },
+          },
+        },
+        response: {
+          201: {
+            type: 'object',
+            properties: { id: { type: 'string', description: 'ID do pedido criado.' } },
+          },
+        },
+      },
+    },
+    ctrl.createQuick.bind(ctrl),
   )
 
   // 3. Histórico de pedidos FINALIZED
