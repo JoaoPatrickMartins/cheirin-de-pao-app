@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { ScheduleBodySchema } from './schedules.schema.js'
+import { ScheduleBodySchema, PauseScheduleBodySchema } from './schedules.schema.js'
 import { SchedulesService } from './schedules.service.js'
 
 function zodMessage(err: ZodError): string {
@@ -53,6 +53,40 @@ export class SchedulesController {
       }
 
       const schedule = await this.service.upsertSchedule(userId, user.condominiumId, body)
+      return reply.status(200).send(schedule)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async setMyPause(request: FastifyRequest, reply: FastifyReply) {
+    let body: ReturnType<typeof PauseScheduleBodySchema.parse>
+    try {
+      body = PauseScheduleBodySchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      const userId = request.user!.id
+
+      const user = await this.fastify.prisma.user.findUnique({
+        where: { id: userId },
+        select: { condominiumId: true },
+      })
+
+      if (!user?.condominiumId) {
+        return reply.status(400).send({ error: 'Usuário sem condomínio associado' })
+      }
+
+      const schedule = await this.service.setPaused(userId, user.condominiumId, body.paused)
+      if (!schedule) {
+        return reply.status(404).send({ error: 'Agenda não encontrada' })
+      }
       return reply.status(200).send(schedule)
     } catch (err) {
       this.fastify.log.error(err)

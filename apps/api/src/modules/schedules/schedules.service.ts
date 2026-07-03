@@ -100,6 +100,10 @@ export class SchedulesService {
 
     for (const schedule of schedules) {
       try {
+        // Agenda pausada pelo cliente: não gera pedidos no corte (gate em código para
+        // evitar a armadilha null-vs-unset do Mongo em documentos legados sem o campo).
+        if (schedule.pausedAt) continue
+
         // Quantidade deste slot para o dia da semana alvo — agenda indexada por slotId.
         const days = (schedule.days as Record<string, WeeklyQty> | null) ?? {}
         const qty = days[slot.slotId]?.[dayKey] ?? 0
@@ -349,6 +353,8 @@ export class SchedulesService {
 
     const playerIds: string[] = []
     for (const schedule of schedules) {
+      // Agenda pausada: não faz sentido pedir para reconfigurar (gate em código — Mongo null/unset)
+      if (schedule.pausedAt) continue
       const user = await this.repo.findUserById(schedule.userId)
       if (user?.oneSignalPlayerId) {
         playerIds.push(user.oneSignalPlayerId)
@@ -449,6 +455,9 @@ export class SchedulesService {
 
     for (const schedule of schedules) {
       try {
+        // Agenda pausada: sem geração de pedidos, não avisamos sobre saldo baixo.
+        if (schedule.pausedAt) continue
+
         const user = await this.repo.findUserById(schedule.userId)
         if (!user) continue
 
@@ -494,6 +503,79 @@ export class SchedulesService {
         this.fastify.log.error(
           { scheduleId: schedule.id, err },
           '[schedules] erro ao processar sendLowCreditNotifications',
+        )
+      }
+    }
+  }
+
+  /**
+   * Pausa/retoma a agenda do cliente. Pausar interrompe a geração de pedidos futuros no corte
+   * (gate em createOrdersForCondoSlot), mas NÃO cancela pedidos já criados — mesma semântica do
+   * pause/resume do admin. Retomar limpa o marcador de lembrete para reiniciar a cadência.
+   * @returns o schedule atualizado, ou null se o cliente ainda não tem agenda para pausar.
+   */
+  async setPaused(userId: string, condominiumId: string, paused: boolean) {
+    return this.repo.setPaused(userId, condominiumId, paused)
+  }
+
+  /**
+   * Lembrete "agenda pausada há muito tempo": notifica clientes cuja agenda está pausada há ≥ 7
+   * dias, repetindo semanalmente enquanto continuar pausada. Chamado no cron diário (meia-noite).
+   * Filtra em código (não no where) por causa da armadilha null-vs-unset do Mongo em `pausedAt`.
+   */
+  async sendPausedTooLongReminders(now: Date = new Date()): Promise<void> {
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+    const schedules = await this.prisma.schedule.findMany({
+      where: { isActive: true },
+    })
+
+    for (const schedule of schedules) {
+      try {
+        // Só agendas pausadas há pelo menos 7 dias.
+        if (!schedule.pausedAt) continue
+        if (now.getTime() - new Date(schedule.pausedAt).getTime() < WEEK_MS) continue
+
+        // Cadência semanal: pula se o último lembrete foi há menos de 7 dias.
+        const last = schedule.lastPauseReminderAt
+        if (last && now.getTime() - new Date(last).getTime() < WEEK_MS) continue
+
+        const user = await this.repo.findUserById(schedule.userId)
+        if (!user) continue
+
+        if (user.oneSignalPlayerId) {
+          try {
+            const osClient = createOsClient()
+            const notification = new OneSignal.Notification()
+            notification.app_id = process.env.ONESIGNAL_APP_ID!
+            notification.include_subscription_ids = [user.oneSignalPlayerId]
+            notification.headings = { pt: 'Sua agenda está pausada' }
+            notification.contents = {
+              pt: 'Retome quando quiser voltar a receber seus pãezinhos todo dia.',
+            }
+            notification.url = '/client/agenda'
+            await osClient.createNotification(notification)
+          } catch (pushErr) {
+            this.fastify.log.warn(
+              { userId: schedule.userId, err: pushErr },
+              '[schedules] falha ao enviar push de agenda pausada — silencioso',
+            )
+          }
+        }
+
+        // Persistir Notification independente de oneSignalPlayerId (padrão de sendEveReminders)
+        await this.notificationsService.createAndTrim({
+          userId: schedule.userId,
+          type: 'SCHEDULE_PAUSED',
+          title: 'Sua agenda está pausada',
+          body: 'Retome quando quiser voltar a receber seus pãezinhos todo dia.',
+          actionRoute: '/client/agenda',
+        })
+
+        await this.repo.markPauseReminderSent(schedule.id, now)
+      } catch (err) {
+        this.fastify.log.error(
+          { scheduleId: schedule.id, err },
+          '[schedules] erro ao processar sendPausedTooLongReminders',
         )
       }
     }

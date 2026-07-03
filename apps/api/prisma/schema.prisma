@@ -109,6 +109,7 @@ enum NotificationType {
   RECONFIGURE
   CREDIT_PURCHASED
   CREDIT_GRANTED
+  SCHEDULE_PAUSED
 }
 
 enum AnalyticsEventType {
@@ -227,6 +228,11 @@ model Schedule {
   deliveryTime      String?
   notifyReconfigure Boolean  @default(false)
   isActive          Boolean  @default(true)
+  // Pausa da agenda pelo próprio cliente. null = não pausada; preenchido = pausada desde então.
+  // Gate no corte é feito em código (if schedule.pausedAt) — evita null-vs-unset do Mongo.
+  pausedAt          DateTime?
+  // Último lembrete "pausada há muito tempo" enviado — controla a cadência semanal.
+  lastPauseReminderAt DateTime?
   days              Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

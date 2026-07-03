@@ -36,6 +36,14 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em cleanupOldMaterializedCycles — servidor mantido ativo')
       }
+
+      // Lembrete de agenda pausada há muito tempo (≥ 7 dias, repete semanalmente).
+      try {
+        await schedulesService.sendPausedTooLongReminders()
+        fastify.log.info('[cron] sendPausedTooLongReminders concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendPausedTooLongReminders — servidor mantido ativo')
+      }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },
   )

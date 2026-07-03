@@ -34,6 +34,7 @@ export const schedulesRoute: FastifyPluginAsync = async (fastify) => {
               },
               deliveryTime: { type: 'string', description: 'Horário preferido de entrega: "06:30", "07:00", "07:30" ou "08:00".' },
               notifyReconfigure: { type: 'boolean', description: 'true se o cliente quer ser notificado quando créditos estiverem baixos para reconfigurar a agenda.' },
+              pausedAt: { type: 'string', nullable: true, format: 'date-time', description: 'Instante em que o cliente pausou a agenda. null = ativa; preenchido = pausada (pedidos não são gerados no corte).' },
               days: {
                 type: 'object',
                 nullable: true,
@@ -108,6 +109,7 @@ export const schedulesRoute: FastifyPluginAsync = async (fastify) => {
               },
               deliveryTime: { type: 'string', description: 'Horário de entrega configurado.' },
               notifyReconfigure: { type: 'boolean', description: 'Preferência de notificação salva.' },
+              pausedAt: { type: 'string', nullable: true, format: 'date-time', description: 'Instante em que a agenda foi pausada (null = ativa).' },
               days: {
                 type: 'object',
                 nullable: true,
@@ -127,5 +129,36 @@ export const schedulesRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.updateMySchedule.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/schedules/me/pause',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['schedules'],
+        summary: 'Pausar ou retomar a agenda semanal',
+        description: 'Pausa (paused=true) ou retoma (paused=false) a agenda semanal do cliente. Enquanto pausada, o corte não gera pedidos nem debita créditos — a configuração da agenda é preservada. NÃO cancela pedidos já criados. Após alguns dias pausada, o cliente recebe um lembrete para retomar.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['paused'],
+          properties: {
+            paused: { type: 'boolean', description: 'true = pausar a agenda; false = retomar.' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Agenda com o estado de pausa atualizado.',
+            properties: {
+              id: { type: 'string' },
+              pausedAt: { type: 'string', nullable: true, format: 'date-time', description: 'null = ativa; preenchido = pausada.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.setMyPause.bind(ctrl),
   )
 }

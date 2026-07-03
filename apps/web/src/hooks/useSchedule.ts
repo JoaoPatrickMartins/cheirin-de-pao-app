@@ -33,6 +33,7 @@ interface ScheduleApiResponse {
   deliveryTime?: string
   notifyReconfigure?: boolean
   days?: Record<string, WeeklyQty> | null  // MSCHED-01: formato multi-slot
+  pausedAt?: string | null  // pausa da agenda pelo cliente — null = ativa
 }
 
 const DEFAULT_WEEKLY_QTY: WeeklyQty = {
@@ -57,6 +58,9 @@ export interface UseScheduleReturn {
   setDays: Dispatch<SetStateAction<Record<string, WeeklyQty>>>  // MSCHED-01 (aceita updater funcional)
   dailyQty: WeeklyQty  // total por dia somando todos os slots (multi) ou weeklyQty (single)
   saveSchedule: (activeSlots: DeliverySlot[]) => Promise<{ ok: boolean; error?: string }>  // D-12
+  isPaused: boolean
+  isPausing: boolean
+  setPaused: (paused: boolean) => Promise<{ ok: boolean; error?: string }>
   isLoading: boolean
   isSaving: boolean
   consumoSemanal: number
@@ -70,8 +74,10 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
   const [deliveryTime, setDeliveryTime] = useState<string>('07:00')
   const [notifyReconfigure, setNotifyReconfigure] = useState<boolean>(false)
   const [days, setDays] = useState<Record<string, WeeklyQty>>({})  // D-11
+  const [pausedAt, setPausedAt] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [isSaving, setIsSaving] = useState<boolean>(false)
+  const [isPausing, setIsPausing] = useState<boolean>(false)
 
   // Carregar schedule na montagem — dependência vazia para evitar loop (T-04-05-02)
   useEffect(() => {
@@ -88,6 +94,7 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
           }
           // D-11: inicializar days a partir do backend quando disponível
           if (data.days) setDays(data.days as Record<string, WeeklyQty>)
+          setPausedAt(data.pausedAt ?? null)
         }
         // 404 (sem schedule) mantém os defaults zerados
       } catch {
@@ -149,6 +156,8 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
       if (res.ok) {
         const updated = (await res.json()) as ScheduleApiResponse
         setSchedule(updated)
+        // Salvar a agenda retoma automaticamente (backend limpa pausedAt no upsert).
+        setPausedAt(updated.pausedAt ?? null)
         return { ok: true }
       } else {
         const err = (await res.json()) as { error?: string }
@@ -158,6 +167,29 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
       return { ok: false, error: 'Algo deu errado. Verifique sua conexão.' }
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  // Pausar/retomar a agenda — independente do saveSchedule (não reenvia days/weeklyQty).
+  const setPaused = async (paused: boolean): Promise<{ ok: boolean; error?: string }> => {
+    setIsPausing(true)
+    try {
+      const res = await apiFetch('/schedules/me/pause', {
+        method: 'PATCH',
+        body: JSON.stringify({ paused }),
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (res.ok) {
+        const updated = (await res.json()) as ScheduleApiResponse
+        setPausedAt(updated.pausedAt ?? null)
+        return { ok: true }
+      }
+      const err = (await res.json()) as { error?: string }
+      return { ok: false, error: err.error ?? 'Não conseguimos atualizar a agenda. Tente novamente.' }
+    } catch {
+      return { ok: false, error: 'Algo deu errado. Verifique sua conexão.' }
+    } finally {
+      setIsPausing(false)
     }
   }
 
@@ -173,6 +205,9 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
     setDays,
     dailyQty,
     saveSchedule,
+    isPaused: pausedAt != null,
+    isPausing,
+    setPaused,
     isLoading,
     isSaving,
     consumoSemanal,
