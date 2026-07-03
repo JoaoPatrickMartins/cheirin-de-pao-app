@@ -18,6 +18,8 @@ export function AdminLayout() {
 
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'ADMIN') return <Navigate to="/" replace />
+  // 1º acesso sem senha: força a definição antes de usar o painel.
+  if (user.hasPassword === false) return <Navigate to="/set-password" replace />
 
   return (
     <div

@@ -5,6 +5,11 @@ import {
   SendOtpSchema,
   VerifyOtpSchema,
   RegisterCourierSchema,
+  RefreshSchema,
+  LoginSchema,
+  SetPasswordSchema,
+  ResetPasswordSchema,
+  ChangePasswordSchema,
 } from './auth.schema.js'
 import { AuthService } from './auth.service.js'
 
@@ -87,20 +92,168 @@ export class AuthController {
         return reply.status(result.status).send({ error: result.error })
       }
 
-      // Fetch user info to return with token
-      const user = await this.fastify.prisma.user.findFirst({
-        where: { id: userId },
-        select: { id: true, role: true, name: true },
-      })
-
-      if (!user) {
-        return reply.status(404).send({ error: 'Usuário não encontrado' })
-      }
-
       return reply.status(200).send({
-        token: result.rawToken,
-        user: { id: user.id, role: user.role, name: user.name },
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        hasPassword: result.hasPassword,
+        user: result.user,
       })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async login(request: FastifyRequest, reply: FastifyReply) {
+    let body: ReturnType<typeof LoginSchema.parse>
+    try {
+      body = LoginSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      const result = await this.service.loginWithPassword(body.email, body.password, body.deviceId)
+      if ('error' in result) {
+        return reply.status(result.status).send({ error: result.error })
+      }
+      return reply.status(200).send({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        hasPassword: result.hasPassword,
+        user: result.user,
+      })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async refresh(request: FastifyRequest, reply: FastifyReply) {
+    let body: ReturnType<typeof RefreshSchema.parse>
+    try {
+      body = RefreshSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      const result = await this.service.refreshSession(body.refreshToken, body.deviceId)
+      if ('error' in result) {
+        return reply.status(result.status).send({ error: result.error })
+      }
+      return reply.status(200).send({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        hasPassword: result.hasPassword,
+        user: result.user,
+      })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async logout(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      // sessionId é populado pelo authenticate a partir do claim sid do JWT.
+      if (request.sessionId) {
+        await this.service.logout(request.sessionId)
+      }
+      return reply.status(200).send({ ok: true })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  // Define a senha no 1º acesso (autenticado). Só permitido quando ainda não há senha.
+  async setPassword(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.user) {
+      return reply.status(401).send({ error: 'Não autorizado' })
+    }
+    let body: ReturnType<typeof SetPasswordSchema.parse>
+    try {
+      body = SetPasswordSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      const result = await this.service.setPassword(request.user.id, body.password)
+      if ('error' in result) {
+        return reply.status(result.status).send({ error: result.error })
+      }
+      return reply.status(200).send({ ok: true })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  // Recuperação de senha via OTP (público) → confirma código e define nova senha, emite tokens.
+  async resetPassword(request: FastifyRequest, reply: FastifyReply) {
+    let body: ReturnType<typeof ResetPasswordSchema.parse>
+    try {
+      body = ResetPasswordSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      const result = await this.service.resetPasswordWithOtp(
+        body.userId,
+        body.code,
+        body.deviceId,
+        body.newPassword,
+      )
+      if ('error' in result) {
+        return reply.status(result.status).send({ error: result.error })
+      }
+      return reply.status(200).send({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        hasPassword: result.hasPassword,
+        user: result.user,
+      })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  // Troca de senha logado (autenticado) — exige a senha atual.
+  async changePassword(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.user) {
+      return reply.status(401).send({ error: 'Não autorizado' })
+    }
+    let body: ReturnType<typeof ChangePasswordSchema.parse>
+    try {
+      body = ChangePasswordSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      const result = await this.service.changePassword(
+        request.user.id,
+        body.currentPassword,
+        body.newPassword,
+      )
+      if ('error' in result) {
+        return reply.status(result.status).send({ error: result.error })
+      }
+      return reply.status(200).send({ ok: true })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })

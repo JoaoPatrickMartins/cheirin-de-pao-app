@@ -3,6 +3,7 @@ export const Ic: Record<string, string> = {
   bag: 'M6 8h12l-1 12H7L6 8Zm3 0a3 3 0 0 1 6 0',
   calendar: 'M4 6.5h16v14H4zM4 10h16M8 3v4M16 3v4',
   clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z',
+  lock: 'M5 11h14v9H5zM8 11V8a4 4 0 0 1 8 0v3',
   user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM5 20c0-3.5 3-6 7-6s7 2.5 7 6',
   plus: 'M12 5v14M5 12h14',
   minus: 'M5 12h14',

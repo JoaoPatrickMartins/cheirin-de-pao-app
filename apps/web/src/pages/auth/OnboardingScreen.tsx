@@ -7,6 +7,7 @@ import { OtpInput } from '../../components/auth/OtpInput'
 import { ResendTimer } from '../../components/auth/ResendTimer'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
+import { PasswordCriteria, isPasswordStrong } from '../../components/auth/AuthUI'
 
 interface Condo {
   id: string
@@ -60,10 +61,12 @@ export function OnboardingScreen() {
   const [cpfDisplay, setCpfDisplay] = useState('') // formatted display value
   const [dataNascimento, setDataNascimento] = useState('')
 
-  // Step 1 — Contato (OTP só por e-mail; telefone é coletado p/ avisos de
+  // Step 1 — Contato + senha (OTP só por e-mail; telefone é coletado p/ avisos de
   // entrega e OTP por WhatsApp futuro)
   const [telefone, setTelefone] = useState('')
   const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
+  const [confirmaSenha, setConfirmaSenha] = useState('')
 
   // Step 2 — Condomínio
   const [condos, setCondos] = useState<Condo[]>([])
@@ -143,6 +146,7 @@ export function OnboardingScreen() {
           birthDate: parseBirthDate(dataNascimento),
           phone: telefone,
           email,
+          password: senha,
           condominiumId: selectedCondoId!,
           apartment: apto,
           ...(isBlocksCondo && bloco ? { block: bloco } : {}),
@@ -216,11 +220,12 @@ export function OnboardingScreen() {
         return
       }
 
-      const { token, user } = (await res.json()) as {
-        token: string
+      const { accessToken, refreshToken, user } = (await res.json()) as {
+        accessToken: string
+        refreshToken: string
         user: { id: string; role: 'CLIENT' | 'COURIER' | 'ADMIN'; name: string; creditBalance?: number }
       }
-      auth.login(token, { ...user, creditBalance: user.creditBalance ?? 0 })
+      auth.login(accessToken, refreshToken, { ...user, creditBalance: user.creditBalance ?? 0 })
       navigate('/client')
     } catch {
       setError('Algo deu errado. Verifique sua conexão e tente novamente.')
@@ -241,8 +246,12 @@ export function OnboardingScreen() {
   // Step 0 CTA disabled until all fields filled
   const step0Valid = nome.trim() !== '' && cpfDisplay.trim() !== '' && dataNascimento.replace(/\D/g, '').length === 8
 
-  // Step 1 CTA disabled até preencher telefone E e-mail (ambos obrigatórios)
-  const step1Valid = telefone.trim().length > 0 && email.trim().length > 0
+  // Step 1 CTA: telefone, e-mail, senha forte e confirmação coincidente
+  const step1Valid =
+    telefone.trim().length > 0 &&
+    email.trim().length > 0 &&
+    isPasswordStrong(senha) &&
+    senha === confirmaSenha
 
   // Step 3 CTA disabled until apartment filled (and block if BLOCKS condo)
   const step3Valid = apto.trim() !== ''
@@ -408,6 +417,30 @@ export function OnboardingScreen() {
               type="tel"
               autoComplete="tel"
             />
+            <div>
+              <FieldRow
+                label="Senha"
+                icon="lock"
+                value={senha}
+                onChange={setSenha}
+                placeholder="Crie uma senha"
+                type="password"
+                autoComplete="new-password"
+              />
+              <PasswordCriteria password={senha} />
+            </div>
+            <FieldRow
+              label="Confirme a senha"
+              icon="lock"
+              value={confirmaSenha}
+              onChange={setConfirmaSenha}
+              placeholder="Repita a senha"
+              type="password"
+              autoComplete="new-password"
+            />
+            {confirmaSenha.length > 0 && senha !== confirmaSenha && (
+              <ErrorText>As senhas não coincidem.</ErrorText>
+            )}
           </div>
 
           <div style={{ flex: 1 }} />
@@ -617,6 +650,9 @@ interface FieldRowProps {
 
 function FieldRow({ label, icon, value, onChange, placeholder, type = 'text', autoComplete }: FieldRowProps) {
   const [focused, setFocused] = useState(false)
+  const [visible, setVisible] = useState(false)
+  const isPassword = type === 'password'
+  const inputType = isPassword ? (visible ? 'text' : 'password') : type
   return (
     <label style={{ display: 'block' }}>
       {label && (
@@ -647,7 +683,7 @@ function FieldRow({ label, icon, value, onChange, placeholder, type = 'text', au
       >
         <Icon name={icon} size={18} color="var(--color-text-ter)" />
         <input
-          type={type}
+          type={inputType}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -666,6 +702,26 @@ function FieldRow({ label, icon, value, onChange, placeholder, type = 'text', au
             minWidth: 0,
           }}
         />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            aria-label={visible ? 'Ocultar senha' : 'Mostrar senha'}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--color-text-sec)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              fontWeight: 700,
+              padding: '2px 4px',
+              flexShrink: 0,
+            }}
+          >
+            {visible ? 'Ocultar' : 'Mostrar'}
+          </button>
+        )}
       </div>
     </label>
   )

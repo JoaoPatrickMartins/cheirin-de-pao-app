@@ -1,14 +1,33 @@
 import { z } from 'zod'
-import { CpfSchema, PhoneSchema } from '@cheirin-de-pao/shared'
+import {
+  CpfSchema,
+  PhoneSchema,
+  RefreshSchema,
+  LoginSchema,
+  PasswordSchema,
+  SetPasswordSchema,
+  ResetPasswordSchema,
+  ChangePasswordSchema,
+} from '@cheirin-de-pao/shared'
+
+// Reexporta do shared (fonte única) para uso no controller.
+export { RefreshSchema, LoginSchema, SetPasswordSchema, ResetPasswordSchema, ChangePasswordSchema }
+export type RefreshBody = z.infer<typeof RefreshSchema>
+export type LoginBody = z.infer<typeof LoginSchema>
+export type SetPasswordBody = z.infer<typeof SetPasswordSchema>
+export type ResetPasswordBody = z.infer<typeof ResetPasswordSchema>
+export type ChangePasswordBody = z.infer<typeof ChangePasswordSchema>
 
 // E-mail é obrigatório (canal do OTP). Telefone também é obrigatório:
 // será usado no OTP por WhatsApp (futuro) e nos avisos de entrega.
+// Senha obrigatória no cadastro (política de senha forte no PasswordSchema).
 export const RegisterSchema = z.object({
   name: z.string().min(2),
   cpf: CpfSchema,
   birthDate: z.string().datetime().optional(),
   phone: PhoneSchema,
   email: z.string().email(),
+  password: PasswordSchema,
   condominiumId: z.string(),
   apartment: z.string(),
   block: z.string().optional(),

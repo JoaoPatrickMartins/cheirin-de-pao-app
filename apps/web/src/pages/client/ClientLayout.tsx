@@ -41,6 +41,8 @@ export function ClientLayout() {
 
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'CLIENT') return <Navigate to="/" replace />
+  // 1º acesso sem senha: força a definição antes de usar o app.
+  if (user.hasPassword === false) return <Navigate to="/set-password" replace />
 
   // "Começar" ou "Pular" nas telas: marca slides e segue para o tour (fluxo "Tour sempre").
   function finishSlides() {

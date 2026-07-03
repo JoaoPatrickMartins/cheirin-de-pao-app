@@ -127,6 +127,10 @@ model User {
   name          String
   cpf           String    @unique
   birthDate     DateTime?
+  // Auth por senha (bcrypt). null = ainda não definiu — força definição no 1º acesso via OTP.
+  // Nunca expor este campo em respostas/selects públicos.
+  passwordHash  String?
+  passwordSetAt DateTime?
   isBlocked     Boolean   @default(false)
   // Contexto do bloqueio atual (auditoria) — preenchido ao bloquear, limpo ao desbloquear
   blockReason   String?
