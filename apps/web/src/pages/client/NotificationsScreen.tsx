@@ -17,7 +17,7 @@ interface AppNotification {
 type Tone = 'good' | 'gold' | 'neutral'
 
 function getTone(type: string): Tone {
-  if (['DELIVERY_EVE', 'DELIVERY_DONE', 'OUT_FOR_DELIVERY'].includes(type)) return 'good'
+  if (['DELIVERY_EVE', 'DELIVERY_DONE', 'OUT_FOR_DELIVERY', 'HOOK_DELIVERED'].includes(type)) return 'good'
   if (['LOW_CREDIT', 'CREDIT_GRANTED'].includes(type)) return 'gold'
   return 'neutral'
 }
@@ -28,6 +28,7 @@ function getIcon(type: string) {
   if (type === 'OUT_FOR_DELIVERY') return 'truck'
   if (type === 'LOW_CREDIT') return 'alert'
   if (type === 'CREDIT_GRANTED') return 'coin'
+  if (type === 'HOOK_DELIVERED') return 'pin'
   return 'repeat'
 }
 
@@ -44,6 +45,7 @@ const CTA_CONFIG: Record<string, { label: string; path: string }> = {
   OUT_FOR_DELIVERY: { label: 'Acompanhar',        path: '/client/pedidos' },
   RECONFIGURE:      { label: 'Ajustar agenda',    path: '/client/agenda'  },
   CREDIT_GRANTED:   { label: 'Ver saldo',         path: '/client/home'    },
+  HOOK_DELIVERED:   { label: 'Ir para o início',  path: '/client/home'    },
 }
 
 function formatTimestamp(dateStr: string): string {

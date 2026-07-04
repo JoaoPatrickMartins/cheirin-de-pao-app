@@ -110,6 +110,7 @@ enum NotificationType {
   CREDIT_PURCHASED
   CREDIT_GRANTED
   SCHEDULE_PAUSED
+  HOOK_DELIVERED
 }
 
 enum AnalyticsEventType {
@@ -148,6 +149,13 @@ model User {
   stripeCustomerId   String?
   // Consentimento explícito para cobranças sem CVV (off_session / card-on-file)
   offSessionConsentAt DateTime?
+  // Solicitação de gancho de porta (entrega) — fluxo pós-primeiro-pedido.
+  // hookRequestedAt: cliente confirmou o recebimento (solicitação PENDENTE).
+  // hookDeliveredAt + hookDeliveredById: admin registrou a entrega (auditoria).
+  // Estado derivado: null = não solicitado; requested sem delivered = pendente; delivered = entregue.
+  hookRequestedAt    DateTime?
+  hookDeliveredAt    DateTime?
+  hookDeliveredById  String?   @db.ObjectId
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }
