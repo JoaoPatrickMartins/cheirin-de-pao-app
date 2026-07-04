@@ -23,7 +23,11 @@ export interface LedgerRow {
   failedAt: string
   failureReason: string
   cancelReason: string
+  deliveryNote: string
   refunded: boolean
+  paymentId: string
+  paymentAmount: number
+  paymentStatus: string
 }
 
 export const STATUS_META: Record<string, { label: string; color: string; soft: string }> = {
@@ -38,6 +42,9 @@ export const STATUS_META: Record<string, { label: string; color: string; soft: s
 const ACTIVE = ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY']
 const TERMINAL_REFUNDABLE = ['NOT_DELIVERED', 'CANCELLED']
 
+// Passos do resolver: além da visão, um passo por desfecho e os dois estornos.
+type Mode = 'view' | 'deliver' | 'fail' | 'cancel' | 'refund' | 'payment'
+
 function fmt(dateStr: string) {
   if (!dateStr) return ''
   try {
@@ -47,30 +54,54 @@ function fmt(dateStr: string) {
   }
 }
 
+function fmtMoney(v: number) {
+  return `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 /**
- * Detalhe de um pedido com ações: marcar "não entregue" (com motivo) e estornar crédito.
- * Usado no histórico/parados da aba Entregas.
+ * Detalhe de um pedido com o "resolver": para um pedido ativo/parado, permite dar o
+ * desfecho (entregue a posteriori / não entregue / cancelado) e, no mesmo passo,
+ * devolver os pães ao saldo. Estorno de dinheiro (Stripe) é uma ação separada, só
+ * quando há pagamento vinculado. Usado no histórico/parados da aba Entregas.
  */
 export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; onClose: () => void; onChanged: () => void }) {
-  const [mode, setMode] = useState<'view' | 'fail' | 'refund'>('view')
+  const [mode, setMode] = useState<Mode>('view')
   const [reason, setReason] = useState('')
+  const [refundCredits, setRefundCredits] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const meta = STATUS_META[row.status] ?? { label: row.status, color: 'var(--color-text-ter)', soft: 'var(--color-surface-2)' }
-  const canFail = ACTIVE.includes(row.status)
+  const canResolve = ACTIVE.includes(row.status)
   const canRefund = TERMINAL_REFUNDABLE.includes(row.status) && !row.refunded
+  const hasPayment = !!row.paymentId
+  const canRefundPayment = hasPayment && row.paymentStatus === 'PAID'
 
-  async function markNotDelivered() {
+  function goto(next: Mode) {
+    setError('')
+    setReason('')
+    setRefundCredits(true)
+    setMode(next)
+  }
+
+  // Resolve o pedido parado: desfecho + (opcional) devolução de pães, em uma chamada.
+  async function resolve(outcome: 'DELIVERED' | 'NOT_DELIVERED' | 'CANCELLED') {
     setBusy(true)
     setError('')
     try {
-      const res = await apiFetch(`/admin/orders/${row.orderId}/status`, {
-        method: 'PATCH',
+      const body: Record<string, unknown> = { outcome }
+      if (outcome === 'DELIVERED') {
+        if (reason.trim()) body.reason = reason.trim()
+      } else {
+        body.reason = reason.trim()
+        body.refundCredits = refundCredits
+      }
+      const res = await apiFetch(`/admin/orders/${row.orderId}/resolve`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'NOT_DELIVERED', reason: reason.trim() || undefined }),
+        body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Falha ao marcar não entregue')
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Falha ao resolver o pedido')
       onChanged()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro')
@@ -79,6 +110,7 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
     }
   }
 
+  // Estorno de pães de um pedido já terminal (não entregue/cancelado sem estorno).
   async function refund() {
     setBusy(true)
     setError('')
@@ -96,6 +128,25 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
       setBusy(false)
     }
   }
+
+  // Estorno de dinheiro (Stripe) do pagamento vinculado. Reusa o fluxo de Pagamentos,
+  // que já debita os créditos correspondentes atomicamente no backend.
+  async function refundPayment() {
+    setBusy(true)
+    setError('')
+    try {
+      const res = await apiFetch(`/admin/payments/${row.paymentId}/refund`, { method: 'POST' })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Falha ao estornar o pagamento')
+      onChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reasonRequired = mode === 'fail' || mode === 'cancel'
+  const confirmDisabled = busy || (reasonRequired && !reason.trim())
 
   return (
     <div
@@ -141,19 +192,37 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
           {row.failedAt && <DetailRow label="Não entregue em" value={fmt(row.failedAt)} />}
           {row.failureReason && <DetailRow label="Motivo" value={row.failureReason} />}
           {row.cancelReason && <DetailRow label="Motivo do cancelamento" value={row.cancelReason} />}
-          {row.refunded && <DetailRow label="Crédito" value="Estornado ✓" />}
+          {row.deliveryNote && <DetailRow label="Nota da entrega" value={row.deliveryNote} />}
+          {row.refunded && <DetailRow label="Pães" value="Devolvidos ao saldo ✓" />}
+          {hasPayment && (
+            <DetailRow
+              label="Pagamento"
+              value={
+                (row.paymentAmount ? fmtMoney(row.paymentAmount) : 'vinculado') +
+                (row.paymentStatus === 'REFUNDED' ? ' · estornado' : '')
+              }
+            />
+          )}
         </div>
 
         {error && (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-bad, #C2410C)', margin: '0 0 12px' }}>{error}</p>
         )}
 
-        {/* Motivo (quando em fail/refund) */}
-        {(mode === 'fail' || mode === 'refund') && (
+        {/* Campo de motivo/nota conforme o passo */}
+        {mode !== 'view' && mode !== 'payment' && (
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder={mode === 'fail' ? 'Motivo da não-entrega (cliente ausente, endereço...)' : 'Motivo do estorno (opcional)'}
+            placeholder={
+              mode === 'fail'
+                ? 'Motivo da não-entrega (cliente ausente, endereço...)'
+                : mode === 'cancel'
+                  ? 'Motivo do cancelamento'
+                  : mode === 'deliver'
+                    ? 'Observação (opcional) — ex.: entregue manualmente'
+                    : 'Motivo do estorno (opcional)'
+            }
             rows={3}
             style={{
               width: '100%',
@@ -170,25 +239,69 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
           />
         )}
 
+        {/* Devolver pães — só nos desfechos de não-entrega/cancelamento */}
+        {(mode === 'fail' || mode === 'cancel') && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, cursor: 'pointer' }}>
+            <input type="checkbox" checked={refundCredits} onChange={(e) => setRefundCredits(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--color-espresso)' }} />
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)' }}>
+              Devolver {row.quantity} {row.quantity === 1 ? 'pão' : 'pães'} ao saldo
+            </span>
+          </label>
+        )}
+
+        {/* Aviso do estorno de dinheiro (dinheiro ≠ pães) */}
+        {mode === 'payment' && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-sec)', margin: '0 0 12px', lineHeight: 1.45 }}>
+            Estorna {row.paymentAmount ? fmtMoney(row.paymentAmount) : 'o valor pago'} no cartão/Pix e remove os créditos correspondentes.
+            O valor pago pode ser menor que {row.quantity} {row.quantity === 1 ? 'pão' : 'pães'} (parte pode ter vindo do saldo) —
+            não combine com “devolver pães” para as mesmas unidades.
+          </p>
+        )}
+
         {/* Ações */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {mode === 'view' && (
             <>
-              {canFail && <ActionButton variant="danger" label="Marcar não entregue" onClick={() => setMode('fail')} />}
-              {canRefund && <ActionButton variant="primary" label="Estornar crédito" onClick={() => setMode('refund')} />}
+              {canResolve && (
+                <>
+                  <ActionButton variant="good" label="Marcar como entregue" onClick={() => goto('deliver')} />
+                  <ActionButton variant="danger" label="Registrar não entrega" onClick={() => goto('fail')} />
+                  <ActionButton variant="dangerGhost" label="Cancelar pedido" onClick={() => goto('cancel')} />
+                </>
+              )}
+              {canRefund && <ActionButton variant="primary" label="Devolver pães ao saldo" onClick={() => goto('refund')} />}
+              {canRefundPayment && <ActionButton variant="ghost" label={`Estornar pagamento${row.paymentAmount ? ` (${fmtMoney(row.paymentAmount)})` : ''}`} onClick={() => goto('payment')} />}
               <ActionButton variant="ghost" label="Fechar" onClick={onClose} />
+            </>
+          )}
+          {mode === 'deliver' && (
+            <>
+              <ActionButton variant="good" label={busy ? 'Salvando...' : 'Confirmar entrega'} onClick={() => resolve('DELIVERED')} disabled={busy} />
+              <ActionButton variant="ghost" label="Voltar" onClick={() => goto('view')} disabled={busy} />
             </>
           )}
           {mode === 'fail' && (
             <>
-              <ActionButton variant="danger" label={busy ? 'Salvando...' : 'Confirmar não entregue'} onClick={markNotDelivered} disabled={busy} />
-              <ActionButton variant="ghost" label="Voltar" onClick={() => setMode('view')} disabled={busy} />
+              <ActionButton variant="danger" label={busy ? 'Salvando...' : 'Confirmar não entrega'} onClick={() => resolve('NOT_DELIVERED')} disabled={confirmDisabled} />
+              <ActionButton variant="ghost" label="Voltar" onClick={() => goto('view')} disabled={busy} />
+            </>
+          )}
+          {mode === 'cancel' && (
+            <>
+              <ActionButton variant="danger" label={busy ? 'Cancelando...' : 'Confirmar cancelamento'} onClick={() => resolve('CANCELLED')} disabled={confirmDisabled} />
+              <ActionButton variant="ghost" label="Voltar" onClick={() => goto('view')} disabled={busy} />
             </>
           )}
           {mode === 'refund' && (
             <>
               <ActionButton variant="primary" label={busy ? 'Estornando...' : `Confirmar estorno (${row.quantity})`} onClick={refund} disabled={busy} />
-              <ActionButton variant="ghost" label="Voltar" onClick={() => setMode('view')} disabled={busy} />
+              <ActionButton variant="ghost" label="Voltar" onClick={() => goto('view')} disabled={busy} />
+            </>
+          )}
+          {mode === 'payment' && (
+            <>
+              <ActionButton variant="danger" label={busy ? 'Estornando...' : 'Confirmar estorno do pagamento'} onClick={refundPayment} disabled={busy} />
+              <ActionButton variant="ghost" label="Voltar" onClick={() => goto('view')} disabled={busy} />
             </>
           )}
         </div>
@@ -206,10 +319,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ActionButton({ label, onClick, variant, disabled }: { label: string; onClick: () => void; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean }) {
+function ActionButton({ label, onClick, variant, disabled }: { label: string; onClick: () => void; variant: 'primary' | 'danger' | 'dangerGhost' | 'good' | 'ghost'; disabled?: boolean }) {
   const styles: Record<string, React.CSSProperties> = {
     primary: { background: 'var(--color-espresso)', color: '#fff', border: 'none' },
     danger: { background: 'var(--color-bad, #C2410C)', color: '#fff', border: 'none' },
+    dangerGhost: { background: 'none', color: 'var(--color-bad, #C2410C)', border: '1.5px solid var(--color-bad, #C2410C)' },
+    good: { background: 'var(--color-good)', color: '#fff', border: 'none' },
     ghost: { background: 'none', color: 'var(--color-text)', border: '1.5px solid var(--color-border)' },
   }
   return (

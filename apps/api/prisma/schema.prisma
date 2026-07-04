@@ -253,6 +253,7 @@ model Order {
   condominiumId  String?     @db.ObjectId
   slotId         String?     // identificador estável do slot (chave de junção; Etapa B)
   deliveryTime   String?     // snapshot do horário de entrega no momento do pedido (exibição)
+  paymentId      String?     @db.ObjectId // vínculo leve ao Payment que financiou o avulso (só quando houve pagamento; nulo quando pago via saldo). Base do estorno de dinheiro a partir de um pedido parado.
   // Marcos do ciclo de vida (rastreabilidade ponta-a-ponta — evita pedido "no limbo")
   separatedAt    DateTime?   // quando foi separado/conferido (entra na divisão de entregas)
   deliveredAt    DateTime?   // quando foi confirmado como entregue
@@ -260,6 +261,7 @@ model Order {
   failureReason  String?     // motivo da não-entrega (cliente ausente, endereço, etc.)
   cancelledAt    DateTime?   // quando foi cancelado
   cancelReason   String?     // motivo do cancelamento
+  deliveryNote   String?     // nota da entrega manual/retroativa (resolução de pedido parado marcado como entregue)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

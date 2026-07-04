@@ -6,6 +6,7 @@ import {
   ApproveDivisionSchema,
   LedgerQuerySchema,
   RefundOrderSchema,
+  ResolveOrderSchema,
 } from './admin-orders.schema.js'
 import { AdminOrdersService } from './admin-orders.service.js'
 
@@ -227,6 +228,33 @@ export class AdminOrdersController {
       const e = err as { statusCode?: number; message?: string }
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
       if (e.statusCode === 409) return reply.status(409).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * POST /admin/orders/:id/resolve — resolve um pedido parado (desfecho + estorno de pães).
+   */
+  async resolveOrder(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    let body: ReturnType<typeof ResolveOrderSchema.parse>
+    try {
+      body = ResolveOrderSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    const { id: orderId } = request.params as { id: string }
+    try {
+      const result = await this.service.resolveStuckOrder(orderId, request.user.id, body)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 422) return reply.status(422).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }

@@ -70,9 +70,10 @@ export function CardPaymentScreen() {
       body: JSON.stringify({ savedCardId, comboId, customQuantity }),
     })
     if (res.ok) {
+      const paid = (await res.json().catch(() => ({}))) as { paymentId?: string }
       // Pedido único: cria a entrega agora que a diferença foi creditada.
       if (pendingOrder) {
-        const result = await finalizePendingOrder(pendingOrder)
+        const result = await finalizePendingOrder(pendingOrder, paid.paymentId)
         if (result.ok) {
           if (result.creditBalance !== undefined) updateCreditBalance(result.creditBalance)
           navigate('/client/creditos/sucesso', {

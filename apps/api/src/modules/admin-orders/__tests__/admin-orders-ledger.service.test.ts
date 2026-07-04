@@ -172,4 +172,98 @@ describe('AdminOrdersService — ledger / stuck / refund', () => {
       })
     })
   })
+
+  describe('resolveStuckOrder', () => {
+    // Um pedido parado costuma estar em SCHEDULED (nunca separado) — data no passado.
+    const stuck = { id: 'o1', userId: 'u1', quantity: 4, status: 'SCHEDULED', scheduledDate: new Date('2026-06-20T15:00:00.000Z') }
+
+    it('SCHEDULED → NOT_DELIVERED com estorno: aplica status, grava motivo e devolve pães', async () => {
+      const { fastify, prisma } = makeMock({ order: { ...stuck }, existingRefund: null, creditBalanceAfter: 9 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminOrdersService(fastify as any).resolveStuckOrder('o1', 'admin-1', {
+        outcome: 'NOT_DELIVERED',
+        reason: 'cliente ausente',
+        refundCredits: true,
+      })
+      expect(r).toEqual({ id: 'o1', status: 'NOT_DELIVERED', refundedCredits: 4, creditBalance: 9 })
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'NOT_DELIVERED', failureReason: 'cliente ausente' }) }),
+      )
+      expect(prisma.creditTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantity: 4, referenceId: 'o1' }) }),
+      )
+      expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: { creditBalance: { increment: 4 } } }))
+    })
+
+    it('NOT_DELIVERED sem estorno: aplica status e NÃO devolve pães', async () => {
+      const { fastify, prisma } = makeMock({ order: { ...stuck }, creditBalanceAfter: 5 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminOrdersService(fastify as any).resolveStuckOrder('o1', 'admin-1', {
+        outcome: 'NOT_DELIVERED',
+        reason: 'endereço',
+        refundCredits: false,
+      })
+      expect(r.refundedCredits).toBe(0)
+      expect(prisma.creditTransaction.create).not.toHaveBeenCalled()
+      expect(prisma.user.update).not.toHaveBeenCalled()
+    })
+
+    it('DELIVERED (retroativo): grava nota e ignora estorno mesmo com refundCredits=true', async () => {
+      const { fastify, prisma } = makeMock({ order: { ...stuck }, creditBalanceAfter: 5 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminOrdersService(fastify as any).resolveStuckOrder('o1', 'admin-1', {
+        outcome: 'DELIVERED',
+        reason: 'entregue manualmente',
+        refundCredits: true,
+      })
+      expect(r.status).toBe('DELIVERED')
+      expect(r.refundedCredits).toBe(0)
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'DELIVERED', deliveryNote: 'entregue manualmente' }) }),
+      )
+      expect(prisma.creditTransaction.create).not.toHaveBeenCalled()
+    })
+
+    it('CANCELLED com estorno: aplica status e devolve pães', async () => {
+      const { fastify, prisma } = makeMock({ order: { ...stuck }, existingRefund: null, creditBalanceAfter: 8 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminOrdersService(fastify as any).resolveStuckOrder('o1', 'admin-1', {
+        outcome: 'CANCELLED',
+        reason: 'duplicado',
+        refundCredits: true,
+      })
+      expect(r).toMatchObject({ status: 'CANCELLED', refundedCredits: 4 })
+      expect(prisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED', cancelReason: 'duplicado' }) }),
+      )
+    })
+
+    it('idempotência: com estorno prévio não cria novo REFUND (refundedCredits=0)', async () => {
+      const { fastify, prisma } = makeMock({ order: { ...stuck }, existingRefund: { id: 'tx-old' }, creditBalanceAfter: 4 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminOrdersService(fastify as any).resolveStuckOrder('o1', 'admin-1', {
+        outcome: 'NOT_DELIVERED',
+        reason: 'x',
+        refundCredits: true,
+      })
+      expect(r.refundedCredits).toBe(0)
+      expect(prisma.creditTransaction.create).not.toHaveBeenCalled()
+    })
+
+    it('lança 422 em transição inválida (pedido já terminal)', async () => {
+      const { fastify } = makeMock({ order: { ...stuck, status: 'DELIVERED' } })
+      await expect(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        new AdminOrdersService(fastify as any).resolveStuckOrder('o1', 'admin-1', { outcome: 'NOT_DELIVERED', reason: 'x', refundCredits: true }),
+      ).rejects.toMatchObject({ statusCode: 422 })
+    })
+
+    it('lança 404 quando o pedido não existe', async () => {
+      const { fastify } = makeMock({ order: null })
+      await expect(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        new AdminOrdersService(fastify as any).resolveStuckOrder('x', 'admin-1', { outcome: 'DELIVERED' }),
+      ).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
 })

@@ -70,7 +70,7 @@ function PixWaitingContent({
 
     // Pedido único: cria a entrega agora que a diferença foi creditada.
     if (pendingOrder) {
-      const result = await finalizePendingOrder(pendingOrder)
+      const result = await finalizePendingOrder(pendingOrder, paymentId)
       if (result.ok) {
         if (result.creditBalance !== undefined) onCreditUpdate(result.creditBalance)
         onNavigate('/client/creditos/sucesso', {

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
-import { NotificationType, OrderStatus, Prisma } from '@prisma/client'
+import { NotificationType, OrderStatus, PaymentStatus, Prisma } from '@prisma/client'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
@@ -10,15 +10,18 @@ import { projectScheduleForDate } from '../../lib/schedule-projection.js'
  *
  * T-05-02: Qualquer transição fora deste mapa lança statusCode 422 antes do update.
  * Ciclo de vida v2 (corte → separação → entrega → desfecho):
- *   SCHEDULED        → SEPARATED | OUT_FOR_DELIVERY | CANCELLED
+ *   SCHEDULED        → SEPARATED | OUT_FOR_DELIVERY | DELIVERED | NOT_DELIVERED | CANCELLED
  *   SEPARATED        → OUT_FOR_DELIVERY | DELIVERED | NOT_DELIVERED | SCHEDULED (desfazer) | CANCELLED
  *   OUT_FOR_DELIVERY → DELIVERED | NOT_DELIVERED | CANCELLED
  *
  * Nota: SCHEDULED→OUT_FOR_DELIVERY e OUT_FOR_DELIVERY→DELIVERED são mantidos por
  * compatibilidade. O gate da Entrega passa a exigir SEPARATED (ver admin-separation).
+ * SCHEDULED→DELIVERED/NOT_DELIVERED existem para a resolução de "pedidos parados":
+ * um pedido esquecido nunca foi separado, e o admin precisa fechar o desfecho a
+ * posteriori (ver resolveStuckOrder). Sem isso, o resolver falharia com 422.
  */
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  SCHEDULED: ['SEPARATED', 'OUT_FOR_DELIVERY', 'CANCELLED'],
+  SCHEDULED: ['SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED', 'CANCELLED'],
   SEPARATED: ['OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED', 'SCHEDULED', 'CANCELLED'],
   OUT_FOR_DELIVERY: ['DELIVERED', 'NOT_DELIVERED', 'CANCELLED'],
 }
@@ -51,7 +54,12 @@ export interface LedgerRow {
   failedAt: string
   failureReason: string
   cancelReason: string
+  deliveryNote: string
   refunded: boolean
+  // Vínculo leve ao pagamento que financiou o avulso (vazio quando pago só com saldo).
+  paymentId: string
+  paymentAmount: number
+  paymentStatus: string
 }
 
 /** Filtros do ledger de pedidos. */
@@ -693,6 +701,8 @@ export class AdminOrdersService {
       failedAt: Date | null
       failureReason: string | null
       cancelReason: string | null
+      deliveryNote: string | null
+      paymentId: string | null
     }>,
   ): Promise<LedgerRow[]> {
     if (orders.length === 0) return []
@@ -700,9 +710,10 @@ export class AdminOrdersService {
     const userIds = [...new Set(orders.map((o) => o.userId))]
     const condoIds = [...new Set(orders.map((o) => o.condominiumId).filter((c): c is string => !!c))]
     const courierIds = [...new Set(orders.map((o) => o.courierId).filter((c): c is string => !!c))]
+    const paymentIds = [...new Set(orders.map((o) => o.paymentId).filter((p): p is string => !!p))]
     const orderIds = orders.map((o) => o.id)
 
-    const [users, condos, couriers, refunds] = await Promise.all([
+    const [users, condos, couriers, refunds, payments] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, apartment: true, block: true },
@@ -718,12 +729,19 @@ export class AdminOrdersService {
         where: { type: 'REFUND', referenceId: { in: orderIds } },
         select: { referenceId: true },
       }),
+      paymentIds.length
+        ? this.prisma.payment.findMany({
+            where: { id: { in: paymentIds } },
+            select: { id: true, amount: true, status: true },
+          })
+        : Promise.resolve([] as { id: string; amount: number; status: PaymentStatus }[]),
     ])
 
     const userById = new Map(users.map((u) => [u.id, u]))
     const condoById = new Map(condos.map((c) => [c.id, c]))
     const courierById = new Map(couriers.map((c) => [c.id, c]))
     const refundedSet = new Set(refunds.map((r) => r.referenceId).filter((id): id is string => !!id))
+    const paymentById = new Map(payments.map((p) => [p.id, p]))
 
     const slotLabelFor = (condoId: string | null, slotId: string): string => {
       const condo = condoId ? condoById.get(condoId) : undefined
@@ -755,7 +773,11 @@ export class AdminOrdersService {
         failedAt: o.failedAt ? o.failedAt.toISOString() : '',
         failureReason: o.failureReason ?? '',
         cancelReason: o.cancelReason ?? '',
+        deliveryNote: o.deliveryNote ?? '',
         refunded: refundedSet.has(o.id),
+        paymentId: o.paymentId ?? '',
+        paymentAmount: (o.paymentId && paymentById.get(o.paymentId)?.amount) || 0,
+        paymentStatus: (o.paymentId && paymentById.get(o.paymentId)?.status) || '',
       }
     })
   }
@@ -777,6 +799,8 @@ export class AdminOrdersService {
       failedAt: true,
       failureReason: true,
       cancelReason: true,
+      deliveryNote: true,
+      paymentId: true,
     } as const
   }
 
@@ -896,6 +920,107 @@ export class AdminOrdersService {
 
     const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
     return { id: orderId, refundedCredits: order.quantity, creditBalance: user?.creditBalance ?? 0 }
+  }
+
+  /**
+   * resolveStuckOrder — dá o desfecho a um pedido "parado" (data passada sem
+   * conclusão) em UMA transação: aplica o status terminal escolhido e, opcionalmente,
+   * devolve os pães ao saldo no mesmo passo.
+   *
+   * Diferenças em relação a updateOrderStatus + refundOrder (que este método reusa a
+   * lógica, sem aninhar transações):
+   * - Aceita ir direto de SCHEDULED para DELIVERED/NOT_DELIVERED (ver VALID_TRANSITIONS).
+   * - Agrega o estorno de pães (só faz sentido em NOT_DELIVERED/CANCELLED — DELIVERED
+   *   consumiu o crédito corretamente). Idempotente por referenceId.
+   * - Não dispara push retroativo: só notifica DELIVERED se a data do pedido for hoje
+   *   (um parado é sempre passado, então na prática nunca notifica).
+   *
+   * Estorno de DINHEIRO (Stripe) NÃO acontece aqui — permanece no fluxo de Pagamentos
+   * (POST /admin/payments/:id/refund), pois dinheiro pago ≠ pães do pedido.
+   *
+   * @throws { statusCode: 404 } pedido não encontrado
+   * @throws { statusCode: 422 } transição inválida (ex.: pedido já terminal)
+   */
+  async resolveStuckOrder(
+    orderId: string,
+    adminId: string,
+    opts: { outcome: 'DELIVERED' | 'NOT_DELIVERED' | 'CANCELLED'; reason?: string; refundCredits?: boolean },
+  ): Promise<{ id: string; status: string; refundedCredits: number; creditBalance: number }> {
+    const { outcome, reason } = opts
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order) {
+      throw { statusCode: 404, message: 'Pedido não encontrado' }
+    }
+
+    const allowed = VALID_TRANSITIONS[order.status] ?? []
+    if (!allowed.includes(outcome)) {
+      throw { statusCode: 422, message: `Transição inválida: ${order.status} → ${outcome}` }
+    }
+
+    // Só devolve pães em não-entrega/cancelamento — entrega consumiu o crédito.
+    const wantsRefund = !!opts.refundCredits && (outcome === 'NOT_DELIVERED' || outcome === 'CANCELLED')
+    // Idempotência: não estorna duas vezes o mesmo pedido.
+    const alreadyRefunded = wantsRefund
+      ? await this.prisma.creditTransaction.findFirst({
+          where: { type: 'REFUND', referenceId: orderId },
+          select: { id: true },
+        })
+      : null
+    const doRefund = wantsRefund && !alreadyRefunded
+
+    const now = new Date()
+    const orderData: Prisma.OrderUpdateInput = { status: outcome as OrderStatus }
+    switch (outcome) {
+      case 'DELIVERED':
+        orderData.deliveredAt = now
+        orderData.deliveryNote = reason ?? null
+        break
+      case 'NOT_DELIVERED':
+        orderData.failedAt = now
+        orderData.failureReason = reason ?? null
+        break
+      case 'CANCELLED':
+        orderData.cancelledAt = now
+        orderData.cancelReason = reason ?? null
+        break
+    }
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [
+      this.prisma.order.update({ where: { id: orderId }, data: orderData }),
+    ]
+    if (doRefund) {
+      ops.push(
+        this.prisma.creditTransaction.create({
+          data: {
+            userId: order.userId,
+            type: 'REFUND',
+            quantity: order.quantity,
+            referenceId: orderId,
+            description: `Estorno de pedido — ${order.quantity} crédito(s) devolvido(s)`,
+            adminId,
+            reason,
+          },
+        }),
+        this.prisma.user.update({
+          where: { id: order.userId },
+          data: { creditBalance: { increment: order.quantity } },
+        }),
+      )
+    }
+    await this.prisma.$transaction(ops)
+
+    // Push só para entrega no mesmo dia — nunca retroativo.
+    if (outcome === 'DELIVERED' && brtDateStr(order.scheduledDate) === brtDateStr(now)) {
+      await this.notifyAndPersist(order)
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
+    return {
+      id: orderId,
+      status: outcome,
+      refundedCredits: doRefund ? order.quantity : 0,
+      creditBalance: user?.creditBalance ?? 0,
+    }
   }
 
   /**

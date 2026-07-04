@@ -27,7 +27,11 @@ export interface FinalizeResult {
 const FAIL_MESSAGE =
   'Pagamento recebido, mas não foi possível agendar. Seus créditos estão na conta — tente o Pedido único de novo.'
 
-export async function finalizePendingOrder(order: PendingOrder): Promise<FinalizeResult> {
+/**
+ * @param paymentId ID do pagamento que financiou a diferença. Vincula o pedido ao
+ *   pagamento (Order.paymentId) para permitir estorno de dinheiro a partir do admin.
+ */
+export async function finalizePendingOrder(order: PendingOrder, paymentId?: string): Promise<FinalizeResult> {
   try {
     const res = await apiFetch('/orders', {
       method: 'POST',
@@ -35,6 +39,7 @@ export async function finalizePendingOrder(order: PendingOrder): Promise<Finaliz
         quantity: order.quantity,
         scheduledDate: order.scheduledDate,
         ...(order.deliveryTime ? { deliveryTime: order.deliveryTime } : {}),
+        ...(paymentId ? { paymentId } : {}),
       }),
     })
     if (res.status === 201) {

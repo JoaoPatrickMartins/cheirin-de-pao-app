@@ -143,6 +143,7 @@ export class OrdersService {
           scheduledDate,
           ...(deliveryTime ? { deliveryTime } : {}),
           ...(slotId ? { slotId } : {}),
+          ...(data.paymentId ? { paymentId: data.paymentId } : {}),
           ...(user.condominiumId ? { condominiumId: user.condominiumId } : {}),
         },
       })
