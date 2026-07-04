@@ -166,6 +166,111 @@ export class OrdersService {
   }
 
   /**
+   * Cancela um pedido único (avulso) do próprio cliente, devolvendo os pães ao saldo.
+   *
+   * Só é permitido enquanto o horário de corte DAQUELE pedido não passou. Depois do corte
+   * o pedido entra em separação/rota e o cancelamento deixa de ser possível.
+   *
+   * Validações (autoritativas — o frontend replica a checagem de corte só por UX):
+   * 1. Pedido inexistente ou de outro usuário → 404 (não revela pedido alheio)
+   * 2. type !== SINGLE → 422 (agendamentos recorrentes são geridos pela agenda)
+   * 3. status !== SCHEDULED → 422 (já separado/entregue/cancelado)
+   * 4. Corte do slot já passou → 422 com code CUTOFF_PASSED
+   *
+   * Efeito atômico: marca CANCELLED + devolve a quantidade ao creditBalance via
+   * CreditTransaction REFUND. Idempotente por referenceId (2ª chamada não credita de novo).
+   *
+   * @throws { statusCode: 404 } pedido não encontrado
+   * @throws { statusCode: 422, code?: 'CUTOFF_PASSED' } pedido não cancelável
+   */
+  async cancelSingleOrder(userId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order || order.userId !== userId) {
+      throw { statusCode: 404, message: 'Pedido não encontrado' }
+    }
+    if (order.type !== 'SINGLE') {
+      throw { statusCode: 422, message: 'Apenas pedidos únicos podem ser cancelados por aqui' }
+    }
+    if (order.status !== 'SCHEDULED') {
+      throw { statusCode: 422, message: 'Este pedido não pode mais ser cancelado' }
+    }
+
+    // Gate de corte: resolve o slot do pedido no condomínio do usuário e verifica se o corte
+    // que governa a data de entrega já passou. Espelha a leitura de createSingleOrder.
+    const deliveryDateStr = brtDateStr(order.scheduledDate)
+    const ownerCondo = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { condominiumId: true },
+    })
+    const condo = ownerCondo?.condominiumId
+      ? await this.prisma.condominium.findUnique({
+          where: { id: ownerCondo.condominiumId },
+          select: { deliverySlots: true },
+        })
+      : null
+    const slots = condo?.deliverySlots ?? []
+    // Casa por slotId (identificador estável); fallback pelo horário snapshot (deliveryTime).
+    const slot =
+      (order.slotId ? slots.find((s) => (s.slotId ?? s.name) === order.slotId) : undefined) ??
+      (order.deliveryTime ? slots.find((s) => s.time === order.deliveryTime) : undefined)
+
+    const cutoffPassed = slot
+      ? isPastCutoffForDelivery(slot.time, slot.cutoffTime, deliveryDateStr)
+      : // Fallback (pedido legado sem slot resolvível): permite só antes do dia da entrega.
+        Date.now() >= order.scheduledDate.getTime()
+    if (cutoffPassed) {
+      throw {
+        statusCode: 422,
+        code: 'CUTOFF_PASSED',
+        message: 'O horário de corte deste pedido já passou; o cancelamento não está mais disponível.',
+      }
+    }
+
+    // Estorno idempotente por referenceId — evita duplo crédito se a rota for chamada 2×.
+    const existingRefund = await this.prisma.creditTransaction.findFirst({
+      where: { type: 'REFUND', referenceId: orderId },
+    })
+
+    const paesLabel = order.quantity === 1 ? '1 pão' : `${order.quantity} pães`
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: new Date(),
+          cancelReason: 'Cancelado pelo cliente',
+        },
+      })
+      if (!existingRefund) {
+        await tx.creditTransaction.create({
+          data: {
+            userId,
+            type: 'REFUND',
+            quantity: order.quantity,
+            referenceId: orderId,
+            description: `Cancelamento de pedido — ${paesLabel} devolvido(s)`,
+          },
+        })
+        await tx.user.update({
+          where: { id: userId },
+          data: { creditBalance: { increment: order.quantity } },
+        })
+      }
+    })
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { creditBalance: true },
+    })
+    return {
+      id: orderId,
+      status: 'CANCELLED' as const,
+      refundedCredits: existingRefund ? 0 : order.quantity,
+      creditBalance: user?.creditBalance ?? 0,
+    }
+  }
+
+  /**
    * Retorna o pedido do dia atual para o usuário, considerando timezone BRT (UTC-3).
    *
    * T-05-05: userId vem do JWT — preHandler: [fastify.authenticate] na rota.
@@ -203,7 +308,7 @@ export class OrdersService {
    * Retorna o histórico de pedidos dos últimos N dias para o usuário.
    *
    * T-05-05: userId vem do JWT — preHandler: [fastify.authenticate] na rota.
-   * Exclui pedidos CANCELLED; ordenados por scheduledDate desc.
+   * Inclui pedidos CANCELLED (exibidos com o pill "Cancelado"); ordenados por scheduledDate desc.
    *
    * @param userId  ID do usuário autenticado
    * @param days    Número de dias para trás (default: 30)
@@ -215,7 +320,6 @@ export class OrdersService {
       where: {
         userId,
         scheduledDate: { gte: since },
-        status: { not: 'CANCELLED' },
       },
       orderBy: { scheduledDate: 'desc' },
     })
