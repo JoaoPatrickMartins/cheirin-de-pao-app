@@ -25,6 +25,10 @@ export const CreateOrderSchema = z.object({
     .string()
     .regex(/^\d{2}:\d{2}$/, { message: 'Horário do slot deve estar no formato HH:MM' })
     .optional(),
+  // Vínculo leve ao pagamento que financiou este avulso — enviado só no fluxo
+  // "precisa pagar" (paga o déficit → cria o pedido). Permite ao admin oferecer
+  // estorno de dinheiro a partir de um pedido parado. Ausente quando pago via saldo.
+  paymentId: z.string().optional(),
 })
 
 export type CreateOrderBody = z.infer<typeof CreateOrderSchema>

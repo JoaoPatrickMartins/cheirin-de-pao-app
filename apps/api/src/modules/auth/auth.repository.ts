@@ -22,11 +22,20 @@ export class AuthRepository {
     phone?: string
     email?: string
     role?: 'CLIENT' | 'COURIER' | 'ADMIN'
+    passwordHash?: string
     condominiumId?: string
     apartment?: string
     block?: string
   }) {
     return this.prisma.user.create({ data: { role: 'CLIENT', ...data } })
+  }
+
+  // Define/atualiza a senha (hash bcrypt) e registra o momento (auditoria).
+  updatePassword(userId: string, passwordHash: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, passwordSetAt: new Date() },
+    })
   }
 
   findActiveOtp(userId: string) {
@@ -65,6 +74,19 @@ export class AuthRepository {
 
   revokeSession(id: string) {
     return this.prisma.session.update({ where: { id }, data: { isRevoked: true } })
+  }
+
+  // Revoga por id sem lançar se a sessão não existir (logout / rotação idempotente).
+  revokeSessionById(id: string) {
+    return this.prisma.session.updateMany({ where: { id }, data: { isRevoked: true } })
+  }
+
+  // Dados mínimos para claims do JWT + hasPassword. NÃO expor passwordHash em respostas.
+  findUserAuthInfo(userId: string) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, name: true, passwordHash: true },
+    })
   }
 
   updateSessionLastUsed(id: string) {

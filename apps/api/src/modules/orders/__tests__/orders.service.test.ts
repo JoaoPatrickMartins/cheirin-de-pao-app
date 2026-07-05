@@ -74,7 +74,7 @@ function makeFastifyMock(overrides: {
   return {
     fastify: {
       prisma: { $transaction: transaction, user: txUser, order: orderMock, condominium },
-      log: { error: vi.fn() },
+      log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
     } as unknown,
     txUser,
     txOrder: orderMock,
@@ -393,5 +393,168 @@ describe('OrdersService', () => {
     expect(call.where.status).toEqual({ in: ['SCHEDULED', 'OUT_FOR_DELIVERY'] })
     expect(call.where.scheduledDate.gt).toBeInstanceOf(Date)
     expect(call.orderBy).toEqual({ scheduledDate: 'asc' })
+  })
+})
+
+// ── cancelSingleOrder ──────────────────────────────────────────────────────────
+// Cancelamento de pedido único pelo cliente, com estorno idempotente e gate de corte.
+
+const FUTURE_5D = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+
+/** Mock dedicado ao cancelamento (findUnique de order/user, condominium, creditTransaction, $transaction). */
+function makeCancelMock(opts: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  order?: any
+  condominiumId?: string
+  deliverySlots?: { slotId?: string; name: string; time: string; cutoffTime: string; isActive: boolean }[]
+  existingRefund?: unknown
+  creditBalance?: number
+} = {}) {
+  const {
+    order = {
+      id: 'order-01',
+      userId: 'user-01',
+      type: 'SINGLE',
+      status: 'SCHEDULED',
+      quantity: 2,
+      scheduledDate: FUTURE_5D,
+      slotId: 'tarde',
+      deliveryTime: '15:30',
+    },
+    condominiumId = 'condo-01',
+    // tarde: corte no próprio dia da entrega (15:30 > 10:00) → data futura está sempre aberta
+    deliverySlots = [{ slotId: 'tarde', name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
+    existingRefund = null,
+    creditBalance = 8,
+  } = opts
+
+  const orderUpdate = vi.fn().mockResolvedValue({})
+  const ctCreate = vi.fn().mockResolvedValue({})
+  const userUpdate = vi.fn().mockResolvedValue({})
+
+  const prisma = {
+    order: { findUnique: vi.fn().mockResolvedValue(order), update: orderUpdate },
+    user: {
+      findUnique: vi.fn().mockResolvedValue({ condominiumId, creditBalance }),
+      update: userUpdate,
+    },
+    condominium: { findUnique: vi.fn().mockResolvedValue({ deliverySlots }) },
+    creditTransaction: { findFirst: vi.fn().mockResolvedValue(existingRefund), create: ctCreate },
+    $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        order: { update: orderUpdate },
+        creditTransaction: { create: ctCreate },
+        user: { update: userUpdate },
+      }),
+    ),
+  }
+
+  return {
+    fastify: { prisma, log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } } as unknown,
+    orderUpdate,
+    ctCreate,
+    userUpdate,
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function makeService(fastify: unknown): Promise<any> {
+  const { OrdersService } = await import('../orders.service.js')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new OrdersService(fastify as any)
+}
+
+describe('OrdersService.cancelSingleOrder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('cancela pedido único aberto: marca CANCELLED + estorna a quantidade ao saldo', async () => {
+    const { fastify, orderUpdate, ctCreate, userUpdate } = makeCancelMock({ creditBalance: 8 })
+    const service = await makeService(fastify)
+
+    const result = await service.cancelSingleOrder('user-01', 'order-01')
+
+    expect(orderUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'order-01' },
+        data: expect.objectContaining({ status: 'CANCELLED', cancelReason: 'Cancelado pelo cliente' }),
+      }),
+    )
+    expect(ctCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: 'REFUND', quantity: 2, referenceId: 'order-01', userId: 'user-01' }),
+      }),
+    )
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { creditBalance: { increment: 2 } } }),
+    )
+    expect(result).toMatchObject({ id: 'order-01', status: 'CANCELLED', refundedCredits: 2, creditBalance: 8 })
+  })
+
+  it('é idempotente: com estorno já existente, não credita de novo (refundedCredits 0)', async () => {
+    const { fastify, orderUpdate, ctCreate, userUpdate } = makeCancelMock({
+      existingRefund: { id: 'ct-existing', type: 'REFUND', referenceId: 'order-01' },
+    })
+    const service = await makeService(fastify)
+
+    const result = await service.cancelSingleOrder('user-01', 'order-01')
+
+    expect(orderUpdate).toHaveBeenCalled() // status ainda é reafirmado
+    expect(ctCreate).not.toHaveBeenCalled()
+    expect(userUpdate).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ refundedCredits: 0 })
+  })
+
+  it('404 quando o pedido não existe', async () => {
+    const { fastify } = makeCancelMock({ order: null })
+    const service = await makeService(fastify)
+
+    await expect(service.cancelSingleOrder('user-01', 'nope')).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('404 quando o pedido é de outro usuário (não vaza pedido alheio)', async () => {
+    const { fastify } = makeCancelMock({ order: { id: 'order-01', userId: 'outro', type: 'SINGLE', status: 'SCHEDULED', quantity: 2, scheduledDate: FUTURE_5D } })
+    const service = await makeService(fastify)
+
+    await expect(service.cancelSingleOrder('user-01', 'order-01')).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('422 quando o pedido não é do tipo SINGLE', async () => {
+    const { fastify } = makeCancelMock({ order: { id: 'order-01', userId: 'user-01', type: 'SCHEDULED', status: 'SCHEDULED', quantity: 2, scheduledDate: FUTURE_5D } })
+    const service = await makeService(fastify)
+
+    await expect(service.cancelSingleOrder('user-01', 'order-01')).rejects.toMatchObject({ statusCode: 422 })
+  })
+
+  it('422 quando o pedido não está mais SCHEDULED (já separado/entregue)', async () => {
+    const { fastify } = makeCancelMock({ order: { id: 'order-01', userId: 'user-01', type: 'SINGLE', status: 'SEPARATED', quantity: 2, scheduledDate: FUTURE_5D } })
+    const service = await makeService(fastify)
+
+    await expect(service.cancelSingleOrder('user-01', 'order-01')).rejects.toMatchObject({ statusCode: 422 })
+  })
+
+  it('422 CUTOFF_PASSED quando o corte do pedido já passou', async () => {
+    // manhã 06:30 / corte 22:00 → corte é na véspera; para entrega HOJE o corte (ontem 22:00) já passou.
+    const { fastify, orderUpdate } = makeCancelMock({
+      order: {
+        id: 'order-01',
+        userId: 'user-01',
+        type: 'SINGLE',
+        status: 'SCHEDULED',
+        quantity: 2,
+        scheduledDate: new Date(),
+        slotId: 'manha',
+        deliveryTime: '06:30',
+      },
+      deliverySlots: [{ slotId: 'manha', name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true }],
+    })
+    const service = await makeService(fastify)
+
+    await expect(service.cancelSingleOrder('user-01', 'order-01')).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'CUTOFF_PASSED',
+    })
+    expect(orderUpdate).not.toHaveBeenCalled()
   })
 })

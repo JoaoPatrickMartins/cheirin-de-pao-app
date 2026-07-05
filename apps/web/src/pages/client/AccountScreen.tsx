@@ -294,6 +294,46 @@ export function AccountScreen() {
           />
         </SectionCard>
 
+        {/* Seção: Segurança */}
+        <SectionCard title="Segurança">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: 'var(--color-text-sec)',
+                  margin: '0 0 2px',
+                }}
+              >
+                Senha
+              </p>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: 'var(--color-text)', margin: 0 }}>
+                ••••••••
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/change-password')}
+              style={{
+                background: 'var(--color-surface-2)',
+                border: 'none',
+                borderRadius: 10,
+                padding: '8px 14px',
+                fontFamily: 'var(--font-body)',
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--color-accent)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              Trocar
+            </button>
+          </div>
+        </SectionCard>
+
         {/* Seção: Condomínio */}
         <SectionCard
           title="Endereço"

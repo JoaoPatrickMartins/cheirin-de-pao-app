@@ -26,6 +26,7 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
             quantity: { type: 'integer', minimum: 1, maximum: 20, description: 'Quantidade de pãezinhos para o pedido avulso (1–20).' },
             scheduledDate: { type: 'string', format: 'date', description: 'Data de entrega no formato ISO (YYYY-MM-DD). Deve ser futura e antes do cutoff do dia.' },
             deliveryTime: { type: 'string', description: 'Horário do slot de entrega escolhido ("HH:MM"). Deve corresponder a um slot ativo do condomínio cujo corte ainda não passou para a data.' },
+            paymentId: { type: 'string', description: 'ID do pagamento que financiou este avulso (fluxo "precisa pagar"). Vincula o pedido ao pagamento para eventual estorno de dinheiro. Omitido quando pago só com saldo.' },
           },
         },
         response: {
@@ -43,6 +44,39 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.createSingleOrder.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/orders/:id/cancel',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['orders'],
+        summary: 'Cancelar pedido único',
+        description: 'Cancela um pedido único (avulso) do próprio cliente e devolve os pães ao saldo. Só é permitido enquanto o horário de corte daquele pedido não passou; após o corte responde 422 com code "CUTOFF_PASSED". O estorno de créditos é idempotente.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do pedido a cancelar (MongoDB ObjectId).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Pedido cancelado e pães devolvidos ao saldo.',
+            properties: {
+              id: { type: 'string', description: 'ID do pedido cancelado.' },
+              status: { type: 'string', description: 'Novo status: "CANCELLED".' },
+              refundedCredits: { type: 'integer', description: 'Quantidade de pães devolvidos ao saldo (0 se já havia sido estornado).' },
+              creditBalance: { type: 'integer', description: 'Saldo de pães do cliente após o estorno.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.cancelSingleOrder.bind(ctrl),
   )
 
   fastify.get(

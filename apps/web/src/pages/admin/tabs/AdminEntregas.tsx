@@ -30,7 +30,7 @@ interface DeliveryStatus {
 }
 
 // Filtros de status do histórico
-type HistFilter = 'todos' | 'DELIVERED' | 'NOT_DELIVERED' | 'CANCELLED' | 'parados'
+export type HistFilter = 'todos' | 'DELIVERED' | 'NOT_DELIVERED' | 'CANCELLED' | 'parados'
 const HIST_FILTERS: Array<{ key: HistFilter; label: string }> = [
   { key: 'todos', label: 'Todos' },
   { key: 'DELIVERED', label: 'Entregue' },
@@ -55,8 +55,16 @@ function formatDateShort() {
   return new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
 }
 
-export function AdminEntregas() {
-  const [segment, setSegment] = useState<Segment>('hoje')
+export function AdminEntregas({
+  initialSegment,
+  initialFilter,
+}: {
+  // Deep-link a partir do banner "pedidos parados" no Painel: abre já em
+  // Histórico › Parados em vez da visão "Hoje" padrão.
+  initialSegment?: Segment
+  initialFilter?: HistFilter
+} = {}) {
+  const [segment, setSegment] = useState<Segment>(initialSegment ?? 'hoje')
 
   // Turno (pipeline por slot)
   const [slots, setSlots] = useState<SlotOption[]>([])
@@ -72,7 +80,7 @@ export function AdminEntregas() {
   // Próximos / Histórico (ledger)
   const [rows, setRows] = useState<LedgerRow[]>([])
   const [isLoadingLedger, setIsLoadingLedger] = useState(false)
-  const [histFilter, setHistFilter] = useState<HistFilter>('todos')
+  const [histFilter, setHistFilter] = useState<HistFilter>(initialFilter ?? 'todos')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<LedgerRow | null>(null)
 

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import type Stripe from 'stripe'
 import { PaymentsRepository } from '../payments/payments.repository.js'
 import { StripeService } from '../payments/stripe.service.js'
+import { notifyAdminsCreditPurchase } from '../payments/notify-credit-purchase.js'
 
 export class WebhooksService {
   private repo: PaymentsRepository
@@ -70,6 +71,11 @@ export class WebhooksService {
 
     await this.repo.creditUserBalance(payment.userId, quantity, payment.id)
     await this.repo.updatePaymentStatus(payment.id, 'PAID')
+    await notifyAdminsCreditPurchase(this.fastify, {
+      userId: payment.userId,
+      quantity,
+      amount: payment.amount,
+    })
   }
 
   private async getComboQuantity(comboId: string | null): Promise<number | null> {

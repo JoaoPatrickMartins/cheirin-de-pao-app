@@ -1,6 +1,14 @@
 import { FastifyInstance } from 'fastify'
+import { NotificationType } from '@prisma/client'
 import { CreateOrderBody } from './orders.schema.js'
 import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr } from '../../lib/cutoff.js'
+import { NotificationsService } from '../notifications/notifications.service.js'
+
+/** Rótulo curto do cliente para avisos ao admin: "Nome · Apto 12B". */
+function clientLabel(u: { name?: string | null; apartment?: string | null; block?: string | null }): string {
+  const loc = [u.block, u.apartment].filter(Boolean).join(' ')
+  return [u.name ?? 'Cliente', loc ? `Apto ${loc}` : null].filter(Boolean).join(' · ')
+}
 
 /**
  * Fuso horário do Brasil (UTC-3) para cálculo do "amanhã".
@@ -143,6 +151,7 @@ export class OrdersService {
           scheduledDate,
           ...(deliveryTime ? { deliveryTime } : {}),
           ...(slotId ? { slotId } : {}),
+          ...(data.paymentId ? { paymentId: data.paymentId } : {}),
           ...(user.condominiumId ? { condominiumId: user.condominiumId } : {}),
         },
       })
@@ -161,7 +170,142 @@ export class OrdersService {
       return newOrder
     })
 
+    // Aviso ao admin — novo pedido de cliente (best-effort, nunca quebra o fluxo).
+    try {
+      const client = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, apartment: true, block: true },
+      })
+      await new NotificationsService(this.fastify).notifyAdmins({
+        type: NotificationType.ADMIN_ORDER_PLACED,
+        title: 'Novo pedido',
+        body: `${clientLabel(client ?? {})} · ${paesLabel} · ${diaStr}/${mesStr}`,
+        actionRoute: '/admin',
+      })
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[orders] falha ao notificar admin (pedido) — ignorado')
+    }
+
     return order
+  }
+
+  /**
+   * Cancela um pedido único (avulso) do próprio cliente, devolvendo os pães ao saldo.
+   *
+   * Só é permitido enquanto o horário de corte DAQUELE pedido não passou. Depois do corte
+   * o pedido entra em separação/rota e o cancelamento deixa de ser possível.
+   *
+   * Validações (autoritativas — o frontend replica a checagem de corte só por UX):
+   * 1. Pedido inexistente ou de outro usuário → 404 (não revela pedido alheio)
+   * 2. type !== SINGLE → 422 (agendamentos recorrentes são geridos pela agenda)
+   * 3. status !== SCHEDULED → 422 (já separado/entregue/cancelado)
+   * 4. Corte do slot já passou → 422 com code CUTOFF_PASSED
+   *
+   * Efeito atômico: marca CANCELLED + devolve a quantidade ao creditBalance via
+   * CreditTransaction REFUND. Idempotente por referenceId (2ª chamada não credita de novo).
+   *
+   * @throws { statusCode: 404 } pedido não encontrado
+   * @throws { statusCode: 422, code?: 'CUTOFF_PASSED' } pedido não cancelável
+   */
+  async cancelSingleOrder(userId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order || order.userId !== userId) {
+      throw { statusCode: 404, message: 'Pedido não encontrado' }
+    }
+    if (order.type !== 'SINGLE') {
+      throw { statusCode: 422, message: 'Apenas pedidos únicos podem ser cancelados por aqui' }
+    }
+    if (order.status !== 'SCHEDULED') {
+      throw { statusCode: 422, message: 'Este pedido não pode mais ser cancelado' }
+    }
+
+    // Gate de corte: resolve o slot do pedido no condomínio do usuário e verifica se o corte
+    // que governa a data de entrega já passou. Espelha a leitura de createSingleOrder.
+    const deliveryDateStr = brtDateStr(order.scheduledDate)
+    const ownerCondo = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { condominiumId: true },
+    })
+    const condo = ownerCondo?.condominiumId
+      ? await this.prisma.condominium.findUnique({
+          where: { id: ownerCondo.condominiumId },
+          select: { deliverySlots: true },
+        })
+      : null
+    const slots = condo?.deliverySlots ?? []
+    // Casa por slotId (identificador estável); fallback pelo horário snapshot (deliveryTime).
+    const slot =
+      (order.slotId ? slots.find((s) => (s.slotId ?? s.name) === order.slotId) : undefined) ??
+      (order.deliveryTime ? slots.find((s) => s.time === order.deliveryTime) : undefined)
+
+    const cutoffPassed = slot
+      ? isPastCutoffForDelivery(slot.time, slot.cutoffTime, deliveryDateStr)
+      : // Fallback (pedido legado sem slot resolvível): permite só antes do dia da entrega.
+        Date.now() >= order.scheduledDate.getTime()
+    if (cutoffPassed) {
+      throw {
+        statusCode: 422,
+        code: 'CUTOFF_PASSED',
+        message: 'O horário de corte deste pedido já passou; o cancelamento não está mais disponível.',
+      }
+    }
+
+    // Estorno idempotente por referenceId — evita duplo crédito se a rota for chamada 2×.
+    const existingRefund = await this.prisma.creditTransaction.findFirst({
+      where: { type: 'REFUND', referenceId: orderId },
+    })
+
+    const paesLabel = order.quantity === 1 ? '1 pão' : `${order.quantity} pães`
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: new Date(),
+          cancelReason: 'Cancelado pelo cliente',
+        },
+      })
+      if (!existingRefund) {
+        await tx.creditTransaction.create({
+          data: {
+            userId,
+            type: 'REFUND',
+            quantity: order.quantity,
+            referenceId: orderId,
+            description: `Cancelamento de pedido — ${paesLabel} devolvido(s)`,
+          },
+        })
+        await tx.user.update({
+          where: { id: userId },
+          data: { creditBalance: { increment: order.quantity } },
+        })
+      }
+    })
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { creditBalance: true, name: true, apartment: true, block: true },
+    })
+
+    // Aviso ao admin — pedido cancelado pelo cliente (best-effort).
+    try {
+      const [, mesStr, diaStr] = deliveryDateStr.split('-')
+      await new NotificationsService(this.fastify).notifyAdmins({
+        type: NotificationType.ADMIN_ORDER_CANCELLED,
+        title: 'Pedido cancelado',
+        body: `${clientLabel(user ?? {})} · ${paesLabel} · ${diaStr}/${mesStr}`,
+        actionRoute: '/admin',
+      })
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[orders] falha ao notificar admin (cancelamento) — ignorado')
+    }
+
+    return {
+      id: orderId,
+      status: 'CANCELLED' as const,
+      refundedCredits: existingRefund ? 0 : order.quantity,
+      creditBalance: user?.creditBalance ?? 0,
+    }
   }
 
   /**
@@ -202,7 +346,7 @@ export class OrdersService {
    * Retorna o histórico de pedidos dos últimos N dias para o usuário.
    *
    * T-05-05: userId vem do JWT — preHandler: [fastify.authenticate] na rota.
-   * Exclui pedidos CANCELLED; ordenados por scheduledDate desc.
+   * Inclui pedidos CANCELLED (exibidos com o pill "Cancelado"); ordenados por scheduledDate desc.
    *
    * @param userId  ID do usuário autenticado
    * @param days    Número de dias para trás (default: 30)
@@ -214,7 +358,6 @@ export class OrdersService {
       where: {
         userId,
         scheduledDate: { gte: since },
-        status: { not: 'CANCELLED' },
       },
       orderBy: { scheduledDate: 'desc' },
     })

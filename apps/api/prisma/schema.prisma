@@ -109,6 +109,22 @@ enum NotificationType {
   RECONFIGURE
   CREDIT_PURCHASED
   CREDIT_GRANTED
+  SCHEDULE_PAUSED
+  HOOK_DELIVERED
+  // Admin — avisos operacionais (cada um com toggle individual em adminNotificationPrefs)
+  ADMIN_ORDER_PLACED
+  ADMIN_HOOK_REQUESTED
+  ADMIN_DELIVERY_DONE
+  ADMIN_DELIVERY_FAILED
+  ADMIN_DELIVERY_PENDING
+  ADMIN_ORDER_CANCELLED
+  ADMIN_CREDIT_PURCHASED
+  ADMIN_CUTOFF_REACHED
+  ADMIN_AUTOGEN_WARNING
+  ADMIN_AUTOGEN_DONE
+  // Entregador — avisos automáticos (sem toggle)
+  COURIER_NEW_ORDERS
+  COURIER_PENDING_REMINDER
 }
 
 enum AnalyticsEventType {
@@ -127,6 +143,10 @@ model User {
   name          String
   cpf           String    @unique
   birthDate     DateTime?
+  // Auth por senha (bcrypt). null = ainda não definiu — força definição no 1º acesso via OTP.
+  // Nunca expor este campo em respostas/selects públicos.
+  passwordHash  String?
+  passwordSetAt DateTime?
   isBlocked     Boolean   @default(false)
   // Contexto do bloqueio atual (auditoria) — preenchido ao bloquear, limpo ao desbloquear
   blockReason   String?
@@ -137,12 +157,22 @@ model User {
   block         String?
   creditBalance      Int       @default(0)
   autoRecharge       Json?
+  // Preferências de notificação do ADMIN — mapa { [NotificationType]: boolean }.
+  // Ausência/null = todos os tipos ligados; só grava as chaves DESLIGADAS (false).
+  adminNotificationPrefs Json?
   cardTokenMp        String?
   oneSignalPlayerId  String?
   mpCustomerId       String?
   stripeCustomerId   String?
   // Consentimento explícito para cobranças sem CVV (off_session / card-on-file)
   offSessionConsentAt DateTime?
+  // Solicitação de gancho de porta (entrega) — fluxo pós-primeiro-pedido.
+  // hookRequestedAt: cliente confirmou o recebimento (solicitação PENDENTE).
+  // hookDeliveredAt + hookDeliveredById: admin registrou a entrega (auditoria).
+  // Estado derivado: null = não solicitado; requested sem delivered = pendente; delivered = entregue.
+  hookRequestedAt    DateTime?
+  hookDeliveredAt    DateTime?
+  hookDeliveredById  String?   @db.ObjectId
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }
@@ -223,6 +253,11 @@ model Schedule {
   deliveryTime      String?
   notifyReconfigure Boolean  @default(false)
   isActive          Boolean  @default(true)
+  // Pausa da agenda pelo próprio cliente. null = não pausada; preenchido = pausada desde então.
+  // Gate no corte é feito em código (if schedule.pausedAt) — evita null-vs-unset do Mongo.
+  pausedAt          DateTime?
+  // Último lembrete "pausada há muito tempo" enviado — controla a cadência semanal.
+  lastPauseReminderAt DateTime?
   days              Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -243,6 +278,7 @@ model Order {
   condominiumId  String?     @db.ObjectId
   slotId         String?     // identificador estável do slot (chave de junção; Etapa B)
   deliveryTime   String?     // snapshot do horário de entrega no momento do pedido (exibição)
+  paymentId      String?     @db.ObjectId // vínculo leve ao Payment que financiou o avulso (só quando houve pagamento; nulo quando pago via saldo). Base do estorno de dinheiro a partir de um pedido parado.
   // Marcos do ciclo de vida (rastreabilidade ponta-a-ponta — evita pedido "no limbo")
   separatedAt    DateTime?   // quando foi separado/conferido (entra na divisão de entregas)
   deliveredAt    DateTime?   // quando foi confirmado como entregue
@@ -250,6 +286,7 @@ model Order {
   failureReason  String?     // motivo da não-entrega (cliente ausente, endereço, etc.)
   cancelledAt    DateTime?   // quando foi cancelado
   cancelReason   String?     // motivo do cancelamento
+  deliveryNote   String?     // nota da entrega manual/retroativa (resolução de pedido parado marcado como entregue)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

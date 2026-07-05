@@ -47,7 +47,13 @@ function trendPill(pct: number | undefined): { text: string; tone: 'good' | 'neu
   return { text: `${pct >= 0 ? '+' : ''}${pct}%`, tone: pct >= 0 ? 'good' : 'neutral' }
 }
 
-export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => void }) {
+export function AdminPainel({
+  onNavigate,
+}: {
+  // O 2º argumento é um deep-link opcional: leva a aba destino já num segmento/filtro
+  // específico (usado pelo banner de pedidos parados → Entregas › Histórico › Parados).
+  onNavigate: (tab: AdminTab, intent?: { segment: 'historico'; filter: 'parados' }) => void
+}) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -114,7 +120,7 @@ export function AdminPainel({ onNavigate }: { onNavigate: (tab: AdminTab) => voi
             {/* Alerta — pedidos no limbo (sem desfecho) */}
             {data && data.stuckCount > 0 && (
               <button
-                onClick={() => onNavigate('entregas')}
+                onClick={() => onNavigate('entregas', { segment: 'historico', filter: 'parados' })}
                 aria-label="Ver pedidos parados"
                 style={{
                   display: 'flex',

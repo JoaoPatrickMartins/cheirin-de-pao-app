@@ -29,7 +29,11 @@ export function useOneSignalDeepLink(): void {
     }) => {
       try {
         const screen = event?.notification?.additionalData?.screen
-        if (screen === 'creditos') {
+        if (!screen) return
+        // Rotas absolutas (admin/entregador e novos pushes do cliente) navegam direto.
+        if (screen.startsWith('/')) {
+          navigate(screen)
+        } else if (screen === 'creditos') {
           navigate('/client/creditos')
         } else if (screen === 'pedidos') {
           navigate('/client/pedidos')

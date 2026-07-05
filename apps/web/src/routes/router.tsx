@@ -25,6 +25,27 @@ export const router = createBrowserRouter([
           })),
       },
       {
+        path: '/set-password',
+        lazy: () =>
+          import('../pages/auth/SetPasswordScreen').then((m) => ({
+            Component: m.SetPasswordScreen,
+          })),
+      },
+      {
+        path: '/forgot-password',
+        lazy: () =>
+          import('../pages/auth/ForgotPasswordScreen').then((m) => ({
+            Component: m.ForgotPasswordScreen,
+          })),
+      },
+      {
+        path: '/change-password',
+        lazy: () =>
+          import('../pages/auth/ChangePasswordScreen').then((m) => ({
+            Component: m.ChangePasswordScreen,
+          })),
+      },
+      {
         path: '/client',
         lazy: () =>
           import('../pages/client/ClientLayout').then((m) => ({

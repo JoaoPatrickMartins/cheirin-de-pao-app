@@ -83,3 +83,28 @@ export const RefundOrderSchema = z.object({
 })
 
 export type RefundOrderBody = z.infer<typeof RefundOrderSchema>
+
+/**
+ * Schema da resolução de um pedido "parado" (data passada sem desfecho).
+ *
+ * outcome: desfecho terminal escolhido pelo admin.
+ *   DELIVERED     — entregue a posteriori (não mexe em créditos).
+ *   NOT_DELIVERED — falha de entrega (motivo obrigatório).
+ *   CANCELLED     — pedido anulado (motivo obrigatório).
+ * refundCredits: devolve os pães ao saldo no mesmo passo (só aplicável a
+ *   NOT_DELIVERED/CANCELLED; ignorado em DELIVERED).
+ */
+export const ResolveOrderSchema = z
+  .object({
+    outcome: z.enum(['DELIVERED', 'NOT_DELIVERED', 'CANCELLED'], {
+      message: 'Desfecho inválido. Use DELIVERED, NOT_DELIVERED ou CANCELLED.',
+    }),
+    reason: z.string().max(500).optional(),
+    refundCredits: z.boolean().optional(),
+  })
+  .refine((d) => d.outcome === 'DELIVERED' || !!d.reason?.trim(), {
+    message: 'Motivo é obrigatório para não entregue ou cancelamento.',
+    path: ['reason'],
+  })
+
+export type ResolveOrderBody = z.infer<typeof ResolveOrderSchema>

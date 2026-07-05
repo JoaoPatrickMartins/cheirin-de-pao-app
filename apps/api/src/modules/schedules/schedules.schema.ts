@@ -29,3 +29,9 @@ export const ScheduleBodySchema = z
   )
 
 export type ScheduleBody = z.infer<typeof ScheduleBodySchema>
+
+export const PauseScheduleBodySchema = z.object({
+  paused: z.boolean(),
+})
+
+export type PauseScheduleBody = z.infer<typeof PauseScheduleBodySchema>

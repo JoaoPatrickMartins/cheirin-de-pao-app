@@ -47,6 +47,9 @@ export function ScheduleScreen() {
     days,
     setDays,
     saveSchedule,
+    isPaused,
+    isPausing,
+    setPaused,
     isLoading,
     isSaving,
     consumoSemanal,
@@ -102,6 +105,21 @@ export function ScheduleScreen() {
     }
     setToast({
       message: result.ok ? 'Agenda salva!' : (result.error ?? 'Não conseguimos salvar. Tente novamente.'),
+      ok: result.ok,
+    })
+    setTimeout(() => setToast(null), 2500)
+  }
+
+  const handleTogglePause = async () => {
+    if (isPausing) return
+    const next = !isPaused
+    const result = await setPaused(next)
+    setToast({
+      message: result.ok
+        ? next
+          ? 'Agenda pausada. Nada será entregue até você retomar.'
+          : 'Agenda retomada! As entregas voltam no próximo dia.'
+        : (result.error ?? 'Não conseguimos atualizar. Tente novamente.'),
       ok: result.ok,
     })
     setTimeout(() => setToast(null), 2500)
@@ -203,6 +221,68 @@ export function ScheduleScreen() {
         >
           <Icon name="alert" size={18} color="var(--color-accent)" />
           <span>Você mudou de condomínio. Configure sua nova agenda semanal.</span>
+        </div>
+      )}
+
+      {/* Banner: agenda pausada */}
+      {isPaused && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            background: 'var(--color-surface-2)',
+            borderLeft: '3px solid var(--color-accent)',
+            borderRadius: 12,
+            padding: '12px 14px',
+            margin: '0 16px 16px',
+          }}
+        >
+          <Icon name="clock" size={18} color="var(--color-accent)" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 14,
+                color: 'var(--color-text)',
+                margin: 0,
+              }}
+            >
+              Agenda pausada
+            </p>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
+                color: 'var(--color-text-sec)',
+                margin: '2px 0 0 0',
+                lineHeight: 1.4,
+              }}
+            >
+              Nenhum pedido será gerado até você retomar. Sua configuração está guardada.
+            </p>
+          </div>
+          <button
+            onClick={handleTogglePause}
+            disabled={isPausing}
+            style={{
+              flexShrink: 0,
+              minHeight: 38,
+              padding: '0 16px',
+              borderRadius: 'var(--radius-btn)',
+              border: 'none',
+              background: 'var(--color-espresso)',
+              color: 'var(--color-primary-btn-text)',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: isPausing ? 'default' : 'pointer',
+              opacity: isPausing ? 0.65 : 1,
+            }}
+          >
+            Retomar
+          </button>
         </div>
       )}
 
@@ -525,6 +605,79 @@ export function ScheduleScreen() {
                 height: 18,
                 borderRadius: '50%',
                 background: notifyReconfigure ? 'var(--color-espresso)' : 'var(--color-surface)',
+                transition: 'left .2s',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+              }}
+            />
+          </button>
+        </div>
+
+        {/* Pausar agenda — interrompe a geração de pedidos sem apagar a configuração */}
+        <div
+          style={{
+            background: 'transparent',
+            borderRadius: 14,
+            border: '1px solid var(--color-border-2)',
+            padding: '10px 14px',
+            marginTop: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 11,
+          }}
+        >
+          <Icon name="clock" size={16} color="var(--color-text-ter)" />
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontWeight: 600,
+                fontSize: 13,
+                color: 'var(--color-text-sec)',
+                margin: 0,
+              }}
+            >
+              Pausar agenda
+            </p>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 11.5,
+                color: 'var(--color-text-ter)',
+                margin: '1px 0 0 0',
+              }}
+            >
+              Nada é entregue enquanto estiver pausada
+            </p>
+          </div>
+
+          <button
+            onClick={handleTogglePause}
+            disabled={isPausing}
+            aria-label={isPaused ? 'retomar agenda' : 'pausar agenda'}
+            style={{
+              width: 42,
+              height: 24,
+              borderRadius: 999,
+              border: 'none',
+              background: isPaused ? 'var(--color-gold)' : 'var(--color-border)',
+              cursor: isPausing ? 'default' : 'pointer',
+              opacity: isPausing ? 0.6 : 1,
+              position: 'relative',
+              transition: 'background .2s',
+              padding: 0,
+              flexShrink: 0,
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: 3,
+                left: isPaused ? 21 : 3,
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: isPaused ? 'var(--color-espresso)' : 'var(--color-surface)',
                 transition: 'left .2s',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
               }}

@@ -52,6 +52,31 @@ export class OrdersController {
   }
 
   /**
+   * PATCH /orders/:id/cancel — cancela um pedido único do próprio cliente.
+   *
+   * userId vem do JWT. Devolve os pães ao saldo (estorno idempotente) enquanto o corte
+   * do pedido não passou; após o corte responde 422 com code CUTOFF_PASSED.
+   */
+  async cancelSingleOrder(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const userId = request.user!.id
+      const { id } = request.params as { id: string }
+      const result = await this.service.cancelSingleOrder(userId, id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message?: string }
+      if (e.statusCode === 404) {
+        return reply.status(404).send({ error: e.message ?? 'Pedido não encontrado' })
+      }
+      if (e.statusCode === 422) {
+        return reply.status(422).send({ error: e.message ?? 'Pedido não pode ser cancelado', code: e.code })
+      }
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * GET /orders/today — retorna o pedido do dia atual em BRT.
    *
    * T-05-05: userId extraído de request.user.id (JWT) — nunca de query params.

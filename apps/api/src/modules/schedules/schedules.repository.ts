@@ -17,6 +17,8 @@ export class SchedulesRepository {
   upsert(userId: string, condominiumId: string, data: ScheduleBody) {
     const isMultiSlot = 'days' in data && data.days !== undefined
 
+    // Salvar a agenda retoma automaticamente: quem edita a agenda quer voltar a receber.
+    // Limpa a pausa e o marcador de lembrete (só no update — no create já nascem null).
     if (isMultiSlot) {
       return this.prisma.schedule.upsert({
         where: {
@@ -26,6 +28,8 @@ export class SchedulesRepository {
           days: data.days,
           notifyReconfigure: data.notifyReconfigure,
           isActive: true,
+          pausedAt: null,
+          lastPauseReminderAt: null,
         },
         create: {
           userId,
@@ -47,6 +51,8 @@ export class SchedulesRepository {
         deliveryTime: data.deliveryTime,
         notifyReconfigure: data.notifyReconfigure,
         isActive: true,
+        pausedAt: null,
+        lastPauseReminderAt: null,
       },
       create: {
         userId,
@@ -62,6 +68,34 @@ export class SchedulesRepository {
   findAllActive() {
     return this.prisma.schedule.findMany({
       where: { isActive: true },
+    })
+  }
+
+  /**
+   * Pausa (pausedAt = now) ou retoma (pausedAt = null) a agenda do cliente.
+   * Ambos resetam lastPauseReminderAt (reinicia a cadência do lembrete).
+   * Retorna null se o cliente ainda não tem agenda para pausar.
+   */
+  async setPaused(userId: string, condominiumId: string, paused: boolean) {
+    const schedule = await this.prisma.schedule.findUnique({
+      where: { userId_condominiumId: { userId, condominiumId } },
+      select: { id: true },
+    })
+    if (!schedule) return null
+    return this.prisma.schedule.update({
+      where: { id: schedule.id },
+      data: {
+        pausedAt: paused ? new Date() : null,
+        lastPauseReminderAt: null,
+      },
+    })
+  }
+
+  /** Marca o instante do último lembrete "pausada há muito tempo" enviado (cadência semanal). */
+  markPauseReminderSent(scheduleId: string, at: Date) {
+    return this.prisma.schedule.update({
+      where: { id: scheduleId },
+      data: { lastPauseReminderAt: at },
     })
   }
 

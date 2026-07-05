@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { PaymentsRepository } from './payments.repository.js'
 import { StripeService } from './stripe.service.js'
 import { effectiveComboPrice } from '../../lib/combo-pricing.js'
+import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
 
 export class PaymentsService {
   private repo: PaymentsRepository
@@ -125,6 +126,7 @@ export class PaymentsService {
       if (intent.status === 'succeeded') {
         await this.repo.creditUserBalance(userId, quantity, payment.id)
         await this.repo.updatePaymentStatus(payment.id, 'PAID')
+        await notifyAdminsCreditPurchase(this.fastify, { userId, quantity, amount })
         return { paymentId: payment.id, status: 'approved' as const }
       }
       // 'processing' (raro p/ cartão) → aguarda webhook

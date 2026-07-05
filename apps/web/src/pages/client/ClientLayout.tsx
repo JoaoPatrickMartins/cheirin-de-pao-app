@@ -8,7 +8,9 @@ import { useOneSignalDeepLink } from '../../hooks/useOneSignalDeepLink'
 import { NotifProvider } from '../../contexts/NotifContext'
 import { OnboardingOverlay } from '../../components/client/OnboardingOverlay'
 import { AppTour } from '../../components/client/AppTour'
+import { GanchoConsentModal } from '../../components/client/GanchoConsentModal'
 import { hasSeenOnboarding, slidesDone, markSlidesDone, markOnboardingSeen } from '../../lib/onboarding'
+import { apiFetch } from '../../lib/apiFetch'
 
 // Fluxo de primeiro acesso: telas explicativas → tour do app → done.
 type OnboardingPhase = 'slides' | 'tour' | 'done'
@@ -17,6 +19,8 @@ export function ClientLayout() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
   const [phase, setPhase] = useState<OnboardingPhase>('done')
+  // Consentimento do gancho de porta — pedido após o primeiro pedido do cliente.
+  const [needsHookConsent, setNeedsHookConsent] = useState(false)
   // Registra o player_id do OneSignal no backend — executado apenas quando autenticado (JWT disponível)
   useOneSignalRegister()
   // Habilita deep link de push: navega para /client/creditos quando additionalData.screen === 'creditos'
@@ -39,8 +43,34 @@ export function ClientLayout() {
     return () => window.removeEventListener('cdp:replay-onboarding', replay)
   }, [])
 
+  // Verifica se o cliente precisa consentir o gancho (fez ao menos 1 pedido e ainda
+  // não solicitou). Roda no mount e ao evento cdp:refresh-hook (disparado logo após um
+  // pedido, para o modal surgir na hora). Falha silenciosa: não bloqueia o app.
+  useEffect(() => {
+    if (user?.role !== 'CLIENT') return
+    let cancelled = false
+    const check = async () => {
+      try {
+        const res = await apiFetch('/client/hook-request')
+        if (!res.ok || cancelled) return
+        const data = (await res.json()) as { needsConsent?: boolean }
+        if (!cancelled) setNeedsHookConsent(!!data.needsConsent)
+      } catch {
+        // silencioso — sem consentimento pendente exibido
+      }
+    }
+    void check()
+    window.addEventListener('cdp:refresh-hook', check)
+    return () => {
+      cancelled = true
+      window.removeEventListener('cdp:refresh-hook', check)
+    }
+  }, [user])
+
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'CLIENT') return <Navigate to="/" replace />
+  // 1º acesso sem senha: força a definição antes de usar o app.
+  if (user.hasPassword === false) return <Navigate to="/set-password" replace />
 
   // "Começar" ou "Pular" nas telas: marca slides e segue para o tour (fluxo "Tour sempre").
   function finishSlides() {
@@ -69,6 +99,11 @@ export function ClientLayout() {
         <ClientTabBar />
         {phase === 'slides' && <OnboardingOverlay onFinish={finishSlides} />}
         {phase === 'tour' && <AppTour onFinish={finishTour} />}
+        {/* Gancho: só depois do onboarding (fase 'done') e enquanto não confirmado. */}
+        <GanchoConsentModal
+          isOpen={phase === 'done' && needsHookConsent}
+          onConfirmed={() => setNeedsHookConsent(false)}
+        />
       </NotifProvider>
     </div>
   )

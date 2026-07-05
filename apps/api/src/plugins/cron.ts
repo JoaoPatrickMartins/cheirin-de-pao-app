@@ -4,6 +4,7 @@ import cron from 'node-cron'
 import { SchedulesService } from '../modules/schedules/schedules.service.js'
 import { AdminSettingsService } from '../modules/admin-settings/admin-settings.service.js'
 import { AdminSupplierOrdersService } from '../modules/admin-supplier-orders/admin-supplier-orders.service.js'
+import { CourierService } from '../modules/courier/courier.service.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -35,6 +36,14 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         await schedulesService.cleanupOldMaterializedCycles()
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em cleanupOldMaterializedCycles — servidor mantido ativo')
+      }
+
+      // Lembrete de agenda pausada há muito tempo (≥ 7 dias, repete semanalmente).
+      try {
+        await schedulesService.sendPausedTooLongReminders()
+        fastify.log.info('[cron] sendPausedTooLongReminders concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendPausedTooLongReminders — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },
@@ -77,6 +86,7 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // (2) notifica clientes que ficaram sem pedido. Por minuto para suportar cortes fora de HH:00.
   const adminSettingsService = new AdminSettingsService(fastify)
   const supplierOrdersService = new AdminSupplierOrdersService(fastify)
+  const courierService = new CourierService(fastify)
   cron.schedule(
     '* * * * *',
     async () => {
@@ -106,6 +116,34 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         await supplierOrdersService.sendCutoffReminders()
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em sendCutoffReminders — servidor mantido ativo')
+      }
+
+      // Notificação no MINUTO do corte: "chegou a hora de gerar o pedido".
+      try {
+        await supplierOrdersService.sendCutoffReachedNotifications()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendCutoffReachedNotifications — servidor mantido ativo')
+      }
+
+      // Aviso 15min antes da geração automática (corte +45, já que a rede de segurança é +60).
+      try {
+        await supplierOrdersService.sendAutogenWarnings()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendAutogenWarnings — servidor mantido ativo')
+      }
+
+      // Aviso de entregas pendentes após o prazo do turno (slot.time +60min).
+      try {
+        await supplierOrdersService.sendDeliveryPendingReminders()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendDeliveryPendingReminders — servidor mantido ativo')
+      }
+
+      // Lembrete ao entregador que não iniciou nenhuma entrega no horário do turno.
+      try {
+        await courierService.sendCourierPendingReminders()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sendCourierPendingReminders — servidor mantido ativo')
       }
 
       // Rede de segurança: 1h APÓS o corte (janela manual), gera o pedido ao fornecedor

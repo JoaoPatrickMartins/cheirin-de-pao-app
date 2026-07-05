@@ -103,7 +103,11 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
     failedAt: { type: 'string' },
     failureReason: { type: 'string' },
     cancelReason: { type: 'string' },
+    deliveryNote: { type: 'string', description: 'Nota da entrega manual/retroativa (quando resolvido como entregue).' },
     refunded: { type: 'boolean' },
+    paymentId: { type: 'string', description: 'Pagamento vinculado ao avulso (vazio quando pago só com saldo).' },
+    paymentAmount: { type: 'number', description: 'Valor do pagamento vinculado em reais (0 se não houver).' },
+    paymentStatus: { type: 'string', description: 'Status do pagamento vinculado (PAID/REFUNDED/…).' },
   }
 
   // GET /admin/orders — ledger de pedidos (verificação geral + histórico)
@@ -379,6 +383,52 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.assignCourier.bind(ctrl),
+  )
+
+  // Resolver pedido parado: desfecho (DELIVERED/NOT_DELIVERED/CANCELLED) + estorno de pães
+  // opcional, tudo em uma transação. Rota dinâmica.
+  fastify.post(
+    '/admin/orders/:id/resolve',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Resolver pedido parado',
+        description:
+          'Dá o desfecho final a um pedido "parado" (data passada sem conclusão): marca como entregue (retroativo), não entregue ou cancelado — com motivo obrigatório nos dois últimos. Opcionalmente devolve os pães ao saldo no mesmo passo (só em não entregue/cancelado; idempotente). Estorno de dinheiro (Stripe) NÃO é feito aqui — usar o fluxo de Pagamentos. Não dispara push retroativo.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do pedido (MongoDB ObjectId).' } },
+        },
+        body: {
+          type: 'object',
+          required: ['outcome'],
+          properties: {
+            outcome: {
+              type: 'string',
+              enum: ['DELIVERED', 'NOT_DELIVERED', 'CANCELLED'],
+              description: 'Desfecho terminal. DELIVERED não mexe em créditos; NOT_DELIVERED/CANCELLED exigem motivo.',
+            },
+            reason: { type: 'string', description: 'Motivo — obrigatório para NOT_DELIVERED e CANCELLED.' },
+            refundCredits: { type: 'boolean', description: 'Devolve os pães ao saldo (só NOT_DELIVERED/CANCELLED).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              status: { type: 'string', description: 'Novo status do pedido.' },
+              refundedCredits: { type: 'integer', description: 'Pães devolvidos ao saldo (0 se não houve estorno).' },
+              creditBalance: { type: 'integer', description: 'Saldo do cliente após a operação.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.resolveOrder.bind(ctrl),
   )
 
   // ACOMP-01: transição de status pelo Admin (rota dinâmica — deve ficar por último)

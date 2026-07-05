@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useOrderTracking, TodayOrder } from '../../hooks/useOrderTracking'
+import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
+import { isPastCutoffForDelivery } from '../../lib/cutoff'
 import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
+import { CancelOrderDialog } from '../../components/client/CancelOrderDialog'
 
 interface HistoryOrder {
   id: string
@@ -104,7 +107,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 interface PillProps {
   children: React.ReactNode
-  tone: 'good' | 'neutral' | 'scheduled' | 'transit' | 'delivered'
+  tone: 'good' | 'neutral' | 'scheduled' | 'transit' | 'delivered' | 'cancelled'
   dot?: boolean
   iconName?: keyof typeof Ic
   ariaLive?: 'polite' | 'off'
@@ -119,6 +122,7 @@ function Pill({ children, tone, dot, iconName, ariaLive }: PillProps) {
     scheduled: { background: 'var(--color-surface-2)', color: 'var(--color-text-sec)' },
     transit: { background: 'var(--color-gold-soft)', color: 'var(--color-accent)' },
     delivered: { background: 'var(--color-good-soft)', color: 'var(--color-good)' },
+    cancelled: { background: 'var(--color-surface-2)', color: 'var(--color-text-ter)' },
   }
   const fg = toneStyles[tone].color as string
   return (
@@ -158,7 +162,16 @@ function Pill({ children, tone, dot, iconName, ariaLive }: PillProps) {
 function StatusPill({ status }: { status: string }) {
   if (status === 'OUT_FOR_DELIVERY') return <Pill tone="transit" dot>A caminho</Pill>
   if (status === 'DELIVERED') return <Pill tone="delivered" iconName="check">Entregue</Pill>
+  if (status === 'CANCELLED') return <Pill tone="cancelled">Cancelado</Pill>
   return <Pill tone="scheduled" iconName="clock">Agendado</Pill>
+}
+
+// Rótulo acessível/curto do status para aria-label.
+function statusLabel(status: string): string {
+  if (status === 'DELIVERED') return 'Entregue'
+  if (status === 'OUT_FOR_DELIVERY') return 'A caminho'
+  if (status === 'CANCELLED') return 'Cancelado'
+  return 'Agendado'
 }
 
 function HeroCard({
@@ -347,12 +360,15 @@ function Timeline({ order }: { order: TodayOrder }) {
 
 export function TrackingScreen() {
   const navigate = useNavigate()
+  const { updateCreditBalance } = useAuth()
   // fallbackToNext: mostra a próxima entrega agendada mesmo antes da meia-noite
   // (mesmo comportamento do card da Home).
   const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const [history, setHistory] = useState<HistoryOrder[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [slots, setSlots] = useState<CondoSlot[]>([])
+  // Pedido único selecionado para o diálogo de cancelamento (null = fechado).
+  const [cancelTarget, setCancelTarget] = useState<HistoryOrder | null>(null)
 
   useEffect(() => {
     // Slots do condomínio para resolver o nome real (manhã/tarde) pelo deliveryTime
@@ -378,7 +394,8 @@ export function TrackingScreen() {
     void fetchHistory()
   }, [])
 
-  const visibleHistory = history.filter((o) => o.status !== 'CANCELLED')
+  // Pedidos cancelados aparecem com o pill "Cancelado" (não são mais escondidos).
+  const visibleHistory = history
 
   // Nome do slot (manhã/tarde) cruzando o pedido (por slotId; fallback horário) com os slots
   const heroSlot = order ? matchSlot(order, slots) : undefined
@@ -560,80 +577,138 @@ export function TrackingScreen() {
                 : null
               const typeLabel = o.type === 'SINGLE' ? 'Pedido único' : 'Agendamento'
               const qtyText = o.quantity === 1 ? '1 pão' : `${o.quantity} pães`
+              // Pedido único ainda agendado pode ser cancelado pelo cliente até o corte.
+              // Sem slot reconhecido, deixamos a decisão para o backend (autoritativo).
+              const isCancelable = o.type === 'SINGLE' && o.status === 'SCHEDULED'
+              const cutoffPassed =
+                isCancelable &&
+                !!matched &&
+                isPastCutoffForDelivery(matched.time, matched.cutoffTime, o.scheduledDate)
+              const canCancel = isCancelable && !cutoffPassed
               return (
                 <div
                   key={o.id}
-                  aria-label={`${dateLabel}, ${o.status === 'DELIVERED' ? 'Entregue' : o.status === 'OUT_FOR_DELIVERY' ? 'A caminho' : 'Agendado'}`}
+                  aria-label={`${dateLabel}, ${statusLabel(o.status)}`}
                   style={{
                     display: 'flex',
-                    gap: 13,
+                    flexDirection: 'column',
                     padding: 14,
                     background: 'var(--color-surface)',
                     border: '1px solid var(--color-border-2)',
                     borderRadius: 'var(--radius-card)',
-                    alignItems: 'center',
                   }}
                 >
-                  <div
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 13,
-                      background: 'var(--color-surface-2)',
-                      display: 'grid',
-                      placeItems: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Icon
-                      name={o.type === 'SINGLE' ? 'bag' : 'calendar'}
-                      size={21}
-                      color="var(--color-accent)"
-                    />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p
+                  <div style={{ display: 'flex', gap: 13, alignItems: 'center' }}>
+                    <div
                       style={{
-                        fontFamily: 'var(--font-body)',
-                        fontWeight: 700,
-                        fontSize: 14.5,
-                        color: 'var(--color-text)',
-                        margin: 0,
+                        width: 44,
+                        height: 44,
+                        borderRadius: 13,
+                        background: 'var(--color-surface-2)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        flexShrink: 0,
                       }}
                     >
-                      {dateLabel}
-                    </p>
-                    {slotText && (
+                      <Icon
+                        name={o.type === 'SINGLE' ? 'bag' : 'calendar'}
+                        size={21}
+                        color="var(--color-accent)"
+                      />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <p
                         style={{
                           fontFamily: 'var(--font-body)',
-                          fontWeight: 600,
-                          fontSize: 13,
-                          color: 'var(--color-text-sec)',
-                          margin: '2px 0 0',
+                          fontWeight: 700,
+                          fontSize: 14.5,
+                          color: 'var(--color-text)',
+                          margin: 0,
                         }}
                       >
-                        {slotText}
+                        {dateLabel}
                       </p>
-                    )}
+                      {slotText && (
+                        <p
+                          style={{
+                            fontFamily: 'var(--font-body)',
+                            fontWeight: 600,
+                            fontSize: 13,
+                            color: 'var(--color-text-sec)',
+                            margin: '2px 0 0',
+                          }}
+                        >
+                          {slotText}
+                        </p>
+                      )}
+                      <p
+                        style={{
+                          fontFamily: 'var(--font-body)',
+                          fontSize: 12,
+                          color: 'var(--color-text-ter)',
+                          margin: '1px 0 0',
+                        }}
+                      >
+                        {typeLabel} · {qtyText}
+                      </p>
+                    </div>
+                    <StatusPill status={o.status} />
+                  </div>
+
+                  {canCancel && (
+                    <button
+                      onClick={() => setCancelTarget(o)}
+                      style={{
+                        alignSelf: 'flex-start',
+                        marginTop: 12,
+                        padding: '7px 12px',
+                        background: 'transparent',
+                        color: 'var(--color-bad, #C2410C)',
+                        border: '1.5px solid var(--color-bad, #C2410C)',
+                        borderRadius: 'var(--radius-btn)',
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Cancelar pedido
+                    </button>
+                  )}
+                  {cutoffPassed && (
                     <p
                       style={{
+                        marginTop: 10,
                         fontFamily: 'var(--font-body)',
                         fontSize: 12,
                         color: 'var(--color-text-ter)',
-                        margin: '1px 0 0',
+                        lineHeight: 1.4,
                       }}
                     >
-                      {typeLabel} · {qtyText}
+                      Cancelamento indisponível — passou do horário de corte deste pedido.
                     </p>
-                  </div>
-                  <StatusPill status={o.status} />
+                  )}
                 </div>
               )
             })}
           </div>
         )}
       </div>
+
+      <CancelOrderDialog
+        orderId={cancelTarget?.id ?? null}
+        quantity={cancelTarget?.quantity ?? 0}
+        isOpen={cancelTarget !== null}
+        onClose={() => setCancelTarget(null)}
+        onCancelled={(result) => {
+          // Reflete o cancelamento na lista (pill vira "Cancelado") e atualiza o saldo de pães.
+          setHistory((prev) =>
+            prev.map((h) => (h.id === result.id ? { ...h, status: 'CANCELLED' } : h)),
+          )
+          updateCreditBalance(result.creditBalance)
+          setCancelTarget(null)
+        }}
+      />
     </div>
   )
 }

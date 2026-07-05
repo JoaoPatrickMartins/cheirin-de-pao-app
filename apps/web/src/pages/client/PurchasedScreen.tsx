@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { Icon } from '../../components/brand/Icon'
 import { brtDateStr } from '../../lib/cutoff'
@@ -28,6 +29,12 @@ export function PurchasedScreen() {
   const state = (location.state as PurchasedState | null) ?? {}
   const quantity = state.quantity ?? 0
   const isOrder = state.kind === 'order'
+
+  // Após um pedido, avisa o ClientLayout para reavaliar o consentimento do gancho
+  // (o modal surge na hora se este for o primeiro pedido).
+  useEffect(() => {
+    if (isOrder) window.dispatchEvent(new Event('cdp:refresh-hook'))
+  }, [isOrder])
 
   const qtyLabel = quantity === 1 ? '1 pãozinho' : `${quantity} pãezinhos`
 

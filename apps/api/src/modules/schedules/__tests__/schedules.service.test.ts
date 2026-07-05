@@ -39,6 +39,8 @@ type ScheduleShape = {
   deliveryTime: string
   notifyReconfigure: boolean
   days?: object | null
+  pausedAt?: Date | null
+  lastPauseReminderAt?: Date | null
 }
 
 type UserShape = {
@@ -93,6 +95,7 @@ function createMockFastify(overrides?: {
         }),
         findMany: vi.fn().mockResolvedValue(schedules),
         upsert: vi.fn().mockResolvedValue({ id: 'schedule-1' }),
+        update: vi.fn().mockResolvedValue({ id: 'schedule-1' }),
       },
       order: {
         findMany: orderFindManyFn ?? vi.fn().mockResolvedValue([]),
@@ -141,6 +144,22 @@ describe('SchedulesService', () => {
 
       await service.upsertSchedule('user-1', 'condo-1', data)
       expect(fastify.prisma.schedule.upsert).toHaveBeenCalledOnce()
+    })
+
+    it('salvar a agenda retoma automaticamente (limpa pausedAt no update)', async () => {
+      const fastify = createMockFastify()
+      const service = new SchedulesService(fastify)
+
+      await service.upsertSchedule('user-1', 'condo-1', {
+        days: { manha: { seg: 2, ter: 0, qua: 2, qui: 0, sex: 2, sab: 0, dom: 0 } },
+        notifyReconfigure: false,
+      })
+
+      expect(fastify.prisma.schedule.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({ pausedAt: null, lastPauseReminderAt: null }),
+        }),
+      )
     })
   })
 
@@ -888,6 +907,22 @@ describe('SchedulesService', () => {
 
       expect(createOrderFn).not.toHaveBeenCalled()
     })
+
+    it('agenda PAUSADA (pausedAt != null) não gera order no corte', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T13:00:00Z')) // segunda 10:00 BRT → casa corte da tarde
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [{ ...multiSchedule, pausedAt: new Date('2026-06-20T00:00:00Z') }],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      expect(createOrderFn).not.toHaveBeenCalled()
+    })
   })
 
   // ===========================================================================
@@ -1039,6 +1074,96 @@ describe('SchedulesService', () => {
 
       expect(createOrderFn).toHaveBeenCalledTimes(1) // só 1 vez apesar de 2 chamadas
       expect(upsertFn).toHaveBeenCalledTimes(1) // marcou o ciclo 1x
+    })
+  })
+
+  // ===========================================================================
+  // sendPausedTooLongReminders — lembrete de agenda pausada há ≥7 dias (semanal)
+  // ===========================================================================
+  describe('sendPausedTooLongReminders', () => {
+    beforeEach(() => vi.clearAllMocks())
+
+    const NOW = new Date('2026-07-03T00:00:00Z')
+    const baseSchedule: ScheduleShape = {
+      id: 'sched-pause-1',
+      userId: 'user-p1',
+      condominiumId: 'condo-1',
+      isActive: true,
+      weeklyQty: { seg: 2, ter: 0, qua: 2, qui: 0, sex: 2, sab: 0, dom: 0 },
+      deliveryTime: '07:00',
+      notifyReconfigure: false,
+    }
+    const user: UserShape = {
+      id: 'user-p1',
+      creditBalance: 10,
+      condominiumId: 'condo-1',
+      autoRecharge: null,
+      oneSignalPlayerId: 'player-p1',
+    }
+
+    function setup(schedule: ScheduleShape) {
+      const fastify = createMockFastify({ schedules: [schedule], users: { 'user-p1': user } })
+      ;(fastify.prisma.schedule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([schedule])
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+      return { fastify, service, createAndTrimMock }
+    }
+
+    it('NÃO notifica agenda pausada há menos de 7 dias', async () => {
+      const { service, createAndTrimMock, fastify } = setup({
+        ...baseSchedule,
+        pausedAt: new Date('2026-06-30T00:00:00Z'), // 3 dias antes de NOW
+      })
+      await service.sendPausedTooLongReminders(NOW)
+      expect(createAndTrimMock).not.toHaveBeenCalled()
+      expect(fastify.prisma.schedule.update).not.toHaveBeenCalled()
+    })
+
+    it('notifica (SCHEDULE_PAUSED) e marca lastPauseReminderAt quando pausada há ≥7 dias e nunca lembrada', async () => {
+      const { service, createAndTrimMock, fastify } = setup({
+        ...baseSchedule,
+        pausedAt: new Date('2026-06-25T00:00:00Z'), // 8 dias antes de NOW
+        lastPauseReminderAt: null,
+      })
+      await service.sendPausedTooLongReminders(NOW)
+      expect(createAndTrimMock).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-p1', type: 'SCHEDULE_PAUSED' }),
+      )
+      expect(fastify.prisma.schedule.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'sched-pause-1' },
+          data: { lastPauseReminderAt: NOW },
+        }),
+      )
+    })
+
+    it('NÃO repete quando último lembrete foi há menos de 7 dias', async () => {
+      const { service, createAndTrimMock } = setup({
+        ...baseSchedule,
+        pausedAt: new Date('2026-05-01T00:00:00Z'), // pausada há muito tempo
+        lastPauseReminderAt: new Date('2026-06-30T00:00:00Z'), // lembrada há 3 dias
+      })
+      await service.sendPausedTooLongReminders(NOW)
+      expect(createAndTrimMock).not.toHaveBeenCalled()
+    })
+
+    it('repete quando último lembrete foi há ≥7 dias', async () => {
+      const { service, createAndTrimMock } = setup({
+        ...baseSchedule,
+        pausedAt: new Date('2026-05-01T00:00:00Z'),
+        lastPauseReminderAt: new Date('2026-06-25T00:00:00Z'), // lembrada há 8 dias
+      })
+      await service.sendPausedTooLongReminders(NOW)
+      expect(createAndTrimMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'SCHEDULE_PAUSED' }),
+      )
+    })
+
+    it('ignora agendas não pausadas (pausedAt null/ausente)', async () => {
+      const { service, createAndTrimMock } = setup({ ...baseSchedule })
+      await service.sendPausedTooLongReminders(NOW)
+      expect(createAndTrimMock).not.toHaveBeenCalled()
     })
   })
 })
