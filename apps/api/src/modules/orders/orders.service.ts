@@ -1,6 +1,14 @@
 import { FastifyInstance } from 'fastify'
+import { NotificationType } from '@prisma/client'
 import { CreateOrderBody } from './orders.schema.js'
 import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr } from '../../lib/cutoff.js'
+import { NotificationsService } from '../notifications/notifications.service.js'
+
+/** Rótulo curto do cliente para avisos ao admin: "Nome · Apto 12B". */
+function clientLabel(u: { name?: string | null; apartment?: string | null; block?: string | null }): string {
+  const loc = [u.block, u.apartment].filter(Boolean).join(' ')
+  return [u.name ?? 'Cliente', loc ? `Apto ${loc}` : null].filter(Boolean).join(' · ')
+}
 
 /**
  * Fuso horário do Brasil (UTC-3) para cálculo do "amanhã".
@@ -162,6 +170,22 @@ export class OrdersService {
       return newOrder
     })
 
+    // Aviso ao admin — novo pedido de cliente (best-effort, nunca quebra o fluxo).
+    try {
+      const client = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, apartment: true, block: true },
+      })
+      await new NotificationsService(this.fastify).notifyAdmins({
+        type: NotificationType.ADMIN_ORDER_PLACED,
+        title: 'Novo pedido',
+        body: `${clientLabel(client ?? {})} · ${paesLabel} · ${diaStr}/${mesStr}`,
+        actionRoute: '/admin',
+      })
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[orders] falha ao notificar admin (pedido) — ignorado')
+    }
+
     return order
   }
 
@@ -260,8 +284,22 @@ export class OrdersService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { creditBalance: true },
+      select: { creditBalance: true, name: true, apartment: true, block: true },
     })
+
+    // Aviso ao admin — pedido cancelado pelo cliente (best-effort).
+    try {
+      const [, mesStr, diaStr] = deliveryDateStr.split('-')
+      await new NotificationsService(this.fastify).notifyAdmins({
+        type: NotificationType.ADMIN_ORDER_CANCELLED,
+        title: 'Pedido cancelado',
+        body: `${clientLabel(user ?? {})} · ${paesLabel} · ${diaStr}/${mesStr}`,
+        actionRoute: '/admin',
+      })
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[orders] falha ao notificar admin (cancelamento) — ignorado')
+    }
+
     return {
       id: orderId,
       status: 'CANCELLED' as const,

@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify'
+import { NotificationType } from '@prisma/client'
+import { NotificationsService } from '../notifications/notifications.service.js'
 
 /**
  * ClientHookService — solicitação do gancho de porta pelo próprio cliente.
@@ -49,7 +51,7 @@ export class ClientHookService {
   async requestHook(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true, hookRequestedAt: true },
+      select: { role: true, hookRequestedAt: true, name: true, apartment: true, block: true },
     })
     if (!user || user.role !== 'CLIENT') {
       throw { statusCode: 404, message: 'Cliente não encontrado' }
@@ -64,6 +66,20 @@ export class ClientHookService {
       data: { hookRequestedAt: new Date() },
       select: { hookRequestedAt: true },
     })
+
+    // Aviso ao admin — só na transição (não solicitado → solicitado). Best-effort.
+    try {
+      const loc = [user.block, user.apartment].filter(Boolean).join(' ')
+      await new NotificationsService(this.fastify).notifyAdmins({
+        type: NotificationType.ADMIN_HOOK_REQUESTED,
+        title: 'Solicitação de gancho',
+        body: `${user.name ?? 'Cliente'}${loc ? ` · Apto ${loc}` : ''} confirmou o recebimento do gancho.`,
+        actionRoute: '/admin',
+      })
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[client-hook] falha ao notificar admin — ignorado')
+    }
+
     return { hookRequestedAt: updated.hookRequestedAt }
   }
 }

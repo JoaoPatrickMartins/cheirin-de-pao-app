@@ -8,6 +8,7 @@ import { AdminCortes } from '../gestao/AdminCortes'
 import { AdminFornecedores } from '../gestao/AdminFornecedores'
 import { AdminEntregadores } from '../gestao/AdminEntregadores'
 import { AdminGanchos } from '../gestao/AdminGanchos'
+import { AdminNotificacoes } from '../gestao/AdminNotificacoes'
 import { AdminCondos } from '../gestao/AdminCondos'
 import { AdminPagamentos } from '../gestao/AdminPagamentos'
 import { AdminFinanceiro } from '../gestao/AdminFinanceiro'
@@ -22,6 +23,7 @@ type AdminGestaoSub =
   | 'fornecedores'
   | 'entregadores'
   | 'ganchos'
+  | 'notificacoes'
   | 'condos'
   | 'pagamentos'
   | 'financeiro'
@@ -41,6 +43,7 @@ const HUB_ITEMS: HubItem[] = [
   { key: 'fornecedores', icon: 'factory', titulo: 'Fornecedores', descricao: 'Padarias e preço do pão' },
   { key: 'entregadores', icon: 'truck', titulo: 'Entregadores', descricao: 'Equipe e disponibilidade' },
   { key: 'ganchos', icon: 'pin', titulo: 'Solicitação de Gancho', descricao: 'Entregas de gancho de porta' },
+  { key: 'notificacoes', icon: 'bell', titulo: 'Notificações', descricao: 'Ative ou desative os avisos' },
   { key: 'condos', icon: 'building', titulo: 'Condomínios', descricao: 'Locais atendidos' },
   { key: 'pagamentos', icon: 'card', titulo: 'Pagamentos', descricao: 'Status e estornos' },
   { key: 'financeiro', icon: 'trend', titulo: 'Financeiro', descricao: 'Receita por período' },
@@ -61,6 +64,7 @@ export function AdminGestao() {
   if (sub === 'fornecedores') return <AdminFornecedores onBack={onBack} />
   if (sub === 'entregadores') return <AdminEntregadores onBack={onBack} />
   if (sub === 'ganchos') return <AdminGanchos onBack={onBack} />
+  if (sub === 'notificacoes') return <AdminNotificacoes onBack={onBack} />
   if (sub === 'condos') return <AdminCondos onBack={onBack} />
   if (sub === 'pagamentos') return <AdminPagamentos onBack={onBack} />
   if (sub === 'financeiro') return <AdminFinanceiro onBack={onBack} />

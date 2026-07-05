@@ -1,5 +1,15 @@
 import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
+import { sendPush } from '../../lib/push.js'
+
+/** Payload de uma notificação (in-app + push). */
+export interface NotifyPayload {
+  type: NotificationType
+  title: string
+  body: string
+  /** Rota in-app para o CTA/deep-link (ex.: '/admin', '/courier'). */
+  actionRoute?: string
+}
 
 /**
  * NotificationsService — gerencia notificações in-app e push token do OneSignal.
@@ -101,5 +111,71 @@ export class NotificationsService {
     return this.prisma.notification.count({
       where: { userId, isRead: false },
     })
+  }
+
+  /**
+   * Notifica um único usuário: persiste in-app (createAndTrim) + envia push best-effort.
+   *
+   * @param userId  destinatário
+   * @param payload tipo/título/corpo + actionRoute (usado como URL do push e CTA in-app)
+   */
+  async notifyUser(userId: string, payload: NotifyPayload): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { oneSignalPlayerId: true },
+    })
+
+    await this.createAndTrim({
+      userId,
+      type: payload.type,
+      title: payload.title,
+      body: payload.body,
+      actionRoute: payload.actionRoute,
+    })
+
+    await sendPush(this.fastify, {
+      playerId: user?.oneSignalPlayerId,
+      heading: payload.title,
+      body: payload.body,
+      route: payload.actionRoute,
+    })
+  }
+
+  /**
+   * Notifica TODOS os admins, respeitando o toggle individual de cada um.
+   *
+   * Um admin recebe a notificação (in-app + push) a menos que ele tenha DESLIGADO esse
+   * tipo em `adminNotificationPrefs` (mapa `{ [type]: boolean }`). Ausência/`true` = ligado.
+   * Best-effort por admin — falha em um não interrompe os demais.
+   */
+  async notifyAdmins(payload: NotifyPayload): Promise<void> {
+    const admins = await this.prisma.user.findMany({
+      where: { role: 'ADMIN' },
+      select: { id: true, oneSignalPlayerId: true, adminNotificationPrefs: true },
+    })
+
+    for (const admin of admins) {
+      const prefs = (admin.adminNotificationPrefs ?? null) as Record<string, boolean> | null
+      // Só pula quando explicitamente desligado (false). Ausência = ligado (default).
+      if (prefs && prefs[payload.type] === false) continue
+
+      try {
+        await this.createAndTrim({
+          userId: admin.id,
+          type: payload.type,
+          title: payload.title,
+          body: payload.body,
+          actionRoute: payload.actionRoute,
+        })
+        await sendPush(this.fastify, {
+          playerId: admin.oneSignalPlayerId,
+          heading: payload.title,
+          body: payload.body,
+          route: payload.actionRoute,
+        })
+      } catch (err) {
+        this.fastify.log.warn({ err, adminId: admin.id }, '[notifications] falha ao notificar admin — ignorado')
+      }
+    }
   }
 }

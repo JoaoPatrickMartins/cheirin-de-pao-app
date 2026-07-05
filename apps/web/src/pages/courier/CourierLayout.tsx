@@ -1,9 +1,14 @@
 import { Outlet, Navigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { LoadingScreen } from '../auth/LoadingScreen'
+import { useOneSignalRegister } from '../../hooks/useOneSignalRegister'
+import { useOneSignalDeepLink } from '../../hooks/useOneSignalDeepLink'
 
 export function CourierLayout() {
   const { user, isLoading } = useAuth()
+  // Registra o player_id do OneSignal do entregador + habilita deep link de push.
+  useOneSignalRegister()
+  useOneSignalDeepLink()
 
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'COURIER') return <Navigate to="/" replace />

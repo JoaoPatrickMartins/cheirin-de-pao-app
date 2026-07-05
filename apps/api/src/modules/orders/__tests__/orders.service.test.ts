@@ -74,7 +74,7 @@ function makeFastifyMock(overrides: {
   return {
     fastify: {
       prisma: { $transaction: transaction, user: txUser, order: orderMock, condominium },
-      log: { error: vi.fn() },
+      log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
     } as unknown,
     txUser,
     txOrder: orderMock,
@@ -450,7 +450,7 @@ function makeCancelMock(opts: {
   }
 
   return {
-    fastify: { prisma, log: { error: vi.fn() } } as unknown,
+    fastify: { prisma, log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } } as unknown,
     orderUpdate,
     ctCreate,
     userUpdate,

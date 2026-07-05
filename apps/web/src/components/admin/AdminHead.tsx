@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react'
 import { BreadMark } from '../brand/BreadMark'
+import { NotifBell } from './NotifBell'
 
 interface AdminHeadProps {
   sub: string
   titulo: string
   /** Ação secundária opcional, renderizada à direita do header (ex.: atalho de histórico). */
   action?: ReactNode
+  /** Oculta o sino de notificações (ex.: telas de detalhe/overlay). Padrão: exibe. */
+  hideBell?: boolean
 }
 
-export function AdminHead({ sub, titulo, action }: AdminHeadProps) {
+export function AdminHead({ sub, titulo, action, hideBell }: AdminHeadProps) {
   return (
     <div
       style={{
@@ -69,8 +72,11 @@ export function AdminHead({ sub, titulo, action }: AdminHeadProps) {
         </h1>
       </div>
 
-      {/* Ação à direita (opcional) */}
-      {action && <div style={{ flexShrink: 0 }}>{action}</div>}
+      {/* Cluster à direita: ação opcional + sino de notificações */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {action}
+        {!hideBell && <NotifBell />}
+      </div>
     </div>
   )
 }

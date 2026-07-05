@@ -1,8 +1,11 @@
 import { FastifyInstance } from 'fastify'
+import { NotificationType } from '@prisma/client'
 import { CourierRepository } from './courier.repository.js'
 import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { addressToQuery, geocodeAddress, type AddressLike } from '../../lib/geocode.js'
+import { nowHHMM, brtDayRange } from '../../lib/cutoff.js'
+import { NotificationsService } from '../notifications/notifications.service.js'
 import type { TodayOrdersResponse } from './courier.schema.js'
 
 /**
@@ -295,5 +298,62 @@ export class CourierService {
 
     const adminOrdersService = new AdminOrdersService(this.fastify)
     await adminOrdersService.updateOrderStatus(orderId, 'NOT_DELIVERED', reason)
+  }
+
+  /**
+   * Lembrete ao entregador no horário do turno: no MINUTO EXATO de `slot.time`, para cada
+   * entregador com pedidos de HOJE naquele turno que ainda NÃO iniciou/concluiu nenhuma
+   * entrega (nenhum DELIVERED/NOT_DELIVERED entre seus pedidos do turno), envia um push +
+   * notificação in-app COURIER_PENDING_REMINDER. Best-effort; 1× por minuto/turno.
+   */
+  async sendCourierPendingReminders(now: Date = new Date()): Promise<void> {
+    const [nh, nm] = nowHHMM(now).split(':').map(Number)
+    const cur = nh * 60 + nm
+    const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
+    const { start, end } = brtDayRange(now)
+
+    for (const slot of slots) {
+      const [sh, sm] = slot.time.split(':').map(Number)
+      if (cur !== (sh * 60 + sm)) continue
+
+      // Pedidos do turno hoje que já têm entregador atribuído.
+      const orders = await this.prisma.order.findMany({
+        where: {
+          slotId: slot.slotId,
+          scheduledDate: { gte: start, lte: end },
+          courierId: { not: null },
+          status: { not: 'CANCELLED' },
+        },
+        select: { courierId: true, status: true },
+      })
+      if (orders.length === 0) continue
+
+      // Agrupa por entregador: acted = já concluiu/tentou alguma; pending = ainda por fazer.
+      const byCourier = new Map<string, { acted: boolean; pending: number }>()
+      for (const o of orders) {
+        if (!o.courierId) continue
+        const agg = byCourier.get(o.courierId) ?? { acted: false, pending: 0 }
+        if (o.status === 'DELIVERED' || o.status === 'NOT_DELIVERED') agg.acted = true
+        else agg.pending += 1
+        byCourier.set(o.courierId, agg)
+      }
+
+      const notifications = new NotificationsService(this.fastify)
+      for (const [courierId, agg] of byCourier) {
+        // Só lembra quem não começou nada E ainda tem entregas pendentes no turno.
+        if (agg.acted || agg.pending === 0) continue
+        const entregas = agg.pending === 1 ? '1 entrega' : `${agg.pending} entregas`
+        try {
+          await notifications.notifyUser(courierId, {
+            type: NotificationType.COURIER_PENDING_REMINDER,
+            title: 'Entregas a fazer',
+            body: `Começou o turno ${slot.label} e você ainda tem ${entregas} para realizar.`,
+            actionRoute: '/courier',
+          })
+        } catch (err) {
+          this.fastify.log.warn({ err, courierId }, '[courier] falha no lembrete de entregas — ignorado')
+        }
+      }
+    }
   }
 }

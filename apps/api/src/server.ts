@@ -35,6 +35,7 @@ import { courierRoute } from './modules/courier/courier.route.js'
 import { clientProfileRoute } from './modules/client-profile/client-profile.route.js'
 import { clientHookRoute } from './modules/client-hook/client-hook.route.js'
 import { adminHooksRoute } from './modules/admin-hooks/admin-hooks.route.js'
+import { adminNotificationPrefsRoute } from './modules/admin-notification-prefs/admin-notification-prefs.route.js'
 import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
@@ -217,6 +218,7 @@ const start = async () => {
     await fastify.register(clientProfileRoute)  // Phase 11 — GET/PATCH /client/profile, POST contact/change (CONF-02..06)
     await fastify.register(clientHookRoute)     // Gancho — GET/POST /client/hook-request (consentimento do cliente)
     await fastify.register(adminHooksRoute)     // Gancho — GET /admin/hook-requests + PATCH /:id/deliver
+    await fastify.register(adminNotificationPrefsRoute) // Notificações — GET/PUT /admin/notification-prefs (toggles do admin)
     await fastify.register(savedCardsRoute)     // Phase 12 — GET/PATCH/DELETE /users/me/cards (CARD-01/04/05)
     await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h + 21h (SCHED-03/04)
 

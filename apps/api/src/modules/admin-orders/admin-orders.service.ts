@@ -4,6 +4,7 @@ import { NotificationType, OrderStatus, PaymentStatus, Prisma } from '@prisma/cl
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
+import { NotificationsService } from '../notifications/notifications.service.js'
 
 /**
  * Mapa de transições de estado válidas para pedidos.
@@ -153,6 +154,67 @@ export class AdminOrdersService {
     if (newStatus === 'DELIVERED') {
       await this.notifyAndPersist(order)
     }
+
+    // Avisos ao admin — entrega realizada / não realizada (best-effort).
+    if (newStatus === 'DELIVERED' || newStatus === 'NOT_DELIVERED') {
+      await this.notifyAdminsDelivery(order, newStatus, reason)
+    }
+  }
+
+  /**
+   * Notifica os admins do desfecho de uma entrega (DELIVERED/NOT_DELIVERED), respeitando
+   * os toggles individuais. Best-effort — nunca interrompe a transição de status.
+   */
+  private async notifyAdminsDelivery(
+    order: { id: string; userId: string; quantity: number },
+    status: 'DELIVERED' | 'NOT_DELIVERED',
+    reason?: string,
+  ): Promise<void> {
+    try {
+      const client = await this.prisma.user.findUnique({
+        where: { id: order.userId },
+        select: { name: true, apartment: true, block: true },
+      })
+      const loc = [client?.block, client?.apartment].filter(Boolean).join(' ')
+      const who = `${client?.name ?? 'Cliente'}${loc ? ` · Apto ${loc}` : ''}`
+      const paes = order.quantity === 1 ? '1 pão' : `${order.quantity} pães`
+      if (status === 'DELIVERED') {
+        await new NotificationsService(this.fastify).notifyAdmins({
+          type: NotificationType.ADMIN_DELIVERY_DONE,
+          title: 'Entrega realizada',
+          body: `${who} · ${paes}`,
+          actionRoute: '/admin',
+        })
+      } else {
+        await new NotificationsService(this.fastify).notifyAdmins({
+          type: NotificationType.ADMIN_DELIVERY_FAILED,
+          title: 'Entrega não realizada',
+          body: `${who} · ${paes}${reason ? ` · ${reason}` : ''}`,
+          actionRoute: '/admin',
+        })
+      }
+    } catch (err) {
+      this.fastify.log.warn({ err, orderId: order.id }, '[admin-orders] falha ao notificar admin (entrega) — ignorado')
+    }
+  }
+
+  /**
+   * Avisa um entregador que recebeu novas entregas. Best-effort.
+   * @param count quantas entregas foram atribuídas/despachadas nesta operação
+   */
+  private async notifyCourierNewOrders(courierId: string, count: number): Promise<void> {
+    if (count <= 0) return
+    try {
+      const entregas = count === 1 ? '1 entrega' : `${count} entregas`
+      await new NotificationsService(this.fastify).notifyUser(courierId, {
+        type: NotificationType.COURIER_NEW_ORDERS,
+        title: 'Novas entregas',
+        body: `Você tem ${entregas} para fazer hoje. Toque para ver a rota.`,
+        actionRoute: '/courier',
+      })
+    } catch (err) {
+      this.fastify.log.warn({ err, courierId }, '[admin-orders] falha ao notificar entregador — ignorado')
+    }
   }
 
   /**
@@ -225,6 +287,7 @@ export class AdminOrdersService {
         where: { id: { in: opts.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
         data: { courierId },
       })
+      await this.notifyCourierNewOrders(courierId, result.count)
       return { count: result.count }
     }
 
@@ -251,6 +314,7 @@ export class AdminOrdersService {
         where: { id: { in: orders.map((o: { id: string }) => o.id) } },
         data: { courierId },
       })
+      await this.notifyCourierNewOrders(courierId, result.count)
       return { count: result.count }
     }
 
@@ -279,6 +343,8 @@ export class AdminOrdersService {
         data: { courierId: a.courierId, status: 'OUT_FOR_DELIVERY' },
       })
       count += result.count
+      // Avisa o entregador que foi despachado (best-effort, por entregador).
+      await this.notifyCourierNewOrders(a.courierId, result.count)
     }
     return { count }
   }

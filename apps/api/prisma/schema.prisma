@@ -111,6 +111,20 @@ enum NotificationType {
   CREDIT_GRANTED
   SCHEDULE_PAUSED
   HOOK_DELIVERED
+  // Admin — avisos operacionais (cada um com toggle individual em adminNotificationPrefs)
+  ADMIN_ORDER_PLACED
+  ADMIN_HOOK_REQUESTED
+  ADMIN_DELIVERY_DONE
+  ADMIN_DELIVERY_FAILED
+  ADMIN_DELIVERY_PENDING
+  ADMIN_ORDER_CANCELLED
+  ADMIN_CREDIT_PURCHASED
+  ADMIN_CUTOFF_REACHED
+  ADMIN_AUTOGEN_WARNING
+  ADMIN_AUTOGEN_DONE
+  // Entregador — avisos automáticos (sem toggle)
+  COURIER_NEW_ORDERS
+  COURIER_PENDING_REMINDER
 }
 
 enum AnalyticsEventType {
@@ -143,6 +157,9 @@ model User {
   block         String?
   creditBalance      Int       @default(0)
   autoRecharge       Json?
+  // Preferências de notificação do ADMIN — mapa { [NotificationType]: boolean }.
+  // Ausência/null = todos os tipos ligados; só grava as chaves DESLIGADAS (false).
+  adminNotificationPrefs Json?
   cardTokenMp        String?
   oneSignalPlayerId  String?
   mpCustomerId       String?

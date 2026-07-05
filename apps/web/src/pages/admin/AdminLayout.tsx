@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { LoadingScreen } from '../auth/LoadingScreen'
 import { Navigate } from 'react-router'
@@ -9,6 +9,10 @@ import { AdminSeparacao } from './tabs/AdminSeparacao'
 import { AdminEntregas, type HistFilter } from './tabs/AdminEntregas'
 import { AdminClientes } from './tabs/AdminClientes'
 import { AdminGestao } from './tabs/AdminGestao'
+import { AdminNotificationsScreen } from './AdminNotificationsScreen'
+import { NotifProvider } from '../../contexts/NotifContext'
+import { useOneSignalRegister } from '../../hooks/useOneSignalRegister'
+import { useOneSignalDeepLink } from '../../hooks/useOneSignalDeepLink'
 
 type AdminTab = 'painel' | 'pedido' | 'separacao' | 'entregas' | 'clientes' | 'gestao'
 
@@ -22,6 +26,17 @@ export function AdminLayout() {
   const { user, isLoading } = useAuth()
   const [tab, setTabRaw] = useState<AdminTab>('painel')
   const [entregasIntent, setEntregasIntent] = useState<EntregasIntent | null>(null)
+  const [showNotif, setShowNotif] = useState(false)
+  // Registra o player_id do OneSignal do admin + habilita deep link de push.
+  useOneSignalRegister()
+  useOneSignalDeepLink()
+
+  // O sino (NotifBell, dentro do AdminHead) dispara este evento window ao ser tocado.
+  useEffect(() => {
+    const open = () => setShowNotif(true)
+    window.addEventListener('cdp:open-admin-notifications', open)
+    return () => window.removeEventListener('cdp:open-admin-notifications', open)
+  }, [])
 
   // Navegação normal (bottom nav) limpa qualquer deep-link pendente para que o
   // intent não "grude" ao voltar para Entregas manualmente.
@@ -42,24 +57,27 @@ export function AdminLayout() {
   if (user.hasPassword === false) return <Navigate to="/set-password" replace />
 
   return (
-    <div
-      style={{
-        minHeight: '100dvh',
-        background: 'var(--color-app-bg)',
-        display: 'flex',
-        flexDirection: 'column',
-        paddingBottom: 'calc(56px + env(safe-area-inset-bottom))',
-      }}
-    >
-      {tab === 'painel' && <AdminPainel onNavigate={navigateWithIntent} />}
-      {tab === 'pedido' && <AdminCompra />}
-      {tab === 'separacao' && <AdminSeparacao />}
-      {tab === 'entregas' && (
-        <AdminEntregas initialSegment={entregasIntent?.segment} initialFilter={entregasIntent?.filter} />
-      )}
-      {tab === 'clientes' && <AdminClientes />}
-      {tab === 'gestao' && <AdminGestao />}
-      <AdminBottomNav activeTab={tab} onTabChange={setTab} />
-    </div>
+    <NotifProvider>
+      <div
+        style={{
+          minHeight: '100dvh',
+          background: 'var(--color-app-bg)',
+          display: 'flex',
+          flexDirection: 'column',
+          paddingBottom: 'calc(56px + env(safe-area-inset-bottom))',
+        }}
+      >
+        {tab === 'painel' && <AdminPainel onNavigate={navigateWithIntent} />}
+        {tab === 'pedido' && <AdminCompra />}
+        {tab === 'separacao' && <AdminSeparacao />}
+        {tab === 'entregas' && (
+          <AdminEntregas initialSegment={entregasIntent?.segment} initialFilter={entregasIntent?.filter} />
+        )}
+        {tab === 'clientes' && <AdminClientes />}
+        {tab === 'gestao' && <AdminGestao />}
+        <AdminBottomNav activeTab={tab} onTabChange={setTab} />
+        {showNotif && <AdminNotificationsScreen onBack={() => setShowNotif(false)} />}
+      </div>
+    </NotifProvider>
   )
 }

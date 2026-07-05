@@ -20,6 +20,8 @@ import {
 import { projectScheduleDetailForDate } from '../../lib/schedule-projection.js'
 import { SchedulesService } from '../schedules/schedules.service.js'
 import { getGlobalDeliverySlots, type GlobalDeliverySlot } from '../../lib/delivery-slots.js'
+import { NotificationsService } from '../notifications/notifications.service.js'
+import { NotificationType } from '@prisma/client'
 
 function createOsClient() {
   const configuration = OneSignal.createConfiguration({
@@ -689,6 +691,15 @@ export class AdminSupplierOrdersService {
               ? '[supplier-orders] rede de segurança gerou pedido (janela manual encerrada)'
               : '[supplier-orders] corte sem pães — nada a gerar',
           )
+          // Aviso ao admin — o pedido foi gerado AUTOMATICAMENTE (admin não gerou a tempo).
+          if (res) {
+            await new NotificationsService(this.fastify).notifyAdmins({
+              type: NotificationType.ADMIN_AUTOGEN_DONE,
+              title: 'Pedido gerado automaticamente',
+              body: `O pedido ao fornecedor do turno ${slot.label} foi gerado automaticamente (split padrão).`,
+              actionRoute: '/admin',
+            })
+          }
         } catch (err) {
           this.fastify.log.error(
             { err, slotId: slot.slotId },
@@ -773,6 +784,118 @@ export class AdminSupplierOrdersService {
         { slotId: slot.slotId, admins: admins.length, expected },
         '[supplier-orders] push T-30 de corte enviado',
       )
+    }
+  }
+
+  /**
+   * Avisa os admins no MINUTO EXATO do corte de cada turno ("chegou a hora de gerar o
+   * pedido"), desde que o PurchaseOrder ainda não tenha sido gerado e haja pães esperados.
+   * In-app + push respeitando o toggle ADMIN_CUTOFF_REACHED. Best-effort, 1× por minuto/turno.
+   */
+  async sendCutoffReachedNotifications(now: Date = new Date()): Promise<void> {
+    await this._notifyAtCutoffOffset(now, 0, async (slot, expected) => {
+      await new NotificationsService(this.fastify).notifyAdmins({
+        type: NotificationType.ADMIN_CUTOFF_REACHED,
+        title: 'Hora de gerar o pedido',
+        body: `Corte do turno ${slot.label} chegou · ${expected} pães. Gere o pedido ao fornecedor.`,
+        actionRoute: '/admin',
+      })
+    })
+  }
+
+  /**
+   * Avisa os admins 15 min ANTES da geração automática (corte + delay - 15). Como a rede de
+   * segurança gera em corte +60, o aviso sai em corte +45. Só dispara se o pedido ainda não
+   * foi gerado e há pães esperados. Toggle ADMIN_AUTOGEN_WARNING. Best-effort.
+   */
+  async sendAutogenWarnings(now: Date = new Date(), delayMinutes = 60, leadMin = 15): Promise<void> {
+    const offset = Math.max(0, delayMinutes - leadMin)
+    await this._notifyAtCutoffOffset(now, offset, async (slot) => {
+      await new NotificationsService(this.fastify).notifyAdmins({
+        type: NotificationType.ADMIN_AUTOGEN_WARNING,
+        title: 'Geração automática em 15 min',
+        body: `Se você não gerar o pedido do turno ${slot.label} em 15 min, ele será gerado automaticamente.`,
+        actionRoute: '/admin',
+      })
+    })
+  }
+
+  /**
+   * Helper compartilhado: no MINUTO EXATO (corte + offsetMin) de cada turno, se o PurchaseOrder
+   * do turno ainda não existe e há pães esperados (>0), executa `action(slot, expected)`.
+   * Espelha os guards de sendCutoffReminders (idempotente por minuto).
+   */
+  private async _notifyAtCutoffOffset(
+    now: Date,
+    offsetMin: number,
+    action: (slot: GlobalDeliverySlot, expected: number) => Promise<void>,
+  ): Promise<void> {
+    const [nh, nm] = nowHHMM(now).split(':').map(Number)
+    const cur = nh * 60 + nm
+    const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
+
+    for (const slot of slots) {
+      const [ch, cm] = slot.cutoffTime.split(':').map(Number)
+      const target = (ch * 60 + cm + offsetMin + 1440) % 1440
+      if (cur !== target) continue
+
+      const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime, now)
+      const { start, end } = brtDayRange(deliveryDate)
+      const po = await this.prisma.purchaseOrder.findFirst({
+        where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
+        select: { id: true },
+      })
+      if (po) continue // já gerado — nada a avisar
+
+      const rows = await this._buildDeliveryRows(slot.slotId, deliveryDate)
+      const expected = rows.reduce((s, r) => s + r.quantity, 0)
+      if (expected <= 0) continue
+
+      try {
+        await action(slot, expected)
+      } catch (err) {
+        this.fastify.log.warn({ err, slotId: slot.slotId }, '[supplier-orders] falha ao notificar corte — ignorado')
+      }
+    }
+  }
+
+  /**
+   * Avisa os admins sobre ENTREGAS PENDENTES após o prazo do turno: no minuto exato de
+   * (slot.time + bufferMin), conta os pedidos de HOJE naquele turno ainda não finalizados
+   * (SCHEDULED/SEPARATED/OUT_FOR_DELIVERY) e, se houver, notifica. Toggle ADMIN_DELIVERY_PENDING.
+   */
+  async sendDeliveryPendingReminders(now: Date = new Date(), bufferMin = 60): Promise<void> {
+    const [nh, nm] = nowHHMM(now).split(':').map(Number)
+    const cur = nh * 60 + nm
+    const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
+    const { start, end } = brtDayRange(now)
+
+    for (const slot of slots) {
+      const [sh, sm] = slot.time.split(':').map(Number)
+      const target = (sh * 60 + sm + bufferMin + 1440) % 1440
+      if (cur !== target) continue
+
+      const pending = await this.prisma.order.findMany({
+        where: {
+          slotId: slot.slotId,
+          scheduledDate: { gte: start, lte: end },
+          status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
+        },
+        select: { quantity: true },
+      })
+      if (pending.length === 0) continue
+
+      const total = pending.reduce((s, o) => s + o.quantity, 0)
+      try {
+        await new NotificationsService(this.fastify).notifyAdmins({
+          type: NotificationType.ADMIN_DELIVERY_PENDING,
+          title: 'Entregas pendentes',
+          body: `${pending.length} entrega(s) do turno ${slot.label} ainda não concluídas (${total} pães) após o prazo.`,
+          actionRoute: '/admin',
+        })
+      } catch (err) {
+        this.fastify.log.warn({ err, slotId: slot.slotId }, '[supplier-orders] falha no aviso de pendentes — ignorado')
+      }
     }
   }
 
