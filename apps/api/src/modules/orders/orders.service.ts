@@ -76,6 +76,16 @@ export class OrdersService {
     if (dateStr < todayStr) {
       throw { statusCode: 400, message: 'Data inválida' }
     }
+
+    // Pedido mínimo (global) do pedido único — piso dinâmico definido pelo admin.
+    // Chokepoint único: cobre saldo, déficit-Pix e déficit-cartão (todos terminam aqui).
+    const minRow = await this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoUnico' } })
+    const minParsed = minRow ? parseInt(minRow.value, 10) : 1
+    const pedidoMinimo = Number.isFinite(minParsed) && minParsed >= 1 ? minParsed : 1
+    if (data.quantity < pedidoMinimo) {
+      const paesMin = pedidoMinimo === 1 ? '1 pão' : `${pedidoMinimo} pães`
+      throw { statusCode: 400, message: `Pedido mínimo de ${paesMin}` }
+    }
     // Armazena ao meio-dia BRT do dia escolhido (cai na janela correta de hoje/histórico)
     const scheduledDate = brtNoonFromStr(dateStr)
 

@@ -31,6 +31,21 @@ const DAYS = [
 
 const DEFAULT_WEEKLY_QTY: WeeklyQty = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
 
+// Mínimo default por dia = 1 (sem snap além do min do stepper) até carregar a config do admin.
+const DEFAULT_MIN_QTY: WeeklyQty = { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 }
+
+/**
+ * Ajusta um valor ao pedido mínimo do dia: 0 (folga) é sempre válido; se > 0, precisa ser >= min.
+ * Ao cruzar a faixa proibida (0, min), decide pela direção: subindo de 0 → salta pro min;
+ * descendo de min → cai pra folga (0).
+ */
+function snapToDayMin(prev: number, next: number, min: number): number {
+  if (min <= 1) return next
+  if (next <= 0) return 0
+  if (next >= min) return next
+  return next > prev ? min : 0
+}
+
 export function ScheduleScreen() {
   const navigate = useNavigate()
   const { user, updateUser } = useAuth()
@@ -57,6 +72,19 @@ export function ScheduleScreen() {
 
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
+  const [agendaMin, setAgendaMin] = useState<WeeklyQty>(DEFAULT_MIN_QTY)
+
+  // Pedido mínimo por dia (config global do admin) — usado para o snap 0↔min no stepper.
+  useEffect(() => {
+    apiFetch('/pricing')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { pedidoMinimoAgenda?: Partial<WeeklyQty> } | null) => {
+        if (data?.pedidoMinimoAgenda) {
+          setAgendaMin({ ...DEFAULT_WEEKLY_QTY, ...data.pedidoMinimoAgenda })
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Etapa B: a agenda (days) é indexada por slotId. Chave estável do slot:
   const keyOf = (s: DeliverySlot) => s.slotId ?? s.name
@@ -430,7 +458,10 @@ export function ScheduleScreen() {
                             onChange={(newV) =>
                               setDays({
                                 ...days,
-                                [keyOf(slot)]: { ...(days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY), [key]: newV },
+                                [keyOf(slot)]: {
+                                  ...(days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY),
+                                  [key]: snapToDayMin(v, newV, agendaMin[key]),
+                                },
                               })
                             }
                           />
@@ -524,7 +555,7 @@ export function ScheduleScreen() {
                         max={12}
                         value={v}
                         showUnit
-                        onChange={(newV) => setWeeklyQty({ ...weeklyQty, [key]: newV })}
+                        onChange={(newV) => setWeeklyQty({ ...weeklyQty, [key]: snapToDayMin(v, newV, agendaMin[key]) })}
                       />
                     </div>
                   )

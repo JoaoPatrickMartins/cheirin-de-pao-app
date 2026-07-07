@@ -25,6 +25,24 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     create: { key: 'avulsoLimite', value: '20' },
   })
 
+  // Pedido mínimo do PEDIDO ÚNICO — default 1 (preserva o comportamento atual: qtd >= 1).
+  await prisma.setting.upsert({
+    where: { key: 'pedidoMinimoUnico' },
+    update: {},
+    create: { key: 'pedidoMinimoUnico', value: '1' },
+  })
+
+  // Pedido mínimo da AGENDA por dia da semana (aplica-se por turno quando a qtd do dia > 0).
+  // default 1 em todos os dias — preserva o comportamento atual (qtd > 0 sempre foi >= 1).
+  await prisma.setting.upsert({
+    where: { key: 'pedidoMinimoAgenda' },
+    update: {},
+    create: {
+      key: 'pedidoMinimoAgenda',
+      value: JSON.stringify({ seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 }),
+    },
+  })
+
   // Combo padrão — só quando não há nenhum combo (unidade < preço avulso, como manda a regra)
   const combosCount = await prisma.combo.count()
   if (combosCount === 0) {

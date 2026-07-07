@@ -8,6 +8,38 @@ import {
   type GlobalDeliverySlot,
   type SlotPatch,
 } from '../../lib/delivery-slots.js'
+import type { WeekdayMinimums } from './admin-settings.schema.js'
+
+/**
+ * Faz parse defensivo do JSON de mínimos da agenda (coluna Setting.value).
+ * Cada dia é clampado para [0..12] inteiro; ausente/inválido → 0 (sem mínimo).
+ * Nunca lança — docs legados/malformados degradam para "sem mínimo".
+ */
+export function parseAgendaMinimos(raw: string | null | undefined): WeekdayMinimums {
+  let parsed: Record<string, unknown> = {}
+  if (raw) {
+    try {
+      const obj = JSON.parse(raw) as unknown
+      if (obj && typeof obj === 'object') parsed = obj as Record<string, unknown>
+    } catch {
+      // JSON inválido → mantém {} (todos os dias sem mínimo)
+    }
+  }
+  const clamp = (v: unknown): number => {
+    const n = typeof v === 'number' ? v : parseInt(String(v), 10)
+    if (!Number.isFinite(n) || n < 0) return 0
+    return Math.min(12, Math.floor(n))
+  }
+  return {
+    seg: clamp(parsed.seg),
+    ter: clamp(parsed.ter),
+    qua: clamp(parsed.qua),
+    qui: clamp(parsed.qui),
+    sex: clamp(parsed.sex),
+    sab: clamp(parsed.sab),
+    dom: clamp(parsed.dom),
+  }
+}
 
 /**
  * AdminSettingsService — gerencia configurações globais (slots de entrega/cutoff + avulso).
@@ -78,6 +110,43 @@ export class AdminSettingsService {
         where: { key: 'avulsoUnit' },
         create: { key: 'avulsoUnit', value: String(unitPrice) },
         update: { value: String(unitPrice) },
+      }),
+    ])
+  }
+
+  /**
+   * Retorna os pedidos mínimos configurados:
+   * - `unico`: mínimo do pedido único (default 1).
+   * - `agenda`: mínimo por dia da semana (default 0 por dia). Aplica-se por turno.
+   *
+   * Faz parse defensivo do JSON de agenda: chave ausente/malformada → 0 no dia (não quebra).
+   */
+  async getPedidoMinimoConfig(): Promise<{ unico: number; agenda: WeekdayMinimums }> {
+    const [unicoRow, agendaRow] = await Promise.all([
+      this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoUnico' } }),
+      this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoAgenda' } }),
+    ])
+
+    const unicoParsed = unicoRow ? parseInt(unicoRow.value, 10) : 1
+    const unico = Number.isFinite(unicoParsed) && unicoParsed >= 1 ? unicoParsed : 1
+
+    return { unico, agenda: parseAgendaMinimos(agendaRow?.value) }
+  }
+
+  /**
+   * Atualiza (upsert) os pedidos mínimos (pedido único + agenda por dia).
+   */
+  async setPedidoMinimoConfig(unico: number, agenda: WeekdayMinimums): Promise<void> {
+    await Promise.all([
+      this.prisma.setting.upsert({
+        where: { key: 'pedidoMinimoUnico' },
+        create: { key: 'pedidoMinimoUnico', value: String(unico) },
+        update: { value: String(unico) },
+      }),
+      this.prisma.setting.upsert({
+        where: { key: 'pedidoMinimoAgenda' },
+        create: { key: 'pedidoMinimoAgenda', value: JSON.stringify(agenda) },
+        update: { value: JSON.stringify(agenda) },
       }),
     ])
   }

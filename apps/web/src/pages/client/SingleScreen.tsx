@@ -91,6 +91,7 @@ export function SingleScreen() {
   const creditBalance = user?.creditBalance ?? 0
 
   const [qtd, setQtd] = useState(1)
+  const [pedidoMinimo, setPedidoMinimo] = useState(1)
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [slotsLoaded, setSlotsLoaded] = useState(false)
   // Data pré-selecionada em "amanhã"; o slot continua exigindo escolha explícita.
@@ -102,12 +103,17 @@ export function SingleScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const dateInputRef = useRef<HTMLInputElement>(null)
 
-  // Preço por pão (avulso) — usado para cobrar a diferença quando falta crédito.
+  // Preço por pão (avulso) + pedido mínimo — usados para cobrar a diferença e limitar a quantidade.
   useEffect(() => {
     apiFetch('/pricing')
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { avulsoUnit?: number } | null) => {
+      .then((data: { avulsoUnit?: number; pedidoMinimoUnico?: number } | null) => {
         if (data?.avulsoUnit !== undefined) setAvulsoUnit(data.avulsoUnit)
+        if (typeof data?.pedidoMinimoUnico === 'number' && data.pedidoMinimoUnico >= 1) {
+          setPedidoMinimo(data.pedidoMinimoUnico)
+          // Sobe a quantidade para o mínimo se o cliente ainda não mexeu (começa em 1).
+          setQtd((q) => (q < data.pedidoMinimoUnico! ? data.pedidoMinimoUnico! : q))
+        }
       })
       .catch(() => {})
   }, [])
@@ -388,8 +394,20 @@ export function SingleScreen() {
           </p>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             {/* warn === accent no tema claro (#B0702A) — cor mantida pelo componente em ambos os estados */}
-            <QuantityStepper min={1} max={20} value={qtd} onChange={setQtd} showUnit />
+            <QuantityStepper min={pedidoMinimo} max={20} value={qtd} onChange={setQtd} showUnit />
           </div>
+          {pedidoMinimo > 1 && (
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12,
+                color: 'var(--color-text-ter)',
+                margin: '14px 0 0',
+              }}
+            >
+              Pedido mínimo de {pedidoMinimo} pães
+            </p>
+          )}
         </div>
 
         {/* Bloco inferior — preenche o espaço livre e fica perto do botão */}

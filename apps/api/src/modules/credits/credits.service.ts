@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { CreditsRepository } from './credits.repository.js'
 import { effectiveComboPrice } from '../../lib/combo-pricing.js'
+import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
+import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
 
 export class CreditsService {
   private repo: CreditsRepository
@@ -39,14 +41,30 @@ export class CreditsService {
     })
   }
 
-  async getPricing(): Promise<{ avulsoLimite: number; avulsoUnit: number }> {
-    const settings = await this.repo.getSettingsByKeys(['avulsoLimite', 'avulsoUnit'])
+  async getPricing(): Promise<{
+    avulsoLimite: number
+    avulsoUnit: number
+    pedidoMinimoUnico: number
+    pedidoMinimoAgenda: WeekdayMinimums
+  }> {
+    const settings = await this.repo.getSettingsByKeys([
+      'avulsoLimite',
+      'avulsoUnit',
+      'pedidoMinimoUnico',
+      'pedidoMinimoAgenda',
+    ])
     const limiteEntry = settings.find((s) => s.key === 'avulsoLimite')
     const unitEntry = settings.find((s) => s.key === 'avulsoUnit')
+    const minUnicoEntry = settings.find((s) => s.key === 'pedidoMinimoUnico')
+    const minAgendaEntry = settings.find((s) => s.key === 'pedidoMinimoAgenda')
+
+    const minUnicoParsed = minUnicoEntry ? parseInt(minUnicoEntry.value, 10) : 1
 
     return {
       avulsoLimite: limiteEntry ? parseFloat(limiteEntry.value) : 0,
       avulsoUnit: unitEntry ? parseFloat(unitEntry.value) : 0,
+      pedidoMinimoUnico: Number.isFinite(minUnicoParsed) && minUnicoParsed >= 1 ? minUnicoParsed : 1,
+      pedidoMinimoAgenda: parseAgendaMinimos(minAgendaEntry?.value),
     }
   }
 

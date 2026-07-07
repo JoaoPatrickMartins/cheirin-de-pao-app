@@ -1,7 +1,7 @@
 // AdminSettingsService unit tests — Fase 7 / Plano 07-02 (Wave 1 — implementação real)
 // Requirements: ADMO-01 (horário de corte), ADMG-04 (config compra personalizada)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { AdminSettingsService } from '../admin-settings.service.js'
+import { AdminSettingsService, parseAgendaMinimos } from '../admin-settings.service.js'
 
 // Mock do OneSignal — evita chamadas de rede reais no processCutoff
 vi.mock('@onesignal/node-onesignal', () => ({
@@ -278,6 +278,51 @@ describe('AdminSettingsService', () => {
 
       expect(prisma.condominium.findMany).toHaveBeenCalled()
       expect(prisma.user.findMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('parseAgendaMinimos', () => {
+    it('faz parse de um JSON válido, clampando para [0..12] inteiro', () => {
+      const r = parseAgendaMinimos(JSON.stringify({ seg: 3, ter: 20, qua: -5, qui: 2.9 }))
+      expect(r.seg).toBe(3)
+      expect(r.ter).toBe(12) // clamp no teto
+      expect(r.qua).toBe(0) // negativo → 0
+      expect(r.qui).toBe(2) // floor
+      expect(r.dom).toBe(0) // ausente → 0
+    })
+
+    it('degrada para todos 0 em JSON inválido/ausente', () => {
+      expect(parseAgendaMinimos('{invalido')).toEqual({ seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 })
+      expect(parseAgendaMinimos(null)).toEqual({ seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 })
+    })
+  })
+
+  describe('getPedidoMinimoConfig', () => {
+    it('retorna defaults (unico=1, agenda zerada) quando as chaves não existem', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      const config = await service.getPedidoMinimoConfig()
+      expect(config.unico).toBe(1)
+      expect(config.agenda.seg).toBe(0)
+    })
+  })
+
+  describe('setPedidoMinimoConfig', () => {
+    it('faz upsert das duas chaves (pedidoMinimoUnico + pedidoMinimoAgenda)', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      const agenda = { seg: 3, ter: 2, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+      await service.setPedidoMinimoConfig(4, agenda)
+
+      expect(prisma.setting.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { key: 'pedidoMinimoUnico' } }),
+      )
+      const calls = prisma.setting.upsert.mock.calls as Array<[{ where: { key: string }; create: { value: string } }]>
+      const agendaCall = calls.find((c) => c[0].where.key === 'pedidoMinimoAgenda')
+      expect(agendaCall).toBeDefined()
+      expect(JSON.parse(agendaCall![0].create.value)).toEqual(agenda)
     })
   })
 })
