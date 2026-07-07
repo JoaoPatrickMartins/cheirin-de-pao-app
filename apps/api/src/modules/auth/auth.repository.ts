@@ -54,6 +54,20 @@ export class AuthRepository {
     return this.prisma.otpCode.create({ data })
   }
 
+  // Marca como usados todos os OTPs de login ainda ativos do usuário, para que
+  // um novo pedido de código (reenvio) gere e envie um código fresco.
+  invalidateActiveLoginOtps(userId: string) {
+    return this.prisma.otpCode.updateMany({
+      where: {
+        userId,
+        usedAt: { isSet: false },
+        expiresAt: { gt: new Date() },
+        OR: [{ purpose: 'LOGIN' }, { purpose: { isSet: false } }],
+      },
+      data: { usedAt: new Date() },
+    })
+  }
+
   markOtpUsed(id: string) {
     return this.prisma.otpCode.update({ where: { id }, data: { usedAt: new Date() } })
   }

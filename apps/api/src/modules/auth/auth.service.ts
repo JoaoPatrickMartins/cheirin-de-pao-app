@@ -58,9 +58,10 @@ export class AuthService {
       return
     }
 
-    // Pitfall 5: reuse existing non-expired OTP to avoid duplicate sends
-    const existing = await this.repo.findActiveOtp(userId)
-    if (existing) return
+    // Cada pedido reenvia um código novo: invalida os OTPs de login ainda
+    // ativos (o código é armazenado hasheado, então não há como reenviar o
+    // mesmo) e gera um fresco. Abuso é contido pelo rate limit da rota (5/min).
+    await this.repo.invalidateActiveLoginOtps(userId)
 
     const code = this.generateOtpCode()
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000)

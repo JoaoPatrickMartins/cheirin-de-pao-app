@@ -17,7 +17,7 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
   fastify.get('/settings/cutoff-status', {
     preHandler: [fastify.authenticate],
     schema: {
-      tags: ['admin — settings'],
+      tags: ['settings'],
       summary: 'Status de corte por slot do condomínio do cliente',
       description: 'Retorna, para o condomínio do cliente autenticado, cada slot de entrega ativo com seu horário, horário de corte e se o corte do ciclo atual já passou (isPast). Usado pelo banner da Home.',
       security: [{ bearerAuth: [] }],
