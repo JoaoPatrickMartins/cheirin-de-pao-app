@@ -1,16 +1,25 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../lib/apiFetch'
 
+interface PollingOptions {
+  /** Nº máximo de tentativas antes de desistir (isTimeout). Default 5. */
+  maxAttempts?: number
+  /** Intervalo entre tentativas em ms. Default 3000. */
+  intervalMs?: number
+}
+
 export function usePaymentPolling(
   paymentId: string | null,
   onApproved: (creditBalance: number) => void,
   onRejected?: () => void,
+  options?: PollingOptions,
 ): { isTimeout: boolean; attempts: number } {
   const [attempts, setAttempts] = useState(0)
-  const MAX_ATTEMPTS = 5
+  const maxAttempts = options?.maxAttempts ?? 5
+  const intervalMs = options?.intervalMs ?? 3000
 
   useEffect(() => {
-    if (!paymentId || attempts >= MAX_ATTEMPTS) return
+    if (!paymentId || attempts >= maxAttempts) return
 
     const id = setInterval(async () => {
       try {
@@ -28,11 +37,11 @@ export function usePaymentPolling(
       } catch {
         setAttempts((a) => a + 1)
       }
-    }, 3000)
+    }, intervalMs)
 
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentId, attempts])
 
-  return { isTimeout: attempts >= MAX_ATTEMPTS, attempts }
+  return { isTimeout: attempts >= maxAttempts, attempts }
 }

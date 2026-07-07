@@ -19,6 +19,19 @@ vi.mock('../stripe.service.js', () => {
   return { StripeService: MockStripeService }
 })
 
+// ─── Mock MercadoPagoPixService (Pix) ───────────────────────────────────────────
+const mockMpCreatePix = vi.fn()
+const mockMpGetPayment = vi.fn()
+
+vi.mock('../mercadopago-pix.service.js', () => {
+  class MockMercadoPagoPixService {
+    constructor(_fastify: unknown) {}
+    createPix = mockMpCreatePix
+    getPayment = mockMpGetPayment
+  }
+  return { MercadoPagoPixService: MockMercadoPagoPixService }
+})
+
 import { PaymentsService } from '../payments.service.js'
 type Mock = ReturnType<typeof vi.fn>
 
@@ -41,41 +54,38 @@ function createMockFastify(): FastifyInstance {
 describe('PaymentsService (Stripe)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  describe('createPix', () => {
-    it('cria PaymentIntent Pix, persiste PENDING e retorna copia-e-cola', async () => {
+  describe('createPix (Mercado Pago)', () => {
+    it('cria cobrança Pix no MP, persiste PENDING (mercadoPagoId) e retorna copia-e-cola + data-URI', async () => {
       const fastify = createMockFastify()
       ;(fastify.prisma.combo.findUnique as Mock).mockResolvedValueOnce({ id: 'combo-1', name: 'Combo', quantity: 30, price: 24.9 })
-      mockGetOrCreateCustomer.mockResolvedValueOnce('cus_1')
-      mockCreatePixPayment.mockResolvedValueOnce({
-        paymentIntent: { id: 'pi_1' }, qrCode: 'COPIA_E_COLA', qrCodeImageUrl: 'https://qr.png', expiresAt: 123,
-      })
+      ;(fastify.prisma.user.findUnique as Mock).mockResolvedValueOnce({ id: 'user-1', email: 'a@b.com', name: 'Fulano' })
+      mockMpCreatePix.mockResolvedValueOnce({ id: 'mp_1', status: 'pending', qrCode: 'COPIA_E_COLA', qrCodeBase64: 'QkFTRTY0', expiresAt: '2026-07-07T00:00:00Z' })
       ;(fastify.prisma.payment.create as Mock).mockResolvedValueOnce({ id: 'payment-1', status: 'PENDING' })
 
       const service = new PaymentsService(fastify)
       const result = await service.createPix({ comboId: 'combo-1', userId: 'user-1' })
 
       expect(fastify.prisma.payment.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING', method: 'PIX', stripePaymentIntentId: 'pi_1' }) }),
+        expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING', method: 'PIX', mercadoPagoId: 'mp_1' }) }),
       )
       expect(result.paymentId).toBe('payment-1')
       expect(result.pixCopyPaste).toBe('COPIA_E_COLA')
+      expect(result.pixQrCodeUrl).toBe('data:image/png;base64,QkFTRTY0')
     })
 
     it('cobra o preço com desconto quando o combo está em promoção ativa', async () => {
       const fastify = createMockFastify()
       ;(fastify.prisma.combo.findUnique as Mock).mockResolvedValueOnce({ id: 'combo-1', name: 'Combo Novo', quantity: 100, price: 99.9 })
       ;(fastify.prisma.promotion.findFirst as Mock).mockResolvedValueOnce({ comboId: 'combo-1', discountType: 'PERCENT', discountValue: 15, isActive: true })
-      mockGetOrCreateCustomer.mockResolvedValueOnce('cus_1')
-      mockCreatePixPayment.mockResolvedValueOnce({
-        paymentIntent: { id: 'pi_1' }, qrCode: 'X', qrCodeImageUrl: 'https://qr.png', expiresAt: 123,
-      })
+      ;(fastify.prisma.user.findUnique as Mock).mockResolvedValueOnce({ id: 'user-1', email: 'a@b.com', name: 'Fulano' })
+      mockMpCreatePix.mockResolvedValueOnce({ id: 'mp_1', status: 'pending', qrCode: 'X', qrCodeBase64: 'Yg==', expiresAt: null })
       ;(fastify.prisma.payment.create as Mock).mockResolvedValueOnce({ id: 'payment-1', status: 'PENDING' })
 
       const service = new PaymentsService(fastify)
       await service.createPix({ comboId: 'combo-1', userId: 'user-1' })
 
       // 99,90 - 15% = 84,92
-      expect(mockCreatePixPayment).toHaveBeenCalledWith(expect.objectContaining({ amount: 84.92 }))
+      expect(mockMpCreatePix).toHaveBeenCalledWith(expect.objectContaining({ amount: 84.92 }))
       expect(fastify.prisma.payment.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ amount: 84.92 }) }),
       )
