@@ -94,10 +94,12 @@ function PixWaitingContent({
     setIsRejected(true)
   }
 
+  // Pix pode levar mais tempo (abrir o app do banco e pagar) → janela de ~2 min.
   const { isTimeout } = usePaymentPolling(
     isApproved || isRejected ? null : paymentId,
     handleApproved,
     handleRejected,
+    { maxAttempts: 40, intervalMs: 3000 },
   )
 
   const handleCopy = async () => {
