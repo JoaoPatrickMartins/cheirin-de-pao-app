@@ -21,7 +21,7 @@ export default defineConfig({
       },
       manifest: {
         name: 'Cheirin de Pão',
-        short_name: 'Cheirin',
+        short_name: 'Cheirin de Pão',
         description: 'Pão fresco na porta todo dia',
         theme_color: '#1E1207',
         background_color: '#1E1207',
