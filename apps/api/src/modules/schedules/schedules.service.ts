@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
+import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
+import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import {
@@ -30,6 +32,47 @@ function getConsumoSemanal(schedule: { days: unknown; weeklyQty: unknown }): num
   }
   const wq = schedule.weeklyQty as WeeklyQty
   return Object.values(wq).reduce((sum, v) => sum + (v as number), 0)
+}
+
+// Rótulos dos dias, na ordem da semana — usados na mensagem de erro de mínimo.
+const WEEKDAY_LABELS: Array<[keyof WeeklyQty, string]> = [
+  ['seg', 'Seg'],
+  ['ter', 'Ter'],
+  ['qua', 'Qua'],
+  ['qui', 'Qui'],
+  ['sex', 'Sex'],
+  ['sab', 'Sáb'],
+  ['dom', 'Dom'],
+]
+
+/**
+ * Valida a agenda contra os mínimos por dia (aplicados POR TURNO). A regra por dia:
+ * `qty === 0` (folga) é sempre permitido; se `qty > 0`, precisa ser `>= min[dia]`.
+ * Cobre multi-slot (`days`) e o legado (`weeklyQty`).
+ *
+ * @returns mensagem de erro agregando os dias violados, ou `null` se tudo válido.
+ */
+export function findAgendaMinimoError(
+  data: { days?: Record<string, WeeklyQty>; weeklyQty?: WeeklyQty },
+  minimos: WeekdayMinimums,
+): string | null {
+  const violated = new Set<keyof WeeklyQty>()
+  const check = (wq: WeeklyQty | undefined) => {
+    if (!wq) return
+    for (const [day] of WEEKDAY_LABELS) {
+      const qty = wq[day] ?? 0
+      const min = minimos[day] ?? 0
+      if (qty > 0 && min > 0 && qty < min) violated.add(day)
+    }
+  }
+  if (data.days) Object.values(data.days).forEach(check)
+  check(data.weeklyQty)
+
+  if (violated.size === 0) return null
+  const parts = WEEKDAY_LABELS.filter(([day]) => violated.has(day)).map(
+    ([day, label]) => `${label} (mín ${minimos[day]})`,
+  )
+  return `Abaixo do pedido mínimo por dia: ${parts.join(', ')}`
 }
 
 function createOsClient() {
@@ -61,6 +104,13 @@ export class SchedulesService {
   }
 
   async upsertSchedule(userId: string, condominiumId: string, data: ScheduleBody) {
+    // Pedido mínimo por dia (global) — piso dinâmico do admin, aplicado por turno.
+    const minRow = await this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoAgenda' } })
+    const minimos = parseAgendaMinimos(minRow?.value)
+    const erro = findAgendaMinimoError(data, minimos)
+    if (erro) {
+      throw { statusCode: 422, message: erro }
+    }
     return this.repo.upsert(userId, condominiumId, data)
   }
 

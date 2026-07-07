@@ -186,4 +186,90 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.setAvulso.bind(ctrl),
   )
+
+  // Pedido mínimo — objeto de mínimos por dia da agenda (aplica-se por turno) + pedido único.
+  const agendaMinSchema = {
+    type: 'object',
+    description: 'Mínimo por dia da semana (0 = sem mínimo). Aplica-se por turno quando a qtd do dia > 0.',
+    properties: {
+      seg: { type: 'integer' },
+      ter: { type: 'integer' },
+      qua: { type: 'integer' },
+      qui: { type: 'integer' },
+      sex: { type: 'integer' },
+      sab: { type: 'integer' },
+      dom: { type: 'integer' },
+    },
+  }
+
+  fastify.get(
+    '/admin/settings/pedido-minimo',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Consultar pedidos mínimos (admin)',
+        description:
+          'Retorna o pedido mínimo do pedido único e o mínimo por dia da semana da agenda (aplica-se por turno). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração de pedido mínimo.',
+            properties: {
+              unico: { type: 'integer', description: 'Quantidade mínima de pães por pedido único.' },
+              agenda: agendaMinSchema,
+            },
+          },
+        },
+      },
+    },
+    ctrl.getPedidoMinimo.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/settings/pedido-minimo',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Atualizar pedidos mínimos (admin)',
+        description:
+          'Atualiza o pedido mínimo do pedido único (1..20) e o mínimo por dia da agenda (0..12 por dia). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['unico', 'agenda'],
+          properties: {
+            unico: { type: 'integer', minimum: 1, maximum: 20, description: 'Novo mínimo do pedido único.' },
+            agenda: {
+              type: 'object',
+              required: ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'],
+              properties: {
+                seg: { type: 'integer', minimum: 0, maximum: 12 },
+                ter: { type: 'integer', minimum: 0, maximum: 12 },
+                qua: { type: 'integer', minimum: 0, maximum: 12 },
+                qui: { type: 'integer', minimum: 0, maximum: 12 },
+                sex: { type: 'integer', minimum: 0, maximum: 12 },
+                sab: { type: 'integer', minimum: 0, maximum: 12 },
+                dom: { type: 'integer', minimum: 0, maximum: 12 },
+              },
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração de pedido mínimo atualizada.',
+            properties: {
+              ok: { type: 'boolean' },
+              unico: { type: 'integer' },
+              agenda: agendaMinSchema,
+            },
+          },
+        },
+      },
+    },
+    ctrl.setPedidoMinimo.bind(ctrl),
+  )
 }

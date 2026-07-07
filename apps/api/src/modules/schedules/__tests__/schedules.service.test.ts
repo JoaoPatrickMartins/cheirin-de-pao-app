@@ -1,7 +1,7 @@
 // SchedulesService unit tests — Wave 1 (Fase 4 Plan 02) + Wave 2 (Fase 8 Plan 05) + Wave 0 (Fase 14 Plan 01)
 // Requirements: SCHED-02, SCHED-03, SCHED-04, CRED-08, CRED-10, MSCHED-02, MSCHED-04
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { SchedulesService } from '../schedules.service.js'
+import { SchedulesService, findAgendaMinimoError } from '../schedules.service.js'
 import { FastifyInstance } from 'fastify'
 import * as OneSignalModule from '@onesignal/node-onesignal'
 
@@ -60,8 +60,9 @@ function createMockFastify(overrides?: {
   createTransactionFn?: ReturnType<typeof vi.fn>
   orderFindManyFn?: ReturnType<typeof vi.fn>
   userFindUniqueFn?: ReturnType<typeof vi.fn>
+  agendaMinimoRow?: { key: string; value: string } | null
 }) {
-  const { schedules = [], users = {}, createOrderFn, updateUserFn, createTransactionFn, orderFindManyFn, userFindUniqueFn } = overrides ?? {}
+  const { schedules = [], users = {}, createOrderFn, updateUserFn, createTransactionFn, orderFindManyFn, userFindUniqueFn, agendaMinimoRow } = overrides ?? {}
 
   const transactionFn = vi.fn().mockImplementation(async (cb: (tx: object) => Promise<void>) => {
     const tx = {
@@ -105,6 +106,10 @@ function createMockFastify(overrides?: {
         findUnique: userFindUniqueFn ?? vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
           return Promise.resolve(users[where.id] ?? null)
         }),
+      },
+      // Config de pedido mínimo (global). Sem mock explícito → null = sem mínimo por dia.
+      setting: {
+        findUnique: vi.fn().mockResolvedValue(agendaMinimoRow ?? null),
       },
       $transaction: transactionFn,
     },
@@ -160,6 +165,76 @@ describe('SchedulesService', () => {
           update: expect.objectContaining({ pausedAt: null, lastPauseReminderAt: null }),
         }),
       )
+    })
+
+    it('rejeita (422) quando um dia com qtd > 0 fica abaixo do mínimo (por turno)', async () => {
+      const fastify = createMockFastify({
+        agendaMinimoRow: {
+          key: 'pedidoMinimoAgenda',
+          value: JSON.stringify({ seg: 3, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }),
+        },
+      })
+      const service = new SchedulesService(fastify)
+
+      // Seg = 2 (< mín 3) → viola; deve lançar 422 e NÃO chamar o upsert.
+      await expect(
+        service.upsertSchedule('user-1', 'condo-1', {
+          days: { manha: { seg: 2, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 } },
+          notifyReconfigure: false,
+        }),
+      ).rejects.toMatchObject({ statusCode: 422 })
+      expect(fastify.prisma.schedule.upsert).not.toHaveBeenCalled()
+    })
+
+    it('aceita quando o dia é 0 (folga) mesmo com mínimo configurado', async () => {
+      const fastify = createMockFastify({
+        agendaMinimoRow: {
+          key: 'pedidoMinimoAgenda',
+          value: JSON.stringify({ seg: 3, ter: 3, qua: 3, qui: 3, sex: 3, sab: 3, dom: 3 }),
+        },
+      })
+      const service = new SchedulesService(fastify)
+
+      // Seg = 3 (== mín, ok); resto folga (0, sempre ok).
+      await service.upsertSchedule('user-1', 'condo-1', {
+        days: { manha: { seg: 3, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 } },
+        notifyReconfigure: false,
+      })
+      expect(fastify.prisma.schedule.upsert).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('findAgendaMinimoError (helper puro)', () => {
+    const minimos = { seg: 3, ter: 2, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+
+    it('retorna null quando todos os dias com qtd > 0 respeitam o mínimo', () => {
+      const days = { manha: { seg: 3, ter: 2, qua: 5, qui: 0, sex: 0, sab: 0, dom: 0 } }
+      expect(findAgendaMinimoError({ days }, minimos)).toBeNull()
+    })
+
+    it('0 (folga) é sempre válido, mesmo com mínimo > 0', () => {
+      const days = { manha: { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 } }
+      expect(findAgendaMinimoError({ days }, minimos)).toBeNull()
+    })
+
+    it('acusa o dia violado (qtd > 0 e < mínimo) e ignora dias sem mínimo', () => {
+      const days = { manha: { seg: 1, ter: 0, qua: 1, qui: 0, sex: 0, sab: 0, dom: 0 } }
+      const erro = findAgendaMinimoError({ days }, minimos)
+      expect(erro).toContain('Seg')
+      expect(erro).not.toContain('Qua') // qua tem mínimo 0 → sem exigência
+    })
+
+    it('valida cada turno independentemente no multi-slot', () => {
+      const days = {
+        manha: { seg: 3, ter: 2, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 },
+        tarde: { seg: 1, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }, // seg tarde = 1 < 3
+      }
+      expect(findAgendaMinimoError({ days }, minimos)).toContain('Seg')
+    })
+
+    it('valida o formato legado (weeklyQty)', () => {
+      const weeklyQty = { seg: 2, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+      expect(findAgendaMinimoError({ weeklyQty }, minimos)).toContain('Seg')
     })
   })
 

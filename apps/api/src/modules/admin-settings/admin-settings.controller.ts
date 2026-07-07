@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { UpdateSlotsSchema, UpdateAvulsoSchema } from './admin-settings.schema.js'
+import { UpdateSlotsSchema, UpdateAvulsoSchema, UpdatePedidoMinimoSchema } from './admin-settings.schema.js'
 import { AdminSettingsService } from './admin-settings.service.js'
 
 type ZodIssue = { message: string }
@@ -137,6 +137,52 @@ export class AdminSettingsController {
     try {
       await this.service.setAvulsoConfig(body.limit, body.unitPrice)
       return reply.status(200).send({ ok: true, limit: body.limit, unitPrice: body.unitPrice })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/settings/pedido-minimo
+   * Retorna os pedidos mínimos (agenda por dia + pedido único).
+   */
+  async getPedidoMinimo(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    try {
+      const config = await this.service.getPedidoMinimoConfig()
+      return reply.status(200).send(config)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * PATCH /admin/settings/pedido-minimo
+   * Atualiza os pedidos mínimos. Body: { unico: number, agenda: {seg..dom: number} }
+   */
+  async setPedidoMinimo(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    let body: ReturnType<typeof UpdatePedidoMinimoSchema.parse>
+    try {
+      body = UpdatePedidoMinimoSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      await this.service.setPedidoMinimoConfig(body.unico, body.agenda)
+      return reply.status(200).send({ ok: true, unico: body.unico, agenda: body.agenda })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })

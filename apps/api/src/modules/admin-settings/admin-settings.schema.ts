@@ -35,3 +35,28 @@ export const UpdateAvulsoSchema = z.object({
 })
 
 export type UpdateAvulsoBody = z.infer<typeof UpdateAvulsoSchema>
+
+/**
+ * UpdatePedidoMinimoSchema — valida os pedidos mínimos (agenda por dia + pedido único).
+ *
+ * - `unico`: mínimo do pedido único (1..20 — casa com o teto do pedido único).
+ * - `agenda`: mínimo por dia da semana (0..12 — casa com o teto do StepperInline da agenda).
+ *   0 = sem mínimo naquele dia. Aplica-se por turno quando a qtd do dia é > 0.
+ */
+const WeekdayMinSchema = z.number().int().min(0).max(12)
+
+export const UpdatePedidoMinimoSchema = z.object({
+  unico: z.number().int().min(1, 'Mínimo do pedido único é 1').max(20, 'Máximo é 20'),
+  agenda: z.object({
+    seg: WeekdayMinSchema,
+    ter: WeekdayMinSchema,
+    qua: WeekdayMinSchema,
+    qui: WeekdayMinSchema,
+    sex: WeekdayMinSchema,
+    sab: WeekdayMinSchema,
+    dom: WeekdayMinSchema,
+  }),
+})
+
+export type UpdatePedidoMinimoBody = z.infer<typeof UpdatePedidoMinimoSchema>
+export type WeekdayMinimums = UpdatePedidoMinimoBody['agenda']

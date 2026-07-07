@@ -55,6 +55,11 @@ export class SchedulesController {
       const schedule = await this.service.upsertSchedule(userId, user.condominiumId, body)
       return reply.status(200).send(schedule)
     } catch (err) {
+      // Violação de pedido mínimo (regra de negócio) → 422 com mensagem amigável.
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 422) {
+        return reply.status(422).send({ error: e.message ?? 'Agenda inválida' })
+      }
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }

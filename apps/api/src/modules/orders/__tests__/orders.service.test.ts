@@ -30,6 +30,7 @@ function makeFastifyMock(overrides: {
   orderFindMany?: unknown[]
   condominiumId?: string
   deliverySlots?: { name: string; time: string; cutoffTime: string; isActive: boolean }[]
+  pedidoMinimoUnico?: number
 } = {}) {
   const {
     creditBalance = 10,
@@ -71,9 +72,18 @@ function makeFastifyMock(overrides: {
     findMany: vi.fn().mockResolvedValue(orderFindMany),
   }
 
+  // Config de pedido mínimo (global). Default: chave ausente → mínimo efetivo 1.
+  const setting = {
+    findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) =>
+      where.key === 'pedidoMinimoUnico' && overrides.pedidoMinimoUnico !== undefined
+        ? Promise.resolve({ key: 'pedidoMinimoUnico', value: String(overrides.pedidoMinimoUnico) })
+        : Promise.resolve(null),
+    ),
+  }
+
   return {
     fastify: {
-      prisma: { $transaction: transaction, user: txUser, order: orderMock, condominium },
+      prisma: { $transaction: transaction, user: txUser, order: orderMock, condominium, setting },
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
     } as unknown,
     txUser,
@@ -147,6 +157,31 @@ describe('OrdersService', () => {
     await expect(
       service.createSingleOrder('user-01', { quantity: 5, scheduledDate }),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Créditos insuficientes' })
+  })
+
+  it('createSingleOrder rejeita (400) quantidade abaixo do pedido mínimo', async () => {
+    const { fastify } = makeFastifyMock({ creditBalance: 10, pedidoMinimoUnico: 5 })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    const scheduledDate = makeFutureDateStr(2)
+
+    await expect(
+      service.createSingleOrder('user-01', { quantity: 3, scheduledDate }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Pedido mínimo de 5 pães' })
+  })
+
+  it('createSingleOrder aceita quantidade igual ao pedido mínimo', async () => {
+    const { fastify, txOrder } = makeFastifyMock({ creditBalance: 10, pedidoMinimoUnico: 5 })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await service.createSingleOrder('user-01', { quantity: 5, scheduledDate: makeFutureDateStr(2) })
+    expect(txOrder.create).toHaveBeenCalled()
   })
 
   it('createSingleOrder rejeita scheduledDate no passado', async () => {

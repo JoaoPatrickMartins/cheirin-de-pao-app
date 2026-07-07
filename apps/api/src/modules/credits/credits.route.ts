@@ -48,6 +48,20 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             avulsoUnit: { type: 'number', description: 'Preço unitário do pão avulso em reais.' },
             avulsoLimite: { type: 'integer', description: 'Quantidade máxima de pãezinhos permitida por pedido avulso.' },
+            pedidoMinimoUnico: { type: 'integer', description: 'Quantidade mínima de pães por pedido único.' },
+            pedidoMinimoAgenda: {
+              type: 'object',
+              description: 'Mínimo por dia da semana da agenda (0 = sem mínimo). Aplica-se por turno.',
+              properties: {
+                seg: { type: 'integer' },
+                ter: { type: 'integer' },
+                qua: { type: 'integer' },
+                qui: { type: 'integer' },
+                sex: { type: 'integer' },
+                sab: { type: 'integer' },
+                dom: { type: 'integer' },
+              },
+            },
           },
         },
       },
