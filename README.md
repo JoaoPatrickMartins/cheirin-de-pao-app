@@ -88,7 +88,7 @@ cheirin-de-pao-app/
 │   │   ├── .env                 # dev (NÃO versionado)
 │   │   ├── .env.example         # modelo das variáveis do backend
 │   │   ├── .env.production      # produção-like (NÃO versionado — contém segredos)
-│   │   └── API.md               # referência completa dos endpoints
+│   │   └── Dockerfile           # imagem de produção da API (roda via tsx)
 │   └── web/                     # Frontend React PWA
 │       ├── public/              # ícones PWA, favicon, assets estáticos
 │       ├── src/
@@ -107,6 +107,7 @@ cheirin-de-pao-app/
 │   └── shared/                  # código compartilhado (schemas Zod, tipos, constantes)
 ├── .devcontainer/               # Dev Container (VS Code)
 ├── docker-compose.yml           # ambiente de DEV (web + api em node:20-alpine)
+├── .dockerignore                # exclusões do contexto de build da imagem da API
 ├── turbo.json                   # pipeline Turborepo
 ├── tsconfig.base.json           # config TS raiz (herdado pelos apps)
 └── package.json                 # workspaces + scripts raiz
@@ -347,7 +348,7 @@ Os crons rodam **dentro da API** (`node-cron`), timezone **America/Sao_Paulo**. 
 - **webhooks** — `/webhooks/stripe`, `/webhooks/mercadopago`
 - **analytics** — ingestão pública de eventos de acesso/login
 
-📖 **Referência completa dos endpoints:** [apps/api/API.md](apps/api/API.md)
+📖 **Referência completa e interativa dos endpoints:** **Swagger UI** em `GET /docs` (dev: http://localhost:3001/docs). O contrato OpenAPI 3 é gerado automaticamente a partir dos schemas das rotas — é a **única fonte de verdade** da documentação da API.
 
 ---
 
@@ -623,6 +624,7 @@ Ordem recomendada (banco → build → deploy):
 | API não sobe: erro de env obrigatória | Falta `DATABASE_URL`, `JWT_SECRET` ou `STRIPE_SECRET_KEY`. Preencha o `.env`. |
 | `Unknown file extension ".ts"` ao rodar `node dist/server.js` | Esperado: o pacote `@cheirin-de-pao/shared` é TS puro. Rode a API com **`tsx`** (via Dockerfile ou `npx tsx src/server.ts`), não com o JS compilado. |
 | `PrismaClient` não encontrado / tipos quebrados | Rode `npx prisma generate` em `apps/api`. |
+| `Transactions are not supported by this deployment` | O app usa transações do Prisma (`$transaction`/`upsert`), que exigem **replica set**. Use MongoDB **Atlas** (já é replica set) — não um Mongo standalone local. |
 | Frontend não fala com a API (CORS) | Ajuste `CORS_ORIGIN` no backend e `VITE_API_URL` no frontend. |
 | OTP não chega por e-mail | Configure `RESEND_API_KEY` + `RESEND_FROM` (domínio verificado no Resend). Em dev, use `OTP_DEV_CODE`. |
 | Pix falha ao gerar | Falta `MP_ACCESS_TOKEN` (produção do Mercado Pago). |
@@ -636,8 +638,7 @@ Ordem recomendada (banco → build → deploy):
 | Documento | Conteúdo |
 |-----------|----------|
 | [CLAUDE.md](CLAUDE.md) | Constraints do projeto, stack e convenções. |
-| [apps/api/API.md](apps/api/API.md) | Referência completa dos endpoints REST. |
-| `http://localhost:3001/docs` | Swagger UI (OpenAPI 3) — interativo. |
+| `http://localhost:3001/docs` | **Swagger UI (OpenAPI 3)** — documentação interativa e única fonte de verdade da API. |
 | [apps/api/prisma/schema.prisma](apps/api/prisma/schema.prisma) | Modelo de dados completo. |
 | [.planning/](.planning/) | Roadmap, requisitos e histórico de fases (GSD). |
 | [.projeto/docs/](.projeto/docs/) | Planos técnicos de features específicas. |
