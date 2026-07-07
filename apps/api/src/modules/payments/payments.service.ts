@@ -1,16 +1,20 @@
 import { FastifyInstance } from 'fastify'
 import { PaymentsRepository } from './payments.repository.js'
 import { StripeService } from './stripe.service.js'
+import { MercadoPagoPixService } from './mercadopago-pix.service.js'
+import { creditForPayment } from './credit-payment.js'
 import { effectiveComboPrice } from '../../lib/combo-pricing.js'
 import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
 
 export class PaymentsService {
   private repo: PaymentsRepository
   private stripe: StripeService
+  private mp: MercadoPagoPixService
 
   constructor(private fastify: FastifyInstance) {
     this.repo = new PaymentsRepository(fastify)
     this.stripe = new StripeService(fastify)
+    this.mp = new MercadoPagoPixService(fastify)
   }
 
   private get prisma() {
@@ -50,16 +54,21 @@ export class PaymentsService {
     return m
   }
 
-  // ── Pix ──────────────────────────────────────────────────────────────────
+  // ── Pix (Mercado Pago) ─────────────────────────────────────────────────────
+  // O Pix roda no Mercado Pago (o cartão continua no Stripe). O crédito ocorre depois,
+  // via webhook do MP OU via reconciliação no getStatus (pull) — ambos idempotentes.
   async createPix(params: { comboId?: string; customQuantity?: number; userId: string }) {
     const { comboId, customQuantity, userId } = params
     const { amount, description } = await this.resolveAmount(comboId, customQuantity)
-    const customerId = await this.stripe.getOrCreateCustomer(userId)
 
-    const { paymentIntent, qrCode, qrCodeImageUrl, expiresAt } = await this.stripe.createPixPayment({
-      customerId,
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (!user) throw { error: 'Usuário não encontrado', status: 404 }
+
+    const pix = await this.mp.createPix({
       amount,
       description,
+      payerEmail: user.email,
+      payerName: user.name,
       metadata: this.metadata(userId, comboId, customQuantity),
     })
 
@@ -68,7 +77,7 @@ export class PaymentsService {
       amount,
       method: 'PIX',
       status: 'PENDING',
-      stripePaymentIntentId: paymentIntent.id,
+      mercadoPagoId: pix.id,
       comboId,
       customQuantity,
     })
@@ -76,9 +85,10 @@ export class PaymentsService {
     return {
       paymentId: payment.id,
       status: 'pending' as const,
-      pixCopyPaste: qrCode,
-      pixQrCodeUrl: qrCodeImageUrl,
-      expiresAt,
+      pixCopyPaste: pix.qrCode,
+      // data-URI direto: a tela usa em <img src>. base64 vazio → string vazia (sem quebrar).
+      pixQrCodeUrl: pix.qrCodeBase64 ? `data:image/png;base64,${pix.qrCodeBase64}` : '',
+      expiresAt: pix.expiresAt,
     }
   }
 
@@ -188,15 +198,34 @@ export class PaymentsService {
     status: 'pending' | 'approved' | 'rejected'
     creditBalance?: number
   }> {
-    const payment = await this.repo.findPaymentById(paymentId)
+    let payment = await this.repo.findPaymentById(paymentId)
     if (!payment || payment.userId !== userId) {
       throw { error: 'Pagamento não encontrado', status: 404 }
     }
-    if (payment.status === 'PAID') {
+
+    // Reconciliação por pull: se é um Pix (MP) ainda pendente, consulta o MP e credita
+    // aqui mesmo — faz o Pix funcionar SEM depender de webhook público (localhost/CPF).
+    // Idempotente: creditForPayment ignora pagamentos já PAID.
+    if (payment.status === 'PENDING' && payment.method === 'PIX' && payment.mercadoPagoId) {
+      try {
+        const mp = await this.mp.getPayment(payment.mercadoPagoId)
+        if (mp.status === 'approved') {
+          await creditForPayment(this.fastify, payment)
+        } else if (mp.status === 'rejected' || mp.status === 'cancelled') {
+          await this.repo.updatePaymentStatus(payment.id, 'FAILED')
+        }
+        payment = await this.repo.findPaymentById(paymentId) // reflete o status atualizado
+      } catch (err) {
+        // Falha ao consultar o MP não deve quebrar o polling — segue como pending.
+        this.fastify.log.warn({ err, paymentId }, '[pix] reconciliação com o MP falhou')
+      }
+    }
+
+    if (payment!.status === 'PAID') {
       const user = await this.prisma.user.findUnique({ where: { id: userId } })
       return { status: 'approved', creditBalance: user?.creditBalance ?? 0 }
     }
-    if (payment.status === 'FAILED' || payment.status === 'REFUNDED') {
+    if (payment!.status === 'FAILED' || payment!.status === 'REFUNDED') {
       return { status: 'rejected' }
     }
     return { status: 'pending' }

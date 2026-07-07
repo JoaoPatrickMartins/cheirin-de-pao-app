@@ -14,6 +14,7 @@ import { condominiumsRoute } from './modules/condominiums/condominiums.route.js'
 import { paymentsRoute } from './modules/payments/payments.route.js'
 import { creditsRoute } from './modules/credits/credits.route.js'
 import { webhooksRoute } from './modules/webhooks/webhooks.route.js'
+import { mercadopagoWebhookRoute } from './modules/webhooks/mercadopago-webhook.route.js'
 import { schedulesRoute } from './modules/schedules/schedules.route.js'
 import { ordersRoute } from './modules/orders/orders.route.js'
 import { notificationsRoute } from './modules/notifications/notifications.route.js'
@@ -69,6 +70,10 @@ const envSchema = {
     // Phase 4 additions — OneSignal push notifications
     ONESIGNAL_APP_ID: { type: 'string' },
     ONESIGNAL_REST_API_KEY: { type: 'string' },
+    // Mercado Pago — Pix (o cartão continua no Stripe). Opcional no schema: o serviço
+    // lança erro claro se ausente ao criar um Pix; não obrigatório para bootar a API.
+    MP_ACCESS_TOKEN: { type: 'string' },
+    MP_WEBHOOK_SECRET: { type: 'string' },
   },
 }
 
@@ -196,6 +201,7 @@ const start = async () => {
     await fastify.register(paymentsRoute)
     await fastify.register(creditsRoute)
     await fastify.register(webhooksRoute)
+    await fastify.register(mercadopagoWebhookRoute) // Pix (MP) — plugin próprio (JSON normal, não o parser raw do Stripe)
 
     // Phase 4 — Scheduling
     await fastify.register(schedulesRoute)
