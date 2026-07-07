@@ -43,6 +43,23 @@ export function OtpInput({ onComplete, disabled = false }: OtpInputProps) {
     }
   }
 
+  const handlePaste = (i: number, e: React.ClipboardEvent<HTMLInputElement>) => {
+    // Distribute a pasted code across the boxes instead of dropping all but one
+    const nums = e.clipboardData.getData('text').replace(/\D/g, '')
+    if (!nums) return
+    e.preventDefault()
+    const next = [...digits]
+    for (let k = 0; k < nums.length && i + k < next.length; k++) {
+      next[i + k] = nums[k]
+    }
+    setDigits(next)
+    const lastFilled = Math.min(i + nums.length, next.length) - 1
+    refs[lastFilled].current?.focus()
+    if (next.every((d) => d !== '')) {
+      onComplete(next.join(''))
+    }
+  }
+
   return (
     <div
       style={{
@@ -58,6 +75,7 @@ export function OtpInput({ onComplete, disabled = false }: OtpInputProps) {
           value={d}
           onChange={(e) => setDigit(i, e.target.value)}
           onKeyDown={(e) => handleKeyDown(i, e)}
+          onPaste={(e) => handlePaste(i, e)}
           maxLength={1}
           inputMode="numeric"
           disabled={disabled}
