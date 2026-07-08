@@ -6,9 +6,6 @@
 **/.turbo
 .git
 
-# Nunca vazar segredos para dentro da imagem.
-**/.env
-**/.env.*
 
 # Artefatos de dev / testes
 **/coverage
