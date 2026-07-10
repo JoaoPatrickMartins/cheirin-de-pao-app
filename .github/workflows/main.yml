@@ -140,13 +140,11 @@ jobs:
       - name: criar arquivo variables.yml diretorio de desenvolvimento
         if: github.ref == 'refs/heads/development'
         run: |
-          touch ./ansible/variables.yml
           echo "workdir: ${{ secrets.WORKDIR_FRONTEND_DEV }}" > ./ansible/variables.yml
       
       - name: criar arquivo variables.yml diretorio de produção
         if: github.ref == 'refs/heads/main'
         run: |
-          touch ./ansible/variables.yml
           echo "workdir: ${{ secrets.WORKDIR_FRONTEND_PROD }}" > ./ansible/variables.yml
         
           
