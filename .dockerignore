@@ -1,0 +1,16 @@
+# Não enviar dependências instaladas nem builds locais ao contexto do Docker.
+# O Dockerfile roda `npm ci` e `prisma generate` dentro da imagem.
+**/node_modules
+**/dist
+**/build
+**/.turbo
+.git
+
+
+# Artefatos de dev / testes
+**/coverage
+**/*.tsbuildinfo
+apps/web/dev-dist
+.devcontainer
+.planning
+.projeto

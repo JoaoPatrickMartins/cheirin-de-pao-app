@@ -1,0 +1,8 @@
+version: '3.9'
+
+services:
+  frontend_app_cheirin_pao:
+    ports:
+      - ${APP_PORT}:80
+    container_name: app_cheirin_pao_frontend_${SERVICE_TYPE}
+    image: ${DOCKERHUB_USERNAME}/sistema_rebaixa:app_cheirin_pao_frontend_${IMAGE_VERSION}

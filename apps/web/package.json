@@ -1,0 +1,47 @@
+{
+  "name": "@cheirin-de-pao/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cheirin-de-pao/shared": "0.0.1",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@fontsource-variable/bricolage-grotesque": "5.2.10",
+    "@fontsource/hanken-grotesk": "5.2.8",
+    "@stripe/react-stripe-js": "^6.6.0",
+    "@stripe/stripe-js": "^9.8.0",
+    "driver.js": "^1.6.0",
+    "framer-motion": "^12.42.0",
+    "leaflet": "^1.9.4",
+    "qrcode.react": "^4.2.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-leaflet": "^5.0.0",
+    "react-onesignal": "3.5.5",
+    "react-router": "7.17.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.1",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/leaflet": "^1.9.21",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "jsdom": "latest",
+    "tailwindcss": "4.3.1",
+    "typescript": "5.7.3",
+    "vite": "8.0.16",
+    "vite-plugin-pwa": "1.3.0",
+    "vitest": "latest",
+    "workbox-precaching": "7.4.1"
+  }
+}

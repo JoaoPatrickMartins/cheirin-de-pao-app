@@ -1,0 +1,34 @@
+{
+  "name": "cheirin-de-pao",
+  "private": true,
+  "packageManager": "npm@11.12.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "build:web": "turbo prune @cheirin-de-pao/web --docker",
+    "build:api": "turbo prune @cheirin-de-pao/api --docker"
+  },
+  "devDependencies": {
+    "turbo": "2.9.18"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/leaflet": "^1.9.21",
+    "@types/uuid": "^10.0.0",
+    "@zenvia/sdk": "^2.4.4",
+    "exceljs": "^4.4.0",
+    "leaflet": "^1.9.4",
+    "pdfmake": "^0.3.11",
+    "react-leaflet": "^5.0.0",
+    "resend": "^6.12.4",
+    "uuid": "^14.0.0"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "source_path": "/home/joaopatrick/Projects/cheirin-de-pao-app/.projeto/add-feat-projeto-v11.md",
+  "type": "PRD",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "add-feat-projeto-v11",
+  "summary": "Feature requests covering admin credit management, client settings screen, saved cards at checkout, per-condominium delivery time slots, multi-slot weekly scheduling, and logout for delivery/admin profiles.",
+  "scope": [
+    "admin",
+    "client",
+    "entregador",
+    "creditos",
+    "configuracoes-usuario",
+    "cartoes-cadastrados",
+    "agenda-semanal",
+    "horarios-entrega",
+    "condominio",
+    "notificacoes",
+    "logout"
+  ],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

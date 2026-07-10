@@ -1,0 +1,64 @@
+import { FastifyInstance } from 'fastify'
+import { CreateCondominiumBody, UpdateCondominiumBody, SlotUpdateBody } from './admin-condominiums.schema.js'
+
+/**
+ * AdminCondominiumsRepository — acesso ao banco para operações CRUD de condomínios.
+ * Padrão: private get prisma() de payments.repository.ts.
+ */
+export class AdminCondominiumsRepository {
+  constructor(private fastify: FastifyInstance) {}
+
+  private get prisma() {
+    return this.fastify.prisma
+  }
+
+  findAll() {
+    return this.prisma.condominium.findMany({ orderBy: { name: 'asc' } })
+  }
+
+  findById(id: string) {
+    return this.prisma.condominium.findUnique({ where: { id } })
+  }
+
+  /**
+   * Conta clientes ativos (role CLIENT, não bloqueados) vinculados a cada condomínio.
+   * Usado para exibir/avisar a contagem antes de desativar. User não tem relação Prisma
+   * com Condominium (só o campo condominiumId), por isso usamos groupBy.
+   */
+  countClientsByCondominium(ids: string[]) {
+    return this.prisma.user.groupBy({
+      by: ['condominiumId'],
+      where: { role: 'CLIENT', isBlocked: false, condominiumId: { in: ids } },
+      _count: { _all: true },
+    })
+  }
+
+  create(data: Omit<CreateCondominiumBody, 'lat' | 'lng'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean; deliverySlots?: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }) {
+    return this.prisma.condominium.create({ data })
+  }
+
+  update(id: string, data: Omit<UpdateCondominiumBody, 'lat' | 'lng' | 'numBlocks'> & { lat?: number | null; lng?: number | null; approxLocation?: boolean; numBlocks?: number | null }) {
+    return this.prisma.condominium.update({ where: { id }, data })
+  }
+
+  remove(id: string) {
+    return this.prisma.condominium.delete({ where: { id } })
+  }
+
+  async updateSlot(id: string, slotName: string, patch: SlotUpdateBody) {
+    const condo = await this.findById(id)
+    if (!condo) throw { statusCode: 404, message: 'Condomínio não encontrado' }
+
+    const slotExists = condo.deliverySlots.some((s) => s.name === slotName)
+    if (!slotExists) throw { statusCode: 404, message: 'Slot não encontrado' }
+
+    const updatedSlots = condo.deliverySlots.map((s) =>
+      s.name === slotName ? { ...s, ...patch } : s,
+    )
+
+    return this.prisma.condominium.update({
+      where: { id },
+      data: { deliverySlots: updatedSlots },
+    })
+  }
+}
