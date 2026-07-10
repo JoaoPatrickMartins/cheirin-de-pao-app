@@ -2,9 +2,10 @@
   "name": "@cheirin-de-pao/api",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate:slots": "tsx src/scripts/migrate-delivery-slots.ts",
@@ -24,10 +25,12 @@
     "@prisma/client": "6.19.3",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0", 
     "fastify": "5.8.5",
     "fastify-plugin": "6.0.0",
     "mercadopago": "^3.2.0",
     "node-cron": "^4.2.1",
+    "pdfmake": "^0.3.11", 
     "resend": "^6.12.4",
     "stripe": "^22.2.2",
     "zod": "4.4.3"
@@ -36,6 +39,7 @@
     "@types/node": "25.9.3",
     "@types/node-cron": "^3.0.11",
     "prisma": "6.19.3",
+    "tsup": "^8.5.1",
     "tsx": "4.22.4",
     "typescript": "5.7.3",
     "vitest": "latest"

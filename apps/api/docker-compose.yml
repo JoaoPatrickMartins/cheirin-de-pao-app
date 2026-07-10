@@ -1,0 +1,6 @@
+services:
+  backend_app_cheirin_pao:
+    ports:
+      - ${API_PORT}:3001
+    container_name: app_cheirin_pao_backend_${SERVICE_TYPE}
+    image: ${DOCKERHUB_USERNAME}/sistema_rebaixa:app_cheirin_pao_backend_${IMAGE_VERSION}

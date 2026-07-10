@@ -1,0 +1,56 @@
+- name: Deploy da aplicação com Docker Compose
+  hosts: servidores
+  vars_files:
+    - variables.yml
+  become: yes  # Para executar comandos como sudo
+  tasks:
+    - name: Criar diretorio de trabalho caso não exista
+      file:
+        path: "{{ workdir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Verificar se o arquivo .env existe
+      stat:
+        path: "{{ workdir }}/.env"
+      register: file_check
+    
+    - name: Remover o arquivo .env existente
+      file:
+        path: "{{ workdir }}/.env"
+        state: absent
+      when: file_check.stat.exists
+
+    - name: Copiar .env para o servidor
+      copy:
+        src: ./../.env  # Caminho local
+        dest: "{{ workdir }}/.env"
+        mode: '0644'
+
+    - name: Verificar se o arquivo docker-compose.yml existe
+      stat:
+        path: "{{ workdir }}/docker-compose.yml"
+      register: file_check
+
+    - name: Tomba os containers com Docker Compose
+      command: docker compose down
+      args:
+        chdir: "{{ workdir }}"  # Define o diretório de execução
+      when: file_check.stat.exists
+  
+    - name: Remover o arquivo docker-compose.yml existente
+      file:
+        path: "{{ workdir }}/docker-compose.yml"
+        state: absent
+      when: file_check.stat.exists
+
+    - name: Copiar docker-compose.yml para o servidor
+      copy:
+        src: ./../apps/web/docker-compose.yml  # Caminho local
+        dest: "{{ workdir }}/docker-compose.yml"
+        mode: '0644'
+
+    - name: Subir os containers com Docker Compose
+      command: docker compose up -d
+      args:
+        chdir: "{{ workdir }}"  # Define o diretório de execução
