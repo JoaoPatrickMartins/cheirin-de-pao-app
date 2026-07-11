@@ -68,14 +68,14 @@ jobs:
       - name: Obter o nome da versão anterior
         id: before_release_tag
         run: |
-          BEFORE_RELEASE_TAG=$(git describe --tags --abbrev=0)
+          BEFORE_RELEASE_TAG=$(git describe --tags --abbrev=0 --match 'backend-v*' 2>/dev/null || echo "")
           echo "before_release_tag=$BEFORE_RELEASE_TAG" >> $GITHUB_OUTPUT
           echo "Tag anterior $BEFORE_RELEASE_TAG"
 
       - name: Criar Release
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: npx semantic-release
+        run: npx semantic-release --tag-format 'backend-v${version}'
 
       - name: Baixar tags mais recentes
         run: git fetch --tags --force
@@ -83,12 +83,12 @@ jobs:
       - name: Obtem o nome da versão criada
         id: get_tag
         run: |
-          CREATED_PRE_RELEASE_TAG=$(git describe --tags --abbrev=0)
+          CREATED_PRE_RELEASE_TAG=$(git describe --tags --abbrev=0 --match 'backend-v*' 2>/dev/null || echo "")
           echo "created_pre_release_tag=$CREATED_PRE_RELEASE_TAG" >> $GITHUB_OUTPUT
           echo "Tag criada $CREATED_PRE_RELEASE_TAG"
 
   buildar_imagem_docker:
-    needs: release
+    needs: [tests, release]
     if: needs.release.outputs.before_release_tag != needs.release.outputs.created_pre_release_tag
     runs-on: ubuntu-latest
     steps:
@@ -163,7 +163,7 @@ jobs:
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/sistema_rebaixa:app_cheirin_pao_backend_${{ needs.release.outputs.created_pre_release_tag }}
 
   deploy:
-    needs: [release, buildar_imagem_docker]
+    needs: [tests, release, buildar_imagem_docker]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do código
@@ -176,13 +176,13 @@ jobs:
       - name: Configurando variaveis de ambiente da aplicação de desenvolvimento
         if: github.ref == 'refs/heads/development'
         run: |
-          echo "APP_PORT=${{ secrets.APP_PORT_DEV }}" >> $GITHUB_ENV
+          echo "APP_PORT=${{ secrets.APP_PORT_BACKEND_DEV }}" >> $GITHUB_ENV
           echo "SERVICE_TYPE=dev" >> $GITHUB_ENV
         
       - name: Configurando variaveis de ambiente da aplicação de produção
         if: github.ref == 'refs/heads/main'
         run: |
-          echo "APP_PORT=${{ secrets.APP_PORT_PROD }}" >> $GITHUB_ENV
+          echo "APP_PORT=${{ secrets.APP_PORT_BACKEND_PROD }}" >> $GITHUB_ENV
           echo "SERVICE_TYPE=prod" >> $GITHUB_ENV
         
       - name: Criar o .env
