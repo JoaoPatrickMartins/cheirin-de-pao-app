@@ -10,7 +10,8 @@ build/
 .env.local
 .env.*.local
 .env.production
-.env.ci.test
+.env.api.ci.test
+.env.web.ci.test
 
 # Turborepo
 .turbo/
