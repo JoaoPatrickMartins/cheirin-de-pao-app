@@ -20,6 +20,9 @@ jobs:
       - name: Instalando libs
         run: npm install
 
+      - name: Gerar Prisma Client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+
       # - name: criando arquivo .env de teste
       #   run: |
       #     touch .env.testing
