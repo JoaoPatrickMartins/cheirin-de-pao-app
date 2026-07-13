@@ -12,7 +12,7 @@ import ReactDOM from 'react-dom/client'
 import OneSignal from 'react-onesignal'
 import { RouterProvider } from 'react-router'
 import { router } from './routes/router'
-import { trackAccess } from './lib/analytics'
+import { trackAccess } from './lib/analytics' 
 
 // Stripe.js é carregado sob demanda em lib/stripe.ts (stripePromise) e usado via
 // <Elements> nas telas de cartão. Não há init global aqui.

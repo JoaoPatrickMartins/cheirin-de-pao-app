@@ -46,7 +46,8 @@
 
     - name: Copiar docker-compose.yml para o servidor
       copy:
-        src: ./../apps/web/docker-compose.yml  # Caminho local
+        # src: ./../apps/web/docker-compose.yml  # Caminho local
+        src: "{{ localdir }}/docker-compose.yml"  # Caminho local
         dest: "{{ workdir }}/docker-compose.yml"
         mode: '0644'
 

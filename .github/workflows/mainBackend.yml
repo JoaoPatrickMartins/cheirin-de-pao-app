@@ -1,0 +1,225 @@
+name: Run Cheirin de Pao BACKEND
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configurando Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.20.x
+
+      - name: Instalando libs
+        run: npm install
+
+      - name: Gerar Prisma Client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+
+      # - name: criando arquivo .env de teste
+      #   run: |
+      #     touch .env.testing
+      #     echo DATABASE_URL=${{ secrets.DATABASE_URL_TESTING }} >> .env.testing
+      #     echo APP_PORT=${{ secrets.APP_PORT_TESTING }} >> .env.testing
+
+      # - name: Run docker compose
+      #   uses: hoverkraft-tech/compose-action@v2.4.1
+      #   with:
+      #     compose-file: './tests/docker-compose.ci.yml'
+      #     up-flags: '--wait'
+
+      - name: Executando os testes
+        run: npm run test --filter=@cheirin-de-pao/api 
+
+      - name: Executando o teste do build da aplicação
+        run: npm run build --filter=@cheirin-de-pao/api
+  
+  release:
+    needs: tests
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to be able to publish a GitHub release
+      pull-requests: write # to be able to comment on released pull requests
+    outputs:
+      created_pre_release_tag: ${{ steps.get_tag.outputs.created_pre_release_tag }}
+      before_release_tag: ${{ steps.before_release_tag.outputs.before_release_tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configurando Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.20.x
+
+      - name: Instalar dependencia da release semantica https://www.npmjs.com/package/semantic-release
+        run: npm install --save-dev semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github
+
+      
+      - name: Obter o nome da versão anterior
+        id: before_release_tag
+        run: |
+          BEFORE_RELEASE_TAG=$(git describe --tags --abbrev=0 --match 'backend-v*' 2>/dev/null || echo "")
+          echo "before_release_tag=$BEFORE_RELEASE_TAG" >> $GITHUB_OUTPUT
+          echo "Tag anterior $BEFORE_RELEASE_TAG"
+
+      - name: Criar Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npx semantic-release --tag-format 'backend-v${version}'
+
+      - name: Baixar tags mais recentes
+        run: git fetch --tags --force
+
+      - name: Obtem o nome da versão criada
+        id: get_tag
+        run: |
+          CREATED_PRE_RELEASE_TAG=$(git describe --tags --abbrev=0 --match 'backend-v*' 2>/dev/null || echo "")
+          echo "created_pre_release_tag=$CREATED_PRE_RELEASE_TAG" >> $GITHUB_OUTPUT
+          echo "Tag criada $CREATED_PRE_RELEASE_TAG"
+
+  buildar_imagem_docker:
+    needs: [tests, release]
+    if: needs.release.outputs.before_release_tag != needs.release.outputs.created_pre_release_tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: 'recursive'
+
+      - name: criando arquivo .env de teste
+        if: github.ref == 'refs/heads/development'
+        run: |
+          touch ./apps/api/.env.production
+          echo DATABASE_URL=${{ secrets.DATABASE_URL_DEV }} >> ./apps/api/.env.production
+          echo APP_PORT=${{ secrets.APP_PORT_DEV }} >> ./apps/api/.env.production
+          echo API_HOST=${{ secrets.API_HOST_DEV }} >> ./apps/api/.env.production
+          echo NODE_ENV=${{ secrets.NODE_ENV_DEV }} >> ./apps/api/.env.production
+          echo CORS_ORIGIN=${{ secrets.CORS_ORIGIN_DEV }} >> ./apps/api/.env.production
+          echo RESEND_API_KEY=${{ secrets.RESEND_API_KEY_DEV }} >> ./apps/api/.env.production
+          echo RESEND_FROM=${{ secrets.RESEND_FROM_DEV }} >> ./apps/api/.env.production
+          echo ADMIN_NAME=${{ secrets.ADMIN_NAME_DEV }} >> ./apps/api/.env.production
+          echo ADMIN_PHONE=${{ secrets.ADMIN_PHONE_DEV }} >> ./apps/api/.env.production
+          echo ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL_DEV }} >> ./apps/api/.env.production
+          echo ADMIN_CPF=${{ secrets.ADMIN_CPF_DEV }} >> ./apps/api/.env.production
+          echo STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY_DEV }} >> ./apps/api/.env.production
+          echo STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY_DEV }} >> ./apps/api/.env.production
+          echo STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET_DEV }} >> ./apps/api/.env.production
+          echo MP_ACCESS_TOKEN=${{ secrets.MP_ACCESS_TOKEN_DEV }} >> ./apps/api/.env.production
+          echo MP_WEBHOOK_SECRET=${{ secrets.MP_WEBHOOK_SECRET_DEV }} >> ./apps/api/.env.production
+          echo ONESIGNAL_API_ID=${{ secrets.ONESIGNAL_API_ID_DEV }} >> ./apps/api/.env.production
+          echo ONESIGNAL_REST_API_KEY=${{ secrets.ONESIGNAL_REST_API_KEY_DEV }} >> ./apps/api/.env.production
+          echo JWT_SECRET=${{ secrets.JWT_SECRET_DEV }} >> ./apps/api/.env.production
+          
+        
+      - name: criando arquivo .env de producao
+        if: github.ref == 'refs/heads/main'
+        run: |
+          touch ./apps/api/.env.production
+          echo DATABASE_URL=${{ secrets.DATABASE_URL_PROD }} >> ./apps/api/.env.production
+          echo APP_PORT=${{ secrets.APP_PORT_PROD }} >> ./apps/api/.env.production
+          echo API_HOST=${{ secrets.API_HOST_PROD }} >> ./apps/api/.env.production
+          echo NODE_ENV=${{ secrets.NODE_ENV_PROD }} >> ./apps/api/.env.production
+          echo CORS_ORIGIN=${{ secrets.CORS_ORIGIN_PROD }} >> ./apps/api/.env.production
+          echo RESEND_API_KEY=${{ secrets.RESEND_API_KEY_PROD }} >> ./apps/api/.env.production
+          echo RESEND_FROM=${{ secrets.RESEND_FROM_PROD }} >> ./apps/api/.env.production
+          echo ADMIN_NAME=${{ secrets.ADMIN_NAME_PROD }} >> ./apps/api/.env.production
+          echo ADMIN_PHONE=${{ secrets.ADMIN_PHONE_PROD }} >> ./apps/api/.env.production
+          echo ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL_PROD }} >> ./apps/api/.env.production
+          echo ADMIN_CPF=${{ secrets.ADMIN_CPF_PROD }} >> ./apps/api/.env.production
+          echo STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY_PROD }} >> ./apps/api/.env.production
+          echo STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY_PROD }} >> ./apps/api/.env.production
+          echo STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET_PROD }} >> ./apps/api/.env.production
+          echo MP_ACCESS_TOKEN=${{ secrets.MP_ACCESS_TOKEN_PROD }} >> ./apps/api/.env.production
+          echo MP_WEBHOOK_SECRET=${{ secrets.MP_WEBHOOK_SECRET_PROD }} >> ./apps/api/.env.production
+          echo ONESIGNAL_API_ID=${{ secrets.ONESIGNAL_API_ID_PROD }} >> ./apps/api/.env.production
+          echo ONESIGNAL_REST_API_KEY=${{ secrets.ONESIGNAL_REST_API_KEY_PROD }} >> ./apps/api/.env.production
+          echo JWT_SECRET=${{ secrets.JWT_SECRET_PROD }} >> ./apps/api/.env.production
+        
+      - name: logando no Docker Hub
+        uses: docker/login-action@v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx (DOCKER CLI plugin)
+        uses: docker/setup-buildx-action@v3.11.1
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          file: ./apps/api/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/sistema_rebaixa:app_cheirin_pao_backend_${{ needs.release.outputs.created_pre_release_tag }}
+
+  deploy:
+    needs: [tests, release, buildar_imagem_docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v6
+
+      - name: Instalar Ansible
+        run: sudo apt update && sudo apt install -y ansible
+
+        
+      - name: Configurando variaveis de ambiente da aplicação de desenvolvimento
+        if: github.ref == 'refs/heads/development'
+        run: |
+          echo "APP_PORT=${{ secrets.APP_PORT_BACKEND_DEV }}" >> $GITHUB_ENV
+          echo "SERVICE_TYPE=dev" >> $GITHUB_ENV
+        
+      - name: Configurando variaveis de ambiente da aplicação de produção
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "APP_PORT=${{ secrets.APP_PORT_BACKEND_PROD }}" >> $GITHUB_ENV
+          echo "SERVICE_TYPE=prod" >> $GITHUB_ENV
+        
+      - name: Criar o .env
+        env:
+          IMAGE_VERSION: ${{ needs.release.outputs.created_pre_release_tag }}
+        run: |
+          echo "release tag: $IMAGE_VERSION"
+          echo DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }} > .env
+          echo IMAGE_VERSION=$IMAGE_VERSION >> .env
+          echo APP_PORT=$APP_PORT >> .env
+          echo SERVICE_TYPE=$SERVICE_TYPE >> .env
+          more .env
+        
+      - name: Adicionar chave SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY_DEV }}" > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
+          ssh-keyscan -H ${{ secrets.SSH_HOST_DEV }} >> ~/.ssh/known_hosts
+
+      - name: criar arquivo variables.yml diretorio de desenvolvimento
+        if: github.ref == 'refs/heads/development'
+        run: |
+          echo "workdir: ${{ secrets.WORKDIR_BACKEND_DEV }}" > ./ansible/variables.yml
+          echo "localdir: ${{ secrets.LOCALDIR_BACKEND_DEV }}" >> ./ansible/variables.yml
+      
+      - name: criar arquivo variables.yml diretorio de produção
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "workdir: ${{ secrets.WORKDIR_BACKEND_PROD }}" > ./ansible/variables.yml
+          echo "localdir: ${{ secrets.LOCALDIR_BACKEND_PROD }}" >> ./ansible/variables.yml
+        
+          
+      - name: Criar arquivo de inventário do Ansible
+        run: |
+          echo "[servidores]" > ./ansible/hosts.ini
+          echo "meu-servidor ansible_host=${{ secrets.SSH_HOST_DEV }} ansible_user=${{ secrets.SSH_USER_DEV }} ansible_become_password=${{ secrets.SSH_PASSWORD_DEV }} ansible_ssh_private_key_file=~/.ssh/key.pem" >> ./ansible/hosts.ini
+
+      - name: Executar playbook do Ansible
+        run: ansible-playbook -i ./ansible/hosts.ini ./ansible/playbook.yml
