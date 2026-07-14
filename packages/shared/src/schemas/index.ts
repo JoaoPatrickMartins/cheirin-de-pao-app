@@ -44,6 +44,15 @@ export const CpfSchema = z
   .refine((v) => validateCpfDigits(v), { message: 'CPF inválido' })
 
 /**
+ * Checagem de CPF reutilizável pelo front (sem depender do Zod no bundle web).
+ * Aceita valor com ou sem máscara. Retorna true só quando os 11 dígitos e os
+ * dígitos verificadores módulo-11 são válidos.
+ */
+export function isValidCpf(value: string): boolean {
+  return validateCpfDigits(value.replace(/\D/g, ''))
+}
+
+/**
  * Normaliza telefone para apenas dígitos (remove máscara, espaços, "+").
  * Ex.: "+55 (11) 99000-1234" → "5511990001234"; "(11) 99000-1234" → "11990001234".
  * Fonte única de verdade para escrita E busca de telefone — mantém login OTP
