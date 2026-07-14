@@ -26,14 +26,40 @@ export function ClientLayout() {
   // Habilita deep link de push: navega para /client/creditos quando additionalData.screen === 'creditos'
   useOneSignalDeepLink()
 
-  // Detecta primeiro acesso (por conta). slides_done → retoma direto no tour após reload.
+  // Detecta primeiro acesso consultando a FONTE DE VERDADE no backend (GET
+  // /client/onboarding). Independe de localStorage — só reaparece se a conta
+  // realmente nunca concluiu. localStorage decide apenas ONDE retomar (slides
+  // já vistas → tour direto) e serve de cache offline.
+  // Fase inicial 'done' evita qualquer flash do tutorial para quem já concluiu.
   useEffect(() => {
     if (user?.role !== 'CLIENT') return
-    if (hasSeenOnboarding(user.id)) {
-      setPhase('done')
-      return
+    const uid = user.id
+    let cancelled = false
+    const decide = async () => {
+      try {
+        const res = await apiFetch('/client/onboarding')
+        if (cancelled) return
+        if (!res.ok) return // mantém 'done' — não incomoda em erro transitório
+        const { completed } = (await res.json()) as { completed?: boolean }
+        if (cancelled) return
+        if (completed) {
+          markOnboardingSeen(uid) // sincroniza cache local
+          setPhase('done')
+          return
+        }
+        setPhase(slidesDone(uid) ? 'tour' : 'slides')
+      } catch {
+        // Offline / rede indisponível: cai para o cache local. Só mostra se o
+        // dispositivo nunca marcou como visto (evita reexibir a quem já concluiu).
+        if (!cancelled && !hasSeenOnboarding(uid)) {
+          setPhase(slidesDone(uid) ? 'tour' : 'slides')
+        }
+      }
     }
-    setPhase(slidesDone(user.id) ? 'tour' : 'slides')
+    void decide()
+    return () => {
+      cancelled = true
+    }
   }, [user])
 
   // Re-disparo manual (Perfil → Ajuda → Rever tutorial).
@@ -80,10 +106,14 @@ export function ClientLayout() {
     navigate('/client/home')
   }
   // Concluir/pular o tour: marca o primeiro acesso como concluído.
+  // Persiste no backend (fonte de verdade) + cache local para não reexibir na sessão.
+  // Falha de rede não bloqueia; se a gravação não chegar, o GET no próximo acesso
+  // reexibe (endpoint idempotente — repetir mantém a data original).
   function finishTour() {
     if (!user) return
-    markOnboardingSeen(user.id)
+    markOnboardingSeen(user.id) // cache local + limpa flags de retomada (slides/step)
     setPhase('done')
+    void apiFetch('/client/onboarding/complete', { method: 'POST' }).catch(() => {})
   }
 
   return (

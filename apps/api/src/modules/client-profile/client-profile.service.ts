@@ -95,6 +95,31 @@ export class ClientProfileService {
     return { ok: true }
   }
 
+  // Estado do tutorial de primeiro acesso (fonte de verdade). completed=false → mostrar.
+  async getOnboardingStatus(userId: string) {
+    const row = await this.repo.findOnboarding(userId)
+    if (!row) return { error: 'Usuário não encontrado', status: 404 }
+    return {
+      completed: row.onboardingCompletedAt != null,
+      onboardingCompletedAt: row.onboardingCompletedAt?.toISOString() ?? null,
+    }
+  }
+
+  // Conclusão idempotente: grava a data só na primeira vez, preserva a original depois.
+  // Usa update por id (sempre persiste) — a decisão de idempotência é aqui, por leitura.
+  async completeOnboarding(userId: string) {
+    const row = await this.repo.findOnboarding(userId)
+    if (!row) return { error: 'Usuário não encontrado', status: 404 }
+    if (row.onboardingCompletedAt) {
+      return { completed: true, onboardingCompletedAt: row.onboardingCompletedAt.toISOString() }
+    }
+    const updated = await this.repo.setOnboardingCompleted(userId, new Date())
+    return {
+      completed: true,
+      onboardingCompletedAt: (updated.onboardingCompletedAt ?? new Date()).toISOString(),
+    }
+  }
+
   async confirmContactChange(userId: string, body: ContactChangeConfirmBody) {
     const otp = await this.repo.findActiveContactChangeOtp(userId)
     if (!otp) return { error: 'Código expirado ou não encontrado', status: 401 }

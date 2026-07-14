@@ -173,6 +173,11 @@ model User {
   hookRequestedAt    DateTime?
   hookDeliveredAt    DateTime?
   hookDeliveredById  String?   @db.ObjectId
+  // Tutorial de primeiro acesso — momento em que o cliente concluiu/pulou o onboarding.
+  // FONTE DE VERDADE de "já viu o tutorial": null/ausente = ainda não concluiu (mostra
+  // automaticamente no 1º acesso). Lido em GET /client/onboarding, gravado uma única
+  // vez em POST /client/onboarding/complete.
+  onboardingCompletedAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }
