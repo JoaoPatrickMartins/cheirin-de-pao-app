@@ -52,7 +52,11 @@ function lsRemove(key: string): void {
   }
 }
 
-function getDeviceId(): string {
+// Fonte ÚNICA do device_id. Gera e persiste na 1ª vez (crypto.randomUUID). Exportada
+// para que o corpo das requisições de auth (login/otp/reset) use exatamente o mesmo id
+// do header X-Device-Id — evita divergência e o deviceId vazio que o backend rejeita
+// (DeviceIdSchema = z.string().min(1)).
+export function getDeviceId(): string {
   try {
     let id = localStorage.getItem('device_id')
     if (!id) {

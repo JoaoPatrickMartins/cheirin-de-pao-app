@@ -56,7 +56,9 @@ const envSchema = {
     STRIPE_PUBLISHABLE_KEY: { type: 'string', default: '' },
     STRIPE_WEBHOOK_SECRET: { type: 'string', default: '' },
     API_PORT: { type: 'integer', default: 3001 },
-    API_HOST: { type: 'string', default: '0.0.0.0' },
+    // '::' = dual-stack (IPv6 + IPv4). No devcontainer localhost→::1; bind só-IPv4 (0.0.0.0)
+    // deixa a API inalcançável pelo port-forward do VS Code (login/OTP travam "carregando").
+    API_HOST: { type: 'string', default: '::' },
     // Phase 2 additions:
     NODE_ENV: { type: 'string', default: 'development' },
     OTP_DEV_CODE: { type: 'string', default: '1234' },
@@ -234,7 +236,7 @@ const start = async () => {
     await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h + 21h (SCHED-03/04)
 
     const port = Number(process.env.API_PORT ?? 3001)
-    const host = process.env.API_HOST ?? '0.0.0.0'
+    const host = process.env.API_HOST ?? '::'
 
     await fastify.listen({ port, host })
 
