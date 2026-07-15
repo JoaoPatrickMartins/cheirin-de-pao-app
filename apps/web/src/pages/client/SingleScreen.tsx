@@ -3,8 +3,8 @@
  *
  * Agenda uma entrega única para uma data específica. O cliente escolhe a quantidade
  * e a data; se o saldo cobre o pedido, os créditos são reservados na hora
- * (POST /orders). Se faltar crédito, a tela cobra apenas a diferença (Pix ou cartão
- * salvo) e o pedido é criado automaticamente assim que o pagamento é aprovado.
+ * (POST /orders). Se faltar crédito, a tela cobra apenas a diferença (via Pix)
+ * e o pedido é criado automaticamente assim que o pagamento é aprovado.
  *
  * Requirements: SCHED-01
  * Source: screens-order.jsx linhas 255–324, 04-UI-SPEC.md seções 7–12
@@ -98,7 +98,6 @@ export function SingleScreen() {
   // Data pré-selecionada em "amanhã"; o slot continua exigindo escolha explícita.
   const [quando, setQuando] = useState<string | null>(() => brtDateStr(new Date(), 1))
   const [deliveryTime, setDeliveryTime] = useState<string | null>(null)
-  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card'>('pix')
   const [avulsoUnit, setAvulsoUnit] = useState<number | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -257,21 +256,9 @@ export function SingleScreen() {
     }
   }
 
-  // Falta crédito → cobra a diferença; o pedido é criado após a aprovação do pagamento
-  // (telas de Pix/Cartão chamam finalizePendingOrder com este pendingOrder).
+  // Falta crédito → cobra a diferença via Pix; o pedido é criado após a aprovação do
+  // pagamento (a tela de Pix chama finalizePendingOrder com este pendingOrder).
   const handlePagarEAgendar = async () => {
-    if (paymentMethod === 'card') {
-      navigate('/client/creditos/cartao', {
-        state: {
-          customQuantity: deficit,
-          amount: totalPagar,
-          quantity: deficit,
-          pendingOrder,
-        },
-      })
-      return
-    }
-
     // Pix: cria o pagamento da diferença e segue para a tela de espera.
     setIsSubmitting(true)
     setErrorMsg(null)
@@ -652,32 +639,30 @@ export function SingleScreen() {
               </p>
             </div>
 
-            {/* Toggle de método de pagamento */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              {(['pix', 'card'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setPaymentMethod(m)}
-                  style={{
-                    flex: 1,
-                    minHeight: 40,
-                    borderRadius: 'var(--radius-btn)',
-                    border:
-                      paymentMethod === m
-                        ? '1.5px solid var(--color-accent)'
-                        : '1.5px solid var(--color-border)',
-                    background: paymentMethod === m ? 'var(--color-surface-2)' : 'transparent',
-                    color: paymentMethod === m ? 'var(--color-accent)' : 'var(--color-text-sec)',
-                    fontFamily: 'var(--font-body)',
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    transition: 'all .15s',
-                  }}
-                >
-                  {m === 'pix' ? 'Pix' : 'Cartão'}
-                </button>
-              ))}
+            {/* Pagamento via Pix (único método no pedido único) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 4,
+                padding: '11px 12px',
+                borderRadius: 'var(--radius-btn)',
+                border: '1.5px solid var(--color-accent)',
+                background: 'var(--color-surface-2)',
+              }}
+            >
+              <Icon name="coin" size={18} color="var(--color-accent)" />
+              <span
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  color: 'var(--color-accent)',
+                }}
+              >
+                Pagamento via Pix
+              </span>
             </div>
           </div>
         ) : (
