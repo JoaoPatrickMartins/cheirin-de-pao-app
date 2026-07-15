@@ -9,22 +9,17 @@ import './styles/globals.css'
 
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import OneSignal from 'react-onesignal'
 import { RouterProvider } from 'react-router'
 import { router } from './routes/router'
-import { trackAccess } from './lib/analytics' 
+import { trackAccess } from './lib/analytics'
+import { initOneSignal } from './lib/onesignal'
 
 // Stripe.js é carregado sob demanda em lib/stripe.ts (stripePromise) e usado via
 // <Elements> nas telas de cartão. Não há init global aqui.
 
-// react-onesignal prevents double-init on StrictMode re-renders.
-// Phase 1: SDK initialized only. Push notifications tested in Phase 5.
-// Placeholder VITE_ONESIGNAL_APP_ID shows a console warning but does not break the app.
-OneSignal.init({
-  appId: import.meta.env.VITE_ONESIGNAL_APP_ID as string,
-  serviceWorkerPath: 'push/onesignal/OneSignalSDKWorker.js',
-  serviceWorkerParam: { scope: '/push/onesignal/' },
-})
+// OneSignal: init único no bootstrap (fora de efeito, evita double-init do StrictMode).
+// O opt-in de push é feito por gesto do usuário (Perfil / aviso da Home) via usePushOptIn.
+initOneSignal()
 
 // Métrica de acesso (Relatórios) — dispara 1x por carga do app, antes do login.
 // Em escopo de módulo (não em efeito), evita disparo duplo do StrictMode.

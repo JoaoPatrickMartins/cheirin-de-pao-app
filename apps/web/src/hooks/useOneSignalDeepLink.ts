@@ -12,6 +12,7 @@
  */
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
+import { oneSignalReady } from '../lib/onesignal'
 
 export function useOneSignalDeepLink(): void {
   const navigate = useNavigate()
@@ -19,10 +20,9 @@ export function useOneSignalDeepLink(): void {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
+    let cancelled = false
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const OS = (window as any).OneSignal
-
-    if (!OS) return
+    let OS: any = null
 
     const handleClick = (event: {
       notification?: { additionalData?: { screen?: string } }
@@ -45,14 +45,22 @@ export function useOneSignalDeepLink(): void {
       }
     }
 
-    try {
-      OS?.Notifications?.addEventListener?.('click', handleClick)
-    } catch {
-      // Silencioso — API pode não estar disponível em todos os contextos
-    }
+    // Espera o init terminar antes de anexar o listener de clique.
+    void oneSignalReady.then(() => {
+      if (cancelled) return
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      OS = (window as any).OneSignal
+      if (!OS) return
+      try {
+        OS?.Notifications?.addEventListener?.('click', handleClick)
+      } catch {
+        // Silencioso — API pode não estar disponível em todos os contextos
+      }
+    })
 
     // Cleanup: remover listener ao desmontar (T-04-06-04)
     return () => {
+      cancelled = true
       try {
         OS?.Notifications?.removeEventListener?.('click', handleClick)
       } catch {

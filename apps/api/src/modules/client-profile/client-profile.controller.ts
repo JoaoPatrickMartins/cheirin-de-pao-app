@@ -72,6 +72,32 @@ export class ClientProfileController {
     }
   }
 
+  async getOnboarding(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'CLIENT') {
+      return reply.status(403).send({ error: 'Acesso negado' })
+    }
+    try {
+      const result = await this.service.getOnboardingStatus(request.user.id)
+      if ('error' in result) return reply.status(result.status ?? 500).send({ error: result.error })
+      return reply.status(200).send(result)
+    } catch (err) {
+      return reply.status(500).send({ error: 'Erro interno' })
+    }
+  }
+
+  async completeOnboarding(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'CLIENT') {
+      return reply.status(403).send({ error: 'Acesso negado' })
+    }
+    try {
+      const result = await this.service.completeOnboarding(request.user.id)
+      if ('error' in result) return reply.status(result.status ?? 500).send({ error: result.error })
+      return reply.status(200).send(result)
+    } catch (err) {
+      return reply.status(500).send({ error: 'Erro interno' })
+    }
+  }
+
   async confirmContactChange(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'CLIENT') {
       return reply.status(403).send({ error: 'Acesso negado' })

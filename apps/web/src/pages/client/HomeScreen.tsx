@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { motion, MotionConfig, type Variants } from 'framer-motion'
 import { useAuth } from '../../hooks/useAuth'
 import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
+import { PushNudge } from '../../components/client/PushNudge'
 import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
 import { useOrderTracking, type TodayOrder } from '../../hooks/useOrderTracking'
@@ -621,6 +622,9 @@ export function HomeScreen() {
         />
 
         <motion.div variants={containerV} style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Aviso dispensável para ativar push — topo, logo abaixo do header */}
+          <PushNudge />
+
           {/* Aviso leve de prazo — a próxima entrega do slot já fechou */}
           {closedSlots.length > 0 && (
             <motion.div

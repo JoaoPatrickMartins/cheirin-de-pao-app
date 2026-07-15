@@ -12,6 +12,7 @@ import {
   ErrorMessage,
   PasswordCriteria,
   isPasswordStrong,
+  LinkButton,
 } from '../../components/auth/AuthUI'
 
 /**
@@ -124,7 +125,9 @@ export function ChangePasswordScreen() {
               disabled={submitting}
             />
 
-            <div style={{ height: 12 }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <LinkButton onClick={() => navigate('/forgot-password')}>Esqueci minha senha</LinkButton>
+            </div>
 
             <PasswordField
               autoComplete="new-password"

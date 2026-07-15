@@ -67,4 +67,22 @@ export class ClientProfileRepository {
   checkContactConflict(field: 'phone' | 'email', value: string) {
     return this.prisma.user.findFirst({ where: { [field]: value } })
   }
+
+  // Leitura focada do estado do onboarding (fonte de verdade).
+  findOnboarding(id: string) {
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, onboardingCompletedAt: true },
+    })
+  }
+
+  // Gravação por id único → sempre persiste (sem guarda de where frágil).
+  // A idempotência (preservar a data original) é decidida no service.
+  setOnboardingCompleted(id: string, at: Date) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { onboardingCompletedAt: at },
+      select: { id: true, onboardingCompletedAt: true },
+    })
+  }
 }

@@ -5,6 +5,7 @@ import { OtpInput } from '../../components/auth/OtpInput'
 import { ResendTimer } from '../../components/auth/ResendTimer'
 import { Icon } from '../../components/brand/Icon'
 import { apiFetch } from '../../lib/apiFetch'
+import { roleRoutes } from '../../lib/roleRoutes'
 import {
   Heading,
   BodyText,
@@ -45,8 +46,6 @@ export function LoginScreen() {
   const [userId, setUserId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const roleRoutes: Record<string, string> = { ADMIN: '/admin', CLIENT: '/client', COURIER: '/courier' }
 
   // Pós-autenticação comum a login e OTP: guarda sessão e redireciona.
   const finishAuth = (data: AuthResponse) => {

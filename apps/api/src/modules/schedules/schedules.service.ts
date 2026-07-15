@@ -423,7 +423,9 @@ export class SchedulesService {
       notification.include_subscription_ids = playerIds
       notification.headings = { pt: 'Ajuste sua agenda para a semana' }
       notification.contents = { pt: 'Toque para revisar e atualizar sua agenda de entregas.' }
-      notification.url = '/client/agenda'
+      // Deep-link pelo padrão data.screen (igual aos demais pushes) — o hook useOneSignalDeepLink
+      // navega para rotas absolutas. `notification.url` abriria uma aba do navegador no PWA.
+      notification.data = { screen: '/client/agenda' }
       await osClient.createNotification(notification)
     } catch (err) {
       this.fastify.log.error({ err }, '[schedules] erro ao enviar push de reconfiguração')

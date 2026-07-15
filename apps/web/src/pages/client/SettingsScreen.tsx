@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { useAutoRecharge } from '../../hooks/useAutoRecharge'
+import { usePushOptIn } from '../../hooks/usePushOptIn'
 import { ProfileAvatar } from '../../components/client/ProfileAvatar'
 import { ProfileMenuRow } from '../../components/client/ProfileMenuRow'
 import { resetOnboarding } from '../../lib/onboarding'
@@ -145,6 +147,10 @@ export function SettingsScreen() {
           />
         </div>
 
+        {/* Notificações */}
+        <SectionLabel>Notificações</SectionLabel>
+        <NotificationsSetting />
+
         {/* Ajuda */}
         <SectionLabel>Ajuda</SectionLabel>
         <div
@@ -184,6 +190,102 @@ export function SettingsScreen() {
           <ProfileMenuRow icon="logout" label="Sair" onClick={() => logout()} danger />
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Controle de notificações push — reflete o estado da permissão e faz o opt-in por gesto. */
+function NotificationsSetting() {
+  const { status, busy, enable, disable } = usePushOptIn()
+  const [showHelp, setShowHelp] = useState(false)
+  const toggleHelp = () => setShowHelp((v) => !v)
+
+  let description: string
+  let badge: string | undefined
+  let onClick: () => void
+
+  switch (status) {
+    case 'granted':
+      description = 'Ativadas neste aparelho'
+      badge = 'Ativadas'
+      onClick = toggleHelp
+      break
+    case 'denied':
+      description = 'Bloqueadas — toque para reativar'
+      badge = 'Bloqueadas'
+      onClick = toggleHelp
+      break
+    case 'ios-install':
+      description = 'Instale o app na tela inicial para ativar'
+      onClick = toggleHelp
+      break
+    case 'unsupported':
+      description = 'Não suportado neste navegador'
+      onClick = () => {}
+      break
+    case 'loading':
+      description = 'Verificando…'
+      onClick = () => {}
+      break
+    default: // 'default' — suportado e ainda não decidido
+      description = 'Receba avisos de entrega e créditos'
+      onClick = () => void enable()
+  }
+
+  return (
+    <div
+      style={{
+        background: 'var(--color-surface)',
+        borderRadius: 'var(--radius-card)',
+        padding: '6px 16px',
+        boxShadow: 'var(--shadow-soft)',
+        marginBottom: 20,
+      }}
+    >
+      <ProfileMenuRow
+        icon="bell"
+        label="Notificações"
+        description={busy ? 'Aguarde…' : description}
+        badge={badge}
+        onClick={onClick}
+      />
+      {showHelp && (status === 'denied' || status === 'ios-install' || status === 'granted') && (
+        <div style={{ padding: '0 4px 12px' }}>
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12.5,
+              color: 'var(--color-text-sec)',
+              lineHeight: 1.5,
+              margin: '0 0 8px',
+            }}
+          >
+            {status === 'denied' &&
+              'As notificações estão bloqueadas para este site. Toque no cadeado ao lado do endereço → Notificações → Permitir e recarregue a página.'}
+            {status === 'ios-install' &&
+              'No iPhone/iPad: toque em Compartilhar → "Adicionar à Tela de Início". Depois abra o app pelo ícone criado e ative as notificações por aqui.'}
+            {status === 'granted' && 'Você receberá avisos no seu aparelho mesmo com o app fechado.'}
+          </p>
+          {status === 'granted' && (
+            <button
+              onClick={() => void disable()}
+              disabled={busy}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                cursor: busy ? 'default' : 'pointer',
+                fontFamily: 'var(--font-body)',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#C0392B',
+              }}
+            >
+              Desativar notificações
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

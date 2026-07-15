@@ -535,7 +535,15 @@ export function TrackingScreen() {
         )}
 
         {!isLoadingHistory && visibleHistory.length === 0 && (
-          <div style={{ textAlign: 'center', paddingTop: 32 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              paddingTop: 32,
+            }}
+          >
             <Icon name="clock" size={48} color="var(--color-text-ter)" />
             <p
               style={{

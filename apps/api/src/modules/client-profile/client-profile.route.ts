@@ -15,6 +15,46 @@ export const clientProfileRoute: FastifyPluginAsync = async (fastify) => {
     schema: { tags: ['client-profile'], security: [{ bearerAuth: [] }], summary: 'Atualizar perfil do cliente' },
   }, ctrl.updateProfile.bind(ctrl))
 
+  fastify.get('/client/onboarding', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['client-profile'],
+      security: [{ bearerAuth: [] }],
+      summary: 'Status do tutorial de primeiro acesso',
+      description:
+        'Fonte de verdade do onboarding. `completed=false` → o app deve exibir o tutorial automaticamente. Restrito a CLIENT.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            completed: { type: 'boolean' },
+            onboardingCompletedAt: { type: 'string', nullable: true },
+          },
+        },
+      },
+    },
+  }, ctrl.getOnboarding.bind(ctrl))
+
+  fastify.post('/client/onboarding/complete', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['client-profile'],
+      security: [{ bearerAuth: [] }],
+      summary: 'Marcar tutorial de primeiro acesso como concluído',
+      description:
+        'Registra a conclusão/pulo do tutorial. Idempotente — chamadas repetidas mantêm a data original. Restrito a CLIENT.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            completed: { type: 'boolean' },
+            onboardingCompletedAt: { type: 'string', nullable: true },
+          },
+        },
+      },
+    },
+  }, ctrl.completeOnboarding.bind(ctrl))
+
   fastify.post('/client/profile/contact/request-change', {
     preHandler: [fastify.authenticate],
     ...rateLimit,

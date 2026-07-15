@@ -83,6 +83,7 @@ export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
               name: { type: 'string', description: 'Nome do condomínio (ex: Residencial das Flores).' },
               type: { type: 'string', description: 'Tipo: SINGLE_ENTRANCE (entrada única) ou BLOCKS (por blocos).' },
               neighborhood: { type: 'string', description: 'Bairro ou cidade do condomínio, extraído do endereço.' },
+              numBlocks: { type: ['integer', 'null'], description: 'Quantidade de blocos/torres (apenas quando type=BLOCKS). Usado para montar o select de bloco no cadastro.' },
             },
           },
         },
@@ -107,6 +108,7 @@ export const condominiumsRoute: FastifyPluginAsync = async (fastify) => {
         name: c.name,
         type: c.type,
         neighborhood: c.address.complement ?? c.address.city,
+        numBlocks: c.numBlocks ?? null,
       }))
       return reply.send(result)
     } catch (err) {
