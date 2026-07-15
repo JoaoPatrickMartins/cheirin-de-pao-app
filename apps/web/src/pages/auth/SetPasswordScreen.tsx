@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
+import { roleRoutes } from '../../lib/roleRoutes'
 import { LoadingScreen } from './LoadingScreen'
 import {
   Heading,
@@ -12,8 +13,6 @@ import {
   PasswordCriteria,
   isPasswordStrong,
 } from '../../components/auth/AuthUI'
-
-const roleRoutes: Record<string, string> = { ADMIN: '/admin', CLIENT: '/client', COURIER: '/courier' }
 
 /**
  * SetPasswordScreen — definição de senha obrigatória no 1º acesso.
