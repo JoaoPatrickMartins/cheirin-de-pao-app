@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { motion, MotionConfig, type Variants } from 'framer-motion'
 import { useAuth } from '../../hooks/useAuth'
@@ -11,11 +11,8 @@ import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
 import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
 import { useAutoRecharge } from '../../hooks/useAutoRecharge'
-import { apiFetch } from '../../lib/apiFetch'
 
 type IconName = keyof typeof Ic
-
-const SLOT_LABEL: Record<string, string> = { manha: 'manhã', tarde: 'tarde' }
 
 // Mapa de índice do dia da semana (getDay()) para chave de WeeklyQty
 const DAY_KEY_MAP: Record<number, keyof ReturnType<typeof useSchedule>['weeklyQty']> = {
@@ -551,8 +548,6 @@ export function HomeScreen() {
   // fallbackToNext: quando não há entrega hoje, mostra a próxima entrega futura
   const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const { unreadCount } = useNotif()
-  // Slots cuja PRÓXIMA entrega já está fechada (corte passou) — por slot do condomínio
-  const [closedSlots, setClosedSlots] = useState<Array<{ name: string; label?: string; deliveryWhen: string }>>([])
 
   // Mantém o saldo sincronizado com o servidor (refresh de página + troca de aba)
   useCreditBalanceSync()
@@ -586,23 +581,6 @@ export function HomeScreen() {
   const weeklyTotal = Object.values(dailyQty).reduce((acc, v) => acc + (v || 0), 0)
   const daysEstimate = weeklyTotal > 0 ? Math.max(1, Math.floor(creditBalance / (weeklyTotal / 7))) : undefined
 
-  useEffect(() => {
-    // Status de corte por slot do condomínio do cliente (autenticado)
-    apiFetch('/settings/cutoff-status')
-      .then((res) => (res.ok ? res.json() : { slots: [] }))
-      .then((data: { slots?: Array<{ name: string; label?: string; locked: boolean; deliveryWhen: string }> }) => {
-        setClosedSlots(
-          (data.slots ?? [])
-            .filter((s) => s.locked)
-            .map((s) => ({ name: s.name, label: s.label, deliveryWhen: s.deliveryWhen })),
-        )
-      })
-      .catch(() => {
-        // Falha silenciosa — não exibe banner em caso de erro de rede
-        setClosedSlots([])
-      })
-  }, [])
-
   const firstName = user?.name?.split(' ')[0] ?? 'você'
   const greeting = getGreeting()
   const addressLine = user?.condominiumName
@@ -627,63 +605,6 @@ export function HomeScreen() {
         <motion.div variants={containerV} style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Aviso dispensável para ativar push — topo, logo abaixo do header */}
           <PushNudge />
-
-          {/* Aviso leve de prazo — a próxima entrega do slot já fechou */}
-          {closedSlots.length > 0 && (
-            <motion.div
-              variants={itemV}
-              style={{
-                background: 'var(--color-surface-2)',
-                border: '1.5px solid var(--color-accent)',
-                borderRadius: 12,
-                padding: '12px 14px',
-                display: 'flex',
-                gap: 11,
-                alignItems: 'flex-start',
-              }}
-            >
-              <div
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 9,
-                  background: 'var(--color-surface)',
-                  display: 'grid',
-                  placeItems: 'center',
-                  flexShrink: 0,
-                  marginTop: 1,
-                }}
-              >
-                <Icon name="clock" size={17} color="var(--color-gold)" />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 14.5,
-                    fontWeight: 700,
-                    color: 'var(--color-text)',
-                    letterSpacing: '-0.01em',
-                  }}
-                >
-                  Eita, foi por pouquin!
-                </span>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-body)',
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    color: 'var(--color-text-sec)',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {`${closedSlots
-                    .map((s) => `A ${(s.label ?? SLOT_LABEL[s.name] ?? s.name).toLowerCase()} de ${s.deliveryWhen} já fechou.`)
-                    .join(' ')} Os próximos dias seguem tudo certin pra agendar! 🥖`}
-                </span>
-              </div>
-            </motion.div>
-          )}
 
           {/* Card de saldo */}
           <motion.div variants={itemV}>

@@ -16,7 +16,31 @@ import { Icon } from '../../components/brand/Icon'
 import StepperInline from '../../components/client/StepperInline'
 import DeliveryTimeChips, { DeliverySlot } from '../../components/client/DeliveryTimeChips'
 import { AutoRechargeBanner } from '../../components/client/AutoRechargeBanner'
+import { CutoffPopup } from '../../components/client/CutoffPopup'
 import { apiFetch } from '../../lib/apiFetch'
+import { brtDateStr } from '../../lib/cutoff'
+
+// Índice de getDay() → chave de WeeklyQty (para saber o dia da semana da entrega travada).
+const WEEKDAY_KEY: Record<number, keyof WeeklyQty> = {
+  0: 'dom',
+  1: 'seg',
+  2: 'ter',
+  3: 'qua',
+  4: 'qui',
+  5: 'sex',
+  6: 'sab',
+}
+
+// Slot retornado por GET /settings/cutoff-status (status de corte por slot do condomínio).
+interface CutoffSlot {
+  slotId: string
+  name: string
+  label: string
+  time: string
+  cutoffTime: string
+  locked: boolean
+  deliveryWhen: string
+}
 
 // Dados dos 7 dias da semana
 const DAYS = [
@@ -73,6 +97,16 @@ export function ScheduleScreen() {
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
   const [agendaMin, setAgendaMin] = useState<WeeklyQty>(DEFAULT_MIN_QTY)
+  const [cutoffSlots, setCutoffSlots] = useState<CutoffSlot[]>([])
+  const [cutoffDismissed, setCutoffDismissed] = useState(false)
+
+  // Status de corte por slot do condomínio — alimenta o aviso "Eita, foi por pouquin!".
+  useEffect(() => {
+    apiFetch('/settings/cutoff-status')
+      .then((res) => (res.ok ? res.json() : { slots: [] }))
+      .then((data: { slots?: CutoffSlot[] }) => setCutoffSlots(data.slots ?? []))
+      .catch(() => setCutoffSlots([]))
+  }, [])
 
   // Pedido mínimo por dia (config global do admin) — usado para o snap 0↔min no stepper.
   useEffect(() => {
@@ -91,6 +125,34 @@ export function ScheduleScreen() {
   // Usa o layout por-slot sempre que houver ao menos 1 slot ativo (1 ou 2 turnos).
   const activeSlots = slots.filter((s) => s.isActive)
   const isMultiSlot = activeSlots.length >= 1
+
+  // Aviso de corte: só quando a PRÓXIMA entrega de um slot já fechou (locked) E o cliente
+  // tem pães agendados naquele dia. Só essa entrega não sai — os demais dias e as próximas
+  // semanas seguem valendo. Sem agendamento no dia afetado, não há aviso (evita ruído).
+  const now = new Date()
+  const cutoffToday = brtDateStr(now, 0)
+  const cutoffTomorrow = brtDateStr(now, 1)
+  const affectedCutoff = cutoffSlots.filter((s) => {
+    if (!s.locked) return false
+    const dateStr =
+      s.deliveryWhen === 'hoje' ? cutoffToday : s.deliveryWhen === 'amanhã' ? cutoffTomorrow : s.deliveryWhen
+    const [y, m, d] = dateStr.split('-').map(Number)
+    const key = WEEKDAY_KEY[new Date(y, m - 1, d).getDay()]
+    const qty = isMultiSlot
+      ? (days[s.slotId] ?? days[s.name])?.[key] ?? 0
+      : s.time === deliveryTime
+        ? weeklyQty[key] ?? 0
+        : 0
+    return qty > 0
+  })
+  const cutoffNotice =
+    affectedCutoff.length > 0
+      ? `${affectedCutoff
+          .map((s) => `A ${(s.label || s.name).toLowerCase()} de ${s.deliveryWhen} já passou do corte (${s.cutoffTime}).`)
+          .join(' ')} ${
+          affectedCutoff.length === 1 ? 'Só ela não sai desta vez' : 'Só elas não saem desta vez'
+        } — os outros dias e as próximas semanas seguem configuradinhos. 🥖`
+      : ''
 
   useEffect(() => {
     const fetchSlots = async () => {
@@ -185,6 +247,11 @@ export function ScheduleScreen() {
           {toast.message}
         </div>
       )}
+
+      {/* Aviso flutuante de corte — não trava a tela; só informa e some ao fechar */}
+      <CutoffPopup open={!!cutoffNotice && !cutoffDismissed} onClose={() => setCutoffDismissed(true)}>
+        {cutoffNotice}
+      </CutoffPopup>
 
       {/* AppBar */}
       <div

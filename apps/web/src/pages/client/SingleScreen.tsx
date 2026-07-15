@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { Icon } from '../../components/brand/Icon'
 import QuantityStepper from '../../components/client/QuantityStepper'
+import { CutoffPopup } from '../../components/client/CutoffPopup'
 import { apiFetch } from '../../lib/apiFetch'
 import { brtDateStr, isPastCutoffForDelivery } from '../../lib/cutoff'
 
@@ -101,6 +102,7 @@ export function SingleScreen() {
   const [avulsoUnit, setAvulsoUnit] = useState<number | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [cutoffDismissed, setCutoffDismissed] = useState(false)
   const dateInputRef = useRef<HTMLInputElement>(null)
 
   // Preço por pão (avulso) + pedido mínimo — usados para cobrar a diferença e limitar a quantidade.
@@ -145,6 +147,24 @@ export function SingleScreen() {
     slot,
     available: quando ? slotAvailable(slot, quando) : false,
   }))
+
+  // Aviso amigável de corte: horários do dia escolhido que já fecharam.
+  const closedForDate = quando ? slotOptions.filter((o) => !o.available).map((o) => o.slot) : []
+  const anyAvailableForDate = slotOptions.some((o) => o.available)
+  const dateWord = quando === todayStr ? 'hoje' : quando === tomorrowStr ? 'amanhã' : 'essa data'
+  const closedNotice =
+    closedForDate.length > 0
+      ? `${closedForDate
+          .map(
+            (s) =>
+              `A ${(s.label ?? SLOT_LABEL[s.name] ?? s.name).toLowerCase()} de ${dateWord} já fechou (corte às ${s.cutoffTime}).`,
+          )
+          .join(' ')}${
+          anyAvailableForDate
+            ? ' Dá pra escolher outro horário aqui em cima pra receber seus pãezinhos. 🥖'
+            : ' Escolha outra data pra receber seus pãezinhos fresquinhos. 🥖'
+        }`
+      : ''
 
   // Régua de dias: do piso (hoje se houver slot aberto, senão amanhã) por 14 dias.
   // Garante que uma data distante escolhida no calendário também apareça selecionada.
@@ -299,6 +319,14 @@ export function SingleScreen() {
         flexDirection: 'column',
       }}
     >
+      {/* Aviso flutuante de corte — some sozinho após alguns segundos ou no X */}
+      <CutoffPopup
+        open={closedForDate.length > 0 && !cutoffDismissed}
+        onClose={() => setCutoffDismissed(true)}
+      >
+        {closedNotice}
+      </CutoffPopup>
+
       {/* AppBar */}
       <div
         style={{
