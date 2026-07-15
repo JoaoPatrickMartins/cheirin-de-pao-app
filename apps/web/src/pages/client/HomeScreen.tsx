@@ -122,7 +122,10 @@ function Greet({
   onBell: () => void
 }) {
   return (
-    <motion.div variants={itemV} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 20px 14px' }}>
+    <motion.div
+      variants={itemV}
+      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 'calc(20px + env(safe-area-inset-top)) 20px 14px' }}
+    >
       <div
         style={{
           width: 42,
