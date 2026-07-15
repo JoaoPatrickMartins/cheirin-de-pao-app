@@ -12,6 +12,7 @@
  */
 import { useEffect } from 'react'
 import { apiFetch } from '../lib/apiFetch'
+import { oneSignalReady } from '../lib/onesignal'
 
 async function registerPlayerId(playerId: string): Promise<void> {
   try {
@@ -27,40 +28,46 @@ async function registerPlayerId(playerId: string): Promise<void> {
 
 export function useOneSignalRegister(): void {
   useEffect(() => {
-    // Verificar se OneSignal está disponível no contexto do PWA
     if (typeof window === 'undefined') return
 
+    let cancelled = false
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const OS = (window as any).OneSignal
+    let OS: any = null
 
-    if (!OS) return
-
-    // Tentar registrar o player_id existente imediatamente
-    try {
-      const existingId: string | null = OS?.User?.PushSubscription?.id ?? null
-      if (existingId) {
-        void registerPlayerId(existingId)
-      }
-    } catch {
-      // Silencioso — SDK pode não estar inicializado completamente
-    }
-
-    // Listener para futuras mudanças de subscrição (ex: usuário concede permissão)
-    const handleChange = (event: { current: { id: string | null } }) => {
+    const handleChange = (event: { current?: { id?: string | null } }) => {
       const id = event?.current?.id
       if (id) {
         void registerPlayerId(id)
       }
     }
 
-    try {
-      OS?.User?.PushSubscription?.addEventListener?.('change', handleChange)
-    } catch {
-      // Silencioso — API pode não estar disponível em todos os contextos
-    }
+    // Espera o init terminar antes de ler PushSubscription/anexar listener — sem isso, se o
+    // hook montasse antes do SDK carregar, ele saía sem registrar nem escutar o opt-in futuro.
+    void oneSignalReady.then(() => {
+      if (cancelled) return
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      OS = (window as any).OneSignal
+      if (!OS) return
+
+      // Registra o player_id já existente (ex.: usuário que já havia concedido permissão).
+      try {
+        const existingId: string | null = OS?.User?.PushSubscription?.id ?? null
+        if (existingId) void registerPlayerId(existingId)
+      } catch {
+        // Silencioso — SDK pode não estar completamente pronto
+      }
+
+      // Registra novos IDs quando a subscrição muda (ex.: usuário concede permissão agora).
+      try {
+        OS?.User?.PushSubscription?.addEventListener?.('change', handleChange)
+      } catch {
+        // Silencioso — API pode não estar disponível em todos os contextos
+      }
+    })
 
     // Cleanup: remover listener ao desmontar (T-04-06-04)
     return () => {
+      cancelled = true
       try {
         OS?.User?.PushSubscription?.removeEventListener?.('change', handleChange)
       } catch {

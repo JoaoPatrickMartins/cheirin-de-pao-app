@@ -29,6 +29,11 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       registerType: 'autoUpdate',
+      // O OneSignal tem service worker próprio em /push/onesignal/ (escopo isolado). Fora do
+      // precache do Workbox para preservar essa isolação e evitar cache redundante do SW dele.
+      injectManifest: {
+        globIgnores: ['**/push/onesignal/**'],
+      },
       devOptions: {
         enabled: true,
         type: 'module',
