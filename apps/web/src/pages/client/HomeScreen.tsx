@@ -6,7 +6,9 @@ import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
 import { PushNudge } from '../../components/client/PushNudge'
 import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
-import { useOrderTracking, type TodayOrder } from '../../hooks/useOrderTracking'
+import { DeliveryBannerCarousel } from '../../components/client/DeliveryBannerCarousel'
+import { useOrderTracking } from '../../hooks/useOrderTracking'
+import { useCutoffStatus } from '../../hooks/useCutoffStatus'
 import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
 import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
@@ -41,21 +43,6 @@ function getGreeting(): string {
   if (hours < 12) return 'Bom dia'
   if (hours < 18) return 'Boa tarde'
   return 'Boa noite'
-}
-
-// "Seg 22" a partir da data ISO de uma entrega futura
-function formatDeliveryDay(iso: string): string {
-  const d = new Date(iso)
-  const key = DAY_KEY_MAP[d.getDay()]
-  return `${DAY_ABBR[key]} ${d.getDate()}`
-}
-
-// Extrai "7:15" de um horário de entrega ("07:15", "07:15:00" ou ISO). Null se não houver.
-function formatEta(value?: string): string | null {
-  if (!value) return null
-  const m = value.match(/(\d{1,2}):(\d{2})/)
-  if (!m) return null
-  return `${parseInt(m[1], 10)}:${m[2]}`
 }
 
 // ============================================================
@@ -182,199 +169,6 @@ function Greet({
           />
         )}
       </motion.button>
-    </motion.div>
-  )
-}
-
-// ---------- Entrega de hoje (3 estados + próxima + vazio) ----------
-function TodayDeliveryCard({ order, isToday, onOpen }: { order: TodayOrder | null; isToday: boolean; onOpen: () => void }) {
-  const baseCard: CSSProperties = {
-    borderRadius: 'var(--radius-card)',
-    overflow: 'hidden',
-    border: '1px solid var(--color-border-2)',
-    boxShadow: 'var(--shadow-soft)',
-    cursor: 'pointer',
-  }
-
-  if (!order) {
-    return (
-      <motion.div
-        variants={itemV}
-        whileTap={{ scale: 0.985 }}
-        onClick={onOpen}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && onOpen()}
-        aria-label="Ver entregas"
-        data-tour="entrega-hoje"
-        style={{ ...baseCard, background: 'var(--color-surface)', padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 13 }}
-      >
-        <div
-          style={{
-            width: 46,
-            height: 46,
-            borderRadius: 13,
-            background: 'var(--color-surface-2)',
-            display: 'grid',
-            placeItems: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <Icon name="calendar" size={22} color="var(--color-accent)" />
-        </div>
-        <div>
-          <div
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 11.5,
-              fontWeight: 700,
-              color: 'var(--color-text-ter)',
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase' as const,
-            }}
-          >
-            ENTREGA DE HOJE
-          </div>
-          <div
-            style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--color-text)', marginTop: 2, letterSpacing: '-0.01em' }}
-          >
-            Nenhuma entrega agendada
-          </div>
-        </div>
-      </motion.div>
-    )
-  }
-
-  const { status } = order
-  const live = status === 'OUT_FOR_DELIVERY'
-  const delivered = status === 'DELIVERED'
-  // Default seguro: qualquer estado não-final (SCHEDULED, SEPARATED, NOT_DELIVERED…) é
-  // tratado como "agendado", NUNCA como "entregue" — espelha o StatusPill do histórico.
-  const label = !isToday ? 'PRÓXIMA ENTREGA' : live ? 'SAINDO DO FORNO' : delivered ? 'ENTREGUE' : 'AGENDADO'
-  const iconName: IconName = live ? 'truck' : delivered ? 'check' : 'calendar'
-  const qtyText = order.quantity === 1 ? '1 pão' : `${order.quantity} pães`
-  const titlePrefix = isToday ? 'Entrega de hoje' : `Entrega ${formatDeliveryDay(order.scheduledDate)}`
-  const eta = formatEta(order.deliveryTime)
-
-  return (
-    <motion.div
-      variants={itemV}
-      whileTap={{ scale: 0.985 }}
-      onClick={onOpen}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && onOpen()}
-      aria-label="Ver entrega de hoje"
-      data-tour="entrega-hoje"
-      style={baseCard}
-    >
-      {/* Topo espresso */}
-      <div
-        style={{
-          background: 'var(--color-espresso)',
-          padding: '16px 18px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 13,
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        <div className="cdp-float" style={{ position: 'absolute', top: -40, right: -20, opacity: 0.13, pointerEvents: 'none' }}>
-          <BreadMark size={140} color="#E3AC3F" />
-        </div>
-        <div
-          style={{
-            width: 46,
-            height: 46,
-            borderRadius: 13,
-            background: 'rgba(227,172,63,0.16)',
-            display: 'grid',
-            placeItems: 'center',
-            flexShrink: 0,
-            position: 'relative',
-          }}
-        >
-          <Icon name={iconName} size={24} color="#E3AC3F" />
-        </div>
-        <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#E3AC3F', fontWeight: 700, letterSpacing: '0.06em' }}>{label}</div>
-          <div
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontWeight: 700,
-              fontSize: 18,
-              color: '#FAF5EC',
-              marginTop: 2,
-              letterSpacing: '-0.01em',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {titlePrefix} · {qtyText}
-          </div>
-        </div>
-      </div>
-
-      {/* Rodapé branco: ETA + status + chevron */}
-      <div
-        style={{
-          background: 'var(--color-surface)',
-          padding: '13px 18px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <Icon name="clock" size={17} color="var(--color-accent)" />
-          <span
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 13.5,
-              color: 'var(--color-text-sec)',
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {delivered ? (
-              'Entregue'
-            ) : eta ? (
-              <>
-                Chega até <b style={{ color: 'var(--color-text)' }}>{eta}</b>
-              </>
-            ) : (
-              'Horário a confirmar'
-            )}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          {delivered ? (
-            <Pill tone="good">
-              <Icon name="check" size={13} color="var(--color-good)" stroke={2.6} />
-              Entregue
-            </Pill>
-          ) : live ? (
-            <Pill tone="gold">
-              <span
-                className="cdp-live-dot"
-                style={{ width: 6, height: 6, borderRadius: 99, background: 'var(--color-accent)', flexShrink: 0 }}
-              />
-              A caminho
-            </Pill>
-          ) : (
-            <Pill tone="neutral">
-              <Icon name="clock" size={13} color="var(--color-text-sec)" stroke={2.6} />
-              Agendado
-            </Pill>
-          )}
-          <Icon name="chevR" size={17} color="var(--color-text-ter)" />
-        </div>
-      </div>
     </motion.div>
   )
 }
@@ -547,6 +341,8 @@ export function HomeScreen() {
   const navigate = useNavigate()
   // fallbackToNext: quando não há entrega hoje, mostra a próxima entrega futura
   const { order, isToday } = useOrderTracking({ fallbackToNext: true })
+  // Slots de corte do condomínio — alimentam o slide "Corte" do carrossel do banner.
+  const { slots: cutoffSlots } = useCutoffStatus()
   const { unreadCount } = useNotif()
 
   // Mantém o saldo sincronizado com o servidor (refresh de página + troca de aba)
@@ -611,8 +407,14 @@ export function HomeScreen() {
             <CreditBalanceCard creditBalance={creditBalance} isLoading={false} daysEstimate={daysEstimate} />
           </motion.div>
 
-          {/* Entrega de hoje */}
-          <TodayDeliveryCard order={order} isToday={isToday} onOpen={() => navigate('/client/pedidos')} />
+          {/* Entrega de hoje — carrossel corte ⇄ entrega */}
+          <DeliveryBannerCarousel
+            order={order}
+            isToday={isToday}
+            slots={cutoffSlots}
+            onOpenDelivery={() => navigate('/client/pedidos')}
+            onOpenCutoff={() => navigate('/client/creditos?tab=avulso')}
+          />
 
           {/* Aviso de risco — agenda ativa, saldo zerado e SEM recarga automática */}
           {showRiskBanner && (
