@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import { Icon } from '../../components/brand/Icon'
 import { StepDots } from '../../components/auth/StepDots'
@@ -8,13 +8,14 @@ import { ResendTimer } from '../../components/auth/ResendTimer'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { PasswordCriteria, isPasswordStrong } from '../../components/auth/AuthUI'
+import { isValidCpf } from '@cheirin-de-pao/shared'
 
 interface Condo {
   id: string
   name: string
   type: string
   neighborhood: string
-  blocks?: string[]
+  numBlocks?: number | null
 }
 
 /** Strip non-digits from CPF string */
@@ -44,6 +45,25 @@ function parseBirthDate(display: string): string | undefined {
   const digits = display.replace(/\D/g, '')
   if (digits.length !== 8) return undefined
   return `${digits.slice(4)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}T00:00:00.000Z`
+}
+
+/** Format BR mobile as (00) 00000-0000 (mesma máscara do cadastro de entregador/fornecedor) */
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 11)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
+/**
+ * Gera os identificadores de bloco a partir da quantidade. Como o sistema não
+ * sabe se o condomínio nomeia por letra ou número, cada opção traz as duas
+ * formas correspondentes ("1 ou A", "2 ou B"…) — é o mesmo bloco nos dois
+ * esquemas, então basta uma opção por bloco.
+ */
+function blockOptions(numBlocks: number): string[] {
+  const count = Math.min(Math.max(numBlocks, 0), 26)
+  return Array.from({ length: count }, (_, i) => `${i + 1} ou ${String.fromCharCode(65 + i)}`)
 }
 
 const TOTAL_STEPS = 5
@@ -84,6 +104,9 @@ export function OnboardingScreen() {
 
   const selectedCondo = condos.find((c) => c.id === selectedCondoId) ?? null
   const isBlocksCondo = selectedCondo?.type === 'BLOCKS'
+  // Opções de bloco vindas de numBlocks; sem esse dado, cai para input de texto livre.
+  const blockChoices = isBlocksCondo && selectedCondo?.numBlocks ? blockOptions(selectedCondo.numBlocks) : []
+  const useBlockSelect = blockChoices.length > 0
 
   // Load condos when reaching step 2
   useEffect(() => {
@@ -100,6 +123,11 @@ export function OnboardingScreen() {
       })
       .finally(() => setCondosLoading(false))
   }, [step])
+
+  // Troca de condomínio invalida o bloco escolhido (opções mudam / some para SINGLE_ENTRANCE).
+  useEffect(() => {
+    setBloco(null)
+  }, [selectedCondoId])
 
   const handleCpfChange = (value: string) => {
     // Only allow digits and formatting chars
@@ -243,8 +271,13 @@ export function OnboardingScreen() {
     }).catch(() => null)
   }
 
+  // CPF só é válido com 11 dígitos + dígitos verificadores módulo-11 (fonte única no shared).
+  const cpfDigits = cpfDisplay.replace(/\D/g, '')
+  const cpfComplete = cpfDigits.length === 11
+  const cpfInvalid = cpfComplete && !isValidCpf(cpfDisplay)
+
   // Step 0 CTA disabled until all fields filled
-  const step0Valid = nome.trim() !== '' && cpfDisplay.trim() !== '' && dataNascimento.replace(/\D/g, '').length === 8
+  const step0Valid = nome.trim() !== '' && isValidCpf(cpfDisplay) && dataNascimento.replace(/\D/g, '').length === 8
 
   // Step 1 CTA: telefone, e-mail, senha forte e confirmação coincidente
   const step1Valid =
@@ -254,7 +287,7 @@ export function OnboardingScreen() {
     senha === confirmaSenha
 
   // Step 3 CTA disabled until apartment filled (and block if BLOCKS condo)
-  const step3Valid = apto.trim() !== ''
+  const step3Valid = apto.trim() !== '' && (!isBlocksCondo || (bloco?.trim() ?? '') !== '')
 
   const otpDestination = email
   const otpChannelLabel = 'e-mail'
@@ -335,15 +368,29 @@ export function OnboardingScreen() {
               onChange={setNome}
               placeholder="Ex.: Marina Ribeiro"
             />
-            <FieldRow
-              label="CPF"
-              icon="card"
-              value={cpfDisplay}
-              onChange={handleCpfChange}
-              placeholder="000.000.000-00"
-              type="tel"
-              autoComplete="off"
-            />
+            <div>
+              <FieldRow
+                label="CPF"
+                icon="card"
+                value={cpfDisplay}
+                onChange={handleCpfChange}
+                placeholder="000.000.000-00"
+                type="tel"
+                autoComplete="off"
+              />
+              {cpfInvalid && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontFamily: 'var(--font-body)',
+                    color: 'var(--color-warn)',
+                    marginTop: 6,
+                  }}
+                >
+                  CPF inválido. Confira os números.
+                </div>
+              )}
+            </div>
             <FieldRow
               label="Data de nascimento"
               icon="calendar"
@@ -412,8 +459,8 @@ export function OnboardingScreen() {
               label="Celular"
               icon="phone"
               value={telefone}
-              onChange={setTelefone}
-              placeholder="(11) 9 0000-0000"
+              onChange={(v) => setTelefone(formatPhone(v))}
+              placeholder="(11) 90000-0000"
               type="tel"
               autoComplete="tel"
             />
@@ -544,16 +591,27 @@ export function OnboardingScreen() {
             </p>
           )}
 
-          {/* Block/Tower text input — only for BLOCKS condos */}
-          {isBlocksCondo && (
-            <FieldRow
-              label="Bloco / Torre"
-              icon="pin"
-              value={bloco ?? ''}
-              onChange={(v) => setBloco(v || null)}
-              placeholder="Ex.: Bloco A"
-            />
-          )}
+          {/* Bloco/Torre — só para condomínios BLOCKS. Select quando numBlocks é
+              conhecido; senão cai para input de texto livre. */}
+          {isBlocksCondo &&
+            (useBlockSelect ? (
+              <SelectRow
+                label="Bloco / Torre"
+                icon="pin"
+                value={bloco ?? ''}
+                onChange={(v) => setBloco(v || null)}
+                placeholder="Selecione o bloco"
+                options={blockChoices}
+              />
+            ) : (
+              <FieldRow
+                label="Bloco / Torre"
+                icon="pin"
+                value={bloco ?? ''}
+                onChange={(v) => setBloco(v || null)}
+                placeholder="Ex.: A ou 1"
+              />
+            ))}
 
           <FieldRow
             label="Apartamento"
@@ -724,6 +782,158 @@ function FieldRow({ label, icon, value, onChange, placeholder, type = 'text', au
         )}
       </div>
     </label>
+  )
+}
+
+interface SelectRowProps {
+  label?: string
+  icon: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  options: string[]
+}
+
+function SelectRow({ label, icon, value, onChange, placeholder, options }: SelectRowProps) {
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState<string | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Fecha ao clicar fora ou apertar Esc.
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} style={{ display: 'block', position: 'relative' }}>
+      {label && (
+        <div
+          style={{
+            fontSize: 12,
+            fontFamily: 'var(--font-body)',
+            fontWeight: 700,
+            color: 'var(--color-text-sec)',
+            marginBottom: 7,
+            letterSpacing: '0.01em',
+          }}
+        >
+          {label}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: 'var(--color-surface-alt)',
+          border: `1.5px solid ${open ? 'var(--color-accent)' : 'var(--color-border)'}`,
+          borderRadius: 'var(--radius-field)',
+          padding: '12px 14px',
+          transition: 'border-color 0.15s ease',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <Icon name={icon} size={18} color="var(--color-text-ter)" />
+        <span
+          style={{
+            flex: 1,
+            fontSize: 15,
+            fontFamily: 'var(--font-body)',
+            fontWeight: 400,
+            color: value ? 'var(--color-text)' : 'var(--color-text-ter)',
+            minWidth: 0,
+          }}
+        >
+          {value || placeholder || 'Selecione'}
+        </span>
+        <span
+          style={{
+            display: 'inline-flex',
+            transition: 'transform 0.18s ease',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+          }}
+        >
+          <Icon name="chevD" size={16} color="var(--color-text-ter)" />
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            right: 0,
+            zIndex: 20,
+            background: 'var(--color-surface)',
+            border: '1.5px solid var(--color-border)',
+            borderRadius: 'var(--radius-field)',
+            boxShadow: 'var(--shadow-strong)',
+            padding: 6,
+            maxHeight: 260,
+            overflowY: 'auto',
+          }}
+        >
+          {options.map((opt) => {
+            const selected = opt === value
+            const active = selected || hovered === opt
+            return (
+              <button
+                key={opt}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  onChange(opt)
+                  setOpen(false)
+                }}
+                onMouseEnter={() => setHovered(opt)}
+                onMouseLeave={() => setHovered(null)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  background: active ? 'var(--color-surface-2)' : 'transparent',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '11px 12px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: 15,
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: selected ? 700 : 400,
+                  color: selected ? 'var(--color-accent)' : 'var(--color-text)',
+                  transition: 'background 0.12s ease',
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0 }}>{opt}</span>
+                {selected && <Icon name="check" size={16} color="var(--color-accent)" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 

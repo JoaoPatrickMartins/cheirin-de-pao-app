@@ -66,3 +66,10 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+<!-- USER RULE — fora dos blocos GSD de propósito (não sobrescrever) -->
+## Git — Commits e Push (regra mandatória)
+
+NUNCA execute `git commit` nem `git push` — nem estague/prepare com essa intenção — sem que o usuário autorize **explicitamente** naquele momento.
+
+"Funcionou", "perfeito", aprovação de um plano ou um "pode seguir" genérico **NÃO** contam como permissão para commitar/pushar. O aval precisa ser explícito e pedido a cada vez (ex.: "faça o commit", "pode commitar e dar push").

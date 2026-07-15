@@ -1,17 +1,18 @@
 import { useState } from 'react'
 import { passwordIssues } from '@cheirin-de-pao/shared'
+import { getDeviceId } from '../../lib/apiFetch'
 
 /**
  * Primitivos visuais compartilhados das telas de autenticação (login, definir/trocar
  * senha, recuperação). Fonte única de estilo — alta fidelidade com o handoff.
  */
 
+// Delega ao getDeviceId do apiFetch: gera + persiste o id na 1ª vez em vez de devolver
+// '' quando ainda não existe. Antes, num navegador sem device_id, o corpo do login ia
+// com deviceId:'' (readDeviceId roda ANTES do apiFetch gerar o id) e o backend
+// respondia 400 (DeviceIdSchema = z.string().min(1)).
 export function readDeviceId(): string {
-  try {
-    return localStorage.getItem('device_id') ?? ''
-  } catch {
-    return ''
-  }
+  return getDeviceId()
 }
 
 export function Heading({ children }: { children: React.ReactNode }) {

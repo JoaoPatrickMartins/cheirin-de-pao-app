@@ -1,28 +1,37 @@
 import { createBrowserRouter } from 'react-router'
 import { SplashScreen } from '../pages/splash/SplashScreen'
 import { AuthProvider } from '../contexts/AuthContext'
+import { RedirectIfAuthenticated } from '../components/RedirectIfAuthenticated'
 
 export const router = createBrowserRouter([
   {
     Component: AuthProvider,
     children: [
+      // Rotas públicas: usuário já autenticado é enviado direto para a home do
+      // seu perfil, em vez de rever a splash/login/cadastro (a sessão persiste
+      // no localStorage e é reidratada ao reabrir o PWA/navegador).
       {
-        path: '/',
-        element: <SplashScreen />,
-      },
-      {
-        path: '/login',
-        lazy: () =>
-          import('../pages/auth/LoginScreen').then((m) => ({
-            Component: m.LoginScreen,
-          })),
-      },
-      {
-        path: '/register',
-        lazy: () =>
-          import('../pages/auth/OnboardingScreen').then((m) => ({
-            Component: m.OnboardingScreen,
-          })),
+        Component: RedirectIfAuthenticated,
+        children: [
+          {
+            path: '/',
+            element: <SplashScreen />,
+          },
+          {
+            path: '/login',
+            lazy: () =>
+              import('../pages/auth/LoginScreen').then((m) => ({
+                Component: m.LoginScreen,
+              })),
+          },
+          {
+            path: '/register',
+            lazy: () =>
+              import('../pages/auth/OnboardingScreen').then((m) => ({
+                Component: m.OnboardingScreen,
+              })),
+          },
+        ],
       },
       {
         path: '/set-password',

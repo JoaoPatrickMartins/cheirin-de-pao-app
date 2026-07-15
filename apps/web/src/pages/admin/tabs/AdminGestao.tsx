@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { Icon } from '../../../components/brand/Icon'
 import { useAuth } from '../../../hooks/useAuth'
@@ -58,6 +59,7 @@ export function AdminGestao() {
   const [sub, setSub] = useState<AdminGestaoSub>(null)
   const { logout } = useAuth()
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
+  const navigate = useNavigate()
 
   const onBack = () => setSub(null)
 
@@ -96,6 +98,13 @@ export function AdminGestao() {
             onClick={() => setSub(item.key)}
           />
         ))}
+
+        <HubCard
+          icon="lock"
+          titulo="Trocar senha"
+          descricao="Alterar a senha de acesso"
+          onClick={() => navigate('/change-password')}
+        />
 
         {/* Sair — fim do menu de gestão */}
         <button

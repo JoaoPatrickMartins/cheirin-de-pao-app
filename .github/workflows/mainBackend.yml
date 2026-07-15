@@ -116,7 +116,7 @@ jobs:
           echo STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET_DEV }} >> ./apps/api/.env.production
           echo MP_ACCESS_TOKEN=${{ secrets.MP_ACCESS_TOKEN_DEV }} >> ./apps/api/.env.production
           echo MP_WEBHOOK_SECRET=${{ secrets.MP_WEBHOOK_SECRET_DEV }} >> ./apps/api/.env.production
-          echo ONESIGNAL_API_ID=${{ secrets.ONESIGNAL_API_ID_DEV }} >> ./apps/api/.env.production
+          echo ONESIGNAL_APP_ID=${{ secrets.ONESIGNAL_APP_ID_DEV }} >> ./apps/api/.env.production
           echo ONESIGNAL_REST_API_KEY=${{ secrets.ONESIGNAL_REST_API_KEY_DEV }} >> ./apps/api/.env.production
           echo JWT_SECRET=${{ secrets.JWT_SECRET_DEV }} >> ./apps/api/.env.production
           
@@ -141,7 +141,7 @@ jobs:
           echo STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET_PROD }} >> ./apps/api/.env.production
           echo MP_ACCESS_TOKEN=${{ secrets.MP_ACCESS_TOKEN_PROD }} >> ./apps/api/.env.production
           echo MP_WEBHOOK_SECRET=${{ secrets.MP_WEBHOOK_SECRET_PROD }} >> ./apps/api/.env.production
-          echo ONESIGNAL_API_ID=${{ secrets.ONESIGNAL_API_ID_PROD }} >> ./apps/api/.env.production
+          echo ONESIGNAL_APP_ID=${{ secrets.ONESIGNAL_APP_ID_PROD }} >> ./apps/api/.env.production
           echo ONESIGNAL_REST_API_KEY=${{ secrets.ONESIGNAL_REST_API_KEY_PROD }} >> ./apps/api/.env.production
           echo JWT_SECRET=${{ secrets.JWT_SECRET_PROD }} >> ./apps/api/.env.production
         

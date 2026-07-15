@@ -150,7 +150,15 @@ export function AdminNotificationsScreen({ onBack }: { onBack: () => void }) {
         )}
 
         {!isLoading && notifications.length === 0 && (
-          <div style={{ textAlign: 'center', paddingTop: 48 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              paddingTop: 48,
+            }}
+          >
             <Icon name="bell" size={48} color="var(--color-text-ter)" />
             <p
               style={{
