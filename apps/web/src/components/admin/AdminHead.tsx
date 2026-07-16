@@ -18,7 +18,8 @@ export function AdminHead({ sub, titulo, action, hideBell }: AdminHeadProps) {
         display: 'flex',
         alignItems: 'center',
         gap: 12,
-        padding: '4px 20px 14px',
+        // Respiro maior acima do header + área segura (notch). Espelha o header do cliente.
+        padding: 'calc(20px + env(safe-area-inset-top)) 20px 14px',
       }}
     >
       {/* Avatar espresso com BreadMark dourado */}

@@ -204,14 +204,21 @@ model Condominium {
 
 // 3. Combo — pacotes de créditos de pãezinhos
 model Combo {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  name      String
-  quantity  Int
-  price     Float
-  tag       String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  quantity       Int
+  price          Float
+  tag            String?
+  // Subtítulo curto exibido no card (ex.: "O equilíbrio da casa")
+  description    String?
+  // Liga/desliga a tag de economia no card. A economia é calculada automaticamente
+  // comparando o preço do combo com comprar a mesma quantidade no avulso (avulsoUnit).
+  // Nullable de propósito: combos criados antes deste campo leem null no Mongo (o
+  // @default só vale na criação) — o código trata null/ausente como "ligada".
+  showEconomy    Boolean? @default(true)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 // 4. Promotion — promoções e descontos temporários por combo

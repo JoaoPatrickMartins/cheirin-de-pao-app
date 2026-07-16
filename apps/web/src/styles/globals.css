@@ -141,6 +141,75 @@
   animation: cdp-shimmer 1.4s ease-in-out infinite;
 }
 
+/* ============================================================
+   Login OTP — feedback de verificação (premium, on-brand).
+   Exibido enquanto o código de 4 dígitos é verificado. A regra
+   global prefers-reduced-motion zera as durações: o anel/fumaça
+   congelam no estado inicial e a legenda mantém o significado.
+   ============================================================ */
+
+/* Entrada suave do bloco de verificação (crossfade com os campos) */
+@keyframes cdp-otp-in {
+  0%   { opacity: 0; transform: translateY(6px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Anel dourado girando (cometa) — indicador de progresso */
+@keyframes cdp-otp-ring-spin {
+  to { transform: rotate(360deg); }
+}
+.cdp-otp-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 210deg,
+    var(--color-gold-soft) 300deg,
+    var(--color-gold) 340deg,
+    var(--color-accent) 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  animation: cdp-otp-ring-spin 1.1s linear infinite;
+}
+
+/* Fumacinha subindo do pãozinho — sobe, some e reinicia (loop escalonado) */
+@keyframes cdp-steam-rise {
+  0%   { opacity: 0;    transform: translateY(3px)  scaleY(0.7); }
+  25%  { opacity: 0.85; }
+  70%  { opacity: 0.85; }
+  100% { opacity: 0;    transform: translateY(-7px) scaleY(1.15); }
+}
+.cdp-steam {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: cdp-steam-rise 2.2s ease-in-out infinite;
+}
+.cdp-steam-2 { animation-delay: 0.4s; }
+.cdp-steam-3 { animation-delay: 0.8s; }
+
+/* Respiração sutil do pãozinho (dá vida ao centro) */
+@keyframes cdp-otp-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.05); }
+}
+.cdp-otp-loaf { animation: cdp-otp-breathe 2.2s ease-in-out infinite; transform-origin: 50% 62%; }
+
+/* Reticências animadas da legenda "Verificando código" */
+@keyframes cdp-otp-dots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}
+.cdp-otp-dots::after {
+  content: '';
+  animation: cdp-otp-dots 1.4s steps(1, end) infinite;
+}
+
 /* Carrossel horizontal (próximas entregas) — swipe nativo, sem scrollbar visível */
 .cdp-carousel {
   scrollbar-width: none;

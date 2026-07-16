@@ -11,6 +11,9 @@ interface Combo {
   price: number
   isActive: boolean
   tag?: string
+  description?: string | null
+  economyPercent?: number | null
+  economySavings?: number | null
   antes?: number
 }
 
@@ -169,6 +172,19 @@ export function CombosScreen() {
 
       {/* Scrollable content */}
       <div style={{ flex: 1, padding: '0 20px', paddingBottom: 116, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {/* Frase-guia: reforça o valor da economia por combo */}
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 13,
+            lineHeight: 1.4,
+            color: 'var(--color-text-sec)',
+            margin: '0 0 16px 0',
+          }}
+        >
+          Cada crédito vale <strong style={{ color: 'var(--color-text)' }}>um pão fresquinho</strong>. Quanto maior o combo, menor o preço por pão.
+        </p>
+
         {error && (
           <p style={{ color: 'var(--color-accent)', fontSize: 14, marginBottom: 12 }}>
             {error}

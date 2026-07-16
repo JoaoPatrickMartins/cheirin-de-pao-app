@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { OtpInput } from '../../components/auth/OtpInput'
+import { OtpVerifying } from '../../components/auth/OtpVerifying'
 import { ResendTimer } from '../../components/auth/ResendTimer'
 import { Icon } from '../../components/brand/Icon'
 import { apiFetch } from '../../lib/apiFetch'
@@ -397,13 +398,19 @@ function StepOtpCode({ email, isLoading, error, onComplete, onResend }: StepOtpC
         <strong style={{ fontWeight: 700, color: 'var(--color-text)' }}>{email}</strong>.
       </BodyText>
 
-      <OtpInput onComplete={onComplete} disabled={isLoading} />
+      {isLoading ? (
+        <OtpVerifying />
+      ) : (
+        <>
+          <OtpInput onComplete={onComplete} />
 
-      {error && <ErrorMessage>{error}</ErrorMessage>}
+          {error && <ErrorMessage>{error}</ErrorMessage>}
 
-      <div style={{ height: 24 }} />
+          <div style={{ height: 24 }} />
 
-      <ResendTimer onResend={onResend} />
+          <ResendTimer onResend={onResend} />
+        </>
+      )}
     </div>
   )
 }

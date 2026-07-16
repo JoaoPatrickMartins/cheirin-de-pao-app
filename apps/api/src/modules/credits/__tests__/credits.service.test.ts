@@ -86,6 +86,55 @@ describe('CreditsService [CRED-03, CRED-04]', () => {
     })
   })
 
+  describe('listCombos (economia calculada e subtítulo)', () => {
+    it('calcula economyPercent/economySavings vs. avulso quando showEconomy=true', async () => {
+      const mockFastify = createMockFastify()
+      ;(mockFastify.prisma.combo.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        {
+          id: 'combo-1',
+          name: 'Família',
+          quantity: 30,
+          price: 24.9,
+          tag: 'Mais popular',
+          description: 'O equilíbrio da casa',
+          showEconomy: true,
+          isActive: true,
+        },
+      ])
+      // avulsoUnit = R$1,20 → cheio = 36,00 → economia = 11,10 (≈31%)
+      ;(mockFastify.prisma.setting.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        key: 'avulsoUnit',
+        value: '1.20',
+      })
+
+      const service = new CreditsService(mockFastify)
+      const result = await service.listCombos()
+
+      const combo = result.find((c) => c.id === 'combo-1')!
+      expect(combo.description).toBe('O equilíbrio da casa')
+      expect(combo.economySavings).toBeCloseTo(11.1, 2)
+      expect(combo.economyPercent).toBe(31)
+    })
+
+    it('não expõe economia quando showEconomy=false', async () => {
+      const mockFastify = createMockFastify()
+      ;(mockFastify.prisma.combo.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+        { id: 'combo-1', name: 'Família', quantity: 30, price: 24.9, showEconomy: false, isActive: true },
+      ])
+      ;(mockFastify.prisma.setting.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        key: 'avulsoUnit',
+        value: '1.20',
+      })
+
+      const service = new CreditsService(mockFastify)
+      const result = await service.listCombos()
+
+      const combo = result.find((c) => c.id === 'combo-1')!
+      expect(combo.economyPercent).toBeNull()
+      expect(combo.economySavings).toBeNull()
+    })
+  })
+
   describe('validateQuantity [CRED-03]', () => {
     it('rejeita quantity >= avulsoLimite (deve usar combo, nao avulso)', async () => {
       const mockFastify = createMockFastify()

@@ -90,6 +90,22 @@ describe('AdminCombosService.update — cascata de compra automática', () => {
     expect(prisma.user.findMany).not.toHaveBeenCalled()
   })
 
+  it('repassa showEconomy e description para o update do combo', async () => {
+    const { fastify, prisma } = makeMock()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AdminCombosService(fastify as any)
+
+    await service.update('combo-01', { showEconomy: false, description: 'O equilíbrio da casa' })
+
+    expect(prisma.combo.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'combo-01' },
+        data: { showEconomy: false, description: 'O equilíbrio da casa' },
+      }),
+    )
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+
   it('lança 404 quando o combo não existe', async () => {
     const { fastify } = makeMock({ existing: null })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,5 +114,35 @@ describe('AdminCombosService.update — cascata de compra automática', () => {
     await expect(service.update('inexistente', { isActive: false })).rejects.toMatchObject({
       statusCode: 404,
     })
+  })
+})
+
+describe('AdminCombosService.list — economia calculada vs. avulso', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calcula economyPercent/economySavings quando showEconomy=true e null quando desligado', async () => {
+    const prisma = {
+      combo: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'c1', name: 'Família', quantity: 30, price: 24.9, showEconomy: true, isActive: true },
+          { id: 'c2', name: 'Simples', quantity: 10, price: 9.0, showEconomy: false, isActive: true },
+        ]),
+      },
+      promotion: { findFirst: vi.fn().mockResolvedValue(null) },
+      setting: { findUnique: vi.fn().mockResolvedValue({ key: 'avulsoUnit', value: '1.20' }) },
+    }
+    const fastify = { prisma, log: { error: vi.fn() } } as unknown
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AdminCombosService(fastify as any)
+    const result = await service.list()
+
+    const comEconomia = result.find((c) => c.id === 'c1')!
+    expect(comEconomia.economyPercent).toBe(31) // (36,00 − 24,90) / 36,00
+    expect(comEconomia.economySavings).toBeCloseTo(11.1, 2)
+
+    const semEconomia = result.find((c) => c.id === 'c2')!
+    expect(semEconomia.economyPercent).toBeNull()
+    expect(semEconomia.economySavings).toBeNull()
   })
 })
