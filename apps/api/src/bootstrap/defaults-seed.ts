@@ -52,6 +52,8 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
         quantity: 10,
         price: 9.0, // R$ 0,90/unid — abaixo do avulso (R$ 1,00)
         tag: 'Mais popular',
+        description: 'O essencial do dia',
+        showEconomy: true, // economia calculada vs. avulso (R$ 0,90/unid < R$ 1,00)
         isActive: true,
       },
     })

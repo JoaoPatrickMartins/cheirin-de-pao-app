@@ -20,6 +20,10 @@ interface Combo {
   quantity: number
   price: number
   tag?: string | null
+  description?: string | null
+  showEconomy?: boolean
+  economyPercent?: number | null
+  economySavings?: number | null
   isActive: boolean
   discount?: DiscountEmbed | null
 }
@@ -52,8 +56,8 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
   const [pending, setPending] = useState<Combo | null>(null)
   const { toast, showToast } = useToast()
 
-  const fetchCombos = useCallback(async () => {
-    setIsLoading(true)
+  const fetchCombos = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true)
     try {
       const res = await apiFetch('/admin/combos')
       if (res.ok) {
@@ -62,7 +66,7 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
     } catch {
       // falha silenciosa
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
     }
   }, [])
 
@@ -114,6 +118,26 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
       void performToggleActive(combo, true)
     },
     [performToggleActive],
+  )
+
+  // Liga/desliga a tag de economia (otimista). Após o PATCH, refaz o fetch silencioso
+  // para atualizar a % calculada (economyPercent/economySavings) exibida no card.
+  const performToggleEconomy = useCallback(
+    async (combo: Combo, next: boolean) => {
+      setCombos((prev) => prev.map((c) => (c.id === combo.id ? { ...c, showEconomy: next } : c)))
+      try {
+        const res = await apiFetch(`/admin/combos/${combo.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ showEconomy: next }),
+        })
+        if (!res.ok) throw new Error('patch failed')
+        await fetchCombos(true)
+      } catch {
+        setCombos((prev) => prev.map((c) => (c.id === combo.id ? { ...c, showEconomy: !next } : c)))
+        showToast('Não foi possível atualizar. Tente novamente.', false)
+      }
+    },
+    [fetchCombos, showToast],
   )
 
   if (sub === 'criar') {
@@ -217,6 +241,7 @@ export function AdminCombos({ onBack }: AdminCombosProps) {
                 }}
                 onToggleActive={() => requestToggleActive(combo)}
                 onTogglePromo={() => void togglePromo(combo, setCombos)}
+                onToggleEconomy={() => void performToggleEconomy(combo, !(combo.showEconomy ?? true))}
               />
             ))}
           </div>
@@ -281,10 +306,12 @@ interface ComboCardProps {
   onEdit: () => void
   onToggleActive: () => void
   onTogglePromo: () => void
+  onToggleEconomy: () => void
 }
 
-function ComboCard({ combo, busy, onEdit, onToggleActive, onTogglePromo }: ComboCardProps) {
+function ComboCard({ combo, busy, onEdit, onToggleActive, onTogglePromo, onToggleEconomy }: ComboCardProps) {
   const promoAtiva = combo.discount?.active === true
+  const economiaAtiva = combo.showEconomy ?? true
   const inactive = !combo.isActive
 
   return (
@@ -352,7 +379,8 @@ function ComboCard({ combo, busy, onEdit, onToggleActive, onTogglePromo }: Combo
               margin: '2px 0 0',
             }}
           >
-            {combo.quantity} pães ·{' '}
+            {combo.quantity} pães
+            {combo.description ? ` · ${combo.description}` : ''} ·{' '}
             {promoAtiva && combo.discount ? (
               <>
                 <span style={{ textDecoration: 'line-through', color: 'var(--color-text-ter)' }}>
@@ -366,6 +394,20 @@ function ComboCard({ combo, busy, onEdit, onToggleActive, onTogglePromo }: Combo
               <span>{formatBRL(combo.price)}</span>
             )}
           </p>
+          {economiaAtiva && combo.economyPercent != null && combo.economyPercent > 0 && (
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12,
+                fontWeight: 700,
+                color: 'var(--color-good)',
+                margin: '3px 0 0',
+              }}
+            >
+              Economia {combo.economyPercent}%
+              {combo.economySavings != null ? ` · ${formatBRL(combo.economySavings)}` : ''} vs. avulso
+            </p>
+          )}
         </div>
 
         {/* Botão editar */}
@@ -452,6 +494,40 @@ function ComboCard({ combo, busy, onEdit, onToggleActive, onTogglePromo }: Combo
           onChange={onTogglePromo}
           disabled={inactive}
           aria-label="Ativar ou desativar promoção"
+        />
+      </div>
+
+      {/* Tag de economia — liga/desliga o destaque de economia (calculada vs. avulso) no card do cliente */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 12,
+          paddingTop: 12,
+          borderTop: '1px solid var(--color-border-2)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <Icon name="coin" size={17} color="var(--color-text-sec)" />
+          <span
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--color-text-sec)',
+            }}
+          >
+            Tag de economia
+            {economiaAtiva && combo.economyPercent != null && combo.economyPercent > 0
+              ? ` · ${combo.economyPercent}% vs. avulso`
+              : ''}
+          </span>
+        </div>
+        <SwitchToggle
+          on={economiaAtiva}
+          onChange={onToggleEconomy}
+          aria-label="Ligar ou desligar a tag de economia"
         />
       </div>
     </div>

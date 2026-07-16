@@ -9,6 +9,10 @@ export const CreateComboSchema = z.object({
   quantity: z.number().int().min(1, 'Quantidade mínima é 1'),
   price: z.number().min(0, 'Preço não pode ser negativo'),
   tag: z.string().optional(),
+  // Subtítulo curto exibido no card do cliente (ex.: "O equilíbrio da casa").
+  description: z.string().max(60, 'Subtítulo muito longo (máx. 60)').optional(),
+  // Liga/desliga a tag de economia (calculada vs. o preço avulso).
+  showEconomy: z.boolean().optional(),
 })
 
 export type CreateComboBody = z.infer<typeof CreateComboSchema>

@@ -16,6 +16,12 @@ export class AdminCombosRepository {
     return this.prisma.combo.findMany({ orderBy: { name: 'asc' } })
   }
 
+  /** Preço do pão avulso (Setting avulsoUnit). 0 quando não configurado. */
+  async getAvulsoUnit(): Promise<number> {
+    const setting = await this.prisma.setting.findUnique({ where: { key: 'avulsoUnit' } })
+    return setting ? parseFloat(setting.value) : 0
+  }
+
   findById(id: string) {
     return this.prisma.combo.findUnique({ where: { id } })
   }

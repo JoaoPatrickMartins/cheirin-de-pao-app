@@ -22,3 +22,28 @@ export function effectiveComboPrice(price: number, promotion: PromotionLike): nu
       : price - promotion.discountValue
   return Math.max(0, Math.round(discounted * 100) / 100)
 }
+
+/**
+ * Economia do combo vs. comprar a mesma quantidade no avulso.
+ *
+ * cheio  = avulsoUnit × quantidade   (quanto custaria avulso)
+ * savings = cheio − price            (economia em R$, 2 casas)
+ * percent = savings / cheio × 100    (economia %, inteiro)
+ *
+ * Retorna null quando não há economia positiva (ou o avulso não está configurado),
+ * para o card simplesmente não exibir a tag. `price` deve ser o preço efetivo já
+ * exibido (com desconto de promoção, quando houver), para o valor ser verdadeiro.
+ */
+export function comboEconomy(
+  price: number,
+  quantity: number,
+  avulsoUnit: number,
+): { savings: number; percent: number } | null {
+  const cheio = avulsoUnit * quantity
+  if (!(cheio > 0)) return null
+  const savings = Math.round((cheio - price) * 100) / 100
+  if (!(savings > 0)) return null
+  const percent = Math.round((savings / cheio) * 100)
+  if (percent <= 0) return null
+  return { savings, percent }
+}

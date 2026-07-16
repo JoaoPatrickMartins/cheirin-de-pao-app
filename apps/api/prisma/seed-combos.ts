@@ -7,9 +7,9 @@ async function main() {
 
   const combos = await prisma.combo.createMany({
     data: [
-      { name: 'Combo Básico', quantity: 20, price: 29.9, tag: 'Mais popular', isActive: true },
-      { name: 'Combo Médio', quantity: 40, price: 54.9, isActive: true },
-      { name: 'Combo Família', quantity: 60, price: 74.9, tag: 'Melhor custo-benefício', isActive: true },
+      { name: 'Combo Básico', quantity: 20, price: 29.9, tag: 'Mais popular', description: 'O essencial do dia', showEconomy: true, isActive: true },
+      { name: 'Combo Médio', quantity: 40, price: 54.9, description: 'O equilíbrio da casa', showEconomy: true, isActive: true },
+      { name: 'Combo Família', quantity: 60, price: 74.9, tag: 'Melhor custo-benefício', description: 'Pra mesa cheia', showEconomy: true, isActive: true },
     ],
   })
 
