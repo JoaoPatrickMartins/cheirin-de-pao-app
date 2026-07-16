@@ -5,6 +5,9 @@ interface Combo {
   price: number
   isActive: boolean
   tag?: string
+  description?: string | null
+  economyPercent?: number | null
+  economySavings?: number | null
   antes?: number
 }
 
@@ -18,6 +21,12 @@ const formatBRL = (val: number) =>
   val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 export default function ComboCard({ combo, selected, onSelect }: ComboCardProps) {
+  // Economia calculada no backend (vs. comprar a mesma quantidade no avulso).
+  // Vem null quando a tag está desligada ou não há economia positiva.
+  const percent = combo.economyPercent ?? 0
+  const savings = combo.economySavings ?? 0
+  const showEconomy = percent > 0 && savings > 0
+
   return (
     <div
       role="button"
@@ -57,7 +66,7 @@ export default function ComboCard({ combo, selected, onSelect }: ComboCardProps)
         </span>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p
             style={{
               fontFamily: 'var(--font-display)',
@@ -79,6 +88,7 @@ export default function ComboCard({ combo, selected, onSelect }: ComboCardProps)
             }}
           >
             {combo.quantity} pães
+            {combo.description ? ` · ${combo.description}` : ''}
           </p>
         </div>
         <div style={{ textAlign: 'right', marginRight: 12 }}>
@@ -86,23 +96,23 @@ export default function ComboCard({ combo, selected, onSelect }: ComboCardProps)
             <p
               style={{
                 fontFamily: 'var(--font-body)',
-                fontSize: 13,
+                fontSize: 12,
                 color: 'var(--color-text-ter)',
                 textDecoration: 'line-through',
-                margin: '0 0 2px 0',
+                margin: '0 0 1px 0',
               }}
             >
               {formatBRL(combo.antes)}
             </p>
           )}
+          {/* Preço em segundo plano — a economia é o destaque do card */}
           <p
             style={{
-              fontFamily: 'var(--font-display)',
-              fontWeight: 800,
-              fontSize: 22,
-              color: selected ? 'var(--color-accent)' : 'var(--color-text)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 600,
+              fontSize: 15,
+              color: 'var(--color-text-sec)',
               margin: 0,
-              transition: 'color .15s',
             }}
           >
             {formatBRL(combo.price)}
@@ -135,6 +145,44 @@ export default function ComboCard({ combo, selected, onSelect }: ComboCardProps)
           )}
         </div>
       </div>
+
+      {/* Economia — destaque principal do card */}
+      {showEconomy && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginTop: 12,
+            background: 'var(--color-good-soft)',
+            borderRadius: 12,
+            padding: '9px 12px',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--color-good)',
+            }}
+          >
+            Você economiza {formatBRL(savings)}
+          </span>
+          <span
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 800,
+              color: 'var(--color-good)',
+              flexShrink: 0,
+            }}
+          >
+            −{Math.round(percent)}%
+          </span>
+        </div>
+      )}
     </div>
   )
 }

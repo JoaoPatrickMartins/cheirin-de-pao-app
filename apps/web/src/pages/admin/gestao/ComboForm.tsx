@@ -12,6 +12,7 @@ interface ComboFormProps {
 // ------------------------------------------------------------------ componente
 export function ComboForm({ id, onBack, onSaved }: ComboFormProps) {
   const [nome, setNome] = useState('')
+  const [subtitulo, setSubtitulo] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [preco, setPreco] = useState('')
   const [tag, setTag] = useState('')
@@ -30,8 +31,10 @@ export function ComboForm({ id, onBack, onSaved }: ComboFormProps) {
             quantity: number
             price: number
             tag?: string | null
+            description?: string | null
           }
           setNome(data.name)
+          setSubtitulo(data.description ?? '')
           setQuantidade(String(data.quantity))
           setPreco(String(data.price))
           setTag(data.tag ?? '')
@@ -53,6 +56,7 @@ export function ComboForm({ id, onBack, onSaved }: ComboFormProps) {
         name: nome.trim(),
         quantity: Number(quantidade),
         price: Number(preco),
+        ...(subtitulo.trim() ? { description: subtitulo.trim() } : {}),
         ...(tag.trim() ? { tag: tag.trim() } : {}),
       }
       const res = await apiFetch(id ? `/admin/combos/${id}` : '/admin/combos', {
@@ -146,6 +150,14 @@ export function ComboForm({ id, onBack, onSaved }: ComboFormProps) {
           value={nome}
           onChange={setNome}
           placeholder="Ex.: Combo da semana"
+        />
+
+        <FormField
+          label="Subtítulo (opcional)"
+          icon="bag"
+          value={subtitulo}
+          onChange={setSubtitulo}
+          placeholder="Ex.: O equilíbrio da casa"
         />
 
         <FormField

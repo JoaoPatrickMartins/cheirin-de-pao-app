@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { CreditsRepository } from './credits.repository.js'
-import { effectiveComboPrice } from '../../lib/combo-pricing.js'
+import { effectiveComboPrice, comboEconomy } from '../../lib/combo-pricing.js'
 import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
 import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
 
@@ -18,6 +18,8 @@ export class CreditsService {
   async listCombos() {
     const combos = await this.repo.listActiveCombos()
     const promotions = await this.repo.findActivePromotionsByComboIds(combos.map((c) => c.id))
+    const avulsoSetting = await this.repo.getSettingByKey('avulsoUnit')
+    const avulsoUnit = avulsoSetting ? parseFloat(avulsoSetting.value) : 0
 
     const promoByCombo = new Map<string, (typeof promotions)[number]>()
     for (const p of promotions) {
@@ -28,11 +30,17 @@ export class CreditsService {
       const promo = promoByCombo.get(combo.id) ?? null
       const price = effectiveComboPrice(combo.price, promo)
       const isOnPromotion = price < combo.price
+      // Economia calculada vs. comprar a mesma quantidade no avulso. Usa o preço
+      // efetivo (com desconto) para o valor ser verdadeiro em qualquer situação.
+      const eco = combo.showEconomy !== false ? comboEconomy(price, combo.quantity, avulsoUnit) : null
       return {
         id: combo.id,
         name: combo.name,
         quantity: combo.quantity,
         tag: combo.tag,
+        description: combo.description,
+        economyPercent: eco?.percent ?? null,
+        economySavings: eco?.savings ?? null,
         isActive: combo.isActive,
         price,
         isOnPromotion,

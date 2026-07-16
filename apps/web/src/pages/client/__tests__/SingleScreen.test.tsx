@@ -1,5 +1,5 @@
 // SingleScreen page tests
-// Requirements: SCHED-01 — pedido único usa saldo ou cobra só a diferença (Pix/Cartão)
+// Requirements: SCHED-01 — pedido único usa saldo ou cobra só a diferença (via Pix)
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
@@ -103,18 +103,12 @@ describe('SingleScreen [SCHED-01]', () => {
     expect(options.state.pendingOrder.scheduledDate).toMatch(DATE_RE)
   })
 
-  it('déficit + Cartão → navega para /client/creditos/cartao com pendingOrder (deliveryTime)', async () => {
+  it('déficit → pedido único não oferece pagamento por cartão (só Pix)', async () => {
     auth.creditBalance = 0
     renderScreen()
     await pickSlot()
-    fireEvent.click(screen.getByText('Cartão'))
-    fireEvent.click(screen.getByText(/Pagar .* e agendar/i))
 
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith('/client/creditos/cartao', expect.anything()),
-    )
-    const [, options] = mockNavigate.mock.calls.find((c) => c[0] === '/client/creditos/cartao')!
-    expect(options.state).toMatchObject({ customQuantity: 1 })
-    expect(options.state.pendingOrder).toMatchObject({ quantity: 1, deliveryTime: '15:30' })
+    expect(screen.queryByText('Cartão')).not.toBeInTheDocument()
+    expect(screen.getByText('Pagamento via Pix')).toBeInTheDocument()
   })
 })
