@@ -1,12 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
-import { Prisma, NotificationType } from '@prisma/client'
+import { Prisma, NotificationType, HookRequestType } from '@prisma/client'
 import { NotificationsService } from '../notifications/notifications.service.js'
 
 /** Parâmetros de listagem de solicitações de gancho. */
 export interface ListHooksParams {
   q?: string
   status?: 'pending' | 'delivered' | 'all'
+  type?: 'all' | 'free' | 'paid' | 'bonus'
   sort?: 'recent' | 'name'
   page?: number
   limit?: number
@@ -19,11 +20,17 @@ function createOsClient() {
   return new OneSignal.DefaultApi(configuration)
 }
 
+const TYPE_MAP: Record<'free' | 'paid' | 'bonus', HookRequestType> = {
+  free: HookRequestType.FREE,
+  paid: HookRequestType.PAID,
+  bonus: HookRequestType.BONUS,
+}
+
 /**
- * AdminHooksService — gestão das solicitações de gancho de porta pelo Admin.
+ * AdminHooksService — gestão dos ganchos de porta pelo Admin (coleção HookRequest).
  *
- * Uma solicitação existe quando o cliente confirmou o gancho (hookRequestedAt != null).
- * Pendente = sem hookDeliveredAt; Entregue = com hookDeliveredAt.
+ * A fila de entrega são os ganchos em status REQUESTED (grátis, pago confirmado ou bônus).
+ * Pagamentos pendentes (PENDING_PAYMENT) e cancelados não aparecem para o admin.
  */
 export class AdminHooksService {
   constructor(private fastify: FastifyInstance) {}
@@ -33,20 +40,22 @@ export class AdminHooksService {
   }
 
   /**
-   * Lista solicitações de gancho (clientes com hookRequestedAt != null) com busca,
-   * filtro pendente/entregue, ordenação e paginação (skip/take no banco).
-   * Resolve o nome do condomínio em UMA query batch (evita N+1).
+   * Lista ganchos (REQUESTED/DELIVERED) com busca por dados do cliente, filtro de
+   * status/tipo, ordenação e paginação. Resolve nome/local do cliente e do condomínio
+   * em queries batch (evita N+1). A busca resolve os userIds em uma query de User antes.
+   * `sort=name` ordena a página retornada (page-local).
    */
   async list(params: ListHooksParams = {}) {
-    const { q, status = 'pending', sort = 'recent', page = 1, limit = 20 } = params
+    const { q, status = 'pending', type = 'all', sort = 'recent', page = 1, limit = 20 } = params
 
-    const where: Prisma.UserWhereInput = { role: 'CLIENT', hookRequestedAt: { not: null } }
-    // Prisma + Mongo: `{ hookDeliveredAt: null }` NÃO casa documentos com o campo AUSENTE
-    // (quem nunca teve entrega — o campo nunca foi gravado). Usa o operador explícito
-    // do Prisma-Mongo: pendente = campo não setado; entregue = presente (not null).
-    if (status === 'pending') where.hookDeliveredAt = { isSet: false }
-    else if (status === 'delivered') where.hookDeliveredAt = { not: null }
+    const where: Prisma.HookRequestWhereInput = {}
+    if (status === 'pending') where.status = 'REQUESTED'
+    else if (status === 'delivered') where.status = 'DELIVERED'
+    else where.status = { in: ['REQUESTED', 'DELIVERED'] }
 
+    if (type !== 'all') where.type = TYPE_MAP[type]
+
+    // Busca por dados do cliente → resolve userIds (HookRequest não tem relação no schema Mongo).
     const term = q?.trim()
     if (term) {
       const digits = term.replace(/\D/g, '')
@@ -60,34 +69,47 @@ export class AdminHooksService {
         or.push({ cpf: { contains: digits } })
         or.push({ phone: { contains: digits } })
       }
-      where.OR = or
+      const matched = await this.prisma.user.findMany({
+        where: { role: 'CLIENT', OR: or },
+        select: { id: true },
+      })
+      const ids = matched.map((u) => u.id)
+      if (ids.length === 0) return { items: [], total: 0, page, limit }
+      where.userId = { in: ids }
     }
 
-    const orderBy: Prisma.UserOrderByWithRelationInput =
-      sort === 'name' ? { name: 'asc' } : { hookRequestedAt: 'desc' }
-
-    const [total, clients] = await Promise.all([
-      this.prisma.user.count({ where }),
-      this.prisma.user.findMany({
+    const [total, hooks] = await Promise.all([
+      this.prisma.hookRequest.count({ where }),
+      this.prisma.hookRequest.findMany({
         where,
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          apartment: true,
-          block: true,
-          condominiumId: true,
-          hookRequestedAt: true,
-          hookDeliveredAt: true,
-        },
-        orderBy,
+        orderBy: { requestedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
+        select: {
+          id: true,
+          userId: true,
+          type: true,
+          status: true,
+          reason: true,
+          requestedAt: true,
+          deliveredAt: true,
+        },
       }),
     ])
 
+    // Resolve clientes em UMA query batch
+    const userIds = [...new Set(hooks.map((h) => h.userId))]
+    const users =
+      userIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true, phone: true, apartment: true, block: true, condominiumId: true },
+          })
+        : []
+    const userMap = new Map(users.map((u) => [u.id, u]))
+
     // Resolve nomes de condomínio em UMA query batch
-    const condoIds = [...new Set(clients.map((c) => c.condominiumId).filter((v): v is string => !!v))]
+    const condoIds = [...new Set(users.map((u) => u.condominiumId).filter((v): v is string => !!v))]
     const condoMap = new Map<string, string>()
     if (condoIds.length > 0) {
       const condos = await this.prisma.condominium.findMany({
@@ -97,52 +119,68 @@ export class AdminHooksService {
       for (const c of condos) condoMap.set(c.id, c.name)
     }
 
-    const items = clients.map((c) => ({
-      id: c.id,
-      name: c.name,
-      phone: c.phone ?? null,
-      apartment: c.apartment ?? null,
-      block: c.block ?? null,
-      condominiumId: c.condominiumId ?? null,
-      condominiumName: c.condominiumId ? condoMap.get(c.condominiumId) ?? null : null,
-      hookRequestedAt: c.hookRequestedAt,
-      hookDeliveredAt: c.hookDeliveredAt,
-    }))
+    let items = hooks.map((h) => {
+      const u = userMap.get(h.userId)
+      return {
+        id: h.id,
+        userId: h.userId,
+        type: h.type,
+        status: h.status,
+        reason: h.reason ?? null,
+        requestedAt: h.requestedAt,
+        deliveredAt: h.deliveredAt,
+        name: u?.name ?? 'Cliente',
+        phone: u?.phone ?? null,
+        apartment: u?.apartment ?? null,
+        block: u?.block ?? null,
+        condominiumId: u?.condominiumId ?? null,
+        condominiumName: u?.condominiumId ? condoMap.get(u.condominiumId) ?? null : null,
+      }
+    })
+
+    if (sort === 'name') {
+      items = [...items].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    }
 
     return { items, total, page, limit }
   }
 
   /**
-   * Marca a entrega do gancho como realizada (auditável). Idempotente — se já
-   * entregue, não re-notifica. Ao transicionar pendente→entregue, dispara push
-   * OneSignal (best-effort) e persiste notificação in-app HOOK_DELIVERED.
+   * Marca a entrega de um gancho (auditável). Idempotente — se já entregue, não re-notifica.
+   * Ao transicionar REQUESTED→DELIVERED, dispara push OneSignal (best-effort) e persiste
+   * a notificação in-app HOOK_DELIVERED.
    *
-   * @throws { statusCode: 404 } se cliente não encontrado
-   * @throws { statusCode: 422 } se o cliente não solicitou o gancho
+   * @throws { statusCode: 404 } se o gancho não existe
+   * @throws { statusCode: 422 } se o gancho não está na fila (ex.: aguardando pagamento)
    */
-  async markDelivered(clientId: string, adminId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: clientId },
-      select: { id: true, role: true, hookRequestedAt: true, hookDeliveredAt: true, oneSignalPlayerId: true },
+  async markDelivered(hookRequestId: string, adminId: string) {
+    const hook = await this.prisma.hookRequest.findUnique({
+      where: { id: hookRequestId },
+      select: { id: true, userId: true, status: true },
     })
-    if (!user || user.role !== 'CLIENT') {
-      throw { statusCode: 404, message: 'Cliente não encontrado' }
+    if (!hook) {
+      throw { statusCode: 404, message: 'Gancho não encontrado' }
     }
-    if (!user.hookRequestedAt) {
-      throw { statusCode: 422, message: 'Cliente não solicitou o gancho' }
-    }
-    if (user.hookDeliveredAt) {
+    if (hook.status === 'DELIVERED') {
       // Idempotente: já entregue — não re-notifica.
       return { ok: true }
     }
+    if (hook.status !== 'REQUESTED') {
+      throw { statusCode: 422, message: 'Este gancho ainda não está na fila de entrega' }
+    }
 
-    await this.prisma.user.update({
-      where: { id: clientId },
-      data: { hookDeliveredAt: new Date(), hookDeliveredById: adminId },
+    await this.prisma.hookRequest.update({
+      where: { id: hookRequestId },
+      data: { status: 'DELIVERED', deliveredAt: new Date(), deliveredById: adminId },
+    })
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: hook.userId },
+      select: { oneSignalPlayerId: true },
     })
 
     // Push OneSignal — best-effort (falha silenciosa)
-    if (user.oneSignalPlayerId) {
+    if (user?.oneSignalPlayerId) {
       try {
         const osClient = createOsClient()
         const notification = new OneSignal.Notification()
@@ -162,7 +200,7 @@ export class AdminHooksService {
     // Notificação in-app obrigatória — FORA do try do push
     const notificationsService = new NotificationsService(this.fastify)
     await notificationsService.createAndTrim({
-      userId: clientId,
+      userId: hook.userId,
       type: NotificationType.HOOK_DELIVERED,
       title: 'Seu gancho chegou!',
       body: 'Deixamos o gancho do Cheirin de Pão na sua porta. É só encaixar e pronto — seu pão fresquinho já pode ser entregue.',
@@ -170,5 +208,42 @@ export class AdminHooksService {
     })
 
     return { ok: true }
+  }
+
+  /**
+   * Concede um gancho de BONIFICAÇÃO (BONUS) a um cliente — entra direto na fila (REQUESTED).
+   *
+   * @throws { statusCode: 404 } se o cliente não existe
+   * @throws { statusCode: 422 } se o cliente já tem um gancho em andamento
+   */
+  async grant(adminId: string, targetUserId: string, reason?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true },
+    })
+    if (!user || user.role !== 'CLIENT') {
+      throw { statusCode: 404, message: 'Cliente não encontrado' }
+    }
+
+    const open = await this.prisma.hookRequest.count({
+      where: { userId: targetUserId, status: { in: ['PENDING_PAYMENT', 'REQUESTED'] } },
+    })
+    if (open > 0) {
+      throw { statusCode: 422, message: 'Cliente já tem um gancho em andamento' }
+    }
+
+    const hook = await this.prisma.hookRequest.create({
+      data: {
+        userId: targetUserId,
+        type: 'BONUS',
+        status: 'REQUESTED',
+        requestedAt: new Date(),
+        grantedById: adminId,
+        reason: reason?.trim() || null,
+      },
+      select: { id: true },
+    })
+
+    return { hookRequestId: hook.id }
   }
 }

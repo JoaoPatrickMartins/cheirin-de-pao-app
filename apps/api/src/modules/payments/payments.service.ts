@@ -6,6 +6,7 @@ import { creditForPayment } from './credit-payment.js'
 import { fulfillSingleOrderFromMetadata } from './fulfill-single-order.js'
 import { effectiveComboPrice } from '../../lib/combo-pricing.js'
 import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
+import { getGanchoConfig } from '../../lib/gancho-config.js'
 
 export class PaymentsService {
   private repo: PaymentsRepository
@@ -84,6 +85,7 @@ export class PaymentsService {
       description,
       payerEmail: user.email,
       payerName: user.name,
+      payerCpf: user.cpf,
       metadata,
     })
 
@@ -102,6 +104,45 @@ export class PaymentsService {
       status: 'pending' as const,
       pixCopyPaste: pix.qrCode,
       // data-URI direto: a tela usa em <img src>. base64 vazio → string vazia (sem quebrar).
+      pixQrCodeUrl: pix.qrCodeBase64 ? `data:image/png;base64,${pix.qrCodeBase64}` : '',
+      expiresAt: pix.expiresAt,
+    }
+  }
+
+  // ── Pix do gancho adicional (pago) ──────────────────────────────────────────
+  // Cobra o preço configurado (ganchoPreco) via Pix. NÃO credita pães — o fulfillment
+  // (credit-payment.ts, ramo purpose HOOK) coloca o HookRequest na fila do admin quando
+  // o pagamento confirma (webhook MP ou reconciliação por pull em getStatus).
+  async createHookPix(params: { userId: string }) {
+    const { userId } = params
+    const { preco } = await getGanchoConfig(this.prisma)
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (!user) throw { error: 'Usuário não encontrado', status: 404 }
+
+    const pix = await this.mp.createPix({
+      amount: preco,
+      description: 'Gancho de porta — Cheirin de Pão',
+      payerEmail: user.email,
+      payerName: user.name,
+      payerCpf: user.cpf,
+      metadata: { userId, purpose: 'hook' },
+    })
+
+    const payment = await this.repo.createPayment({
+      userId,
+      amount: preco,
+      method: 'PIX',
+      status: 'PENDING',
+      mercadoPagoId: pix.id,
+      purpose: 'HOOK',
+    })
+
+    return {
+      paymentId: payment.id,
+      amount: preco,
+      status: 'pending' as const,
+      pixCopyPaste: pix.qrCode,
       pixQrCodeUrl: pix.qrCodeBase64 ? `data:image/png;base64,${pix.qrCodeBase64}` : '',
       expiresAt: pix.expiresAt,
     }

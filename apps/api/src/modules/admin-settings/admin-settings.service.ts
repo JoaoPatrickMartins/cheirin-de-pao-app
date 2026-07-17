@@ -9,6 +9,7 @@ import {
   type SlotPatch,
 } from '../../lib/delivery-slots.js'
 import type { WeekdayMinimums } from './admin-settings.schema.js'
+import { getGanchoConfig, type GanchoConfig } from '../../lib/gancho-config.js'
 
 /**
  * Faz parse defensivo do JSON de mínimos da agenda (coluna Setting.value).
@@ -147,6 +148,33 @@ export class AdminSettingsService {
         where: { key: 'pedidoMinimoAgenda' },
         create: { key: 'pedidoMinimoAgenda', value: JSON.stringify(agenda) },
         update: { value: JSON.stringify(agenda) },
+      }),
+    ])
+  }
+
+  /**
+   * Retorna a config do gancho de porta:
+   * - `pedidoUnicoMin`: mínimo de pães num pedido único para ganhar o gancho grátis.
+   * - `preco`: preço de um gancho adicional (reposição), cobrado via Pix.
+   */
+  async getGanchoConfig(): Promise<GanchoConfig> {
+    return getGanchoConfig(this.prisma)
+  }
+
+  /**
+   * Atualiza (upsert) a config do gancho de porta (mínimo do pedido único + preço).
+   */
+  async setGanchoConfig(pedidoUnicoMin: number, preco: number): Promise<void> {
+    await Promise.all([
+      this.prisma.setting.upsert({
+        where: { key: 'ganchoPedidoUnicoMin' },
+        create: { key: 'ganchoPedidoUnicoMin', value: String(pedidoUnicoMin) },
+        update: { value: String(pedidoUnicoMin) },
+      }),
+      this.prisma.setting.upsert({
+        where: { key: 'ganchoPreco' },
+        create: { key: 'ganchoPreco', value: String(preco) },
+        update: { value: String(preco) },
       }),
     ])
   }

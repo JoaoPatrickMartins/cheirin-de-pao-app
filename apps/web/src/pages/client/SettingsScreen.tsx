@@ -145,6 +145,13 @@ export function SettingsScreen() {
             badge={autoRecharge?.active ? 'Ativada' : undefined}
             onClick={() => navigate('/client/creditos/recorrente')}
           />
+          <div style={{ height: 1, background: 'var(--color-border-2)', margin: '0 4px' }} />
+          <ProfileMenuRow
+            icon="pin"
+            label="Meu gancho"
+            description="Status e reposição do gancho de porta"
+            onClick={() => navigate('/client/perfil/gancho')}
+          />
         </div>
 
         {/* Notificações */}

@@ -5,7 +5,9 @@ import { z } from 'zod'
  * SCHED-01 — Pedido único com reserva atômica de créditos.
  *
  * Threat register:
- * - T-04-03-03: quantity validado como int 1..20 (Zod impede adulteração)
+ * - T-04-03-03: quantity validado como int >= 1 com teto de segurança (Zod impede adulteração).
+ *   Sem teto funcional (o cliente pode pedir o quanto precisar p/ atingir o mínimo do gancho grátis);
+ *   o `.max()` alto é só um guardrail anti-abuso/anti-adulteração (evita quantity absurdo).
  * - T-04-03-02: scheduledDate validado como string datetime (formato ISO)
  */
 export const CreateOrderSchema = z.object({
@@ -13,7 +15,7 @@ export const CreateOrderSchema = z.object({
     .number()
     .int('Quantidade deve ser inteiro')
     .min(1, 'Mínimo de 1 pão')
-    .max(20, 'Máximo de 20 pães por pedido'),
+    .max(100, 'Máximo de 100 pães por pedido'),
   // Data-only "YYYY-MM-DD" — alinhado ao schema da rota (format: date) e ao que o
   // frontend (DateChips) envia. O `.datetime()` anterior rejeitava o formato real → avulso quebrado.
   scheduledDate: z

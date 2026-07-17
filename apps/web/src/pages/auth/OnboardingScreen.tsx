@@ -8,7 +8,7 @@ import { ResendTimer } from '../../components/auth/ResendTimer'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { PasswordCriteria, isPasswordStrong } from '../../components/auth/AuthUI'
-import { isValidCpf } from '@cheirin-de-pao/shared'
+import { isValidCpf, isValidBrMobile } from '@cheirin-de-pao/shared'
 
 interface Condo {
   id: string
@@ -49,7 +49,13 @@ function parseBirthDate(display: string): string | undefined {
 
 /** Format BR mobile as (00) 00000-0000 (mesma máscara do cadastro de entregador/fornecedor) */
 function formatPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, '').slice(0, 11)
+  let all = raw.replace(/\D/g, '')
+  // Alguns clientes colam/digitam com o código do país 55 na frente. Removemos
+  // esse prefixo ANTES de cortar em 11 dígitos — senão o "55" viraria o DDD e os
+  // dois últimos dígitos reais seriam descartados. Só removemos quando é
+  // claramente prefixo (12–13 dígitos), preservando quem tem DDD 55 (11 dígitos).
+  if (all.length > 11 && all.startsWith('55')) all = all.slice(2)
+  const digits = all.slice(0, 11)
   if (digits.length <= 2) return digits
   if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
@@ -276,12 +282,17 @@ export function OnboardingScreen() {
   const cpfComplete = cpfDigits.length === 11
   const cpfInvalid = cpfComplete && !isValidCpf(cpfDisplay)
 
+  // Celular: mostra o aviso só quando o campo já está completo (11 dígitos) porém
+  // inválido — mesmo padrão do CPF, para não alarmar enquanto o cliente digita.
+  const phoneComplete = telefone.replace(/\D/g, '').length === 11
+  const phoneInvalid = phoneComplete && !isValidBrMobile(telefone)
+
   // Step 0 CTA disabled until all fields filled
   const step0Valid = nome.trim() !== '' && isValidCpf(cpfDisplay) && dataNascimento.replace(/\D/g, '').length === 8
 
-  // Step 1 CTA: telefone, e-mail, senha forte e confirmação coincidente
+  // Step 1 CTA: telefone válido, e-mail, senha forte e confirmação coincidente
   const step1Valid =
-    telefone.trim().length > 0 &&
+    isValidBrMobile(telefone) &&
     email.trim().length > 0 &&
     isPasswordStrong(senha) &&
     senha === confirmaSenha
@@ -455,15 +466,29 @@ export function OnboardingScreen() {
               type="email"
               autoComplete="email"
             />
-            <FieldRow
-              label="Celular"
-              icon="phone"
-              value={telefone}
-              onChange={(v) => setTelefone(formatPhone(v))}
-              placeholder="(11) 90000-0000"
-              type="tel"
-              autoComplete="tel"
-            />
+            <div>
+              <FieldRow
+                label="Celular"
+                icon="phone"
+                value={telefone}
+                onChange={(v) => setTelefone(formatPhone(v))}
+                placeholder="(11) 90000-0000"
+                type="tel"
+                autoComplete="tel"
+              />
+              {phoneInvalid && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontFamily: 'var(--font-body)',
+                    color: 'var(--color-warn)',
+                    marginTop: 6,
+                  }}
+                >
+                  Celular inválido. Confira o DDD e o número.
+                </div>
+              )}
+            </div>
             <div>
               <FieldRow
                 label="Senha"

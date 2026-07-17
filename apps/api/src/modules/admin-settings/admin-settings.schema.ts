@@ -60,3 +60,17 @@ export const UpdatePedidoMinimoSchema = z.object({
 
 export type UpdatePedidoMinimoBody = z.infer<typeof UpdatePedidoMinimoSchema>
 export type WeekdayMinimums = UpdatePedidoMinimoBody['agenda']
+
+/**
+ * UpdateGanchoSchema — valida a config do gancho de porta.
+ *
+ * - `pedidoUnicoMin`: mínimo de pães num pedido único para ganhar o gancho grátis (1..50).
+ *   A compra de combo sempre dá direito, independente da quantidade.
+ * - `preco`: preço de um gancho adicional (reposição por defeito/perda), cobrado via Pix.
+ */
+export const UpdateGanchoSchema = z.object({
+  pedidoUnicoMin: z.number().int().min(1, 'Mínimo é 1').max(50, 'Máximo é 50'),
+  preco: z.number().min(0, 'Preço não pode ser negativo'),
+})
+
+export type UpdateGanchoBody = z.infer<typeof UpdateGanchoSchema>

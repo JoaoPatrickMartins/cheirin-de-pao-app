@@ -5,8 +5,8 @@ import { brtDateStr } from '../../lib/cutoff'
 
 interface PurchasedState {
   quantity?: number
-  /** 'order' → pedido único agendado; ausente → compra de créditos (combo/avulso). */
-  kind?: 'order'
+  /** 'order' → pedido único agendado; 'hook' → gancho adicional pago; ausente → compra de créditos. */
+  kind?: 'order' | 'hook'
   scheduledDate?: string
   deliveryTime?: string
 }
@@ -29,12 +29,14 @@ export function PurchasedScreen() {
   const state = (location.state as PurchasedState | null) ?? {}
   const quantity = state.quantity ?? 0
   const isOrder = state.kind === 'order'
+  const isHook = state.kind === 'hook'
 
-  // Após um pedido, avisa o ClientLayout para reavaliar o consentimento do gancho
-  // (o modal surge na hora se este for o primeiro pedido).
+  // Após comprar créditos/combo ou fazer um pedido, avisa o ClientLayout para reavaliar
+  // o consentimento do gancho grátis (o modal surge na hora se o critério foi atingido).
+  // O backend é a autoridade: só mostra o modal se de fato ficou elegível.
   useEffect(() => {
-    if (isOrder) window.dispatchEvent(new Event('cdp:refresh-hook'))
-  }, [isOrder])
+    if (!isHook) window.dispatchEvent(new Event('cdp:refresh-hook'))
+  }, [isHook])
 
   const qtyLabel = quantity === 1 ? '1 pãozinho' : `${quantity} pãezinhos`
 
@@ -46,6 +48,9 @@ export function PurchasedScreen() {
     const time = state.deliveryTime ? ` às ${state.deliveryTime}` : ''
     title = 'Pedido agendado!'
     subtitle = when ? `${qtyLabel} ${verb} ${when}${time}.` : 'Sua entrega está confirmada.'
+  } else if (isHook) {
+    title = 'Gancho a caminho!'
+    subtitle = 'Recebemos seu pagamento. Vamos deixar um novo gancho na sua porta em breve.'
   }
 
   return (
@@ -104,7 +109,30 @@ export function PurchasedScreen() {
       </div>
 
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {isOrder ? (
+        {isHook ? (
+          <button
+            onClick={() => navigate('/client/perfil/gancho')}
+            style={{
+              width: '100%',
+              minHeight: 52,
+              borderRadius: 'var(--radius-btn)',
+              border: 'none',
+              background: 'var(--color-espresso)',
+              color: 'var(--color-primary-btn-text)',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 16,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            <Icon name="pin" size={20} color="var(--color-primary-btn-text)" />
+            Ver meu gancho
+          </button>
+        ) : isOrder ? (
           <button
             onClick={() => navigate('/client/pedidos')}
             style={{

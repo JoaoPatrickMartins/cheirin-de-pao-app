@@ -1,38 +1,35 @@
-// AdminHooksService unit tests — gestão das solicitações de gancho pelo Admin.
+// AdminHooksService unit tests — gestão dos ganchos pelo Admin (coleção HookRequest).
 import { describe, it, expect, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { AdminHooksService } from '../admin-hooks.service.js'
 
-function makeFastify(opts: {
-  user?: {
-    id?: string
-    role?: string
-    hookRequestedAt?: Date | null
-    hookDeliveredAt?: Date | null
-    oneSignalPlayerId?: string | null
-  } | null
-  clients?: Array<Record<string, unknown>>
-  total?: number
-  condos?: Array<{ id: string; name: string }>
-} = {}) {
-  const {
-    user = { id: 'u1', role: 'CLIENT', hookRequestedAt: new Date('2026-07-01'), hookDeliveredAt: null, oneSignalPlayerId: null },
-    clients = [],
-    total = clients.length,
-    condos = [],
-  } = opts
+function makeFastify(
+  opts: {
+    hook?: { id: string; userId: string; status: string } | null // hookRequest.findUnique (deliver)
+    user?: { role?: string; oneSignalPlayerId?: string | null } | null // user.findUnique (grant / oneSignal)
+    count?: number // hookRequest.count (total na list, abertos no grant)
+    hooks?: Array<Record<string, unknown>> // hookRequest.findMany (list)
+    users?: Array<Record<string, unknown>> // user.findMany (batch da list)
+    condos?: Array<{ id: string; name: string }>
+  } = {},
+) {
+  const { hook = null, user = null, count = 0, hooks = [], users = [], condos = [] } = opts
 
-  const userUpdate = vi.fn().mockResolvedValue({})
+  const hookUpdate = vi.fn().mockResolvedValue({})
+  const hookCreate = vi.fn().mockResolvedValue({ id: 'h9' })
   const notificationCreate = vi.fn().mockResolvedValue({})
   const prisma = {
     user: {
       findUnique: vi.fn().mockResolvedValue(user),
-      update: userUpdate,
-      count: vi.fn().mockResolvedValue(total),
-      findMany: vi.fn().mockResolvedValue(clients),
+      findMany: vi.fn().mockResolvedValue(users),
     },
-    condominium: {
-      findMany: vi.fn().mockResolvedValue(condos),
+    condominium: { findMany: vi.fn().mockResolvedValue(condos) },
+    hookRequest: {
+      count: vi.fn().mockResolvedValue(count),
+      findMany: vi.fn().mockResolvedValue(hooks),
+      findUnique: vi.fn().mockResolvedValue(hook),
+      update: hookUpdate,
+      create: hookCreate,
     },
     notification: {
       create: notificationCreate,
@@ -43,66 +40,95 @@ function makeFastify(opts: {
   return {
     fastify: { prisma, log: { error: vi.fn(), warn: vi.fn() } } as unknown as FastifyInstance,
     prisma,
-    userUpdate,
+    hookUpdate,
+    hookCreate,
     notificationCreate,
   }
 }
 
 describe('AdminHooksService.list', () => {
-  it('filtra pendentes (hookDeliveredAt: null) e resolve o nome do condomínio', async () => {
+  it('status pending → where.status REQUESTED e resolve o nome do condomínio', async () => {
     const { fastify, prisma } = makeFastify({
-      clients: [
-        { id: 'u1', name: 'Ana', phone: null, apartment: '302', block: 'B', condominiumId: 'c1', hookRequestedAt: new Date(), hookDeliveredAt: null },
+      count: 1,
+      hooks: [
+        { id: 'h1', userId: 'u1', type: 'FREE', status: 'REQUESTED', reason: null, requestedAt: new Date(), deliveredAt: null },
       ],
-      total: 1,
+      users: [{ id: 'u1', name: 'Ana', phone: null, apartment: '302', block: 'B', condominiumId: 'c1' }],
       condos: [{ id: 'c1', name: 'Residencial Sol' }],
     })
     const res = await new AdminHooksService(fastify).list({ status: 'pending' })
-    const where = (prisma.user.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0].where
-    expect(where.hookRequestedAt).toEqual({ not: null })
-    // "Pendente" = campo não setado (Prisma-Mongo isSet: false casa o campo ausente)
-    expect(where.hookDeliveredAt).toEqual({ isSet: false })
+    const where = (prisma.hookRequest.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0].where
+    expect(where.status).toBe('REQUESTED')
     expect(res.total).toBe(1)
+    expect(res.items[0].type).toBe('FREE')
     expect(res.items[0].condominiumName).toBe('Residencial Sol')
   })
 
-  it('filtra entregues (hookDeliveredAt: { not: null })', async () => {
-    const { fastify, prisma } = makeFastify({ clients: [], total: 0 })
+  it('status delivered → where.status DELIVERED', async () => {
+    const { fastify, prisma } = makeFastify({ hooks: [], count: 0 })
     await new AdminHooksService(fastify).list({ status: 'delivered' })
-    const where = (prisma.user.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0].where
-    expect(where.hookDeliveredAt).toEqual({ not: null })
+    const where = (prisma.hookRequest.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0].where
+    expect(where.status).toBe('DELIVERED')
+  })
+
+  it('type paid → where.type PAID', async () => {
+    const { fastify, prisma } = makeFastify({ hooks: [], count: 0 })
+    await new AdminHooksService(fastify).list({ type: 'paid' })
+    const where = (prisma.hookRequest.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0].where
+    expect(where.type).toBe('PAID')
   })
 })
 
 describe('AdminHooksService.markDelivered', () => {
-  it('marca a entrega e cria a notificação in-app na transição pendente→entregue', async () => {
-    const { fastify, userUpdate, notificationCreate } = makeFastify({
-      user: { id: 'u1', role: 'CLIENT', hookRequestedAt: new Date(), hookDeliveredAt: null, oneSignalPlayerId: null },
+  it('marca a entrega e cria a notificação in-app na transição REQUESTED→DELIVERED', async () => {
+    const { fastify, hookUpdate, notificationCreate } = makeFastify({
+      hook: { id: 'h1', userId: 'u1', status: 'REQUESTED' },
+      user: { oneSignalPlayerId: null },
     })
-    const res = await new AdminHooksService(fastify).markDelivered('u1', 'admin1')
+    const res = await new AdminHooksService(fastify).markDelivered('h1', 'admin1')
     expect(res).toEqual({ ok: true })
-    expect(userUpdate).toHaveBeenCalledOnce()
-    expect(userUpdate.mock.calls[0][0].data.hookDeliveredById).toBe('admin1')
+    expect(hookUpdate).toHaveBeenCalledOnce()
+    expect(hookUpdate.mock.calls[0][0].data.deliveredById).toBe('admin1')
     expect(notificationCreate).toHaveBeenCalledOnce()
   })
 
   it('é idempotente: já entregue não atualiza nem re-notifica', async () => {
-    const { fastify, userUpdate, notificationCreate } = makeFastify({
-      user: { id: 'u1', role: 'CLIENT', hookRequestedAt: new Date(), hookDeliveredAt: new Date(), oneSignalPlayerId: null },
+    const { fastify, hookUpdate, notificationCreate } = makeFastify({
+      hook: { id: 'h1', userId: 'u1', status: 'DELIVERED' },
     })
-    const res = await new AdminHooksService(fastify).markDelivered('u1', 'admin1')
+    const res = await new AdminHooksService(fastify).markDelivered('h1', 'admin1')
     expect(res).toEqual({ ok: true })
-    expect(userUpdate).not.toHaveBeenCalled()
+    expect(hookUpdate).not.toHaveBeenCalled()
     expect(notificationCreate).not.toHaveBeenCalled()
   })
 
-  it('lança 422 quando o cliente não solicitou o gancho', async () => {
-    const { fastify } = makeFastify({ user: { id: 'u1', role: 'CLIENT', hookRequestedAt: null } })
-    await expect(new AdminHooksService(fastify).markDelivered('u1', 'admin1')).rejects.toMatchObject({ statusCode: 422 })
+  it('lança 422 quando o gancho não está na fila (ex.: aguardando pagamento)', async () => {
+    const { fastify } = makeFastify({ hook: { id: 'h1', userId: 'u1', status: 'PENDING_PAYMENT' } })
+    await expect(new AdminHooksService(fastify).markDelivered('h1', 'admin1')).rejects.toMatchObject({ statusCode: 422 })
   })
 
-  it('lança 404 quando o usuário não é CLIENT', async () => {
-    const { fastify } = makeFastify({ user: { id: 'u1', role: 'COURIER', hookRequestedAt: new Date() } })
-    await expect(new AdminHooksService(fastify).markDelivered('u1', 'admin1')).rejects.toMatchObject({ statusCode: 404 })
+  it('lança 404 quando o gancho não existe', async () => {
+    const { fastify } = makeFastify({ hook: null })
+    await expect(new AdminHooksService(fastify).markDelivered('hX', 'admin1')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('AdminHooksService.grant (bonificação)', () => {
+  it('cria um HookRequest BONUS na fila quando o cliente não tem gancho em andamento', async () => {
+    const { fastify, hookCreate } = makeFastify({ user: { role: 'CLIENT' }, count: 0 })
+    const res = await new AdminHooksService(fastify).grant('admin1', 'u1', 'cortesia')
+    expect(hookCreate).toHaveBeenCalledOnce()
+    expect(hookCreate.mock.calls[0][0].data).toMatchObject({ type: 'BONUS', status: 'REQUESTED', grantedById: 'admin1' })
+    expect(res.hookRequestId).toBe('h9')
+  })
+
+  it('lança 404 quando o alvo não é CLIENT', async () => {
+    const { fastify } = makeFastify({ user: { role: 'ADMIN' } })
+    await expect(new AdminHooksService(fastify).grant('admin1', 'u1')).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('lança 422 quando o cliente já tem um gancho em andamento', async () => {
+    const { fastify } = makeFastify({ user: { role: 'CLIENT' }, count: 1 })
+    await expect(new AdminHooksService(fastify).grant('admin1', 'u1')).rejects.toMatchObject({ statusCode: 422 })
   })
 })

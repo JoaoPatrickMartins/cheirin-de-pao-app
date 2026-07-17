@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { PaymentStatus } from '@prisma/client'
+import { PaymentStatus, PaymentPurpose } from '@prisma/client'
 
 export class PaymentsRepository {
   constructor(private fastify: FastifyInstance) {}
@@ -17,6 +17,7 @@ export class PaymentsRepository {
     stripePaymentIntentId?: string
     comboId?: string
     customQuantity?: number
+    purpose?: PaymentPurpose
   }) {
     return this.prisma.payment.create({ data })
   }

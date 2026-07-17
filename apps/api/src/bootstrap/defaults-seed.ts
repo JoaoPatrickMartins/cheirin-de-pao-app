@@ -43,6 +43,23 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     },
   })
 
+  // Gancho grátis — quantidade mínima de pães num PEDIDO ÚNICO para o cliente ganhar o
+  // gancho de porta gratuito (a compra de combo sempre dá direito, independente da qtd).
+  // default 10 — o admin ajusta em Gestão → Gancho.
+  await prisma.setting.upsert({
+    where: { key: 'ganchoPedidoUnicoMin' },
+    update: {},
+    create: { key: 'ganchoPedidoUnicoMin', value: '10' },
+  })
+
+  // Preço de um gancho ADICIONAL (reposição por defeito/perda) — cobrado via Pix.
+  // default R$ 5,00 — o admin ajusta em Gestão → Gancho.
+  await prisma.setting.upsert({
+    where: { key: 'ganchoPreco' },
+    update: {},
+    create: { key: 'ganchoPreco', value: '5.00' },
+  })
+
   // Combo padrão — só quando não há nenhum combo (unidade < preço avulso, como manda a regra)
   const combosCount = await prisma.combo.count()
   if (combosCount === 0) {

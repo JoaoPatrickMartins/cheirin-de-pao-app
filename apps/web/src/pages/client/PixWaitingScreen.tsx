@@ -12,6 +12,9 @@ interface PixState {
   /** Quando presente, o pagamento cobre a diferença de um Pedido único:
    *  ao aprovar, o pedido é criado automaticamente. */
   pendingOrder?: PendingOrder
+  /** Quando true, o pagamento é de um gancho adicional — ao aprovar não credita pães
+   *  nem agenda pedido; segue para a tela de sucesso do gancho. */
+  hookPurpose?: boolean
 }
 
 export function PixWaitingScreen() {
@@ -26,7 +29,7 @@ export function PixWaitingScreen() {
     return null
   }
 
-  const { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity, pendingOrder } = state
+  const { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity, pendingOrder, hookPurpose } = state
   return (
     <PixWaitingContent
       paymentId={paymentId}
@@ -34,6 +37,7 @@ export function PixWaitingScreen() {
       pixCopyPaste={pixCopyPaste}
       comboQuantity={comboQuantity}
       pendingOrder={pendingOrder}
+      hookPurpose={hookPurpose}
       onCreditUpdate={updateCreditBalance}
       onNavigate={navigate}
     />
@@ -46,6 +50,7 @@ interface ContentProps {
   pixCopyPaste: string
   comboQuantity: number
   pendingOrder?: PendingOrder
+  hookPurpose?: boolean
   onCreditUpdate: (balance: number) => void
   onNavigate: ReturnType<typeof useNavigate>
 }
@@ -56,6 +61,7 @@ function PixWaitingContent({
   pixCopyPaste,
   comboQuantity,
   pendingOrder,
+  hookPurpose,
   onCreditUpdate,
   onNavigate,
 }: ContentProps) {
@@ -65,8 +71,15 @@ function PixWaitingContent({
   const [finalizeError, setFinalizeError] = useState<string | null>(null)
 
   const handleApproved = async (creditBalance: number) => {
-    onCreditUpdate(creditBalance)
     setIsApproved(true)
+
+    // Gancho adicional: não credita pães nem agenda — segue para a tela de sucesso do gancho.
+    if (hookPurpose) {
+      onNavigate('/client/creditos/sucesso', { state: { kind: 'hook' } })
+      return
+    }
+
+    onCreditUpdate(creditBalance)
 
     // Pedido único: cria a entrega agora que a diferença foi creditada.
     if (pendingOrder) {

@@ -139,6 +139,13 @@ export const router = createBrowserRouter([
               })),
           },
           {
+            path: 'perfil/gancho',
+            lazy: () =>
+              import('../pages/client/HookScreen').then((m) => ({
+                Component: m.HookScreen,
+              })),
+          },
+          {
             path: 'creditos/pix',
             lazy: () =>
               import('../pages/client/PixWaitingScreen').then((m) => ({
