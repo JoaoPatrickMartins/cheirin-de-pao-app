@@ -39,12 +39,16 @@ export const mercadopagoWebhookRoute: FastifyPluginAsync = async (fastify) => {
       const secret = process.env.MP_WEBHOOK_SECRET
       if (secret) {
         try {
+          // NÃO passamos toleranceSeconds: o MP envia o `ts` do x-signature em SEGUNDOS,
+          // mas o validador do SDK compara com Date.now() (ms) sem converter — o "drift"
+          // resultante (~1,78 bilhão de s) reprova TODA notificação (TimestampOutOfTolerance).
+          // A autenticidade segue 100% garantida pelo HMAC; e o crédito é idempotente,
+          // então dispensar a janela anti-replay (quebrada nesta versão do SDK) é seguro.
           WebhookSignatureValidator.validate({
             xSignature: request.headers['x-signature'],
             xRequestId: request.headers['x-request-id'],
             dataId,
             secret,
-            toleranceSeconds: 300,
           })
         } catch (err) {
           if (err instanceof InvalidWebhookSignatureError) {
