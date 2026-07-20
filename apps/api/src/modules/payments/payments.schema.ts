@@ -4,6 +4,19 @@ export const CreatePixPaymentSchema = z
   .object({
     comboId: z.string().optional(),
     customQuantity: z.number().int().positive().optional(),
+    // Pedido único que paga a diferença via Pix: intenção do pedido (qtd TOTAL, data e slot).
+    // Gravada na metadata do MP para o servidor criar a Order na aprovação (webhook/pull),
+    // mesmo com o app fechado. Ausente numa compra de crédito comum.
+    order: z
+      .object({
+        quantity: z.number().int().positive(),
+        scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        deliveryTime: z
+          .string()
+          .regex(/^\d{2}:\d{2}$/)
+          .optional(),
+      })
+      .optional(),
   })
   .refine((d) => d.comboId || d.customQuantity, {
     message: 'comboId ou customQuantity obrigatório',
