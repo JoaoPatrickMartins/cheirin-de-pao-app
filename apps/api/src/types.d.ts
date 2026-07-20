@@ -1,1 +1,1 @@
-declare module 'pdfmake/js/index.js'
+declare module "pdfmake/js/index.js";
