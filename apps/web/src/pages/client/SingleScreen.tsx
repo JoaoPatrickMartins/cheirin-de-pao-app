@@ -33,6 +33,11 @@ const SLOT_LABEL: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 const formatBRL = (val: number) =>
   val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+// Sem teto funcional no pedido único — o cliente pode pedir o quanto precisar para
+// atingir o mínimo do gancho grátis. Este valor é só um guardrail anti-abuso (casa com
+// o `.max()` do Zod em orders.schema.ts).
+const PEDIDO_UNICO_MAX = 100
+
 const sectionLabel: React.CSSProperties = {
   fontFamily: 'var(--font-body)',
   fontSize: 12.5,
@@ -104,6 +109,11 @@ export function SingleScreen() {
   const [cutoffDismissed, setCutoffDismissed] = useState(false)
   const dateInputRef = useRef<HTMLInputElement>(null)
 
+  // Status do gancho — para o nudge "peça X pães e ganhe o gancho grátis".
+  const [hookInfo, setHookInfo] = useState<{ hasHook: boolean; freeEligible: boolean; pedidoUnicoMin: number } | null>(null)
+  // Diálogo de decisão exibido ao confirmar abaixo do mínimo do gancho grátis.
+  const [showFreeHookPrompt, setShowFreeHookPrompt] = useState(false)
+
   // Preço por pão (avulso) + pedido mínimo — usados para cobrar a diferença e limitar a quantidade.
   useEffect(() => {
     apiFetch('/pricing')
@@ -128,6 +138,18 @@ export function SingleScreen() {
       )
       .catch(() => setSlots([]))
       .finally(() => setSlotsLoaded(true))
+  }, [])
+
+  // Status do gancho — só é relevante para o nudge se o cliente ainda pode ganhar o grátis.
+  useEffect(() => {
+    apiFetch('/client/hook-request')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d: { hasHook?: boolean; freeEligible?: boolean; pedidoUnicoMin?: number } | null) => {
+        if (d && typeof d.pedidoUnicoMin === 'number') {
+          setHookInfo({ hasHook: !!d.hasHook, freeEligible: !!d.freeEligible, pedidoUnicoMin: d.pedidoUnicoMin })
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Eixos de "Para quando?": data (hoje..+30d) × slot, com disponibilidade por corte.
@@ -208,27 +230,34 @@ export function SingleScreen() {
   const precisaPagar = deficit > 0
   const totalPagar = (avulsoUnit ?? 0) * deficit
 
+  // Nudge do gancho grátis: só quando o cliente ainda não tem gancho e ainda não
+  // qualificou por outra via (ex.: combo). O direito não expira — vale a 1ª vez que atingir.
+  const podeGanharGratis = !!hookInfo && !hookInfo.hasHook && !hookInfo.freeEligible
+  const freeThreshold = hookInfo?.pedidoUnicoMin ?? 0
+  // Meta alcançável dentro do guardrail do pedido único.
+  const completeTarget = Math.min(Math.max(freeThreshold, pedidoMinimo), PEDIDO_UNICO_MAX)
+  const ganchoAlcancavel = podeGanharGratis && freeThreshold >= 1 && freeThreshold <= PEDIDO_UNICO_MAX
+  const vaiGanharGratis = ganchoAlcancavel && qtd >= freeThreshold
+  const abaixoDoLimite = ganchoAlcancavel && qtd < freeThreshold
+  const faltamParaGancho = Math.max(0, freeThreshold - qtd)
+  // Custo extra (em Pix) de completar até o mínimo do gancho, quando o saldo não cobre.
+  const extraParaCompletar = Math.max(0, (avulsoUnit ?? 0) * (Math.max(0, completeTarget - creditBalance) - deficit))
+
   // Exige data + (slot, quando o condomínio tem slots). Aguarda o fetch de slots para
   // não habilitar prematuramente. Para pagar a diferença, precisa do preço avulso.
   const slotPendente = !slotsLoaded || (slots.length > 0 && !deliveryTime)
   const isDisabled =
     !quando || slotPendente || isSubmitting || (precisaPagar && avulsoUnit === null)
 
-  const pendingOrder = {
-    quantity: qtd,
-    scheduledDate: quando ?? '',
-    ...(deliveryTime ? { deliveryTime } : {}),
-  }
-
   // Saldo cobre o pedido inteiro → reserva direto via POST /orders.
-  const handleReservar = async () => {
+  const handleReservar = async (quantity: number) => {
     setIsSubmitting(true)
     setErrorMsg(null)
     try {
       const res = await apiFetch('/orders', {
         method: 'POST',
         body: JSON.stringify({
-          quantity: qtd,
+          quantity,
           scheduledDate: quando,
           ...(deliveryTime ? { deliveryTime } : {}),
         }),
@@ -239,7 +268,7 @@ export function SingleScreen() {
         navigate('/client/creditos/sucesso', {
           state: {
             kind: 'order',
-            quantity: qtd,
+            quantity,
             scheduledDate: quando,
             deliveryTime: deliveryTime ?? undefined,
           },
@@ -258,7 +287,13 @@ export function SingleScreen() {
 
   // Falta crédito → cobra a diferença via Pix; o pedido é criado após a aprovação do
   // pagamento (a tela de Pix chama finalizePendingOrder com este pendingOrder).
-  const handlePagarEAgendar = async () => {
+  const handlePagarEAgendar = async (quantity: number) => {
+    const localDeficit = Math.max(0, quantity - creditBalance)
+    const pendingOrder = {
+      quantity,
+      scheduledDate: quando ?? '',
+      ...(deliveryTime ? { deliveryTime } : {}),
+    }
     // Pix: cria o pagamento da diferença e segue para a tela de espera.
     setIsSubmitting(true)
     setErrorMsg(null)
@@ -268,7 +303,7 @@ export function SingleScreen() {
         // Envia a intenção do Pedido único junto: o servidor grava na metadata do MP e cria
         // a Order na aprovação do Pix mesmo com o app fechado. O front continua criando na
         // tela via finalizePendingOrder — idempotente por paymentId, sem duplicar.
-        body: JSON.stringify({ customQuantity: deficit, order: pendingOrder }),
+        body: JSON.stringify({ customQuantity: localDeficit, order: pendingOrder }),
       })
       if (res.ok) {
         const { paymentId, pixCopyPaste, pixQrCodeUrl } = (await res.json()) as {
@@ -277,7 +312,7 @@ export function SingleScreen() {
           pixQrCodeUrl: string
         }
         navigate('/client/creditos/pix', {
-          state: { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity: deficit, pendingOrder },
+          state: { paymentId, pixQrCodeUrl, pixCopyPaste, comboQuantity: localDeficit, pendingOrder },
         })
       } else {
         const err = (await res.json()) as { error?: string }
@@ -290,10 +325,20 @@ export function SingleScreen() {
     }
   }
 
+  // Executa o pedido para uma quantidade específica: reserva (saldo cobre) ou paga a diferença.
+  const doSubmit = (quantity: number) => {
+    if (quantity - creditBalance > 0) void handlePagarEAgendar(quantity)
+    else void handleReservar(quantity)
+  }
+
   const handleSubmit = () => {
     if (isDisabled) return
-    if (precisaPagar) void handlePagarEAgendar()
-    else void handleReservar()
+    // Abaixo do mínimo do gancho grátis → oferece completar antes de seguir.
+    if (abaixoDoLimite) {
+      setShowFreeHookPrompt(true)
+      return
+    }
+    doSubmit(qtd)
   }
 
   const ctaLabel = precisaPagar
@@ -412,7 +457,7 @@ export function SingleScreen() {
           </p>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             {/* warn === accent no tema claro (#B0702A) — cor mantida pelo componente em ambos os estados */}
-            <QuantityStepper min={pedidoMinimo} max={20} value={qtd} onChange={setQtd} showUnit />
+            <QuantityStepper min={pedidoMinimo} max={PEDIDO_UNICO_MAX} value={qtd} onChange={setQtd} showUnit />
           </div>
           {pedidoMinimo > 1 && (
             <p
@@ -424,6 +469,43 @@ export function SingleScreen() {
               }}
             >
               Pedido mínimo de {pedidoMinimo} pães
+            </p>
+          )}
+
+          {/* Nudge do gancho grátis — muda conforme a quantidade atinge (ou não) o mínimo. */}
+          {vaiGanharGratis && (
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12.5,
+                fontWeight: 700,
+                color: 'var(--color-good)',
+                margin: '14px 0 0',
+              }}
+            >
+              🎁 Este pedido te dá o gancho de porta grátis!
+            </p>
+          )}
+          {abaixoDoLimite && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)', margin: '14px 0 0', lineHeight: 1.45 }}>
+              🎁 Peça {freeThreshold}+ pães e ganhe o gancho de porta grátis
+              {faltamParaGancho > 0 ? ` · faltam ${faltamParaGancho}` : ''}.{' '}
+              <button
+                type="button"
+                onClick={() => setQtd(completeTarget)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  color: 'var(--color-accent)',
+                }}
+              >
+                Completar
+              </button>
             </p>
           )}
         </div>
@@ -783,6 +865,117 @@ export function SingleScreen() {
           )}
         </button>
       </div>
+
+      {/* Diálogo: oferecer completar até o mínimo do gancho grátis */}
+      {showFreeHookPrompt && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="gancho-prompt-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowFreeHookPrompt(false)
+          }}
+        >
+          <div style={{ background: 'var(--color-surface)', borderRadius: 22, padding: 22, width: '100%', maxWidth: 360 }}>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 18,
+                background: 'var(--color-gold-soft)',
+                display: 'grid',
+                placeItems: 'center',
+                margin: '0 auto 14px',
+                fontSize: 28,
+              }}
+            >
+              🎁
+            </div>
+            <h2
+              id="gancho-prompt-title"
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 19,
+                fontWeight: 700,
+                color: 'var(--color-text)',
+                letterSpacing: '-0.02em',
+                textAlign: 'center',
+                margin: '0 0 8px',
+              }}
+            >
+              Ganhe o gancho grátis
+            </h2>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 14,
+                lineHeight: 1.5,
+                color: 'var(--color-text-sec)',
+                textAlign: 'center',
+                margin: '0 0 18px',
+              }}
+            >
+              Peça pelo menos <strong style={{ color: 'var(--color-text)' }}>{freeThreshold} pães</strong> neste pedido e o
+              gancho de porta vai junto, de graça. Você tem {qtd}
+              {faltamParaGancho > 0 ? ` — faltam ${faltamParaGancho}` : ''}.
+              {extraParaCompletar > 0 ? ` Completar adiciona ${formatBRL(extraParaCompletar)} via Pix.` : ''}
+            </p>
+
+            <button
+              onClick={() => {
+                setShowFreeHookPrompt(false)
+                setQtd(completeTarget)
+                doSubmit(completeTarget)
+              }}
+              style={{
+                width: '100%',
+                minHeight: 52,
+                background: 'var(--color-espresso)',
+                color: 'var(--color-primary-btn-text)',
+                borderRadius: 'var(--radius-btn)',
+                fontFamily: 'var(--font-display)',
+                fontSize: 15.5,
+                fontWeight: 700,
+                border: 'none',
+                cursor: 'pointer',
+                marginBottom: 10,
+              }}
+            >
+              Completar para {completeTarget} pães
+            </button>
+            <button
+              onClick={() => {
+                setShowFreeHookPrompt(false)
+                doSubmit(qtd)
+              }}
+              style={{
+                width: '100%',
+                minHeight: 48,
+                background: 'transparent',
+                color: 'var(--color-text-sec)',
+                borderRadius: 'var(--radius-btn)',
+                fontFamily: 'var(--font-body)',
+                fontSize: 14.5,
+                fontWeight: 700,
+                border: '1.5px solid var(--color-border)',
+                cursor: 'pointer',
+              }}
+            >
+              Continuar sem o gancho
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

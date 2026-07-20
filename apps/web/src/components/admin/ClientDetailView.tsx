@@ -193,6 +193,9 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [grantQty, setGrantQty] = useState(1)
   const [grantMotivo, setGrantMotivo] = useState<string | null>(null)
   const [grantLoading, setGrantLoading] = useState(false)
+  const [showHookModal, setShowHookModal] = useState(false)
+  const [hookReason, setHookReason] = useState('')
+  const [hookLoading, setHookLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
   // edição de cadastro
@@ -260,6 +263,30 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
       // silencioso
     } finally {
       setGrantLoading(false)
+    }
+  }
+
+  async function handleGrantHook() {
+    if (!cliente || hookLoading) return
+    setHookLoading(true)
+    try {
+      const res = await apiFetch('/admin/hook-requests/grant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: cliente.id, reason: hookReason.trim() || undefined }),
+      })
+      if (res.ok) {
+        setShowHookModal(false)
+        setHookReason('')
+        showToast(`Gancho de bonificação liberado para ${cliente.name}`)
+      } else {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        showToast(err?.error ?? 'Não foi possível conceder o gancho', false)
+      }
+    } catch {
+      showToast('Erro de conexão', false)
+    } finally {
+      setHookLoading(false)
     }
   }
 
@@ -650,7 +677,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               <span style={rowLabelStyle}>Saldo de créditos</span>
               <span style={rowValueStyle}>{cliente.creditBalance} pães</span>
             </div>
-            <div style={{ padding: '0 16px 14px' }}>
+            <div style={{ padding: '0 16px 14px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button
                 onClick={() => setShowGrantModal(true)}
                 aria-label="Adicionar créditos"
@@ -661,6 +688,17 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
                 }}
               >
                 + Adicionar créditos
+              </button>
+              <button
+                onClick={() => setShowHookModal(true)}
+                aria-label="Conceder gancho de bonificação"
+                style={{
+                  background: 'none', border: '1.5px solid var(--color-border)', borderRadius: 999,
+                  padding: '6px 14px', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700,
+                  color: 'var(--color-text)', cursor: 'pointer', minHeight: 36,
+                }}
+              >
+                + Conceder gancho
               </button>
             </div>
             <Separator />
@@ -952,6 +990,51 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
                 }}
               >
                 {grantLoading ? 'Confirmando...' : 'Adicionar créditos'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ---------- Modal: conceder gancho (bonificação) ---------- */}
+      {showHookModal && (
+        <>
+          <div onClick={() => setShowHookModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50 }} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-hook-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--color-app-bg)',
+              borderRadius: '20px 20px 0 0', padding: `24px 20px calc(32px + env(safe-area-inset-bottom, 0px))`,
+              maxHeight: '80vh', overflowY: 'auto', zIndex: 51,
+            }}
+          >
+            <div style={{ width: 36, height: 4, borderRadius: 999, background: 'var(--color-border)', margin: '0 auto 20px' }} />
+            <h2 id="modal-hook-title" style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--color-text)', margin: '0 0 8px' }}>
+              Conceder gancho
+            </h2>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: '0 0 20px' }}>
+              Libera um gancho de bonificação (sem custo) que entra na fila de entrega. Use em casos
+              de cortesia ou reposição.
+            </p>
+            <label style={editLabelStyle}>Motivo (opcional)</label>
+            <input
+              type="text"
+              value={hookReason}
+              onChange={(e) => setHookReason(e.target.value)}
+              placeholder="Ex.: cortesia, reposição por atraso..."
+              style={{ ...editInputStyle, marginBottom: 20 }}
+            />
+            <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+              <button onClick={() => setShowHookModal(false)} style={sheetCancelBtn}>Descartar</button>
+              <button
+                onClick={() => { void handleGrantHook() }}
+                disabled={hookLoading}
+                style={{ ...sheetConfirmBtn, opacity: hookLoading ? 0.45 : 1, cursor: hookLoading ? 'wait' : 'pointer' }}
+              >
+                {hookLoading ? 'Concedendo...' : 'Conceder gancho'}
               </button>
             </div>
           </div>

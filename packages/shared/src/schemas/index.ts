@@ -69,6 +69,40 @@ export const PhoneSchema = z
   .transform((v) => normalizePhone(v))
   .refine((v) => v.length >= 10 && v.length <= 13, { message: 'Telefone inválido' })
 
+/**
+ * DDDs válidos no Brasil (todos os códigos de área em uso). Usado para rejeitar
+ * telefones com DDD inexistente (ex.: 10, 20, 23).
+ */
+const VALID_DDDS = new Set([
+  '11', '12', '13', '14', '15', '16', '17', '18', '19',
+  '21', '22', '24', '27', '28',
+  '31', '32', '33', '34', '35', '37', '38',
+  '41', '42', '43', '44', '45', '46', '47', '48', '49',
+  '51', '53', '54', '55',
+  '61', '62', '63', '64', '65', '66', '67', '68', '69',
+  '71', '73', '74', '75', '77', '79',
+  '81', '82', '83', '84', '85', '86', '87', '88', '89',
+  '91', '92', '93', '94', '95', '96', '97', '98', '99',
+])
+
+/**
+ * Checagem básica de celular brasileiro reutilizável pelo front (sem depender do
+ * Zod no bundle web), no mesmo espírito de {@link isValidCpf}. Aceita valor com
+ * ou sem máscara e com código do país 55 opcional no início. Retorna true só
+ * quando: 11 dígitos (DDD + celular de 9 dígitos), DDD existente e nono dígito
+ * iniciando em 9. Números com todos os dígitos iguais são rejeitados.
+ */
+export function isValidBrMobile(value: string): boolean {
+  let digits = value.replace(/\D/g, '')
+  // O código do país 55 só é removido quando é claramente prefixo (12–13
+  // dígitos), preservando números com DDD 55 (que têm 11 dígitos no total).
+  if (digits.length > 11 && digits.startsWith('55')) digits = digits.slice(2)
+  if (digits.length !== 11) return false
+  if (/^(\d)\1{10}$/.test(digits)) return false
+  if (!VALID_DDDS.has(digits.slice(0, 2))) return false
+  return digits[2] === '9'
+}
+
 // ── Autenticação por senha ────────────────────────────────────────────────
 // Política de senha — fonte única (backend valida com .parse; front reusa as regras/mensagens).
 // Critérios de senha forte: 8–72 chars, com minúscula, maiúscula e número.

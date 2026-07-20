@@ -10,6 +10,7 @@ import { AdminCortes } from '../gestao/AdminCortes'
 import { AdminFornecedores } from '../gestao/AdminFornecedores'
 import { AdminEntregadores } from '../gestao/AdminEntregadores'
 import { AdminGanchos } from '../gestao/AdminGanchos'
+import { AdminGancho } from '../gestao/AdminGancho'
 import { AdminNotificacoes } from '../gestao/AdminNotificacoes'
 import { AdminCondos } from '../gestao/AdminCondos'
 import { AdminPagamentos } from '../gestao/AdminPagamentos'
@@ -26,6 +27,7 @@ type AdminGestaoSub =
   | 'fornecedores'
   | 'entregadores'
   | 'ganchos'
+  | 'gancho-config'
   | 'notificacoes'
   | 'condos'
   | 'pagamentos'
@@ -47,6 +49,7 @@ const HUB_ITEMS: HubItem[] = [
   { key: 'fornecedores', icon: 'factory', titulo: 'Fornecedores', descricao: 'Padarias e preço do pão' },
   { key: 'entregadores', icon: 'truck', titulo: 'Entregadores', descricao: 'Equipe e disponibilidade' },
   { key: 'ganchos', icon: 'pin', titulo: 'Solicitação de Gancho', descricao: 'Entregas de gancho de porta' },
+  { key: 'gancho-config', icon: 'gift', titulo: 'Regras do Gancho', descricao: 'Mínimo do grátis e preço extra' },
   { key: 'notificacoes', icon: 'bell', titulo: 'Notificações', descricao: 'Ative ou desative os avisos' },
   { key: 'condos', icon: 'building', titulo: 'Condomínios', descricao: 'Locais atendidos' },
   { key: 'pagamentos', icon: 'card', titulo: 'Pagamentos', descricao: 'Status e estornos' },
@@ -70,6 +73,7 @@ export function AdminGestao() {
   if (sub === 'fornecedores') return <AdminFornecedores onBack={onBack} />
   if (sub === 'entregadores') return <AdminEntregadores onBack={onBack} />
   if (sub === 'ganchos') return <AdminGanchos onBack={onBack} />
+  if (sub === 'gancho-config') return <AdminGancho onBack={onBack} />
   if (sub === 'notificacoes') return <AdminNotificacoes onBack={onBack} />
   if (sub === 'condos') return <AdminCondos onBack={onBack} />
   if (sub === 'pagamentos') return <AdminPagamentos onBack={onBack} />

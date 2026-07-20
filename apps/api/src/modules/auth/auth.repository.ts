@@ -15,6 +15,10 @@ export class AuthRepository {
     return this.prisma.user.findUnique({ where: { email } })
   }
 
+  findUserByCpf(cpf: string) {
+    return this.prisma.user.findUnique({ where: { cpf } })
+  }
+
   createUser(data: {
     name: string
     cpf: string

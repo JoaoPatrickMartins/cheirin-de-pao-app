@@ -272,6 +272,10 @@ export class AuthService {
     if (existingPhone) return { error: 'Telefone já cadastrado', status: 409 }
     const existingEmail = await this.repo.findUserByEmail(email)
     if (existingEmail) return { error: 'Email já cadastrado', status: 409 }
+    // CPF é @unique no schema. Sem esta checagem, um CPF repetido estourava no create
+    // (P2002) e virava 500 "Erro interno" em vez de mensagem amigável.
+    const existingCpf = await this.repo.findUserByCpf(cpf)
+    if (existingCpf) return { error: 'CPF já cadastrado', status: 409 }
 
     const passwordHash = await this.hashPassword(password)
 

@@ -41,6 +41,7 @@ import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 import { seedDefaultsIfAbsent } from './bootstrap/defaults-seed.js'
+import { backfillHooksIfNeeded } from './bootstrap/hooks-backfill.js'
 
 const fastify = Fastify({ logger: true })
 
@@ -182,6 +183,9 @@ const start = async () => {
 
     // Bootstrap — garante defaults (preço avulso, limite e combo padrão) quando o admin não configurou
     await seedDefaultsIfAbsent(fastify.prisma)
+
+    // Bootstrap — migra o gancho legado do User → coleção HookRequest (execução única via flag)
+    await backfillHooksIfNeeded(fastify.prisma, fastify.log)
 
     // JWT — assina/verifica o access token. Registrado ANTES do authenticate (que usa fastify.jwt)
     // e das rotas (auth.service assina tokens). Access token de vida curta (15 min); o refresh

@@ -37,10 +37,18 @@ export class MercadoPagoPixService {
     description: string
     payerEmail: string | null
     payerName?: string | null
+    payerCpf?: string | null
     metadata?: Record<string, string>
     idempotencyKey?: string
   }): Promise<PixResult> {
     const payment = new Payment(getClient())
+    // Enriquecer o pagador (CPF + nome completo) reduz muito o rejected_high_risk da
+    // antifraude do MP — pagador completo é o principal sinal de baixo risco em Pix.
+    const cpfDigits = params.payerCpf?.replace(/\D/g, '') || undefined
+    const fullName = (params.payerName ?? '').trim()
+    const firstSpace = fullName.indexOf(' ')
+    const firstName = firstSpace === -1 ? fullName || undefined : fullName.slice(0, firstSpace)
+    const lastName = firstSpace === -1 ? undefined : fullName.slice(firstSpace + 1).trim() || undefined
     const res = await payment.create({
       body: {
         transaction_amount: params.amount,
@@ -48,7 +56,9 @@ export class MercadoPagoPixService {
         payment_method_id: 'pix',
         payer: {
           email: params.payerEmail ?? undefined,
-          first_name: params.payerName ?? undefined,
+          first_name: firstName,
+          last_name: lastName,
+          ...(cpfDigits ? { identification: { type: 'CPF', number: cpfDigits } } : {}),
         },
         metadata: params.metadata,
       },

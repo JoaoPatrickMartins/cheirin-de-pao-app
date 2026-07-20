@@ -4,25 +4,47 @@ import { Icon } from '../../../components/brand/Icon'
 import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
 
 // ------------------------------------------------------------------ tipos
+type HookType = 'FREE' | 'PAID' | 'BONUS'
+type HookStatus = 'REQUESTED' | 'DELIVERED'
+
 interface HookItem {
   id: string
+  userId: string
+  type: HookType
+  status: HookStatus
+  reason?: string | null
   name: string
   phone?: string | null
   apartment?: string | null
   block?: string | null
   condominiumId?: string | null
   condominiumName?: string | null
-  hookRequestedAt: string | null
-  hookDeliveredAt: string | null
+  requestedAt: string | null
+  deliveredAt: string | null
 }
 
 type StatusFiltro = 'pending' | 'delivered' | 'all'
+type TipoFiltro = 'all' | 'free' | 'paid' | 'bonus'
 
 const STATUS_OPCOES: { id: StatusFiltro; label: string }[] = [
   { id: 'pending', label: 'Pendentes' },
   { id: 'delivered', label: 'Entregues' },
   { id: 'all', label: 'Todos' },
 ]
+
+const TIPO_OPCOES: { id: TipoFiltro; label: string }[] = [
+  { id: 'all', label: 'Todos os tipos' },
+  { id: 'free', label: 'Grátis' },
+  { id: 'paid', label: 'Pagos' },
+  { id: 'bonus', label: 'Bônus' },
+]
+
+/** Rótulo + cores da pílula de tipo do gancho. */
+const TYPE_BADGE: Record<HookType, { label: string; bg: string; fg: string }> = {
+  FREE: { label: 'Grátis', bg: 'var(--color-good-soft)', fg: 'var(--color-good)' },
+  PAID: { label: 'Pago', bg: 'var(--color-gold-soft)', fg: 'var(--color-accent)' },
+  BONUS: { label: 'Bônus', bg: 'var(--color-surface-2)', fg: 'var(--color-text-sec)' },
+}
 
 const PAGE_SIZE = 20
 
@@ -51,6 +73,7 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
   const [searchInput, setSearchInput] = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
   const [status, setStatus] = useState<StatusFiltro>('pending')
+  const [tipo, setTipo] = useState<TipoFiltro>('all')
 
   const [items, setItems] = useState<HookItem[]>([])
   const [total, setTotal] = useState(0)
@@ -73,11 +96,12 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
       const params = new URLSearchParams()
       if (debouncedQ) params.set('q', debouncedQ)
       params.set('status', status)
+      if (tipo !== 'all') params.set('type', tipo)
       params.set('page', String(p))
       params.set('limit', String(PAGE_SIZE))
       return `/admin/hook-requests?${params.toString()}`
     },
-    [debouncedQ, status],
+    [debouncedQ, status, tipo],
   )
 
   // refetch quando busca/filtro mudam (volta para página 1)
@@ -272,6 +296,37 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
         })}
       </div>
 
+      {/* Chips de tipo */}
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '6px 20px 4px', scrollbarWidth: 'none' }}>
+        {TIPO_OPCOES.map((opt) => {
+          const ativo = tipo === opt.id
+          return (
+            <button
+              key={opt.id}
+              onClick={() => setTipo(opt.id)}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 999,
+                fontFamily: 'var(--font-body)',
+                fontSize: 12,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+                flexShrink: 0,
+                border: ativo ? '1.5px solid var(--color-espresso)' : '1.5px solid var(--color-border-2)',
+                background: ativo ? 'var(--color-espresso)' : 'transparent',
+                color: ativo ? '#FAF5EC' : 'var(--color-text-ter)',
+                minHeight: 34,
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* Lista */}
       <div style={{ overflow: 'auto', flex: 1, padding: '12px 20px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {isLoading ? (
@@ -339,7 +394,8 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
 
 // ------------------------------------------------------------------ HookCard
 function HookCard({ item, onDeliver }: { item: HookItem; onDeliver: () => void }) {
-  const entregue = item.hookDeliveredAt != null
+  const entregue = item.status === 'DELIVERED'
+  const badge = TYPE_BADGE[item.type]
 
   return (
     <div
@@ -384,22 +440,55 @@ function HookCard({ item, onDeliver }: { item: HookItem; onDeliver: () => void }
           )}
         </div>
 
-        {/* Pílula de status */}
-        <span
+        {/* Pílulas de tipo + status */}
+        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <span
+            style={{
+              padding: '4px 10px',
+              borderRadius: 999,
+              fontFamily: 'var(--font-body)',
+              fontSize: 11,
+              fontWeight: 700,
+              background: badge.bg,
+              color: badge.fg,
+            }}
+          >
+            {badge.label}
+          </span>
+          <span
+            style={{
+              padding: '4px 10px',
+              borderRadius: 999,
+              fontFamily: 'var(--font-body)',
+              fontSize: 11,
+              fontWeight: 700,
+              background: entregue ? 'var(--color-good-soft)' : 'var(--color-gold-soft)',
+              color: entregue ? 'var(--color-good)' : 'var(--color-accent)',
+            }}
+          >
+            {entregue ? 'Entregue' : 'Pendente'}
+          </span>
+        </div>
+      </div>
+
+      {/* Motivo (defeito/perda no pago; bonificação no bônus) */}
+      {item.reason && (
+        <p
           style={{
-            flexShrink: 0,
-            padding: '4px 10px',
-            borderRadius: 999,
             fontFamily: 'var(--font-body)',
-            fontSize: 11,
-            fontWeight: 700,
-            background: entregue ? 'var(--color-good-soft)' : 'var(--color-gold-soft)',
-            color: entregue ? 'var(--color-good)' : 'var(--color-accent)',
+            fontSize: 12.5,
+            fontWeight: 500,
+            color: 'var(--color-text-sec)',
+            margin: 0,
+            padding: '8px 10px',
+            background: 'var(--color-surface-2)',
+            borderRadius: 10,
+            lineHeight: 1.4,
           }}
         >
-          {entregue ? 'Entregue' : 'Pendente'}
-        </span>
-      </div>
+          {item.reason}
+        </p>
+      )}
 
       {/* Datas + ação */}
       <div
@@ -415,7 +504,7 @@ function HookCard({ item, onDeliver }: { item: HookItem; onDeliver: () => void }
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <Icon name="clock" size={13} color="var(--color-text-ter)" />
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 500, color: 'var(--color-text-ter)' }}>
-            {entregue ? `Entregue ${formatDate(item.hookDeliveredAt)}` : `Solicitado ${formatDate(item.hookRequestedAt)}`}
+            {entregue ? `Entregue ${formatDate(item.deliveredAt)}` : `Solicitado ${formatDate(item.requestedAt)}`}
           </span>
         </div>
 

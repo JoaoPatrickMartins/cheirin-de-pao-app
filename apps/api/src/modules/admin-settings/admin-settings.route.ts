@@ -272,4 +272,63 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.setPedidoMinimo.bind(ctrl),
   )
+
+  fastify.get(
+    '/admin/settings/gancho',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Consultar config do gancho de porta (admin)',
+        description:
+          'Retorna o mínimo de pães num pedido único para ganhar o gancho grátis e o preço de um gancho adicional (reposição por defeito/perda, cobrado via Pix). A compra de combo sempre dá direito ao gancho grátis. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração do gancho de porta.',
+            properties: {
+              pedidoUnicoMin: { type: 'integer', description: 'Mínimo de pães no pedido único para o gancho grátis.' },
+              preco: { type: 'number', description: 'Preço de um gancho adicional em reais.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getGancho.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/settings/gancho',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Atualizar config do gancho de porta (admin)',
+        description:
+          'Atualiza o mínimo de pães do pedido único (1..50) para o gancho grátis e o preço do gancho adicional. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['pedidoUnicoMin', 'preco'],
+          properties: {
+            pedidoUnicoMin: { type: 'integer', minimum: 1, maximum: 50, description: 'Novo mínimo de pães do pedido único.' },
+            preco: { type: 'number', minimum: 0, description: 'Novo preço do gancho adicional em reais.' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração do gancho atualizada.',
+            properties: {
+              ok: { type: 'boolean' },
+              pedidoUnicoMin: { type: 'integer' },
+              preco: { type: 'number' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.setGancho.bind(ctrl),
+  )
 }

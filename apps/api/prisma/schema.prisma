@@ -101,6 +101,29 @@ enum PaymentStatus {
   REFUNDED
 }
 
+// Finalidade de um Payment. Ausente/null = CREDITS (compra de créditos combo/avulso) —
+// nullable de propósito: docs criados antes deste campo leem null no Mongo (o @default só
+// vale na criação). HOOK = compra de um gancho de porta adicional (não credita pães).
+enum PaymentPurpose {
+  CREDITS
+  HOOK
+}
+
+// Tipo do gancho de porta concedido ao cliente (ver model HookRequest).
+enum HookRequestType {
+  FREE  // 1º gancho gratuito — ao comprar um combo OU pedido único >= mínimo configurado
+  PAID  // gancho adicional pago (Pix) — reposição por defeito/perda
+  BONUS // gancho concedido pelo admin como bonificação (sem custo)
+}
+
+// Estado do ciclo de vida de um gancho.
+enum HookRequestStatus {
+  PENDING_PAYMENT // PAID aguardando confirmação do pagamento (ainda não entra na fila)
+  REQUESTED       // na fila — aguardando a entrega física pelo admin
+  DELIVERED       // entregue ao cliente (auditável)
+  CANCELLED       // pagamento falhou/expirou (PAID que nunca confirmou)
+}
+
 enum NotificationType {
   DELIVERY_EVE
   DELIVERY_DONE
@@ -166,10 +189,10 @@ model User {
   stripeCustomerId   String?
   // Consentimento explícito para cobranças sem CVV (off_session / card-on-file)
   offSessionConsentAt DateTime?
-  // Solicitação de gancho de porta (entrega) — fluxo pós-primeiro-pedido.
-  // hookRequestedAt: cliente confirmou o recebimento (solicitação PENDENTE).
-  // hookDeliveredAt + hookDeliveredById: admin registrou a entrega (auditoria).
-  // Estado derivado: null = não solicitado; requested sem delivered = pendente; delivered = entregue.
+  // LEGADO — gancho de porta. Migrado para a coleção HookRequest (um doc por gancho).
+  // Mantidos apenas para o backfill (scripts/backfill-hook-requests.ts) ler o estado antigo.
+  // NÃO escrever mais aqui: a fonte da verdade agora é HookRequest. Podem ser removidos
+  // após o backfill rodar em produção.
   hookRequestedAt    DateTime?
   hookDeliveredAt    DateTime?
   hookDeliveredById  String?   @db.ObjectId
@@ -383,8 +406,32 @@ model Payment {
   stripePaymentIntentId String?
   comboId        String?       @db.ObjectId
   customQuantity Int?
+  // Finalidade do pagamento. Ausente/null = CREDITS (compra de créditos). HOOK = gancho
+  // adicional pago — o fulfillment (credit-payment.ts) NÃO credita pães; marca o HookRequest.
+  purpose        PaymentPurpose?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+}
+
+// 20. HookRequest — cada gancho de porta que um cliente obtém ao longo do tempo.
+// Substitui os campos hook* do User (single-slot) por histórico: 1 grátis + N pagos/bônus.
+// Regra do grátis "uma vez só": cliente elegível ⇔ NÃO possui nenhum HookRequest.
+model HookRequest {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String            @db.ObjectId
+  type          HookRequestType
+  status        HookRequestStatus
+  reason        String?           // motivo (defeito/perda no PAID; texto da bonificação no BONUS)
+  paymentId     String?           @db.ObjectId // vínculo ao Payment (apenas PAID)
+  grantedById   String?           @db.ObjectId // admin que concedeu (apenas BONUS)
+  requestedAt   DateTime?         // quando entrou na fila de entrega (status REQUESTED)
+  deliveredAt   DateTime?         // quando o admin registrou a entrega
+  deliveredById String?           @db.ObjectId // admin que entregou (auditoria)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, requestedAt])
 }
 
 // 15. Notification — fila de notificações por tipo (imutável — sem updatedAt)

@@ -11,7 +11,8 @@
     "migrate:slots": "tsx src/scripts/migrate-delivery-slots.ts",
     "seed:slots": "tsx src/scripts/seed-delivery-slots.ts",
     "migrate:slotid": "tsx src/scripts/migrate-to-slotid.ts",
-    "migrate:phone": "tsx src/scripts/backfill-phone-normalize.ts"
+    "migrate:phone": "tsx src/scripts/backfill-phone-normalize.ts",
+    "migrate:hooks": "tsx src/scripts/backfill-hook-requests.ts"
   },
   "dependencies": {
     "@cheirin-de-pao/shared": "0.0.1",
