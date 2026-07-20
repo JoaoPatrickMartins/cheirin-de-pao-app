@@ -3,6 +3,7 @@ import { PaymentsRepository } from './payments.repository.js'
 import { StripeService } from './stripe.service.js'
 import { MercadoPagoPixService } from './mercadopago-pix.service.js'
 import { creditForPayment } from './credit-payment.js'
+import { fulfillSingleOrderFromMetadata } from './fulfill-single-order.js'
 import { effectiveComboPrice } from '../../lib/combo-pricing.js'
 import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
 
@@ -57,19 +58,33 @@ export class PaymentsService {
   // ── Pix (Mercado Pago) ─────────────────────────────────────────────────────
   // O Pix roda no Mercado Pago (o cartão continua no Stripe). O crédito ocorre depois,
   // via webhook do MP OU via reconciliação no getStatus (pull) — ambos idempotentes.
-  async createPix(params: { comboId?: string; customQuantity?: number; userId: string }) {
-    const { comboId, customQuantity, userId } = params
+  async createPix(params: {
+    comboId?: string
+    customQuantity?: number
+    userId: string
+    order?: { quantity: number; scheduledDate: string; deliveryTime?: string }
+  }) {
+    const { comboId, customQuantity, userId, order } = params
     const { amount, description } = await this.resolveAmount(comboId, customQuantity)
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } })
     if (!user) throw { error: 'Usuário não encontrado', status: 404 }
+
+    // Metadata do MP. Para o Pedido único que paga a diferença, embute a intenção do pedido
+    // (chaves snake_case) — lida na aprovação (webhook/pull) para criar a Order no servidor.
+    const metadata = this.metadata(userId, comboId, customQuantity)
+    if (order) {
+      metadata.order_quantity = String(order.quantity)
+      metadata.order_scheduled_date = order.scheduledDate
+      if (order.deliveryTime) metadata.order_delivery_time = order.deliveryTime
+    }
 
     const pix = await this.mp.createPix({
       amount,
       description,
       payerEmail: user.email,
       payerName: user.name,
-      metadata: this.metadata(userId, comboId, customQuantity),
+      metadata,
     })
 
     const payment = await this.repo.createPayment({
@@ -211,6 +226,9 @@ export class PaymentsService {
         const mp = await this.mp.getPayment(payment.mercadoPagoId)
         if (mp.status === 'approved') {
           await creditForPayment(this.fastify, payment)
+          // Pedido único que pagou a diferença: cria a Order no servidor a partir da metadata
+          // do MP (funciona mesmo com o app fechado). Idempotente por paymentId e best-effort.
+          await fulfillSingleOrderFromMetadata(this.fastify, payment, mp.metadata)
         } else if (mp.status === 'rejected' || mp.status === 'cancelled') {
           await this.repo.updatePaymentStatus(payment.id, 'FAILED')
         }

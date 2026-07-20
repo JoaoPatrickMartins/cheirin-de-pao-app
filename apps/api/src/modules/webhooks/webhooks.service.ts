@@ -4,6 +4,7 @@ import { PaymentsRepository } from '../payments/payments.repository.js'
 import { StripeService } from '../payments/stripe.service.js'
 import { MercadoPagoPixService } from '../payments/mercadopago-pix.service.js'
 import { creditForPayment } from '../payments/credit-payment.js'
+import { fulfillSingleOrderFromMetadata } from '../payments/fulfill-single-order.js'
 
 export class WebhooksService {
   private repo: PaymentsRepository
@@ -71,6 +72,10 @@ export class WebhooksService {
     const status = mpPayment.status
     if (status === 'approved') {
       await this.creditFromMercadoPago(mpId)
+      // Pedido único que pagou a diferença via Pix: cria a Order no servidor a partir da
+      // metadata do pagamento (funciona mesmo com o app fechado). Idempotente e best-effort.
+      const payment = await this.repo.findPaymentByMercadoPagoId(mpId)
+      if (payment) await fulfillSingleOrderFromMetadata(this.fastify, payment, mpPayment.metadata)
     } else if (status === 'rejected' || status === 'cancelled') {
       const payment = await this.repo.findPaymentByMercadoPagoId(mpId)
       if (payment && payment.status === 'PENDING') {
