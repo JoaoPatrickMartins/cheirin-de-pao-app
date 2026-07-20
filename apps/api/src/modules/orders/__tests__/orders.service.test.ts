@@ -143,6 +143,26 @@ describe('OrdersService', () => {
     })
   })
 
+  it('createSingleOrder é idempotente por paymentId — devolve o existente sem novo débito', async () => {
+    const existing = { id: 'order-existente', quantity: 2, scheduledDate: new Date() }
+    const { fastify } = makeFastifyMock({ creditBalance: 10, orderFindFirst: existing })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    const result = await service.createSingleOrder('user-01', {
+      quantity: 2,
+      scheduledDate: makeFutureDateStr(2),
+      paymentId: 'pay-xyz',
+    })
+
+    // Devolve o pedido já existente daquele pagamento e NÃO abre transação (sem redébito/duplicata).
+    expect(result).toBe(existing)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((fastify as any).prisma.$transaction).not.toHaveBeenCalled()
+  })
+
   it('createSingleOrder lança erro 400 quando saldo insuficiente', async () => {
     // transaction lança o erro de negócio (simulando o throw interno)
     const businessError = { statusCode: 400, message: 'Créditos insuficientes' }

@@ -10,13 +10,28 @@ import type { PrismaClient } from '@prisma/client'
  */
 const INDEX_SPECS: Array<{
   collection: string
-  indexes: Array<{ key: Record<string, 1 | -1>; name: string; unique?: boolean }>
+  indexes: Array<{
+    key: Record<string, 1 | -1>
+    name: string
+    unique?: boolean
+    partialFilterExpression?: Record<string, { $exists: boolean }>
+  }>
 }> = [
   {
     collection: 'Order',
     indexes: [
       { key: { status: 1, scheduledDate: 1 }, name: 'status_1_scheduledDate_1' },
       { key: { condominiumId: 1, scheduledDate: 1 }, name: 'condominiumId_1_scheduledDate_1' },
+      // Um pagamento financia no máximo UM pedido único. Índice único PARCIAL (só quando
+      // paymentId existe — pedidos pagos via saldo têm paymentId nulo) que barra a duplicata
+      // na corrida entre frontend (na tela) e servidor (webhook/pull). Best-effort: se houver
+      // duplicatas legadas, a criação do índice falha e é apenas logada (ver ensureIndexes).
+      {
+        key: { paymentId: 1 },
+        name: 'paymentId_1',
+        unique: true,
+        partialFilterExpression: { paymentId: { $exists: true } },
+      },
     ],
   },
   {

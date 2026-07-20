@@ -67,6 +67,15 @@ export class OrdersService {
    * @throws { statusCode: 400, message: 'Créditos insuficientes' } se saldo < quantity
    */
   async createSingleOrder(userId: string, data: CreateOrderBody) {
+    // Idempotência por pagamento: um pagamento financia no máximo UM pedido único. Cobre a
+    // corrida entre o frontend (na tela) e o servidor (webhook/pull), que na aprovação do Pix
+    // podem tentar criar o mesmo pedido. Se já existe Order deste pagamento, devolve-o (sem
+    // novo débito, sem duplicar, sem re-notificar).
+    if (data.paymentId) {
+      const existing = await this.prisma.order.findFirst({ where: { paymentId: data.paymentId } })
+      if (existing) return existing
+    }
+
     // Nunca aceita datas no passado. "Hoje" é permitido, mas só se o corte do slot
     // escolhido ainda não passou (validação adiante). Sem slots para validar o corte,
     // o piso permanece "amanhã".
@@ -178,6 +187,15 @@ export class OrdersService {
       })
 
       return newOrder
+    })
+    .catch(async (err) => {
+      // Corrida frontend × webhook/pull: o índice único de paymentId barrou a duplicata.
+      // Devolve o pedido que o outro caminho já criou (o caminho comum já retornou lá em cima).
+      if (data.paymentId && (err as { code?: string })?.code === 'P2002') {
+        const existing = await this.prisma.order.findFirst({ where: { paymentId: data.paymentId } })
+        if (existing) return existing
+      }
+      throw err
     })
 
     // Aviso ao admin — novo pedido de cliente (best-effort, nunca quebra o fluxo).

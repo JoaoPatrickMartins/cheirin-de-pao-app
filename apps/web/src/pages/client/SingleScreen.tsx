@@ -265,7 +265,10 @@ export function SingleScreen() {
     try {
       const res = await apiFetch('/payments/pix', {
         method: 'POST',
-        body: JSON.stringify({ customQuantity: deficit }),
+        // Envia a intenção do Pedido único junto: o servidor grava na metadata do MP e cria
+        // a Order na aprovação do Pix mesmo com o app fechado. O front continua criando na
+        // tela via finalizePendingOrder — idempotente por paymentId, sem duplicar.
+        body: JSON.stringify({ customQuantity: deficit, order: pendingOrder }),
       })
       if (res.ok) {
         const { paymentId, pixCopyPaste, pixQrCodeUrl } = (await res.json()) as {
