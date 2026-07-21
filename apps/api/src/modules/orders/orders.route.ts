@@ -175,4 +175,43 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.getOrderHistory.bind(ctrl),
   )
+
+  fastify.get(
+    '/orders/availability',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['orders'],
+        summary: 'Disponibilidade de datas para pedido único',
+        description: 'Retorna, a partir de hoje (BRT), para cada data da janela: se o dia da semana está bloqueado (blocked) e se o limite de pedidos daquele dia já foi atingido (full). Usado para desabilitar dias na régua do pedido único.',
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            days: { type: 'integer', minimum: 1, maximum: 60, default: 14, description: 'Tamanho da janela em dias (padrão 14).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Disponibilidade por data.',
+            properties: {
+              availability: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    date: { type: 'string', description: 'Data no formato YYYY-MM-DD (BRT).' },
+                    blocked: { type: 'boolean', description: 'true se o dia da semana está bloqueado.' },
+                    full: { type: 'boolean', description: 'true se o limite de pedidos do dia já foi atingido.' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getAvailability.bind(ctrl),
+  )
 }

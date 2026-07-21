@@ -4,6 +4,15 @@ import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
 import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
 import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
+import {
+  getAgendaRestrictions,
+  isDayBlocked,
+  nextDateForWeekday,
+  WEEKDAY_ORDER,
+  WEEKDAY_LABEL,
+  type DiasBloqueados,
+} from '../../lib/agenda-restrictions.js'
+import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import {
@@ -75,6 +84,51 @@ export function findAgendaMinimoError(
   return `Abaixo do pedido mínimo por dia: ${parts.join(', ')}`
 }
 
+/**
+ * Valida a agenda contra os dias bloqueados pelo admin: qualquer dia bloqueado com `qty > 0`
+ * (em qualquer slot) é recusado. Cobre multi-slot (`days`) e o legado (`weeklyQty`).
+ * @returns mensagem de erro agregando os dias bloqueados violados, ou `null` se tudo válido.
+ */
+export function findAgendaBlockedError(
+  data: { days?: Record<string, WeeklyQty>; weeklyQty?: WeeklyQty },
+  blocked: DiasBloqueados,
+): string | null {
+  const violated = new Set<keyof WeeklyQty>()
+  const check = (wq: WeeklyQty | undefined) => {
+    if (!wq) return
+    for (const [day] of WEEKDAY_LABELS) {
+      if ((wq[day] ?? 0) > 0 && isDayBlocked(blocked, day)) violated.add(day)
+    }
+  }
+  if (data.days) Object.values(data.days).forEach(check)
+  check(data.weeklyQty)
+
+  if (violated.size === 0) return null
+  const parts = WEEKDAY_LABELS.filter(([day]) => violated.has(day)).map(([, label]) => label)
+  const dias = parts.join(', ')
+  return `Não há entregas ${parts.length > 1 ? 'nestes dias' : 'neste dia'}: ${dias}. Ajuste sua agenda.`
+}
+
+/**
+ * Nº de ENTREGAS (slots com qty > 0) por dia da semana na agenda submetida — a unidade do
+ * limite por dia. Multi-slot conta 1 por slot ativo no dia; legado conta 1 se weeklyQty > 0.
+ */
+export function countDeliveriesPerWeekday(data: {
+  days?: Record<string, WeeklyQty>
+  weeklyQty?: WeeklyQty
+}): Record<DayKey, number> {
+  const result: Record<DayKey, number> = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+  const add = (wq: WeeklyQty | undefined) => {
+    if (!wq) return
+    for (const day of WEEKDAY_ORDER) {
+      if ((wq[day] ?? 0) > 0) result[day] += 1
+    }
+  }
+  if (data.days) Object.values(data.days).forEach(add)
+  else add(data.weeklyQty)
+  return result
+}
+
 function createOsClient() {
   const configuration = OneSignal.createConfiguration({
     restApiKey: process.env.ONESIGNAL_REST_API_KEY!,
@@ -111,6 +165,32 @@ export class SchedulesService {
     if (erro) {
       throw { statusCode: 422, message: erro }
     }
+
+    // Restrições por dia da semana (global): dias bloqueados e teto de entregas por dia.
+    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+
+    const erroBloqueio = findAgendaBlockedError(data, blocked)
+    if (erroBloqueio) {
+      throw { statusCode: 422, message: erroBloqueio }
+    }
+
+    // Limite por dia (reserva): para cada dia com entregas, checa as vagas na PRÓXIMA ocorrência,
+    // excluindo este usuário (a agenda tem prioridade — o cliente não concorre contra a própria
+    // reserva já existente, então editar a agenda nunca falha por causa dela).
+    const deliveriesPerDay = countDeliveriesPerWeekday(data)
+    for (const day of WEEKDAY_ORDER) {
+      const novas = deliveriesPerDay[day]
+      if (novas === 0 || limits[day] === 0) continue
+      const deliveryDate = nextDateForWeekday(day)
+      const base = await countCommittedDeliveries(this.prisma, deliveryDate, { excludeUserId: userId })
+      if (base + novas > limits[day]) {
+        throw {
+          statusCode: 422,
+          message: `Sem vagas para ${WEEKDAY_LABEL[day]} — o limite de pedidos deste dia já foi atingido.`,
+        }
+      }
+    }
+
     return this.repo.upsert(userId, condominiumId, data)
   }
 
@@ -142,6 +222,17 @@ export class SchedulesService {
       suppressInsufficientPush?: boolean
     } = {},
   ): Promise<void> {
+    // Restrições do admin (backstop hard): dia bloqueado não gera NADA; teto limita o total de
+    // entregas do dia. Protege agendas salvas ANTES de o dia ser bloqueado/limitado.
+    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    if (isDayBlocked(blocked, dayKey)) {
+      this.fastify.log.info(
+        `[schedules] dia ${dayKey} bloqueado — corte não gera orders (condo ${condominiumId}, slot ${slot.slotId})`,
+      )
+      return
+    }
+    const dayLimit = limits[dayKey] // 0 = ilimitado
+
     const schedules = await this.prisma.schedule.findMany({
       where: { condominiumId, isActive: true },
     })
@@ -171,6 +262,22 @@ export class SchedulesService {
           select: { id: true },
         })
         if (existing) continue
+
+        // Backstop de limite (global por data): reconta ao vivo as entregas materializadas do dia
+        // (todos os condomínios/slots) e para de gerar quando o teto é atingido. Ordem = iteração
+        // (first-come). Como o pedido único já respeita as reservas da agenda na criação, a
+        // capacidade tende a estar consistente antes do corte.
+        if (dayLimit > 0) {
+          const materialized = await this.prisma.order.count({
+            where: { status: { not: 'CANCELLED' }, scheduledDate: { gte: start, lte: end } },
+          })
+          if (materialized >= dayLimit) {
+            this.fastify.log.warn(
+              `[schedules] limite ${dayLimit} de ${dayKey} atingido em ${dateLabel} — pulando user ${schedule.userId}`,
+            )
+            continue
+          }
+        }
 
         const user = await this.repo.findUserById(schedule.userId)
         if (!user) continue

@@ -81,6 +81,42 @@ export async function projectScheduleForDate(
   return { byCondo, total }
 }
 
+/**
+ * countCommittedDeliveries — nº de ENTREGAS (Orders) comprometidas para uma data de entrega.
+ *
+ * Unidade = 1 entrega por Order (um cliente pode ter várias entregas no dia: 1 por slot/avulso).
+ * Soma:
+ *   - materializadas: Orders não-CANCELLED na janela do dia (SINGLE + SCHEDULED);
+ *   - previstas pendentes: linhas da agenda ativa que ainda não viraram Order (projeção já
+ *     desconta o que foi materializado por usuário+slot — não conta em dobro).
+ *
+ * `opts.excludeUserId` remove as entregas (materializadas e previstas) de um usuário — usado
+ * ao salvar a agenda, para que o cliente não concorra contra a própria reserva já existente.
+ *
+ * @param deliveryDate qualquer Date que caia no dia BRT alvo (meio-dia BRT é seguro)
+ */
+export async function countCommittedDeliveries(
+  prisma: PrismaClient,
+  deliveryDate: Date,
+  opts: { excludeUserId?: string } = {},
+): Promise<number> {
+  const { start, end } = brtDayRange(deliveryDate)
+
+  const matWhere = {
+    status: { not: 'CANCELLED' as const },
+    scheduledDate: { gte: start, lte: end },
+    ...(opts.excludeUserId ? { userId: { not: opts.excludeUserId } } : {}),
+  }
+  const matCount = await prisma.order.count({ where: matWhere })
+
+  const projected = await projectScheduleDetailForDate(prisma, deliveryDate)
+  const projectedCount = opts.excludeUserId
+    ? projected.filter((r) => r.userId !== opts.excludeUserId).length
+    : projected.length
+
+  return matCount + projectedCount
+}
+
 /** Uma linha de projeção pendente: o que a agenda de um usuário prevê para um slot, ainda não materializado. */
 export interface ProjectedRow {
   userId: string

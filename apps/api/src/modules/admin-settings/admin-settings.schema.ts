@@ -74,3 +74,38 @@ export const UpdateGanchoSchema = z.object({
 })
 
 export type UpdateGanchoBody = z.infer<typeof UpdateGanchoSchema>
+
+/**
+ * UpdateRestricoesSchema — valida as restrições de agendamento por dia da semana.
+ *
+ * - `diasBloqueados`: dia com `true` NÃO aceita entregas (pedido único, agenda e corte).
+ * - `limitePedidosDia`: máximo de entregas (pedidos) por dia; `0` = ilimitado.
+ *
+ * Ambos aplicam-se globalmente (soma de todos os condomínios) — como as demais configs globais.
+ */
+const WeekdayBoolSchema = z.object({
+  seg: z.boolean(),
+  ter: z.boolean(),
+  qua: z.boolean(),
+  qui: z.boolean(),
+  sex: z.boolean(),
+  sab: z.boolean(),
+  dom: z.boolean(),
+})
+
+const WeekdayLimitSchema = z.object({
+  seg: z.number().int().min(0).max(9999),
+  ter: z.number().int().min(0).max(9999),
+  qua: z.number().int().min(0).max(9999),
+  qui: z.number().int().min(0).max(9999),
+  sex: z.number().int().min(0).max(9999),
+  sab: z.number().int().min(0).max(9999),
+  dom: z.number().int().min(0).max(9999),
+})
+
+export const UpdateRestricoesSchema = z.object({
+  diasBloqueados: WeekdayBoolSchema,
+  limitePedidosDia: WeekdayLimitSchema,
+})
+
+export type UpdateRestricoesBody = z.infer<typeof UpdateRestricoesSchema>

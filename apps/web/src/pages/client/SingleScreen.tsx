@@ -133,6 +133,8 @@ export function SingleScreen() {
   const [showFreeHookPrompt, setShowFreeHookPrompt] = useState(false)
   // Bottom sheet de resumo/confirmação antes de finalizar a compra.
   const [summaryOpen, setSummaryOpen] = useState(false)
+  // Disponibilidade por data (dia bloqueado ou limite atingido) para a régua de dias.
+  const [availability, setAvailability] = useState<Record<string, { blocked: boolean; full: boolean }>>({})
 
   // Preço por pão (avulso) + pedido mínimo — usados para cobrar a diferença e limitar a quantidade.
   useEffect(() => {
@@ -144,6 +146,20 @@ export function SingleScreen() {
           setPedidoMinimo(data.pedidoMinimoUnico)
           // Sobe a quantidade para o mínimo se o cliente ainda não mexeu (começa em 1).
           setQtd((q) => (q < data.pedidoMinimoUnico! ? data.pedidoMinimoUnico! : q))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  // Disponibilidade por data (32 dias) — desabilita dias bloqueados/cheios na régua.
+  useEffect(() => {
+    apiFetch('/orders/availability?days=32')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { availability?: Array<{ date: string; blocked: boolean; full: boolean }> } | null) => {
+        if (data?.availability) {
+          const map: Record<string, { blocked: boolean; full: boolean }> = {}
+          for (const a of data.availability) map[a.date] = { blocked: a.blocked, full: a.full }
+          setAvailability(map)
         }
       })
       .catch(() => {})
@@ -235,7 +251,16 @@ export function SingleScreen() {
   const dayLabel = (d: string) =>
     d === todayStr ? 'Hoje' : d === tomorrowStr ? 'Amanhã' : WEEKDAY[parseDate(d).getDay()]
 
+  // Uma data está indisponível quando o dia da semana está bloqueado OU o limite de pedidos
+  // do dia já foi atingido (config do admin). Datas fora da janela consultada → sem info (livre).
+  const isDateUnavailable = (dateStr: string): boolean => {
+    const info = availability[dateStr]
+    return !!(info && (info.blocked || info.full))
+  }
+
   const escolherData = (dateStr: string) => {
+    // Não seleciona dia indisponível (defesa p/ escolha via calendário nativo).
+    if (isDateUnavailable(dateStr)) return
     setQuando(dateStr)
     // Se o slot já escolhido não está mais disponível na nova data, limpa a seleção.
     if (deliveryTime) {
@@ -243,6 +268,17 @@ export function SingleScreen() {
       if (slot && !slotAvailable(slot, dateStr)) setDeliveryTime(null)
     }
   }
+
+  // Se a data selecionada estiver (ou passar a estar) indisponível — inclusive o default
+  // "amanhã" e o momento em que a disponibilidade termina de carregar — move para o primeiro
+  // dia livre da régua. Evita levar um dia bloqueado/cheio até o resumo e o confirm.
+  useEffect(() => {
+    if (!quando || !isDateUnavailable(quando)) return
+    const firstOk = stripDates.find((d) => !isDateUnavailable(d))
+    setQuando(firstOk ?? null)
+    setDeliveryTime(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability, quando])
 
   // Auto-seleção de horário: quando só há UM slot disponível para a data escolhida,
   // já deixa ele marcado; com dois ou mais, mantém sem seleção (escolha explícita).
@@ -295,8 +331,19 @@ export function SingleScreen() {
   // Exige data + (slot, quando o condomínio tem slots). Aguarda o fetch de slots para
   // não habilitar prematuramente. Para pagar a diferença, precisa do preço avulso.
   const slotPendente = !slotsLoaded || (slots.length > 0 && !deliveryTime)
+  const quandoIndisponivel = !!quando && isDateUnavailable(quando)
   const isDisabled =
-    !quando || slotPendente || isSubmitting || (precisaPagar && avulsoUnit === null)
+    !quando ||
+    quandoIndisponivel ||
+    slotPendente ||
+    isSubmitting ||
+    (precisaPagar && avulsoUnit === null)
+  // Aviso do dia indisponível (bloqueado vs. lotado) exibido acima do botão.
+  const diaIndisponivelMsg = quandoIndisponivel
+    ? availability[quando!]?.full
+      ? 'O limite de pedidos para este dia foi atingido. Escolha outra data.'
+      : 'Não há entregas neste dia. Escolha outra data.'
+    : null
 
   // Saldo cobre o pedido inteiro → reserva direto via POST /orders.
   const handleReservar = async (quantity: number) => {
@@ -322,10 +369,11 @@ export function SingleScreen() {
             deliveryTime: deliveryTime ?? undefined,
           },
         })
-      } else if (res.status === 400) {
-        setErrorMsg('Créditos insuficientes para este pedido.')
       } else {
-        setErrorMsg('Não conseguimos criar o pedido. Tente novamente.')
+        // Usa a mensagem do servidor (ex.: dia bloqueado, limite atingido, data inválida,
+        // créditos insuficientes) — cai no genérico só quando não há corpo legível.
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        setErrorMsg(err?.error ?? 'Não conseguimos criar o pedido. Tente novamente.')
       }
     } catch {
       setErrorMsg('Não conseguimos criar o pedido. Tente novamente.')
@@ -591,9 +639,27 @@ export function SingleScreen() {
                 {stripDates.map((d) => {
                   const active = quando === d
                   const mes = parseDate(d).getMonth()
-                  const accent = active ? 'var(--color-accent)' : 'var(--color-text)'
+                  const avail = availability[d]
+                  const unavailable = !!(avail && (avail.blocked || avail.full))
+                  const accent = active
+                    ? 'var(--color-accent)'
+                    : unavailable
+                      ? 'var(--color-text-ter)'
+                      : 'var(--color-text)'
+                  // Rótulo inferior: motivo da indisponibilidade tem prioridade sobre o mês.
+                  const bottomLabel = unavailable ? (avail?.full ? 'cheio' : '—') : MONTHS[mes]
+                  const showBottom = unavailable || mes !== todayMonth
                   return (
-                    <button key={d} onClick={() => escolherData(d)} style={dayCardStyle(active)}>
+                    <button
+                      key={d}
+                      onClick={unavailable ? undefined : () => escolherData(d)}
+                      disabled={unavailable}
+                      style={{
+                        ...dayCardStyle(active),
+                        opacity: unavailable ? 0.4 : 1,
+                        cursor: unavailable ? 'default' : 'pointer',
+                      }}
+                    >
                       <span
                         style={{
                           fontFamily: 'var(--font-body)',
@@ -612,6 +678,7 @@ export function SingleScreen() {
                           fontWeight: 800,
                           color: accent,
                           lineHeight: 1.15,
+                          textDecoration: unavailable && !avail?.full ? 'line-through' : 'none',
                         }}
                       >
                         {parseDate(d).getDate()}
@@ -625,10 +692,10 @@ export function SingleScreen() {
                           textTransform: 'uppercase',
                           color: active ? 'var(--color-accent)' : 'var(--color-text-ter)',
                           lineHeight: 1,
-                          visibility: mes !== todayMonth ? 'visible' : 'hidden',
+                          visibility: showBottom ? 'visible' : 'hidden',
                         }}
                       >
-                        {MONTHS[mes]}
+                        {bottomLabel}
                       </span>
                     </button>
                   )
@@ -878,6 +945,20 @@ export function SingleScreen() {
           background: 'var(--color-app-bg)',
         }}
       >
+        {diaIndisponivelMsg && (
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: 'var(--color-accent)',
+              margin: '0 0 10px',
+              textAlign: 'center',
+            }}
+          >
+            {diaIndisponivelMsg}
+          </p>
+        )}
         <button
           onClick={handleSubmit}
           disabled={isDisabled}

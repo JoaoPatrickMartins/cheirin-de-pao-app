@@ -6,6 +6,7 @@ import { useAuth } from '../../../hooks/useAuth'
 import { AdminCombos } from '../gestao/AdminCombos'
 import { AdminAvulso } from '../gestao/AdminAvulso'
 import { AdminPedidoMinimo } from '../gestao/AdminPedidoMinimo'
+import { AdminBloqueiosLimites } from '../gestao/AdminBloqueiosLimites'
 import { AdminCortes } from '../gestao/AdminCortes'
 import { AdminFornecedores } from '../gestao/AdminFornecedores'
 import { AdminEntregadores } from '../gestao/AdminEntregadores'
@@ -23,6 +24,7 @@ type AdminGestaoSub =
   | 'combos'
   | 'avulso'
   | 'pedido-minimo'
+  | 'restricoes'
   | 'cortes'
   | 'fornecedores'
   | 'entregadores'
@@ -45,6 +47,7 @@ const HUB_ITEMS: HubItem[] = [
   { key: 'combos', icon: 'bag', titulo: 'Combos e promoções', descricao: 'Criar, editar, descontos' },
   { key: 'avulso', icon: 'coin', titulo: 'Compra personalizada', descricao: 'Limite e preço por pão' },
   { key: 'pedido-minimo', icon: 'bag', titulo: 'Pedido mínimo', descricao: 'Mínimo da agenda e do pedido único' },
+  { key: 'restricoes', icon: 'calendar', titulo: 'Bloqueios e limites', descricao: 'Dias bloqueados e teto de pedidos por dia' },
   { key: 'cortes', icon: 'clock', titulo: 'Horários de corte', descricao: 'Prazo de pedido por turno' },
   { key: 'fornecedores', icon: 'factory', titulo: 'Fornecedores', descricao: 'Padarias e preço do pão' },
   { key: 'entregadores', icon: 'truck', titulo: 'Entregadores', descricao: 'Equipe e disponibilidade' },
@@ -69,6 +72,7 @@ export function AdminGestao() {
   if (sub === 'combos') return <AdminCombos onBack={onBack} />
   if (sub === 'avulso') return <AdminAvulso onBack={onBack} />
   if (sub === 'pedido-minimo') return <AdminPedidoMinimo onBack={onBack} />
+  if (sub === 'restricoes') return <AdminBloqueiosLimites onBack={onBack} />
   if (sub === 'cortes') return <AdminCortes onBack={onBack} />
   if (sub === 'fornecedores') return <AdminFornecedores onBack={onBack} />
   if (sub === 'entregadores') return <AdminEntregadores onBack={onBack} />

@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
+import { NotificationType } from '@prisma/client'
 import { isPastCutoffForDelivery, nextDeliveryDateStr, brtDateStr } from '../../lib/cutoff.js'
 import {
   getGlobalDeliverySlots,
@@ -10,6 +11,15 @@ import {
 } from '../../lib/delivery-slots.js'
 import type { WeekdayMinimums } from './admin-settings.schema.js'
 import { getGanchoConfig, type GanchoConfig } from '../../lib/gancho-config.js'
+import {
+  getAgendaRestrictions,
+  WEEKDAY_ORDER,
+  WEEKDAY_LABEL,
+  type AgendaRestrictions,
+  type DiasBloqueados,
+  type LimitePedidosDia,
+} from '../../lib/agenda-restrictions.js'
+import { NotificationsService } from '../notifications/notifications.service.js'
 
 /**
  * Faz parse defensivo do JSON de mínimos da agenda (coluna Setting.value).
@@ -177,6 +187,98 @@ export class AdminSettingsService {
         update: { value: String(preco) },
       }),
     ])
+  }
+
+  /**
+   * Retorna as restrições de agendamento por dia da semana (dias bloqueados + limite de pedidos).
+   */
+  async getRestricoes(): Promise<AgendaRestrictions> {
+    return getAgendaRestrictions(this.prisma)
+  }
+
+  /**
+   * Atualiza (upsert) as restrições por dia da semana. Ao BLOQUEAR um dia que estava liberado,
+   * avisa (best-effort) os clientes cuja agenda ativa entrega naquele dia para reconfigurarem.
+   */
+  async setRestricoes(
+    diasBloqueados: DiasBloqueados,
+    limitePedidosDia: LimitePedidosDia,
+  ): Promise<void> {
+    const before = await getAgendaRestrictions(this.prisma)
+
+    await Promise.all([
+      this.prisma.setting.upsert({
+        where: { key: 'diasBloqueados' },
+        create: { key: 'diasBloqueados', value: JSON.stringify(diasBloqueados) },
+        update: { value: JSON.stringify(diasBloqueados) },
+      }),
+      this.prisma.setting.upsert({
+        where: { key: 'limitePedidosDia' },
+        create: { key: 'limitePedidosDia', value: JSON.stringify(limitePedidosDia) },
+        update: { value: JSON.stringify(limitePedidosDia) },
+      }),
+    ])
+
+    // Dias que passaram de liberado → bloqueado nesta edição.
+    const newlyBlocked = WEEKDAY_ORDER.filter((d) => !before.blocked[d] && diasBloqueados[d] === true)
+    if (newlyBlocked.length > 0) {
+      try {
+        await this.notifyNewlyBlockedDays(newlyBlocked)
+      } catch (err) {
+        this.fastify.log.warn({ err }, '[admin-settings] falha ao avisar clientes de dias bloqueados — ignorado')
+      }
+    }
+  }
+
+  /**
+   * Notifica (in-app + push best-effort) clientes com agenda ativa que entrega em algum dos
+   * `days` recém-bloqueados, pedindo para reconfigurarem. Um aviso por cliente afetado.
+   * Não cancela pedidos já materializados — o corte simplesmente para de gerar nesses dias.
+   */
+  private async notifyNewlyBlockedDays(days: Array<keyof DiasBloqueados>): Promise<void> {
+    const schedules = await this.prisma.schedule.findMany({
+      where: { isActive: true },
+      select: { userId: true, days: true, weeklyQty: true, pausedAt: true },
+    })
+
+    const affected = new Set<string>()
+    for (const s of schedules) {
+      const buckets: Array<Record<string, unknown>> = []
+      if (s.days && typeof s.days === 'object') {
+        buckets.push(...(Object.values(s.days as Record<string, Record<string, unknown>>)))
+      }
+      if (s.weeklyQty && typeof s.weeklyQty === 'object') {
+        buckets.push(s.weeklyQty as Record<string, unknown>)
+      }
+      const hit = buckets.some(
+        (wq) => wq && days.some((d) => Number((wq as Record<string, unknown>)[d] ?? 0) > 0),
+      )
+      if (hit) affected.add(s.userId)
+    }
+
+    if (affected.size === 0) return
+
+    const labels = days.map((d) => WEEKDAY_LABEL[d]).join(', ')
+    const plural = days.length > 1
+    const body = `Não haverá mais entregas ${plural ? 'nos dias' : 'no dia'}: ${labels}. Atualize sua agenda semanal.`
+    const notifications = new NotificationsService(this.fastify)
+
+    for (const userId of affected) {
+      try {
+        await notifications.notifyUser(userId, {
+          type: NotificationType.RECONFIGURE,
+          title: 'Ajuste sua agenda',
+          body,
+          actionRoute: '/client/agenda',
+        })
+      } catch (err) {
+        this.fastify.log.warn({ userId, err }, '[admin-settings] falha ao notificar cliente de dia bloqueado')
+      }
+    }
+
+    this.fastify.log.info(
+      `[admin-settings] ${affected.size} cliente(s) avisado(s) de dia(s) recém-bloqueado(s): ${labels}`,
+    )
   }
 
   /**
