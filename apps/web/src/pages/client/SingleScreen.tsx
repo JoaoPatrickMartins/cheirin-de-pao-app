@@ -172,6 +172,7 @@ export function SingleScreen() {
   // Aviso amigável de corte: horários do dia escolhido que já fecharam.
   const closedForDate = quando ? slotOptions.filter((o) => !o.available).map((o) => o.slot) : []
   const anyAvailableForDate = slotOptions.some((o) => o.available)
+  const availableCount = slotOptions.filter((o) => o.available).length
   const dateWord = quando === todayStr ? 'hoje' : quando === tomorrowStr ? 'amanhã' : 'essa data'
   const closedNotice =
     closedForDate.length > 0
@@ -208,6 +209,20 @@ export function SingleScreen() {
       if (slot && !slotAvailable(slot, dateStr)) setDeliveryTime(null)
     }
   }
+
+  // Auto-seleção de horário: quando só há UM slot disponível para a data escolhida,
+  // já deixa ele marcado; com dois ou mais, mantém sem seleção (escolha explícita).
+  // Também limpa uma seleção que deixou de estar disponível (ex.: troca de data).
+  useEffect(() => {
+    if (!slotsLoaded || !quando) return
+    const nowEff = new Date()
+    const avail = slots.filter((s) => !isPastCutoffForDelivery(s.time, s.cutoffTime, quando, nowEff))
+    setDeliveryTime((cur) => {
+      if (avail.length === 1) return avail[0].time
+      if (cur && !avail.some((s) => s.time === cur)) return null
+      return cur
+    })
+  }, [slotsLoaded, quando, slots])
 
   // Abre o seletor nativo de data. showPicker() é o método correto (o .click() não abre
   // o calendário quando o input está escondido); cai para .click() em navegadores antigos.
@@ -617,7 +632,7 @@ export function SingleScreen() {
           {/* Horário — slots do dia escolhido, habilitados conforme o corte de cada slot */}
           {slots.length > 0 && (
             <div>
-              <p style={sectionLabel}>Horário</p>
+              <p style={sectionLabel}>{availableCount >= 2 ? 'Selecione o horário' : 'Horário'}</p>
               <div style={{ display: 'flex', gap: 10 }}>
                 {slotOptions.map(({ slot, available }) => {
                   const selected = deliveryTime === slot.time
@@ -644,7 +659,8 @@ export function SingleScreen() {
                         style={{
                           fontFamily: 'var(--font-body)',
                           fontSize: 12,
-                          color: 'var(--color-text-ter)',
+                          fontWeight: selected ? 600 : 400,
+                          color: selected ? 'var(--color-text-sec)' : 'var(--color-text-ter)',
                           lineHeight: 1.2,
                         }}
                       >
