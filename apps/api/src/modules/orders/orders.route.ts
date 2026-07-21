@@ -17,13 +17,13 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: 'Criar pedido avulso',
-        description: 'Cria um pedido avulso único fora da agenda semanal. Os créditos são debitados imediatamente. O pedido é aceito apenas se: (1) o cliente tem créditos suficientes, (2) a data está no futuro e não está bloqueada pelo corte de pedidos (cutoffTime). Limite de 1 a 20 pãezinhos por pedido avulso.',
+        description: 'Cria um pedido avulso único fora da agenda semanal. Os créditos são debitados imediatamente. O pedido é aceito apenas se: (1) o cliente tem créditos suficientes, (2) a data está no futuro e não está bloqueada pelo corte de pedidos (cutoffTime). Limite de 1 a 100 pãezinhos por pedido avulso.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['quantity', 'scheduledDate'],
           properties: {
-            quantity: { type: 'integer', minimum: 1, maximum: 20, description: 'Quantidade de pãezinhos para o pedido avulso (1–20).' },
+            quantity: { type: 'integer', minimum: 1, maximum: 100, description: 'Quantidade de pãezinhos para o pedido avulso (1–100). Alinhado ao Zod CreateOrderSchema e ao PEDIDO_UNICO_MAX do front.' },
             scheduledDate: { type: 'string', format: 'date', description: 'Data de entrega no formato ISO (YYYY-MM-DD). Deve ser futura e antes do cutoff do dia.' },
             deliveryTime: { type: 'string', description: 'Horário do slot de entrega escolhido ("HH:MM"). Deve corresponder a um slot ativo do condomínio cujo corte ainda não passou para a data.' },
             paymentId: { type: 'string', description: 'ID do pagamento que financiou este avulso (fluxo "precisa pagar"). Vincula o pedido ao pagamento para eventual estorno de dinheiro. Omitido quando pago só com saldo.' },

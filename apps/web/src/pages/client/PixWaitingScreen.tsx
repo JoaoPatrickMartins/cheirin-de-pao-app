@@ -69,6 +69,35 @@ function PixWaitingContent({
   const [isApproved, setIsApproved] = useState(false)
   const [isRejected, setIsRejected] = useState(false)
   const [finalizeError, setFinalizeError] = useState<string | null>(null)
+  const [isRetrying, setIsRetrying] = useState(false)
+
+  // Cria o pedido único após o Pix (idempotente por paymentId). O servidor também cria a Order
+  // na aprovação do Pix, então esta é uma segunda via: se a 1ª tentativa falhar (rede/corrida),
+  // espera um instante e tenta de novo antes de mostrar erro. Retentar NUNCA duplica o pedido.
+  const runFinalize = async (): Promise<boolean> => {
+    if (!pendingOrder) return false
+    const order = pendingOrder
+    setFinalizeError(null)
+    let result = await finalizePendingOrder(order, paymentId)
+    if (!result.ok) {
+      await new Promise((r) => setTimeout(r, 1500))
+      result = await finalizePendingOrder(order, paymentId)
+    }
+    if (result.ok) {
+      if (result.creditBalance !== undefined) onCreditUpdate(result.creditBalance)
+      onNavigate('/client/creditos/sucesso', {
+        state: {
+          kind: 'order',
+          quantity: order.quantity,
+          scheduledDate: order.scheduledDate,
+          deliveryTime: order.deliveryTime,
+        },
+      })
+      return true
+    }
+    setFinalizeError(result.message ?? 'Não foi possível agendar o pedido.')
+    return false
+  }
 
   const handleApproved = async (creditBalance: number) => {
     setIsApproved(true)
@@ -83,20 +112,7 @@ function PixWaitingContent({
 
     // Pedido único: cria a entrega agora que a diferença foi creditada.
     if (pendingOrder) {
-      const result = await finalizePendingOrder(pendingOrder, paymentId)
-      if (result.ok) {
-        if (result.creditBalance !== undefined) onCreditUpdate(result.creditBalance)
-        onNavigate('/client/creditos/sucesso', {
-          state: {
-            kind: 'order',
-            quantity: pendingOrder.quantity,
-            scheduledDate: pendingOrder.scheduledDate,
-            deliveryTime: pendingOrder.deliveryTime,
-          },
-        })
-      } else {
-        setFinalizeError(result.message ?? 'Não foi possível agendar o pedido.')
-      }
+      await runFinalize()
       return
     }
 
@@ -216,7 +232,12 @@ function PixWaitingContent({
             {finalizeError}
           </p>
           <button
-            onClick={() => onNavigate('/client/agenda/pedido-unico')}
+            onClick={async () => {
+              setIsRetrying(true)
+              await runFinalize()
+              setIsRetrying(false)
+            }}
+            disabled={isRetrying}
             style={{
               minHeight: 44,
               padding: '10px 20px',
@@ -227,11 +248,12 @@ function PixWaitingContent({
               fontFamily: 'var(--font-body)',
               fontWeight: 600,
               fontSize: 14,
-              cursor: 'pointer',
+              cursor: isRetrying ? 'default' : 'pointer',
+              opacity: isRetrying ? 0.6 : 1,
               alignSelf: 'flex-start',
             }}
           >
-            Tentar agendar
+            {isRetrying ? 'Agendando...' : 'Tentar agendar'}
           </button>
         </div>
       ) : isRejected ? (

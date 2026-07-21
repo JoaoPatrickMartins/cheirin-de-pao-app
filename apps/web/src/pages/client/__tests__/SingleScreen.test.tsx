@@ -34,6 +34,9 @@ const slots = [
 ]
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+// Resposta configurável de GET /client/hook-request (null → endpoint "sem dados").
+const hookState: { response: Record<string, unknown> | null } = { response: null }
+
 function setupApi() {
   mockApiFetch.mockImplementation((url: string) => {
     if (url === '/pricing') {
@@ -41,6 +44,9 @@ function setupApi() {
     }
     if (url === '/client/condominium/slots') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(slots) })
+    }
+    if (url === '/client/hook-request') {
+      return Promise.resolve({ ok: hookState.response != null, json: () => Promise.resolve(hookState.response) })
     }
     if (url === '/orders') {
       return Promise.resolve({ status: 201, ok: true, json: () => Promise.resolve({ creditBalance: 0 }) })
@@ -68,9 +74,15 @@ const pickSlot = async () => {
   fireEvent.click(chip)
 }
 
+// O CTA agora abre o resumo; confirmar nele é que dispara o pedido/pagamento.
+const confirmSummary = async () => {
+  fireEvent.click(await screen.findByText(/^Confirmar/))
+}
+
 describe('SingleScreen [SCHED-01]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    hookState.response = null
     setupApi()
   })
 
@@ -79,6 +91,7 @@ describe('SingleScreen [SCHED-01]', () => {
     renderScreen()
     await pickSlot()
     fireEvent.click(screen.getByText(/Reservar e confirmar/i))
+    await confirmSummary()
 
     await waitFor(() =>
       expect(mockApiFetch).toHaveBeenCalledWith('/orders', expect.objectContaining({ method: 'POST' })),
@@ -94,6 +107,7 @@ describe('SingleScreen [SCHED-01]', () => {
     renderScreen()
     await pickSlot()
     fireEvent.click(screen.getByText(/Pagar .* e agendar/i))
+    await confirmSummary()
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/client/creditos/pix', expect.anything()))
     const pixCall = mockApiFetch.mock.calls.find((c) => c[0] === '/payments/pix')!
@@ -110,5 +124,26 @@ describe('SingleScreen [SCHED-01]', () => {
 
     expect(screen.queryByText('Cartão')).not.toBeInTheDocument()
     expect(screen.getByText('Pagamento via Pix')).toBeInTheDocument()
+  })
+
+  it('resumo mostra o aviso do gancho quando ele já foi ENTREGUE', async () => {
+    auth.creditBalance = 100
+    hookState.response = { hasHook: true, freeEligible: true, pedidoUnicoMin: 6, current: { status: 'DELIVERED' } }
+    renderScreen()
+    await pickSlot()
+    fireEvent.click(screen.getByText(/Reservar e confirmar/i))
+
+    expect(await screen.findByText(/gancho na porta/i)).toBeInTheDocument()
+  })
+
+  it('resumo NÃO mostra o aviso do gancho quando ele está só solicitado (REQUESTED)', async () => {
+    auth.creditBalance = 100
+    hookState.response = { hasHook: true, freeEligible: true, pedidoUnicoMin: 6, current: { status: 'REQUESTED' } }
+    renderScreen()
+    await pickSlot()
+    fireEvent.click(screen.getByText(/Reservar e confirmar/i))
+
+    expect(await screen.findByText(/Confirme seu pedido/i)).toBeInTheDocument()
+    expect(screen.queryByText(/gancho na porta/i)).not.toBeInTheDocument()
   })
 })

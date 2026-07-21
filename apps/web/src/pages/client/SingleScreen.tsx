@@ -15,6 +15,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { Icon } from '../../components/brand/Icon'
 import QuantityStepper from '../../components/client/QuantityStepper'
 import { CutoffPopup } from '../../components/client/CutoffPopup'
+import { OrderSummarySheet } from '../../components/client/OrderSummarySheet'
 import { apiFetch } from '../../lib/apiFetch'
 import { brtDateStr, isPastCutoffForDelivery } from '../../lib/cutoff'
 
@@ -51,6 +52,17 @@ const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', '
 function parseDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d)
+}
+
+const WEEKDAY_LONG = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
+const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+/** Data por extenso para o resumo: "Hoje/Amanhã, 25 de julho" ou "Sexta-feira, 25 de julho". */
+function formatWhenLabel(dateStr: string, todayStr: string, tomorrowStr: string): string {
+  const d = parseDate(dateStr)
+  const dayMonth = `${d.getDate()} de ${MONTHS_LONG[d.getMonth()]}`
+  if (dateStr === todayStr) return `Hoje, ${dayMonth}`
+  if (dateStr === tomorrowStr) return `Amanhã, ${dayMonth}`
+  return `${WEEKDAY_LONG[d.getDay()]}, ${dayMonth}`
 }
 
 const SLOT_EMOJI: Record<string, string> = { manha: '☀️', tarde: '🌙' }
@@ -109,10 +121,18 @@ export function SingleScreen() {
   const [cutoffDismissed, setCutoffDismissed] = useState(false)
   const dateInputRef = useRef<HTMLInputElement>(null)
 
-  // Status do gancho — para o nudge "peça X pães e ganhe o gancho grátis".
-  const [hookInfo, setHookInfo] = useState<{ hasHook: boolean; freeEligible: boolean; pedidoUnicoMin: number } | null>(null)
+  // Status do gancho — alimenta o nudge do gancho grátis e o aviso "deixe o gancho na porta"
+  // (este último só quando o gancho já foi ENTREGUE, campo `delivered`).
+  const [hookInfo, setHookInfo] = useState<{
+    hasHook: boolean
+    freeEligible: boolean
+    pedidoUnicoMin: number
+    delivered: boolean
+  } | null>(null)
   // Diálogo de decisão exibido ao confirmar abaixo do mínimo do gancho grátis.
   const [showFreeHookPrompt, setShowFreeHookPrompt] = useState(false)
+  // Bottom sheet de resumo/confirmação antes de finalizar a compra.
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   // Preço por pão (avulso) + pedido mínimo — usados para cobrar a diferença e limitar a quantidade.
   useEffect(() => {
@@ -140,15 +160,29 @@ export function SingleScreen() {
       .finally(() => setSlotsLoaded(true))
   }, [])
 
-  // Status do gancho — só é relevante para o nudge se o cliente ainda pode ganhar o grátis.
+  // Status do gancho — para o nudge do grátis e para o aviso de "gancho na porta".
   useEffect(() => {
     apiFetch('/client/hook-request')
       .then((res) => (res.ok ? res.json() : null))
-      .then((d: { hasHook?: boolean; freeEligible?: boolean; pedidoUnicoMin?: number } | null) => {
-        if (d && typeof d.pedidoUnicoMin === 'number') {
-          setHookInfo({ hasHook: !!d.hasHook, freeEligible: !!d.freeEligible, pedidoUnicoMin: d.pedidoUnicoMin })
-        }
-      })
+      .then(
+        (
+          d: {
+            hasHook?: boolean
+            freeEligible?: boolean
+            pedidoUnicoMin?: number
+            current?: { status?: string } | null
+          } | null,
+        ) => {
+          if (d && typeof d.pedidoUnicoMin === 'number') {
+            setHookInfo({
+              hasHook: !!d.hasHook,
+              freeEligible: !!d.freeEligible,
+              pedidoUnicoMin: d.pedidoUnicoMin,
+              delivered: d.current?.status === 'DELIVERED',
+            })
+          }
+        },
+      )
       .catch(() => {})
   }, [])
 
@@ -346,6 +380,12 @@ export function SingleScreen() {
     else void handleReservar(quantity)
   }
 
+  // Abre o resumo (limpa erro antigo). O "Confirmar" do resumo dispara o doSubmit real.
+  const openSummary = () => {
+    setErrorMsg(null)
+    setSummaryOpen(true)
+  }
+
   const handleSubmit = () => {
     if (isDisabled) return
     // Abaixo do mínimo do gancho grátis → oferece completar antes de seguir.
@@ -353,12 +393,17 @@ export function SingleScreen() {
       setShowFreeHookPrompt(true)
       return
     }
-    doSubmit(qtd)
+    openSummary()
   }
 
   const ctaLabel = precisaPagar
     ? `Pagar ${formatBRL(totalPagar)} e agendar`
     : 'Reservar e confirmar'
+
+  // Dados do resumo (bottom sheet de confirmação).
+  const selectedSlot = slots.find((s) => s.time === deliveryTime) ?? null
+  const whenLabel = quando ? formatWhenLabel(quando, todayStr, tomorrowStr) : ''
+  const hookDelivered = hookInfo?.delivered ?? false
 
   return (
     <div
@@ -951,7 +996,7 @@ export function SingleScreen() {
               onClick={() => {
                 setShowFreeHookPrompt(false)
                 setQtd(completeTarget)
-                doSubmit(completeTarget)
+                openSummary()
               }}
               style={{
                 width: '100%',
@@ -972,7 +1017,7 @@ export function SingleScreen() {
             <button
               onClick={() => {
                 setShowFreeHookPrompt(false)
-                doSubmit(qtd)
+                openSummary()
               }}
               style={{
                 width: '100%',
@@ -992,6 +1037,25 @@ export function SingleScreen() {
           </div>
         </div>
       )}
+
+      <OrderSummarySheet
+        open={summaryOpen}
+        qtd={qtd}
+        whenLabel={whenLabel}
+        slotLabel={selectedSlot ? selectedSlot.label ?? SLOT_LABEL[selectedSlot.name] ?? selectedSlot.name : undefined}
+        slotEmoji={selectedSlot ? selectedSlot.emoji ?? SLOT_EMOJI[selectedSlot.name] : undefined}
+        slotTime={selectedSlot?.time}
+        creditBalance={creditBalance}
+        usaSaldo={usaSaldo}
+        deficit={deficit}
+        totalPagar={totalPagar}
+        precisaPagar={precisaPagar}
+        hookDelivered={hookDelivered}
+        isSubmitting={isSubmitting}
+        errorMsg={errorMsg}
+        onConfirm={() => doSubmit(qtd)}
+        onClose={() => setSummaryOpen(false)}
+      />
     </div>
   )
 }

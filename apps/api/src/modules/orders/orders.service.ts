@@ -189,9 +189,12 @@ export class OrdersService {
       return newOrder
     })
     .catch(async (err) => {
-      // Corrida frontend × webhook/pull: o índice único de paymentId barrou a duplicata.
-      // Devolve o pedido que o outro caminho já criou (o caminho comum já retornou lá em cima).
-      if (data.paymentId && (err as { code?: string })?.code === 'P2002') {
+      // Corrida frontend × webhook/pull: um caminho irmão pode já ter criado o pedido deste
+      // pagamento (e debitado os créditos). Vale para o índice único (P2002) E para o
+      // "Créditos insuficientes" que aparece quando o irmão já debitou mas a Order ainda não
+      // estava visível para esta transação. Se já existe Order para este paymentId, devolve-a
+      // em vez de falhar (idempotência por pagamento); senão, propaga o erro original.
+      if (data.paymentId) {
         const existing = await this.prisma.order.findFirst({ where: { paymentId: data.paymentId } })
         if (existing) return existing
       }
