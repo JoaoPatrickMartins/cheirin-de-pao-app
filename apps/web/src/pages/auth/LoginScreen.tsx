@@ -7,6 +7,7 @@ import { ResendTimer } from '../../components/auth/ResendTimer'
 import { Icon } from '../../components/brand/Icon'
 import { apiFetch } from '../../lib/apiFetch'
 import { roleRoutes } from '../../lib/roleRoutes'
+import { getGreeting } from '../../lib/greeting'
 import {
   Heading,
   BodyText,
@@ -288,7 +289,7 @@ function StepPassword({
 
   return (
     <div>
-      <Heading>{'Bom dia.\nBora entrar.'}</Heading>
+      <Heading>{`${getGreeting()}.\nBora entrar.`}</Heading>
       <BodyText>Entre com seu e-mail e senha. Prefere não decorar senha? Dá pra entrar com um código no e-mail.</BodyText>
 
       <form

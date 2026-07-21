@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
+import { getGreeting } from '../../lib/greeting'
 import { BreadMark } from '../../components/brand/BreadMark'
 import { Icon } from '../../components/brand/Icon'
 import { useAuth } from '../../hooks/useAuth'
@@ -28,14 +29,6 @@ interface TodayOrdersResponse {
     geometry: Array<[number, number]>
   } | null
   slots: SlotInfo[]
-}
-
-// Saudação por horário do dispositivo.
-function getGreeting(): string {
-  const h = new Date().getHours()
-  if (h < 12) return 'Bom dia'
-  if (h < 18) return 'Boa tarde'
-  return 'Boa noite'
 }
 
 // Data por extenso (ex.: "Sexta-feira, 27 de junho") — deixa clara a data da entrega.
