@@ -703,7 +703,7 @@ export function SingleScreen() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
                 <Icon name="wallet" size={20} color="var(--color-accent)" />
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)', margin: 0 }}>
-                  {usaSaldo > 0 ? `Usa ${usaSaldo} do seu saldo` : 'Você não tem créditos'}
+                  {usaSaldo > 0 ? `Usa ${usaSaldo} do seu saldo` : 'Você não tem saldo'}
                 </p>
               </div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: 'var(--color-text)', margin: 0 }}>
@@ -776,7 +776,7 @@ export function SingleScreen() {
                     margin: 0,
                   }}
                 >
-                  Usar créditos
+                  Usar do saldo
                 </p>
                 <p
                   style={{
@@ -786,7 +786,7 @@ export function SingleScreen() {
                     margin: '2px 0 0 0',
                   }}
                 >
-                  Sobram {creditBalance - qtd} de {creditBalance} créditos
+                  Sobram {creditBalance - qtd} de {creditBalance} pães
                 </p>
               </div>
             </div>
