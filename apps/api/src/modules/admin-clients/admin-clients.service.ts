@@ -703,6 +703,52 @@ export class AdminClientsService {
   }
 
   /**
+   * Remove (debita) créditos manualmente de um cliente.
+   *
+   * Fluxo:
+   * 1. Valida quantity >= 1
+   * 2. Verifica se o cliente existe e é CLIENT
+   * 3. Rejeita se quantity > saldo atual (não permite saldo negativo → 422)
+   * 4. $transaction atômica: CreditTransaction ADMIN_DEBIT (quantity NEGATIVO,
+   *    seguindo a convenção "negativo = débito") + User.creditBalance decrement
+   * 5. Sem push/notificação — remoção é correção interna, apenas auditada no extrato
+   *
+   * adminId e reason ficam no CreditTransaction para auditoria.
+   */
+  async removeCredits(clientId: string, payload: { quantity: number; reason: string; adminId: string }) {
+    const { quantity, reason, adminId } = payload
+
+    // 1. Validar quantity >= 1
+    if (quantity < 1) {
+      throw { statusCode: 400, message: 'quantity deve ser >= 1' }
+    }
+
+    // 2. Verificar que o cliente existe e é CLIENT
+    const user = await this.prisma.user.findUnique({ where: { id: clientId } })
+    if (!user || user.role !== 'CLIENT') {
+      throw { statusCode: 404, message: 'Cliente não encontrado' }
+    }
+
+    // 3. Não permitir remover mais do que o saldo atual (sem saldo negativo)
+    if (quantity > user.creditBalance) {
+      throw { statusCode: 422, message: 'Quantidade maior que o saldo atual do cliente' }
+    }
+
+    // 4. Transação atômica: CreditTransaction ADMIN_DEBIT (negativo) + decrement
+    const [, updatedUser] = await this.prisma.$transaction([
+      this.prisma.creditTransaction.create({
+        data: { userId: clientId, type: TransactionType.ADMIN_DEBIT, quantity: -quantity, adminId, reason },
+      }),
+      this.prisma.user.update({
+        where: { id: clientId },
+        data: { creditBalance: { decrement: quantity } },
+      }),
+    ])
+
+    return updatedUser
+  }
+
+  /**
    * Alias retroativo para blockToggle — compatibilidade com teste Wave 0.
    * blockClient sempre define isBlocked=true (bloquear).
    */

@@ -293,6 +293,48 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.grantCredits.bind(ctrl),
   )
 
+  fastify.post(
+    '/admin/clients/:id/remove-credits',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Remover créditos manualmente (admin)',
+        description: 'Remove (debita) créditos de um cliente de forma manual com auditoria (adminId + reason). Operação atômica: CreditTransaction ADMIN_DEBIT (quantity negativo) + User.creditBalance decrement. Não permite remover mais que o saldo atual (422). Não dispara push nem notificação — remoção é correção interna, apenas registrada no extrato. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['quantity', 'reason'],
+          properties: {
+            quantity: { type: 'integer', minimum: 1, description: 'Quantidade de créditos a remover (mínimo 1). Deve ser <= saldo atual.' },
+            reason: {
+              type: 'string',
+              enum: ['Estorno', 'Ajuste/Correção', 'Cancelamento', 'Uso indevido'],
+              description: 'Motivo da remoção para fins de auditoria.',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Dados atualizados do cliente após a remoção.',
+            properties: {
+              creditBalance: { type: 'integer', description: 'Novo saldo de créditos do cliente.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.removeCredits.bind(ctrl),
+  )
+
   fastify.get(
     '/admin/clients/:id/credit-history',
     {
@@ -319,7 +361,7 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
               type: 'object',
               properties: {
                 id: { type: 'string', description: 'ID da transação.' },
-                type: { type: 'string', description: 'PURCHASE | DELIVERY | REFUND | EXPIRY | ADMIN_GRANT.' },
+                type: { type: 'string', description: 'PURCHASE | DELIVERY | REFUND | EXPIRY | ADMIN_GRANT | ADMIN_DEBIT.' },
                 quantity: { type: 'integer', description: 'Variação de créditos (positiva = entrada, negativa = saída).' },
                 description: { type: 'string', nullable: true, description: 'Descrição legível.' },
                 reason: { type: 'string', nullable: true, description: 'Motivo (em ADMIN_GRANT).' },

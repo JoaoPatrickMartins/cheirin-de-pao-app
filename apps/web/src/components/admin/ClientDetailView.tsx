@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import type { CSSProperties, ReactNode, ComponentProps } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
+import { ConfirmSheet } from './ConfirmSheet'
 
 type IconName = ComponentProps<typeof Icon>['name']
 
 const GRANT_MOTIVOS = ['Acerto', 'Bonificação', 'Compensação', 'Promoção'] as const
+const REMOVE_MOTIVOS = ['Estorno', 'Ajuste/Correção', 'Cancelamento', 'Uso indevido'] as const
 
 // ------------------------------------------------------------------ tipos
 interface ClienteSchedule {
@@ -193,6 +195,11 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [grantQty, setGrantQty] = useState(1)
   const [grantMotivo, setGrantMotivo] = useState<string | null>(null)
   const [grantLoading, setGrantLoading] = useState(false)
+  const [showRemoveModal, setShowRemoveModal] = useState(false)
+  const [removeQty, setRemoveQty] = useState(1)
+  const [removeMotivo, setRemoveMotivo] = useState<string | null>(null)
+  const [removeLoading, setRemoveLoading] = useState(false)
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
   const [showHookModal, setShowHookModal] = useState(false)
   const [hookReason, setHookReason] = useState('')
   const [hookLoading, setHookLoading] = useState(false)
@@ -263,6 +270,36 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
       // silencioso
     } finally {
       setGrantLoading(false)
+    }
+  }
+
+  async function handleRemove() {
+    if (!removeMotivo || removeQty < 1 || !cliente) return
+    setRemoveLoading(true)
+    try {
+      const res = await apiFetch(`/admin/clients/${cliente.id}/remove-credits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: removeQty, reason: removeMotivo }),
+      })
+      if (res.ok) {
+        const updated = (await res.json()) as { creditBalance: number }
+        setCliente((prev) => (prev ? { ...prev, creditBalance: updated.creditBalance } : prev))
+        showToast(`${removeQty} crédito(s) removido(s) de ${cliente.name}`)
+        setShowRemoveConfirm(false)
+        setShowRemoveModal(false)
+        setRemoveQty(1)
+        setRemoveMotivo(null)
+      } else {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        setShowRemoveConfirm(false)
+        showToast(err?.error ?? 'Não foi possível remover os créditos', false)
+      }
+    } catch {
+      setShowRemoveConfirm(false)
+      showToast('Erro de conexão', false)
+    } finally {
+      setRemoveLoading(false)
     }
   }
 
@@ -418,16 +455,17 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   }
 
   useEffect(() => {
-    if (!showGrantModal && !showEditSheet) return
+    if (!showGrantModal && !showEditSheet && !showRemoveModal) return
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowGrantModal(false)
         setShowEditSheet(false)
+        setShowRemoveModal(false)
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [showGrantModal, showEditSheet])
+  }, [showGrantModal, showEditSheet, showRemoveModal])
 
   const entradas = agendaEntries(cliente?.schedule)
   const wa = whatsappLink(cliente?.phone)
@@ -700,6 +738,19 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               >
                 + Conceder gancho
               </button>
+              {cliente.creditBalance > 0 && (
+                <button
+                  onClick={() => { setRemoveQty(1); setRemoveMotivo(null); setShowRemoveModal(true) }}
+                  aria-label="Remover créditos"
+                  style={{
+                    background: 'none', border: '1.5px solid var(--color-warn)', borderRadius: 999,
+                    padding: '6px 14px', fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700,
+                    color: 'var(--color-warn)', cursor: 'pointer', minHeight: 36,
+                  }}
+                >
+                  − Remover créditos
+                </button>
+              )}
             </div>
             <Separator />
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px' }}>
@@ -996,6 +1047,98 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
         </>
       )}
 
+      {/* ---------- Modal: remover créditos ---------- */}
+      {showRemoveModal && cliente && (
+        <>
+          <div onClick={() => setShowRemoveModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50 }} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-remove-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--color-app-bg)',
+              borderRadius: '20px 20px 0 0', padding: `24px 20px calc(32px + env(safe-area-inset-bottom, 0px))`,
+              maxHeight: '80vh', overflowY: 'auto', zIndex: 51,
+            }}
+          >
+            <div style={{ width: 36, height: 4, borderRadius: 999, background: 'var(--color-border)', margin: '0 auto 20px' }} />
+            <h2 id="modal-remove-title" style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--color-text)', margin: '0 0 8px' }}>
+              Remover Créditos
+            </h2>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: '0 0 20px' }}>
+              Saldo atual: <strong>{cliente.creditBalance} pães</strong>. A remoção é registrada no extrato para auditoria.
+            </p>
+            <label style={editLabelStyle}>Quantidade</label>
+            <input
+              type="number"
+              min="1"
+              max={cliente.creditBalance}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              value={removeQty}
+              onChange={(e) => setRemoveQty(Number(e.target.value))}
+              style={{ ...editInputStyle, marginBottom: removeQty > cliente.creditBalance ? 6 : 20 }}
+            />
+            {removeQty > cliente.creditBalance && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--color-warn)', margin: '0 0 20px' }}>
+                Máximo disponível: {cliente.creditBalance} pães.
+              </p>
+            )}
+            <label style={editLabelStyle}>Motivo</label>
+            <div style={{ display: 'flex', flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
+              {REMOVE_MOTIVOS.map((m) => (
+                <button
+                  key={m}
+                  aria-pressed={removeMotivo === m}
+                  onClick={() => setRemoveMotivo(m)}
+                  style={{
+                    minHeight: 44, padding: '8px 16px', borderRadius: 999, fontWeight: 700, fontSize: 13,
+                    cursor: 'pointer', fontFamily: 'var(--font-body)',
+                    border: removeMotivo === m ? 'none' : '1.5px solid var(--color-border)',
+                    background: removeMotivo === m ? 'var(--color-gold)' : 'transparent',
+                    color: removeMotivo === m ? '#1E1207' : 'var(--color-text)',
+                  }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+              <button onClick={() => setShowRemoveModal(false)} style={sheetCancelBtn}>Descartar</button>
+              <button
+                onClick={() => setShowRemoveConfirm(true)}
+                disabled={!removeMotivo || removeQty < 1 || removeQty > cliente.creditBalance}
+                style={{
+                  ...sheetConfirmBtn,
+                  cursor: !removeMotivo || removeQty < 1 || removeQty > cliente.creditBalance ? 'not-allowed' : 'pointer',
+                  opacity: !removeMotivo || removeQty < 1 || removeQty > cliente.creditBalance ? 0.45 : 1,
+                }}
+              >
+                Remover créditos
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Confirmação de remoção — ação sensível, exige confirmação explícita */}
+      <ConfirmSheet
+        open={showRemoveConfirm && !!cliente}
+        tone="danger"
+        title="Confirmar remoção"
+        description={
+          cliente
+            ? `Remover ${removeQty} crédito(s) de ${cliente.name} — motivo: ${removeMotivo}. Novo saldo: ${cliente.creditBalance - removeQty} pães. Esta ação não pode ser desfeita.`
+            : undefined
+        }
+        confirmLabel="Remover"
+        cancelLabel="Voltar"
+        busy={removeLoading}
+        onConfirm={() => { void handleRemove() }}
+        onCancel={() => setShowRemoveConfirm(false)}
+      />
+
       {/* ---------- Modal: conceder gancho (bonificação) ---------- */}
       {showHookModal && (
         <>
@@ -1239,6 +1382,7 @@ interface MethodsInfo {
 
 const TX_LABEL: Record<string, string> = {
   PURCHASE: 'Compra', DELIVERY: 'Entrega', REFUND: 'Estorno', EXPIRY: 'Expiração', ADMIN_GRANT: 'Concessão',
+  ADMIN_DEBIT: 'Remoção',
 }
 const PAY_STATUS: Record<string, string> = {
   PENDING: 'Pendente', PAID: 'Pago', FAILED: 'Falhou', REFUNDED: 'Estornado',

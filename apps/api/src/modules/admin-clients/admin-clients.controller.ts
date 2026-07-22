@@ -3,6 +3,7 @@ import { ZodError } from 'zod'
 import {
   ClientListQuerySchema,
   GrantCreditsSchema,
+  RemoveCreditsSchema,
   UpdateClientSchema,
   CancelOrderSchema,
   ScheduleActiveSchema,
@@ -264,6 +265,38 @@ export class AdminClientsController {
       this.fastify.log.error(err)
       const e = err as { statusCode?: number; message?: string }
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async removeCredits(request: FastifyRequest, reply: FastifyReply) {
+    // Role check ADMIN inline
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    const { id } = request.params as { id: string }
+
+    let body: ReturnType<typeof RemoveCreditsSchema.parse>
+    try {
+      body = RemoveCreditsSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+    }
+
+    try {
+      // adminId extraído do JWT — nunca do body
+      const result = await this.service.removeCredits(id, { ...body, adminId: request.user.id })
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 422) return reply.status(422).send({ error: e.message })
       if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }

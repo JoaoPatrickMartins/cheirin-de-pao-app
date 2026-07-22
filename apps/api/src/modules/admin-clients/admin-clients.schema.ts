@@ -35,6 +35,19 @@ export const GrantCreditsSchema = z.object({
 export type GrantCreditsBody = z.infer<typeof GrantCreditsSchema>
 
 /**
+ * RemoveCreditsSchema — body para POST /admin/clients/:id/remove-credits.
+ *
+ * quantity int min 1 (a subtração é aplicada no service com sinal negativo).
+ * reason enum com motivos próprios de remoção — distinto do grant (Bonificação/
+ * Promoção não fazem sentido em saída). adminId vem do JWT, nunca do body.
+ */
+export const RemoveCreditsSchema = z.object({
+  quantity: z.number().int().min(1),
+  reason: z.enum(['Estorno', 'Ajuste/Correção', 'Cancelamento', 'Uso indevido']),
+})
+export type RemoveCreditsBody = z.infer<typeof RemoveCreditsSchema>
+
+/**
  * UpdateClientSchema — body para PATCH /admin/clients/:id (edição de cadastro).
  *
  * Todos os campos opcionais (atualização parcial). CPF e telefone normalizados
