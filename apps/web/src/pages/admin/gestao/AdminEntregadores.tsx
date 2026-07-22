@@ -9,10 +9,11 @@ interface Entregador {
   name: string
   cpf?: string | null
   phone?: string | null
+  email?: string | null
   isBlocked: boolean
 }
 
-type SubTelaSub = null | 'criar'
+type SubTelaSub = null | 'criar' | 'editar'
 
 interface AdminEntregadoresProps {
   onBack: () => void
@@ -21,6 +22,7 @@ interface AdminEntregadoresProps {
 // ------------------------------------------------------------------ componente
 export function AdminEntregadores({ onBack }: AdminEntregadoresProps) {
   const [sub, setSub] = useState<SubTelaSub>(null)
+  const [editing, setEditing] = useState<Entregador | null>(null)
   const [entregadores, setEntregadores] = useState<Entregador[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -48,6 +50,23 @@ export function AdminEntregadores({ onBack }: AdminEntregadoresProps) {
         onBack={() => setSub(null)}
         onSaved={() => {
           setSub(null)
+          void fetchEntregadores()
+        }}
+      />
+    )
+  }
+
+  if (sub === 'editar' && editing) {
+    return (
+      <EntregadorForm
+        entregador={editing}
+        onBack={() => {
+          setSub(null)
+          setEditing(null)
+        }}
+        onSaved={() => {
+          setSub(null)
+          setEditing(null)
           void fetchEntregadores()
         }}
       />
@@ -117,6 +136,10 @@ export function AdminEntregadores({ onBack }: AdminEntregadoresProps) {
               <EntregadorCard
                 key={e.id}
                 entregador={e}
+                onEdit={() => {
+                  setEditing(e)
+                  setSub('editar')
+                }}
                 onToggle={(newActive) => {
                   setEntregadores((prev) =>
                     prev.map((x) => (x.id === e.id ? { ...x, isBlocked: !newActive } : x)),
@@ -134,10 +157,11 @@ export function AdminEntregadores({ onBack }: AdminEntregadoresProps) {
 // ------------------------------------------------------------------ EntregadorCard
 interface EntregadorCardProps {
   entregador: Entregador
+  onEdit: () => void
   onToggle: (newActive: boolean) => void
 }
 
-function EntregadorCard({ entregador: e, onToggle }: EntregadorCardProps) {
+function EntregadorCard({ entregador: e, onEdit, onToggle }: EntregadorCardProps) {
   const [localActive, setLocalActive] = useState(!e.isBlocked)
 
   const handleToggle = async () => {
@@ -211,6 +235,27 @@ function EntregadorCard({ entregador: e, onToggle }: EntregadorCardProps) {
             {localActive ? 'Ativo' : 'Desativado'}
           </p>
         </div>
+
+        {/* Botão editar */}
+        <button
+          type="button"
+          aria-label={`Editar entregador ${e.name}`}
+          onClick={onEdit}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 11,
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-surface)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          <Icon name="edit" size={17} color="var(--color-text-sec)" />
+        </button>
 
         {/* Switch */}
         <SwitchToggle on={localActive} onChange={() => void handleToggle()} />
