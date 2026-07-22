@@ -33,6 +33,62 @@ function fallbackSlotLabel(slotId: string): string {
   return DEFAULT_SLOT_LABELS[slotId] ?? slotId.charAt(0).toUpperCase() + slotId.slice(1)
 }
 
+/** Detalhamento de um bloco dentro de um condomínio na divisão de entregas. */
+export interface DivisionBlock {
+  block: string
+  quantity: number
+  orderIds: string[]
+}
+
+/**
+ * Unidade atribuível a um entregador na divisão de entregas.
+ * `block === null` → condomínio inteiro (traz `blocks` para o admin "explodir");
+ * `block !== null` → um bloco específico de um condomínio (já atômico).
+ */
+export interface DivisionUnit {
+  condominiumId: string
+  condominiumName: string
+  block: string | null
+  quantity: number
+  orderIds: string[]
+  blocks: DivisionBlock[]
+}
+
+export interface DivisionAssignment {
+  courierId: string
+  courierName: string
+  condominiums: DivisionUnit[]
+  total: number
+}
+
+/** Detalhamento por bloco no status de entregas (contagens, não pães). */
+export interface DeliveryBlockStatus {
+  block: string
+  scheduled: number
+  delivered: number
+  orderIds: string[]
+}
+
+export interface DeliveryStatusRow {
+  condominiumId: string
+  condominiumName: string
+  scheduled: number
+  delivered: number
+  orderIds: string[]
+  blocks: DeliveryBlockStatus[]
+}
+
+/** Pedido SEPARATED usado na sugestão de divisão (Modo B). */
+type SeparatedOrder = { id: string; userId: string; condominiumId: string | null; quantity: number }
+/** Pedido já despachado usado na reconstrução da divisão (Modo A). */
+type DispatchedOrder = {
+  id: string
+  userId: string
+  courierId: string | null
+  condominiumId: string | null
+  quantity: number
+}
+
 /** Linha do ledger de pedidos (verificação geral + histórico + limbo). */
 export interface LedgerRow {
   orderId: string
@@ -525,18 +581,10 @@ export class AdminOrdersService {
     return brtDayRange(brtNoonFromStr(ds))
   }
 
-  async getDeliveryStatus(slotId?: string, dateStr?: string): Promise<
-    {
-      condominiumId: string
-      condominiumName: string
-      scheduled: number
-      delivered: number
-      orderIds: string[]
-    }[]
-  > {
+  async getDeliveryStatus(slotId?: string, dateStr?: string): Promise<DeliveryStatusRow[]> {
     const { start, end } = this.resolveDayRange(dateStr)
 
-    const orders = await this.prisma.order.findMany({
+    const orders = (await this.prisma.order.findMany({
       where: {
         scheduledDate: { gte: start, lte: end },
         // Gate da separação: a operação de entrega só enxerga pedidos já SEPARADOS (e além).
@@ -545,41 +593,54 @@ export class AdminOrdersService {
         // Pipeline por turno: quando informado, filtra só o slot.
         ...(slotId ? { slotId } : {}),
       },
-      select: { id: true, condominiumId: true, status: true },
-    })
+      select: { id: true, userId: true, condominiumId: true, status: true },
+    })) as { id: string; userId: string; condominiumId: string | null; status: string }[]
 
     if (orders.length === 0) return []
 
-    // Agrupar por condominiumId
-    const grouped = new Map<string, { scheduled: number; delivered: number; orderIds: string[] }>()
-    for (const order of orders as { id: string; condominiumId: string | null; status: string }[]) {
+    // Agrupar por condominiumId (mantém os pedidos crus p/ o breakdown por bloco)
+    type Row = { scheduled: number; delivered: number; orderIds: string[]; items: typeof orders }
+    const grouped = new Map<string, Row>()
+    for (const order of orders) {
       const condoId = order.condominiumId ?? 'unknown'
       if (!grouped.has(condoId)) {
-        grouped.set(condoId, { scheduled: 0, delivered: 0, orderIds: [] })
+        grouped.set(condoId, { scheduled: 0, delivered: 0, orderIds: [], items: [] })
       }
       const group = grouped.get(condoId)!
       group.scheduled += 1
       if (order.status === 'DELIVERED') group.delivered += 1
       group.orderIds.push(order.id)
+      group.items.push(order)
     }
 
-    // Buscar nomes dos condomínios
+    // Blocos (via User.block) + nomes dos condomínios
+    const blockMap = await this.resolveUserBlocks(orders.map((o) => o.userId))
     const condominiumIds = Array.from(grouped.keys()).filter((id) => id !== 'unknown')
-    const condominiums = await this.prisma.condominium.findMany({
-      where: { id: { in: condominiumIds } },
-      select: { id: true, name: true },
-    })
-    const condominiumNameMap = new Map<string, string>(
-      (condominiums as { id: string; name: string }[]).map((c) => [c.id, c.name]),
-    )
+    const condominiumNameMap = await this.resolveCondoNames(condominiumIds)
 
-    return Array.from(grouped.entries()).map(([condominiumId, data]) => ({
-      condominiumId,
-      condominiumName: condominiumNameMap.get(condominiumId) ?? condominiumId,
-      scheduled: data.scheduled,
-      delivered: data.delivered,
-      orderIds: data.orderIds,
-    }))
+    return Array.from(grouped.entries()).map(([condominiumId, data]) => {
+      // Breakdown por bloco (contagens), ordenado por bloco numérico.
+      const byBlock = new Map<string, DeliveryBlockStatus>()
+      for (const o of data.items) {
+        const b = blockMap.get(o.userId) ?? ''
+        if (!byBlock.has(b)) byBlock.set(b, { block: b, scheduled: 0, delivered: 0, orderIds: [] })
+        const bg = byBlock.get(b)!
+        bg.scheduled += 1
+        if (o.status === 'DELIVERED') bg.delivered += 1
+        bg.orderIds.push(o.id)
+      }
+      const blocks = Array.from(byBlock.values()).sort((a, b) =>
+        a.block.localeCompare(b.block, 'pt-BR', { numeric: true }),
+      )
+      return {
+        condominiumId,
+        condominiumName: condominiumNameMap.get(condominiumId) ?? condominiumId,
+        scheduled: data.scheduled,
+        delivered: data.delivered,
+        orderIds: data.orderIds,
+        blocks,
+      }
+    })
   }
 
   /**
@@ -599,12 +660,7 @@ export class AdminOrdersService {
    */
   async getDivisionSuggestion(slotId?: string, dateStr?: string): Promise<{
     approved: boolean
-    assignments: {
-      courierId: string
-      courierName: string
-      condominiums: { condominiumId: string; condominiumName: string; quantity: number }[]
-      total: number
-    }[]
+    assignments: DivisionAssignment[]
   }> {
     // Buscar entregadores ativos
     const couriers = (await this.prisma.user.findMany({
@@ -625,8 +681,8 @@ export class AdminOrdersService {
         courierId: { not: null },
         ...(slotId ? { slotId } : {}),
       },
-      select: { courierId: true, condominiumId: true, quantity: true },
-    })) as { courierId: string | null; condominiumId: string | null; quantity: number }[]
+      select: { id: true, userId: true, courierId: true, condominiumId: true, quantity: true },
+    })) as DispatchedOrder[]
 
     if (dispatched.length > 0) {
       return { approved: true, assignments: await this.groupByCourier(couriers, dispatched) }
@@ -640,47 +696,53 @@ export class AdminOrdersService {
         status: 'SEPARATED',
         ...(slotId ? { slotId } : {}),
       },
-      select: { condominiumId: true, quantity: true },
-    })) as { condominiumId: string | null; quantity: number }[]
+      select: { id: true, userId: true, condominiumId: true, quantity: true },
+    })) as SeparatedOrder[]
 
     if (orders.length === 0) return { approved: false, assignments: [] }
 
-    // Agrupar por condominiumId e somar quantity
-    const condoMap = new Map<string, number>()
+    // Agrupar por condominiumId (mantém os pedidos crus p/ orderIds + breakdown de blocos)
+    const condoMap = new Map<string, SeparatedOrder[]>()
     for (const order of orders) {
       const condoId = order.condominiumId ?? 'unknown'
-      condoMap.set(condoId, (condoMap.get(condoId) ?? 0) + order.quantity)
+      if (!condoMap.has(condoId)) condoMap.set(condoId, [])
+      condoMap.get(condoId)!.push(order)
     }
 
+    const blockMap = await this.resolveUserBlocks(orders.map((o) => o.userId))
     const condominiumNameMap = await this.resolveCondoNames(
       Array.from(condoMap.keys()).filter((id) => id !== 'unknown'),
     )
 
-    // Ordenar condomínios por quantity desc
-    const sortedCondos = Array.from(condoMap.entries())
-      .map(([condominiumId, quantity]) => ({
+    // Cada condomínio vira uma unidade "inteira" (block: null) que já carrega o
+    // detalhamento por bloco para o admin "explodir" na tela. Ordena por quantity desc.
+    const sortedUnits: DivisionUnit[] = Array.from(condoMap.entries())
+      .map(([condominiumId, items]) => ({
         condominiumId,
         condominiumName: condominiumNameMap.get(condominiumId) ?? condominiumId,
-        quantity,
+        block: null,
+        quantity: items.reduce((s, o) => s + o.quantity, 0),
+        orderIds: items.map((o) => o.id),
+        blocks: this.buildDivisionBlocks(items, blockMap),
       }))
       .sort((a, b) => b.quantity - a.quantity)
 
     // Algoritmo greedy: inicializar contadores por entregador
-    const courierList = couriers.map((c) => ({
+    const courierList: DivisionAssignment[] = couriers.map((c) => ({
       courierId: c.id,
       courierName: c.name,
-      condominiums: [] as { condominiumId: string; condominiumName: string; quantity: number }[],
+      condominiums: [],
       total: 0,
     }))
 
-    for (const condo of sortedCondos) {
+    for (const unit of sortedUnits) {
       // Encontrar entregador com menor total
       let minIdx = 0
       for (let i = 1; i < courierList.length; i++) {
         if (courierList[i].total < courierList[minIdx].total) minIdx = i
       }
-      courierList[minIdx].condominiums.push(condo)
-      courierList[minIdx].total += condo.quantity
+      courierList[minIdx].condominiums.push(unit)
+      courierList[minIdx].total += unit.quantity
     }
 
     // Retornar todos os entregadores ativos — inclusive os sem condomínio sugerido.
@@ -699,6 +761,38 @@ export class AdminOrdersService {
     return new Map(condos.map((c) => [c.id, c.name]))
   }
 
+  /** Resolve o bloco (User.block) de um conjunto de userIds (mapa userId→bloco, '' se vazio). */
+  private async resolveUserBlocks(userIds: string[]): Promise<Map<string, string>> {
+    const ids = Array.from(new Set(userIds))
+    if (ids.length === 0) return new Map()
+    const users = (await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, block: true },
+    })) as { id: string; block: string | null }[]
+    return new Map(users.map((u) => [u.id, (u.block ?? '').trim()]))
+  }
+
+  /**
+   * Detalha os pedidos de um condomínio por bloco (pães + orderIds), ordenado por bloco
+   * numérico. Alimenta a "explosão" de um condomínio em blocos na divisão de entregas.
+   */
+  private buildDivisionBlocks(
+    items: { id: string; userId: string; quantity: number }[],
+    blockMap: Map<string, string>,
+  ): DivisionBlock[] {
+    const byBlock = new Map<string, DivisionBlock>()
+    for (const o of items) {
+      const b = blockMap.get(o.userId) ?? ''
+      if (!byBlock.has(b)) byBlock.set(b, { block: b, quantity: 0, orderIds: [] })
+      const g = byBlock.get(b)!
+      g.quantity += o.quantity
+      g.orderIds.push(o.id)
+    }
+    return Array.from(byBlock.values()).sort((a, b) =>
+      a.block.localeCompare(b.block, 'pt-BR', { numeric: true }),
+    )
+  }
+
   /**
    * Agrupa pedidos já despachados por entregador → condomínio (com nomes resolvidos).
    * Inclui todos os entregadores ativos — os sem pedido aparecem com total 0, mantendo
@@ -706,43 +800,75 @@ export class AdminOrdersService {
    */
   private async groupByCourier(
     couriers: { id: string; name: string }[],
-    orders: { courierId: string | null; condominiumId: string | null; quantity: number }[],
-  ): Promise<
-    {
-      courierId: string
-      courierName: string
-      condominiums: { condominiumId: string; condominiumName: string; quantity: number }[]
-      total: number
-    }[]
-  > {
-    const byCourier = new Map<string, Map<string, number>>()
+    orders: DispatchedOrder[],
+  ): Promise<DivisionAssignment[]> {
+    // Detecta condomínios "split" (pedidos em >1 entregador) — esses viram unidades por
+    // bloco; os demais permanecem como unidade de condomínio inteiro.
+    const couriersByCondo = new Map<string, Set<string>>()
+    for (const o of orders) {
+      if (!o.courierId || !o.condominiumId) continue
+      if (!couriersByCondo.has(o.condominiumId)) couriersByCondo.set(o.condominiumId, new Set())
+      couriersByCondo.get(o.condominiumId)!.add(o.courierId)
+    }
+    const isSplit = (condoId: string) => (couriersByCondo.get(condoId)?.size ?? 0) > 1
+
+    // Agrupa pedidos por entregador
+    const byCourier = new Map<string, DispatchedOrder[]>()
     for (const o of orders) {
       if (!o.courierId) continue
-      const condoId = o.condominiumId ?? 'unknown'
-      if (!byCourier.has(o.courierId)) byCourier.set(o.courierId, new Map())
-      const m = byCourier.get(o.courierId)!
-      m.set(condoId, (m.get(condoId) ?? 0) + o.quantity)
+      if (!byCourier.has(o.courierId)) byCourier.set(o.courierId, [])
+      byCourier.get(o.courierId)!.push(o)
     }
 
+    const blockMap = await this.resolveUserBlocks(orders.map((o) => o.userId))
     const condoIds = Array.from(
       new Set(orders.map((o) => o.condominiumId).filter((id): id is string => !!id)),
     )
     const condoNameMap = await this.resolveCondoNames(condoIds)
 
     return couriers.map((c) => {
-      const m = byCourier.get(c.id) ?? new Map<string, number>()
-      const condominiums = Array.from(m.entries())
-        .map(([condominiumId, quantity]) => ({
-          condominiumId,
-          condominiumName: condoNameMap.get(condominiumId) ?? condominiumId,
-          quantity,
-        }))
-        .sort((a, b) => b.quantity - a.quantity)
+      const cOrders = byCourier.get(c.id) ?? []
+      // Agrupa os pedidos deste entregador por condomínio
+      const byCondo = new Map<string, DispatchedOrder[]>()
+      for (const o of cOrders) {
+        const condoId = o.condominiumId ?? 'unknown'
+        if (!byCondo.has(condoId)) byCondo.set(condoId, [])
+        byCondo.get(condoId)!.push(o)
+      }
+
+      const units: DivisionUnit[] = []
+      for (const [condominiumId, items] of byCondo) {
+        const condominiumName = condoNameMap.get(condominiumId) ?? condominiumId
+        const blocks = this.buildDivisionBlocks(items, blockMap)
+        if (isSplit(condominiumId)) {
+          // Condomínio dividido entre entregadores → uma unidade por bloco (deste entregador).
+          for (const b of blocks) {
+            units.push({
+              condominiumId,
+              condominiumName,
+              block: b.block,
+              quantity: b.quantity,
+              orderIds: b.orderIds,
+              blocks: [],
+            })
+          }
+        } else {
+          units.push({
+            condominiumId,
+            condominiumName,
+            block: null,
+            quantity: items.reduce((s, o) => s + o.quantity, 0),
+            orderIds: items.map((o) => o.id),
+            blocks,
+          })
+        }
+      }
+      units.sort((a, b) => b.quantity - a.quantity)
       return {
         courierId: c.id,
         courierName: c.name,
-        condominiums,
-        total: condominiums.reduce((s, x) => s + x.quantity, 0),
+        condominiums: units,
+        total: units.reduce((s, x) => s + x.quantity, 0),
       }
     })
   }
