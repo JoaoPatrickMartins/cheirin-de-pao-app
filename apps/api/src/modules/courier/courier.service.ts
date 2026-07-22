@@ -15,6 +15,21 @@ import type { TodayOrdersResponse } from './courier.schema.js'
 const BRAZIL_OFFSET_HOURS = 3
 
 /**
+ * Ordena paradas por BLOCO (crescente) e, dentro do bloco, por APARTAMENTO (crescente),
+ * ambos com localeCompare numérico pt-BR (assim "Bloco 2" vem antes de "Bloco 10" e
+ * "Apto 20" antes de "Apto 101"). Condomínios sem bloco caem todos no mesmo grupo.
+ */
+function byBlockThenApartment(
+  a: { block?: string | null; apartment?: string | null },
+  b: { block?: string | null; apartment?: string | null },
+): number {
+  const ba = (a.block ?? '').trim()
+  const bb = (b.block ?? '').trim()
+  if (ba !== bb) return ba.localeCompare(bb, 'pt-BR', { numeric: true })
+  return (a.apartment ?? '').localeCompare(b.apartment ?? '', 'pt-BR', { numeric: true })
+}
+
+/**
  * Retorna o intervalo de "hoje" em UTC-3 como par de datas UTC.
  * Identico a getTodayRange de orders.service.ts.
  */
@@ -77,6 +92,7 @@ export class CourierService {
   async getTodayOrders(courierId: string): Promise<TodayOrdersResponse> {
     const { start, end } = getTodayRange()
     const orders = await this.repository.findTodayByCourierId(courierId, start, end)
+    const completedOrders = await this.repository.findTodayCompletedByCourierId(courierId, start, end)
 
     // Config de turnos (slot) — para rotular cada entrega como manhã/tarde + horário.
     const slotConfig = await getGlobalDeliverySlots(this.prisma)
@@ -157,8 +173,8 @@ export class CourierService {
     // Coordenadas + ordenar stops por sortKey ASC
     const condos = await Promise.all(
       Array.from(condoMap.values()).map(async (condo) => {
-        // Ordenar stops por apartamento numerico ASC (COUR-04)
-        condo.stops.sort((a, b) => a.sortKey - b.sortKey)
+        // Ordenar stops por BLOCO e depois APARTAMENTO, ambos ASC (COUR-04)
+        condo.stops.sort(byBlockThenApartment)
 
         // Usa as coordenadas salvas no condomínio; só geocodifica ao vivo (fallback,
         // com cache) quando o condomínio ainda não tem lat/lng persistidos.
@@ -243,7 +259,76 @@ export class CourierService {
       route = null
     }
 
-    return { condos, totalStops, totalBreads, route, slots }
+    // ── Entregas concluídas do dia (aba "Realizadas") ─────────────────────────
+    // Enriquece nome do cliente + condomínio e agrupa por condomínio, ordenado por
+    // bloco/apartamento. Não precisa de geocodificação nem rota (já foram feitas).
+    const completedEnriched = await Promise.all(
+      completedOrders.map(async (order: Record<string, unknown>) => {
+        const user = await this.prisma.user.findUnique({
+          where: { id: order.userId as string },
+          select: { name: true, condominiumId: true, apartment: true, block: true },
+        })
+        const condominium = user?.condominiumId
+          ? await this.prisma.condominium.findUnique({
+              where: { id: user.condominiumId },
+              select: { name: true },
+            })
+          : null
+        const status = order.status as string
+        const completedAt =
+          (order.deliveredAt as Date | null) ?? (order.failedAt as Date | null) ?? null
+        return {
+          orderId: order.id as string,
+          condominiumId: user?.condominiumId ?? 'unknown',
+          condominiumName: condominium?.name ?? 'Condominio desconhecido',
+          apartment: user?.apartment ?? '',
+          block: user?.block ?? null,
+          clientName: user?.name ?? 'Cliente',
+          quantity: order.quantity as number,
+          status,
+          slotId: (order.slotId as string | null) ?? '',
+          slotLabel: slotLabelOf(order.slotId as string | null),
+          completedAt: completedAt ? completedAt.toISOString() : null,
+        }
+      }),
+    )
+
+    const completedMap = new Map<
+      string,
+      { condominiumId: string; condominiumName: string; stops: typeof completedEnriched }
+    >()
+    for (const item of completedEnriched) {
+      if (!completedMap.has(item.condominiumId)) {
+        completedMap.set(item.condominiumId, {
+          condominiumId: item.condominiumId,
+          condominiumName: item.condominiumName,
+          stops: [],
+        })
+      }
+      completedMap.get(item.condominiumId)!.stops.push(item)
+    }
+
+    const completed = Array.from(completedMap.values())
+      .map((c) => ({
+        condominiumId: c.condominiumId,
+        condominiumName: c.condominiumName,
+        stops: c.stops
+          .sort(byBlockThenApartment)
+          .map((s) => ({
+            orderId: s.orderId,
+            apartment: s.apartment,
+            block: s.block,
+            clientName: s.clientName,
+            quantity: s.quantity,
+            status: s.status,
+            slotId: s.slotId,
+            slotLabel: s.slotLabel,
+            completedAt: s.completedAt,
+          })),
+      }))
+      .sort((a, b) => a.condominiumName.localeCompare(b.condominiumName, 'pt-BR'))
+
+    return { condos, totalStops, totalBreads, route, slots, completed, completedTotal: completedEnriched.length }
   }
 
   /**

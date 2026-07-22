@@ -1,6 +1,28 @@
 import { Icon } from '../brand/Icon'
 import { StopRow, Stop } from './StopRow'
 
+/** Rótulo do bloco sem duplicar "Bloco" (o valor já pode contê-la). */
+function blockLabel(block: string): string {
+  const b = (block || '').trim()
+  if (!b || b === '—') return ''
+  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
+}
+
+/**
+ * Agrupa paradas por bloco preservando a ordem já recebida (backend ordena por
+ * bloco → apartamento). Paradas sem bloco caem num grupo com block === null.
+ */
+function groupByBlock(stops: Stop[]): Array<{ block: string | null; stops: Stop[] }> {
+  const groups: Array<{ block: string | null; stops: Stop[] }> = []
+  for (const stop of stops) {
+    const b = stop.block && stop.block.trim() ? stop.block.trim() : null
+    const last = groups[groups.length - 1]
+    if (last && last.block === b) last.stops.push(stop)
+    else groups.push({ block: b, stops: [stop] })
+  }
+  return groups
+}
+
 export interface CondoGroup {
   condominiumId: string
   condominiumName: string
@@ -170,23 +192,21 @@ export function CondoAccordion({
       </button>
 
       {/* Conteúdo */}
-      {isOpen && (
-        <div style={{ borderTop: '1px solid var(--color-border-2)' }}>
-          <p
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: '0.04em',
-              color: 'var(--color-text-ter)',
-              padding: '8px 16px 4px',
-              margin: 0,
-              textTransform: 'uppercase',
-            }}
-          >
-            ORDEM SUGERIDA NO PRÉDIO
-          </p>
-          {condo.stops.map((stop, idx) => (
+      {isOpen && (() => {
+        const groups = groupByBlock(condo.stops)
+        const hasBlocks = groups.some((g) => g.block !== null)
+        const captionStyle: React.CSSProperties = {
+          fontFamily: 'var(--font-body)',
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          color: 'var(--color-text-ter)',
+          padding: '8px 16px 4px',
+          margin: 0,
+          textTransform: 'uppercase',
+        }
+        const renderStops = (stops: Stop[]) =>
+          stops.map((stop, idx) => (
             <StopRow
               key={stop.orderId}
               stop={stop}
@@ -194,11 +214,30 @@ export function CondoAccordion({
               isConfirmed={confirmedIds.has(stop.orderId)}
               isNotDelivered={notDeliveredIds.has(stop.orderId)}
               showSlot={showSlot}
+              showBlock={!hasBlocks}
               onPress={onConfirm}
             />
-          ))}
-        </div>
-      )}
+          ))
+        return (
+          <div style={{ borderTop: '1px solid var(--color-border-2)' }}>
+            {hasBlocks ? (
+              // Condomínio com blocos: um subtítulo por bloco (crescente), apartamentos
+              // crescentes sob cada bloco.
+              groups.map((g) => (
+                <div key={g.block ?? '—'}>
+                  <p style={captionStyle}>{g.block ? blockLabel(g.block) : 'Sem bloco'}</p>
+                  {renderStops(g.stops)}
+                </div>
+              ))
+            ) : (
+              <>
+                <p style={captionStyle}>ORDEM SUGERIDA NO PRÉDIO</p>
+                {renderStops(condo.stops)}
+              </>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

@@ -51,4 +51,23 @@ export type TodayOrdersResponse = {
   // Turnos presentes na rota de hoje (distintos, ordenados por horário) — usado no
   // cabeçalho do app do entregador para informar turno + horário.
   slots: Array<{ slotId: string; label: string; emoji: string; time: string }>
+  // Entregas já concluídas hoje (DELIVERED/NOT_DELIVERED), agrupadas por condomínio e
+  // ordenadas por bloco/apartamento — alimenta a aba "Realizadas".
+  completed: Array<{
+    condominiumId: string
+    condominiumName: string
+    stops: Array<{
+      orderId: string
+      apartment: string
+      block: string | null
+      clientName: string
+      quantity: number
+      status: string
+      slotId: string
+      slotLabel: string
+      // Instante da conclusão (deliveredAt ou failedAt) em ISO 8601; null se ausente.
+      completedAt: string | null
+    }>
+  }>
+  completedTotal: number
 }

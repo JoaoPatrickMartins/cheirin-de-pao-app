@@ -5,9 +5,10 @@ import { BreadMark } from '../../components/brand/BreadMark'
 import { Icon } from '../../components/brand/Icon'
 import { useAuth } from '../../hooks/useAuth'
 import { ProgressCard } from '../../components/courier/ProgressCard'
-import { SegmentedControl } from '../../components/courier/SegmentedControl'
+import { SegmentedControl, CourierTab } from '../../components/courier/SegmentedControl'
 import { CondoAccordion, CondoGroup } from '../../components/courier/CondoAccordion'
 import { ConfirmDeliveryDialog } from '../../components/courier/ConfirmDeliveryDialog'
+import { CourierCompletedList, CompletedCondo } from '../../components/courier/CourierCompletedList'
 import { Stop } from '../../components/courier/StopRow'
 import { CourierRouteView } from './CourierRouteView'
 import { QrScanner } from '../../components/courier/QrScanner'
@@ -29,6 +30,20 @@ interface TodayOrdersResponse {
     geometry: Array<[number, number]>
   } | null
   slots: SlotInfo[]
+  completed: CompletedCondo[]
+  completedTotal: number
+}
+
+// Ordena por bloco (crescente) e depois apartamento (crescente), localeCompare numérico
+// pt-BR — espelha a ordenação do backend para a lista de concluídas mesclada.
+function byBlockThenApartment(
+  a: { block?: string | null; apartment?: string | null },
+  b: { block?: string | null; apartment?: string | null },
+): number {
+  const ba = (a.block ?? '').trim()
+  const bb = (b.block ?? '').trim()
+  if (ba !== bb) return ba.localeCompare(bb, 'pt-BR', { numeric: true })
+  return (a.apartment ?? '').localeCompare(b.apartment ?? '', 'pt-BR', { numeric: true })
 }
 
 // Data por extenso (ex.: "Sexta-feira, 27 de junho") — deixa clara a data da entrega.
@@ -47,7 +62,7 @@ export function CourierScreen() {
   const { user, logout } = useAuth()
   const [data, setData] = useState<TodayOrdersResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [tab, setTab] = useState<'list' | 'route'>('list')
+  const [tab, setTab] = useState<CourierTab>('list')
   const [openAccordion, setOpenAccordion] = useState(0)
   const [confirmedIds, setConfirmedIds] = useState<Set<string>>(new Set())
   const [notDeliveredIds, setNotDeliveredIds] = useState<Set<string>>(new Set())
@@ -153,6 +168,47 @@ export function CourierScreen() {
     }
     return sections
   })()
+
+  // Concluídas do dia = persistidas do backend + as confirmadas/não entregues nesta
+  // sessão (que ainda constam como ativas em data.condos até um novo carregamento).
+  // Assim a aba "Realizadas" reflete o progresso imediato sem refazer rota/OSRM.
+  const completedView: CompletedCondo[] = (() => {
+    if (!data) return []
+    const map = new Map<string, CompletedCondo>()
+    const seen = new Set<string>()
+    for (const c of data.completed ?? []) {
+      map.set(c.condominiumId, { ...c, stops: [...c.stops] })
+      c.stops.forEach((s) => seen.add(s.orderId))
+    }
+    for (const condo of data.condos ?? []) {
+      for (const stop of condo.stops) {
+        const isConf = confirmedIds.has(stop.orderId)
+        const isND = notDeliveredIds.has(stop.orderId)
+        if ((!isConf && !isND) || seen.has(stop.orderId)) continue
+        seen.add(stop.orderId)
+        let target = map.get(condo.condominiumId)
+        if (!target) {
+          target = { condominiumId: condo.condominiumId, condominiumName: condo.condominiumName, stops: [] }
+          map.set(condo.condominiumId, target)
+        }
+        target.stops.push({
+          orderId: stop.orderId,
+          apartment: stop.apartment,
+          block: stop.block,
+          clientName: stop.clientName,
+          quantity: stop.quantity,
+          status: isConf ? 'DELIVERED' : 'NOT_DELIVERED',
+          slotId: stop.slotId,
+          slotLabel: stop.slotLabel,
+          completedAt: null, // confirmado nesta sessão — sem timestamp do servidor ainda
+        })
+      }
+    }
+    return [...map.values()]
+      .map((c) => ({ ...c, stops: [...c.stops].sort(byBlockThenApartment) }))
+      .sort((a, b) => a.condominiumName.localeCompare(b.condominiumName, 'pt-BR'))
+  })()
+  const completedCount = completedView.reduce((n, c) => n + c.stops.length, 0)
 
   const todayLabel = getTodayLabel()
   const greeting = getGreeting()
@@ -353,7 +409,7 @@ export function CourierScreen() {
 
       {/* Card de progresso (combinado) — no dia com vários turnos, a aba Lista usa
           progresso por turno; aqui só aparece em turno único ou na aba Rota (mapa). */}
-      {data && (!isMultiSlot || tab === 'route') && (
+      {data && tab !== 'done' && (!isMultiSlot || tab === 'route') && (
         <div style={{ margin: '0 20px' }}>
           <ProgressCard
             confirmed={confirmedCount}
@@ -508,6 +564,28 @@ export function CourierScreen() {
       {!isLoading && data && tab === 'route' && (
         <div style={{ padding: '12px 20px 0' }}>
           <CourierRouteView condos={data.condos ?? []} route={data.route} />
+        </div>
+      )}
+
+      {/* Aba Realizadas — entregas concluídas do dia (entregues + não entregues) */}
+      {!isLoading && data && tab === 'done' && (
+        <div style={{ padding: '12px 20px 0' }}>
+          {completedCount > 0 && (
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                color: 'var(--color-text-ter)',
+                textTransform: 'uppercase',
+                margin: '0 0 10px',
+              }}
+            >
+              {completedCount} {completedCount === 1 ? 'entrega concluída' : 'entregas concluídas'} hoje
+            </p>
+          )}
+          <CourierCompletedList condos={completedView} />
         </div>
       )}
 
