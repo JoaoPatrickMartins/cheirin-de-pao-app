@@ -77,6 +77,36 @@ describe('AdminHooksService.list', () => {
     const where = (prisma.hookRequest.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0].where
     expect(where.type).toBe('PAID')
   })
+
+  it('sort location → ordena por condomínio → bloco → apartamento (numérico) sobre o conjunto completo', async () => {
+    const at = new Date()
+    const { fastify, prisma } = makeFastify({
+      hooks: [
+        { id: 'h1', userId: 'u1', type: 'FREE', status: 'REQUESTED', reason: null, requestedAt: at, deliveredAt: null },
+        { id: 'h2', userId: 'u2', type: 'FREE', status: 'REQUESTED', reason: null, requestedAt: at, deliveredAt: null },
+        { id: 'h3', userId: 'u3', type: 'FREE', status: 'REQUESTED', reason: null, requestedAt: at, deliveredAt: null },
+        { id: 'h4', userId: 'u4', type: 'FREE', status: 'REQUESTED', reason: null, requestedAt: at, deliveredAt: null },
+      ],
+      users: [
+        { id: 'u1', name: 'Ana', phone: null, apartment: '302', block: 'B', condominiumId: 'c1' },
+        { id: 'u2', name: 'Bia', phone: null, apartment: '10', block: 'A', condominiumId: 'c1' },
+        { id: 'u3', name: 'Caio', phone: null, apartment: '101', block: '2', condominiumId: 'c2' },
+        { id: 'u4', name: 'Duda', phone: null, apartment: '2', block: 'A', condominiumId: 'c1' },
+      ],
+      condos: [
+        { id: 'c1', name: 'Residencial Sol' },
+        { id: 'c2', name: 'Alto do Bosque' },
+      ],
+    })
+    const res = await new AdminHooksService(fastify).list({ status: 'pending', sort: 'location' })
+    // Alto do Bosque (c2) antes de Residencial Sol (c1); dentro do c1: bloco A (apto 2, depois 10) antes do bloco B.
+    expect(res.items.map((i) => i.userId)).toEqual(['u3', 'u4', 'u2', 'u1'])
+    expect(res.total).toBe(4)
+    // Carrega o conjunto completo (sem paginar no banco).
+    const findManyArgs = (prisma.hookRequest.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(findManyArgs.skip).toBeUndefined()
+    expect(findManyArgs.take).toBeUndefined()
+  })
 })
 
 describe('AdminHooksService.markDelivered', () => {

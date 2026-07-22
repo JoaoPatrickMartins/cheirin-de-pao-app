@@ -85,10 +85,17 @@ function SkeletonCard() {
   )
 }
 
+interface AdminClientesProps {
+  /** Se informado, abre direto o detalhe deste cliente (ex.: "Ver cliente" da fila de ganchos). */
+  initialClientId?: string | null
+}
+
 // ------------------------------------------------------------------ componente
-export function AdminClientes() {
-  const [sub, setSub] = useState<AdminClientesSub>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+export function AdminClientes({ initialClientId }: AdminClientesProps = {}) {
+  // A aba Clientes é desmontada quando não está ativa, então o id chega no mount e
+  // inicializa o estado (mesma abordagem do intent da aba Entregas).
+  const [sub, setSub] = useState<AdminClientesSub>(initialClientId ? 'detalhe' : null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialClientId ?? null)
 
   // filtros / busca / ordenação
   const [filtroCondominio, setFiltroCondominio] = useState<string | null>(null)

@@ -28,7 +28,7 @@ export const adminHooksRoute: FastifyPluginAsync = async (fastify) => {
             q: { type: 'string', description: 'Busca por nome, apartamento, bloco, CPF ou telefone.' },
             status: { type: 'string', enum: ['pending', 'delivered', 'all'], description: 'Filtro de status. Padrão: pending.' },
             type: { type: 'string', enum: ['all', 'free', 'paid', 'bonus'], description: 'Filtro por tipo. Padrão: all.' },
-            sort: { type: 'string', enum: ['recent', 'name'], description: 'Ordenação. Padrão: recent.' },
+            sort: { type: 'string', enum: ['recent', 'name', 'location'], description: 'Ordenação: recent (data desc), name (alfabético) ou location (condomínio → bloco → apartamento). Padrão: recent.' },
             page: { type: 'integer', minimum: 1, description: 'Página (1-based). Padrão: 1.' },
             limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Itens por página. Padrão: 20.' },
           },
