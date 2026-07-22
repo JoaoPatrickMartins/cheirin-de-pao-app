@@ -122,6 +122,36 @@ describe('AuthService [AUTH-05, AUTH-06]', () => {
     )
   })
 
+  it('ADMIN login does NOT revoke sessions from other devices (multi-device allowed)', async () => {
+    const fastify = createMockFastify()
+    const service = new AuthService(fastify)
+
+    const hashedCode = service.hashValue('5678')
+    ;(fastify.prisma.otpCode.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'otp-admin',
+      code: hashedCode,
+      expiresAt: new Date(Date.now() + 600_000),
+      usedAt: null,
+    })
+    ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'admin1',
+      role: 'ADMIN',
+      name: 'Admin Teste',
+      passwordHash: null,
+    })
+    // Sessão ativa de outro dispositivo — NÃO deve ser revogada para ADMIN
+    ;(fastify.prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'admin-session-old', userId: 'admin1', deviceId: 'device-old', isRevoked: false },
+    ])
+
+    const result = await service.verifyOtpAndCreateSession('admin1', '5678', 'device-new')
+
+    expect(result).toHaveProperty('accessToken')
+    expect(result).toHaveProperty('refreshToken')
+    // Nenhuma sessão de outro device pode ter sido revogada
+    expect(fastify.prisma.session.update as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+  })
+
   it('refreshSession rotates tokens and revokes the old refresh', async () => {
     const fastify = createMockFastify()
     const service = new AuthService(fastify)
