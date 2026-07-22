@@ -12,6 +12,7 @@ import { CourierCompletedList, CompletedCondo } from '../../components/courier/C
 import { Stop } from '../../components/courier/StopRow'
 import { CourierRouteView } from './CourierRouteView'
 import { QrScanner } from '../../components/courier/QrScanner'
+import { PushNotificationToggle } from '../../components/PushNotificationToggle'
 
 interface SlotInfo {
   slotId: string
@@ -294,6 +295,11 @@ export function CourierScreen() {
         >
           <Icon name="logout" size={20} color="var(--color-text-sec)" />
         </button>
+      </div>
+
+      {/* Ativar notificações push neste aparelho */}
+      <div style={{ margin: '0 20px 14px' }}>
+        <PushNotificationToggle description="Receba avisos de novas entregas e lembretes de turno." />
       </div>
 
       {/* Rota de hoje — data + turnos (deixa claro a data e se é manhã/tarde) */}
