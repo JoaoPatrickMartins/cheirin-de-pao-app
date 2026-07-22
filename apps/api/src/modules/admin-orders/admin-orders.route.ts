@@ -238,6 +238,19 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                 scheduled: { type: 'integer', description: 'Total de pedidos agendados para hoje neste condomínio (status != CANCELLED).' },
                 delivered: { type: 'integer', description: 'Pedidos com status DELIVERED.' },
                 orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos do grupo (para atribuição em batch).' },
+                blocks: {
+                  type: 'array',
+                  description: 'Detalhamento por bloco (via User.block) — para status/travamento por bloco quando o condomínio é dividido.',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      block: { type: 'string', description: 'Bloco (vazio = sem bloco).' },
+                      scheduled: { type: 'integer', description: 'Pedidos agendados neste bloco.' },
+                      delivered: { type: 'integer', description: 'Pedidos entregues neste bloco.' },
+                      orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos deste bloco.' },
+                    },
+                  },
+                },
               },
             },
           },
@@ -280,13 +293,27 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                     courierName: { type: 'string', description: 'Nome do entregador.' },
                     condominiums: {
                       type: 'array',
-                      description: 'Lista de condomínios atribuídos a este entregador.',
+                      description: 'Unidades atribuídas a este entregador — condomínio inteiro (block=null) ou um bloco específico.',
                       items: {
                         type: 'object',
                         properties: {
                           condominiumId: { type: 'string', description: 'ID do condomínio.' },
                           condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                          quantity: { type: 'integer', description: 'Total de pãezinhos neste condomínio.' },
+                          quantity: { type: 'integer', description: 'Total de pãezinhos nesta unidade.' },
+                          block: { type: 'string', nullable: true, description: 'Bloco quando é uma unidade de bloco; null = condomínio inteiro.' },
+                          orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos desta unidade (usado no aprovar).' },
+                          blocks: {
+                            type: 'array',
+                            description: 'Detalhamento por bloco (só em unidade de condomínio inteiro) — permite "dividir por blocos" na tela.',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                block: { type: 'string', description: 'Bloco (vazio = sem bloco).' },
+                                quantity: { type: 'integer', description: 'Total de pãezinhos neste bloco.' },
+                                orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos deste bloco.' },
+                              },
+                            },
+                          },
                         },
                       },
                     },

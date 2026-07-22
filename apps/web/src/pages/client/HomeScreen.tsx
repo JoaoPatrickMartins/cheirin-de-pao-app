@@ -13,6 +13,7 @@ import { useNotif } from '../../contexts/NotifContext'
 import { useSchedule } from '../../hooks/useSchedule'
 import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
 import { useAutoRecharge } from '../../hooks/useAutoRecharge'
+import { getGreeting } from '../../lib/greeting'
 
 type IconName = keyof typeof Ic
 
@@ -36,13 +37,6 @@ const DAY_ABBR: Record<string, string> = {
   sex: 'Sex',
   sab: 'Sáb',
   dom: 'Dom',
-}
-
-function getGreeting(): string {
-  const hours = new Date().getHours()
-  if (hours < 12) return 'Bom dia'
-  if (hours < 18) return 'Boa tarde'
-  return 'Boa noite'
 }
 
 // ============================================================

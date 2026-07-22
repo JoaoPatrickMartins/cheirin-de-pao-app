@@ -19,10 +19,12 @@ interface StopRowProps {
   isNotDelivered?: boolean
   // Mostra o turno por parada — usado quando a rota mistura manhã e tarde.
   showSlot?: boolean
+  // Mostra o bloco no título — desligado quando a parada já está sob um subtítulo de bloco.
+  showBlock?: boolean
   onPress: (stop: Stop) => void
 }
 
-export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, showSlot = false, onPress }: StopRowProps) {
+export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, showSlot = false, showBlock = true, onPress }: StopRowProps) {
   const resolved = isConfirmed || isNotDelivered
   return (
     <button
@@ -103,7 +105,7 @@ export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, show
             textOverflow: 'ellipsis',
           }}
         >
-          {stop.block ? `${stop.block} — Apto ${stop.apartment}` : `Apto ${stop.apartment}`}
+          {showBlock && stop.block ? `${stop.block} — Apto ${stop.apartment}` : `Apto ${stop.apartment}`}
         </p>
         <p
           style={{

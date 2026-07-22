@@ -15,6 +15,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { Icon } from '../../components/brand/Icon'
 import QuantityStepper from '../../components/client/QuantityStepper'
 import { CutoffPopup } from '../../components/client/CutoffPopup'
+import { OrderSummarySheet } from '../../components/client/OrderSummarySheet'
 import { apiFetch } from '../../lib/apiFetch'
 import { brtDateStr, isPastCutoffForDelivery } from '../../lib/cutoff'
 
@@ -51,6 +52,17 @@ const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', '
 function parseDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d)
+}
+
+const WEEKDAY_LONG = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
+const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+/** Data por extenso para o resumo: "Hoje/Amanhã, 25 de julho" ou "Sexta-feira, 25 de julho". */
+function formatWhenLabel(dateStr: string, todayStr: string, tomorrowStr: string): string {
+  const d = parseDate(dateStr)
+  const dayMonth = `${d.getDate()} de ${MONTHS_LONG[d.getMonth()]}`
+  if (dateStr === todayStr) return `Hoje, ${dayMonth}`
+  if (dateStr === tomorrowStr) return `Amanhã, ${dayMonth}`
+  return `${WEEKDAY_LONG[d.getDay()]}, ${dayMonth}`
 }
 
 const SLOT_EMOJI: Record<string, string> = { manha: '☀️', tarde: '🌙' }
@@ -109,10 +121,20 @@ export function SingleScreen() {
   const [cutoffDismissed, setCutoffDismissed] = useState(false)
   const dateInputRef = useRef<HTMLInputElement>(null)
 
-  // Status do gancho — para o nudge "peça X pães e ganhe o gancho grátis".
-  const [hookInfo, setHookInfo] = useState<{ hasHook: boolean; freeEligible: boolean; pedidoUnicoMin: number } | null>(null)
+  // Status do gancho — alimenta o nudge do gancho grátis e o aviso "deixe o gancho na porta"
+  // (este último só quando o gancho já foi ENTREGUE, campo `delivered`).
+  const [hookInfo, setHookInfo] = useState<{
+    hasHook: boolean
+    freeEligible: boolean
+    pedidoUnicoMin: number
+    delivered: boolean
+  } | null>(null)
   // Diálogo de decisão exibido ao confirmar abaixo do mínimo do gancho grátis.
   const [showFreeHookPrompt, setShowFreeHookPrompt] = useState(false)
+  // Bottom sheet de resumo/confirmação antes de finalizar a compra.
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  // Disponibilidade por data (dia bloqueado ou limite atingido) para a régua de dias.
+  const [availability, setAvailability] = useState<Record<string, { blocked: boolean; full: boolean }>>({})
 
   // Preço por pão (avulso) + pedido mínimo — usados para cobrar a diferença e limitar a quantidade.
   useEffect(() => {
@@ -129,6 +151,20 @@ export function SingleScreen() {
       .catch(() => {})
   }, [])
 
+  // Disponibilidade por data (32 dias) — desabilita dias bloqueados/cheios na régua.
+  useEffect(() => {
+    apiFetch('/orders/availability?days=32')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { availability?: Array<{ date: string; blocked: boolean; full: boolean }> } | null) => {
+        if (data?.availability) {
+          const map: Record<string, { blocked: boolean; full: boolean }> = {}
+          for (const a of data.availability) map[a.date] = { blocked: a.blocked, full: a.full }
+          setAvailability(map)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   // Slots de entrega do condomínio (manhã/tarde) para o seletor "Para quando?".
   useEffect(() => {
     apiFetch('/client/condominium/slots')
@@ -140,15 +176,29 @@ export function SingleScreen() {
       .finally(() => setSlotsLoaded(true))
   }, [])
 
-  // Status do gancho — só é relevante para o nudge se o cliente ainda pode ganhar o grátis.
+  // Status do gancho — para o nudge do grátis e para o aviso de "gancho na porta".
   useEffect(() => {
     apiFetch('/client/hook-request')
       .then((res) => (res.ok ? res.json() : null))
-      .then((d: { hasHook?: boolean; freeEligible?: boolean; pedidoUnicoMin?: number } | null) => {
-        if (d && typeof d.pedidoUnicoMin === 'number') {
-          setHookInfo({ hasHook: !!d.hasHook, freeEligible: !!d.freeEligible, pedidoUnicoMin: d.pedidoUnicoMin })
-        }
-      })
+      .then(
+        (
+          d: {
+            hasHook?: boolean
+            freeEligible?: boolean
+            pedidoUnicoMin?: number
+            current?: { status?: string } | null
+          } | null,
+        ) => {
+          if (d && typeof d.pedidoUnicoMin === 'number') {
+            setHookInfo({
+              hasHook: !!d.hasHook,
+              freeEligible: !!d.freeEligible,
+              pedidoUnicoMin: d.pedidoUnicoMin,
+              delivered: d.current?.status === 'DELIVERED',
+            })
+          }
+        },
+      )
       .catch(() => {})
   }, [])
 
@@ -172,6 +222,7 @@ export function SingleScreen() {
   // Aviso amigável de corte: horários do dia escolhido que já fecharam.
   const closedForDate = quando ? slotOptions.filter((o) => !o.available).map((o) => o.slot) : []
   const anyAvailableForDate = slotOptions.some((o) => o.available)
+  const availableCount = slotOptions.filter((o) => o.available).length
   const dateWord = quando === todayStr ? 'hoje' : quando === tomorrowStr ? 'amanhã' : 'essa data'
   const closedNotice =
     closedForDate.length > 0
@@ -200,7 +251,16 @@ export function SingleScreen() {
   const dayLabel = (d: string) =>
     d === todayStr ? 'Hoje' : d === tomorrowStr ? 'Amanhã' : WEEKDAY[parseDate(d).getDay()]
 
+  // Uma data está indisponível quando o dia da semana está bloqueado OU o limite de pedidos
+  // do dia já foi atingido (config do admin). Datas fora da janela consultada → sem info (livre).
+  const isDateUnavailable = (dateStr: string): boolean => {
+    const info = availability[dateStr]
+    return !!(info && (info.blocked || info.full))
+  }
+
   const escolherData = (dateStr: string) => {
+    // Não seleciona dia indisponível (defesa p/ escolha via calendário nativo).
+    if (isDateUnavailable(dateStr)) return
     setQuando(dateStr)
     // Se o slot já escolhido não está mais disponível na nova data, limpa a seleção.
     if (deliveryTime) {
@@ -208,6 +268,31 @@ export function SingleScreen() {
       if (slot && !slotAvailable(slot, dateStr)) setDeliveryTime(null)
     }
   }
+
+  // Se a data selecionada estiver (ou passar a estar) indisponível — inclusive o default
+  // "amanhã" e o momento em que a disponibilidade termina de carregar — move para o primeiro
+  // dia livre da régua. Evita levar um dia bloqueado/cheio até o resumo e o confirm.
+  useEffect(() => {
+    if (!quando || !isDateUnavailable(quando)) return
+    const firstOk = stripDates.find((d) => !isDateUnavailable(d))
+    setQuando(firstOk ?? null)
+    setDeliveryTime(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability, quando])
+
+  // Auto-seleção de horário: quando só há UM slot disponível para a data escolhida,
+  // já deixa ele marcado; com dois ou mais, mantém sem seleção (escolha explícita).
+  // Também limpa uma seleção que deixou de estar disponível (ex.: troca de data).
+  useEffect(() => {
+    if (!slotsLoaded || !quando) return
+    const nowEff = new Date()
+    const avail = slots.filter((s) => !isPastCutoffForDelivery(s.time, s.cutoffTime, quando, nowEff))
+    setDeliveryTime((cur) => {
+      if (avail.length === 1) return avail[0].time
+      if (cur && !avail.some((s) => s.time === cur)) return null
+      return cur
+    })
+  }, [slotsLoaded, quando, slots])
 
   // Abre o seletor nativo de data. showPicker() é o método correto (o .click() não abre
   // o calendário quando o input está escondido); cai para .click() em navegadores antigos.
@@ -246,8 +331,19 @@ export function SingleScreen() {
   // Exige data + (slot, quando o condomínio tem slots). Aguarda o fetch de slots para
   // não habilitar prematuramente. Para pagar a diferença, precisa do preço avulso.
   const slotPendente = !slotsLoaded || (slots.length > 0 && !deliveryTime)
+  const quandoIndisponivel = !!quando && isDateUnavailable(quando)
   const isDisabled =
-    !quando || slotPendente || isSubmitting || (precisaPagar && avulsoUnit === null)
+    !quando ||
+    quandoIndisponivel ||
+    slotPendente ||
+    isSubmitting ||
+    (precisaPagar && avulsoUnit === null)
+  // Aviso do dia indisponível (bloqueado vs. lotado) exibido acima do botão.
+  const diaIndisponivelMsg = quandoIndisponivel
+    ? availability[quando!]?.full
+      ? 'O limite de pedidos para este dia foi atingido. Escolha outra data.'
+      : 'Não há entregas neste dia. Escolha outra data.'
+    : null
 
   // Saldo cobre o pedido inteiro → reserva direto via POST /orders.
   const handleReservar = async (quantity: number) => {
@@ -273,10 +369,11 @@ export function SingleScreen() {
             deliveryTime: deliveryTime ?? undefined,
           },
         })
-      } else if (res.status === 400) {
-        setErrorMsg('Créditos insuficientes para este pedido.')
       } else {
-        setErrorMsg('Não conseguimos criar o pedido. Tente novamente.')
+        // Usa a mensagem do servidor (ex.: dia bloqueado, limite atingido, data inválida,
+        // créditos insuficientes) — cai no genérico só quando não há corpo legível.
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        setErrorMsg(err?.error ?? 'Não conseguimos criar o pedido. Tente novamente.')
       }
     } catch {
       setErrorMsg('Não conseguimos criar o pedido. Tente novamente.')
@@ -331,6 +428,12 @@ export function SingleScreen() {
     else void handleReservar(quantity)
   }
 
+  // Abre o resumo (limpa erro antigo). O "Confirmar" do resumo dispara o doSubmit real.
+  const openSummary = () => {
+    setErrorMsg(null)
+    setSummaryOpen(true)
+  }
+
   const handleSubmit = () => {
     if (isDisabled) return
     // Abaixo do mínimo do gancho grátis → oferece completar antes de seguir.
@@ -338,12 +441,17 @@ export function SingleScreen() {
       setShowFreeHookPrompt(true)
       return
     }
-    doSubmit(qtd)
+    openSummary()
   }
 
   const ctaLabel = precisaPagar
     ? `Pagar ${formatBRL(totalPagar)} e agendar`
     : 'Reservar e confirmar'
+
+  // Dados do resumo (bottom sheet de confirmação).
+  const selectedSlot = slots.find((s) => s.time === deliveryTime) ?? null
+  const whenLabel = quando ? formatWhenLabel(quando, todayStr, tomorrowStr) : ''
+  const hookDelivered = hookInfo?.delivered ?? false
 
   return (
     <div
@@ -531,9 +639,27 @@ export function SingleScreen() {
                 {stripDates.map((d) => {
                   const active = quando === d
                   const mes = parseDate(d).getMonth()
-                  const accent = active ? 'var(--color-accent)' : 'var(--color-text)'
+                  const avail = availability[d]
+                  const unavailable = !!(avail && (avail.blocked || avail.full))
+                  const accent = active
+                    ? 'var(--color-accent)'
+                    : unavailable
+                      ? 'var(--color-text-ter)'
+                      : 'var(--color-text)'
+                  // Rótulo inferior: motivo da indisponibilidade tem prioridade sobre o mês.
+                  const bottomLabel = unavailable ? (avail?.full ? 'cheio' : '—') : MONTHS[mes]
+                  const showBottom = unavailable || mes !== todayMonth
                   return (
-                    <button key={d} onClick={() => escolherData(d)} style={dayCardStyle(active)}>
+                    <button
+                      key={d}
+                      onClick={unavailable ? undefined : () => escolherData(d)}
+                      disabled={unavailable}
+                      style={{
+                        ...dayCardStyle(active),
+                        opacity: unavailable ? 0.4 : 1,
+                        cursor: unavailable ? 'default' : 'pointer',
+                      }}
+                    >
                       <span
                         style={{
                           fontFamily: 'var(--font-body)',
@@ -552,6 +678,7 @@ export function SingleScreen() {
                           fontWeight: 800,
                           color: accent,
                           lineHeight: 1.15,
+                          textDecoration: unavailable && !avail?.full ? 'line-through' : 'none',
                         }}
                       >
                         {parseDate(d).getDate()}
@@ -565,10 +692,10 @@ export function SingleScreen() {
                           textTransform: 'uppercase',
                           color: active ? 'var(--color-accent)' : 'var(--color-text-ter)',
                           lineHeight: 1,
-                          visibility: mes !== todayMonth ? 'visible' : 'hidden',
+                          visibility: showBottom ? 'visible' : 'hidden',
                         }}
                       >
-                        {MONTHS[mes]}
+                        {bottomLabel}
                       </span>
                     </button>
                   )
@@ -617,7 +744,7 @@ export function SingleScreen() {
           {/* Horário — slots do dia escolhido, habilitados conforme o corte de cada slot */}
           {slots.length > 0 && (
             <div>
-              <p style={sectionLabel}>Horário</p>
+              <p style={sectionLabel}>{availableCount >= 2 ? 'Selecione o horário' : 'Horário'}</p>
               <div style={{ display: 'flex', gap: 10 }}>
                 {slotOptions.map(({ slot, available }) => {
                   const selected = deliveryTime === slot.time
@@ -644,7 +771,8 @@ export function SingleScreen() {
                         style={{
                           fontFamily: 'var(--font-body)',
                           fontSize: 12,
-                          color: 'var(--color-text-ter)',
+                          fontWeight: selected ? 600 : 400,
+                          color: selected ? 'var(--color-text-sec)' : 'var(--color-text-ter)',
                           lineHeight: 1.2,
                         }}
                       >
@@ -703,7 +831,7 @@ export function SingleScreen() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
                 <Icon name="wallet" size={20} color="var(--color-accent)" />
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)', margin: 0 }}>
-                  {usaSaldo > 0 ? `Usa ${usaSaldo} do seu saldo` : 'Você não tem créditos'}
+                  {usaSaldo > 0 ? `Usa ${usaSaldo} do seu saldo` : 'Você não tem saldo'}
                 </p>
               </div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: 'var(--color-text)', margin: 0 }}>
@@ -776,7 +904,7 @@ export function SingleScreen() {
                     margin: 0,
                   }}
                 >
-                  Usar créditos
+                  Usar do saldo
                 </p>
                 <p
                   style={{
@@ -786,7 +914,7 @@ export function SingleScreen() {
                     margin: '2px 0 0 0',
                   }}
                 >
-                  Sobram {creditBalance - qtd} de {creditBalance} créditos
+                  Sobram {creditBalance - qtd} de {creditBalance} pães
                 </p>
               </div>
             </div>
@@ -817,6 +945,20 @@ export function SingleScreen() {
           background: 'var(--color-app-bg)',
         }}
       >
+        {diaIndisponivelMsg && (
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: 'var(--color-accent)',
+              margin: '0 0 10px',
+              textAlign: 'center',
+            }}
+          >
+            {diaIndisponivelMsg}
+          </p>
+        )}
         <button
           onClick={handleSubmit}
           disabled={isDisabled}
@@ -935,7 +1077,7 @@ export function SingleScreen() {
               onClick={() => {
                 setShowFreeHookPrompt(false)
                 setQtd(completeTarget)
-                doSubmit(completeTarget)
+                openSummary()
               }}
               style={{
                 width: '100%',
@@ -956,7 +1098,7 @@ export function SingleScreen() {
             <button
               onClick={() => {
                 setShowFreeHookPrompt(false)
-                doSubmit(qtd)
+                openSummary()
               }}
               style={{
                 width: '100%',
@@ -976,6 +1118,25 @@ export function SingleScreen() {
           </div>
         </div>
       )}
+
+      <OrderSummarySheet
+        open={summaryOpen}
+        qtd={qtd}
+        whenLabel={whenLabel}
+        slotLabel={selectedSlot ? selectedSlot.label ?? SLOT_LABEL[selectedSlot.name] ?? selectedSlot.name : undefined}
+        slotEmoji={selectedSlot ? selectedSlot.emoji ?? SLOT_EMOJI[selectedSlot.name] : undefined}
+        slotTime={selectedSlot?.time}
+        creditBalance={creditBalance}
+        usaSaldo={usaSaldo}
+        deficit={deficit}
+        totalPagar={totalPagar}
+        precisaPagar={precisaPagar}
+        hookDelivered={hookDelivered}
+        isSubmitting={isSubmitting}
+        errorMsg={errorMsg}
+        onConfirm={() => doSubmit(qtd)}
+        onClose={() => setSummaryOpen(false)}
+      />
     </div>
   )
 }

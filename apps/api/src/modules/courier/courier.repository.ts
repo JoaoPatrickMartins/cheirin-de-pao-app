@@ -33,6 +33,23 @@ export class CourierRepository {
   }
 
   /**
+   * Busca as entregas JÁ concluídas do entregador para hoje (range BRT).
+   *
+   * Filtra: courierId === param, scheduledDate no range, status finalizado
+   * (DELIVERED ou NOT_DELIVERED). Alimenta a aba "Realizadas" — diferente da rota
+   * ativa (OUT_FOR_DELIVERY), estas persistem e sobrevivem ao recarregar a tela.
+   */
+  async findTodayCompletedByCourierId(courierId: string, start: Date, end: Date) {
+    return this.prisma.order.findMany({
+      where: {
+        courierId,
+        scheduledDate: { gte: start, lte: end },
+        status: { in: ['DELIVERED', 'NOT_DELIVERED'] },
+      },
+    })
+  }
+
+  /**
    * Busca uma order por ID.
    * Retorna null se nao encontrada.
    */

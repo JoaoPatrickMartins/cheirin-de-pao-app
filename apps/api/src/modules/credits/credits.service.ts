@@ -3,6 +3,11 @@ import { CreditsRepository } from './credits.repository.js'
 import { effectiveComboPrice, comboEconomy } from '../../lib/combo-pricing.js'
 import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
 import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
+import {
+  getAgendaRestrictions,
+  type DiasBloqueados,
+  type LimitePedidosDia,
+} from '../../lib/agenda-restrictions.js'
 
 export class CreditsService {
   private repo: CreditsRepository
@@ -54,6 +59,8 @@ export class CreditsService {
     avulsoUnit: number
     pedidoMinimoUnico: number
     pedidoMinimoAgenda: WeekdayMinimums
+    diasBloqueados: DiasBloqueados
+    limitePedidosDia: LimitePedidosDia
   }> {
     const settings = await this.repo.getSettingsByKeys([
       'avulsoLimite',
@@ -68,11 +75,16 @@ export class CreditsService {
 
     const minUnicoParsed = minUnicoEntry ? parseInt(minUnicoEntry.value, 10) : 1
 
+    // Restrições por dia da semana — o cliente usa para desabilitar dias na agenda/pedido único.
+    const { blocked, limits } = await getAgendaRestrictions(this.fastify.prisma)
+
     return {
       avulsoLimite: limiteEntry ? parseFloat(limiteEntry.value) : 0,
       avulsoUnit: unitEntry ? parseFloat(unitEntry.value) : 0,
       pedidoMinimoUnico: Number.isFinite(minUnicoParsed) && minUnicoParsed >= 1 ? minUnicoParsed : 1,
       pedidoMinimoAgenda: parseAgendaMinimos(minAgendaEntry?.value),
+      diasBloqueados: blocked,
+      limitePedidosDia: limits,
     }
   }
 
