@@ -12,6 +12,7 @@ function createMockFastify(overrides: Record<string, unknown> = {}): FastifyInst
           Promise.resolve({ id: 'otp1', ...data }),
         ),
         update: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       session: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -369,5 +370,57 @@ describe('AuthService [AUTH-05, AUTH-06]', () => {
     )
     // OTP consumido
     expect(fastify.prisma.otpCode.update as ReturnType<typeof vi.fn>).toHaveBeenCalled()
+  })
+
+  describe('createManualOtp (fallback do ADMIN)', () => {
+    it('grava OTP admin-manual (purpose LOGIN, código hasheado) e retorna o código em texto claro', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+
+      const before = Date.now()
+      const { code, expiresAt } = await service.createManualOtp('user1', 60)
+
+      // código em texto claro, 4 dígitos
+      expect(code).toMatch(/^\d{4}$/)
+
+      // invalida os OTPs de login ativos anteriores antes de criar o novo
+      expect(fastify.prisma.otpCode.updateMany as ReturnType<typeof vi.fn>).toHaveBeenCalled()
+
+      const createCall = (fastify.prisma.otpCode.create as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+        data: { code: string; channel: string; purpose: string; expiresAt: Date }
+      }
+      expect(createCall.data.channel).toBe('admin-manual')
+      expect(createCall.data.purpose).toBe('LOGIN')
+      // gravado hasheado, nunca em texto claro
+      expect(createCall.data.code).toBe(service.hashValue(code))
+      // validade ≈ agora + 60 min (tolerância generosa)
+      const ttlMs = expiresAt.getTime() - before
+      expect(ttlMs).toBeGreaterThan(59 * 60 * 1000)
+      expect(ttlMs).toBeLessThan(61 * 60 * 1000)
+    })
+  })
+
+  describe('sendOtp — guarda do código admin-manual', () => {
+    it('não invalida nem gera novo código quando há um OTP admin-manual ativo', async () => {
+      const originalEnv = process.env.NODE_ENV
+      process.env.NODE_ENV = 'production'
+
+      const fastify = createMockFastify()
+      ;(fastify.prisma.otpCode.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'otp-manual',
+        channel: 'admin-manual',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        usedAt: null,
+      })
+
+      const service = new AuthService(fastify)
+      await service.sendOtp('user1', 'cliente@example.com')
+
+      // short-circuit: nenhuma invalidação nem criação de código novo
+      expect(fastify.prisma.otpCode.updateMany as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+      expect(fastify.prisma.otpCode.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+
+      process.env.NODE_ENV = originalEnv
+    })
   })
 })

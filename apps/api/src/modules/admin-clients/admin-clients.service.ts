@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { Prisma, TransactionType, NotificationType } from '@prisma/client'
 import { NotificationsService } from '../notifications/notifications.service.js'
+import { AuthService } from '../auth/auth.service.js'
 
 /** Parâmetros de listagem de clientes (busca, filtro, ordenação, paginação). */
 export interface ListClientsParams {
@@ -67,7 +68,11 @@ function createOsClient() {
  * T-07-03-01: Role check ADMIN fica no controller.
  */
 export class AdminClientsService {
-  constructor(private fastify: FastifyInstance) {}
+  private readonly auth: AuthService
+
+  constructor(private fastify: FastifyInstance) {
+    this.auth = new AuthService(fastify)
+  }
 
   private get prisma() {
     return this.fastify.prisma
@@ -281,6 +286,43 @@ export class AdminClientsService {
     if (payload.block !== undefined) data.block = payload.block
 
     return this.prisma.user.update({ where: { id }, data })
+  }
+
+  /**
+   * Gera um código de acesso (OTP de login) de validade estendida para um cliente,
+   * como fallback quando o envio por e-mail (Resend) estiver indisponível. O código
+   * é retornado em texto claro (exibido uma única vez ao admin) — não é enviado por
+   * e-mail. O cliente o usa no fluxo normal de "Entrar com código no e-mail".
+   *
+   * @throws { statusCode: 404 } se user não encontrado ou não é CLIENT
+   * @throws { statusCode: 409 } se o cliente estiver bloqueado
+   * @throws { statusCode: 422 } se o cliente não tiver e-mail (o login por código é por e-mail)
+   */
+  async generateAccessCode(
+    clientId: string,
+    ttlMinutes: number,
+    adminId: string,
+  ): Promise<{ code: string; expiresAt: Date }> {
+    const user = await this.prisma.user.findUnique({ where: { id: clientId } })
+    if (!user || user.role !== 'CLIENT') {
+      throw { statusCode: 404, message: 'Cliente não encontrado' }
+    }
+    if (user.isBlocked) {
+      throw { statusCode: 409, message: 'Cliente bloqueado — desbloqueie antes de gerar um código de acesso' }
+    }
+    if (!user.email) {
+      throw { statusCode: 422, message: 'Cliente sem e-mail cadastrado — o login por código usa o e-mail' }
+    }
+
+    const { code, expiresAt } = await this.auth.createManualOtp(clientId, ttlMinutes)
+
+    // Auditoria: quem gerou, para quem e até quando (código nunca é logado).
+    this.fastify.log.info(
+      { adminAction: 'manual-otp', adminId, clientId, expiresAt: expiresAt.toISOString() },
+      'ADMIN gerou código de acesso manual para cliente',
+    )
+
+    return { code, expiresAt }
   }
 
   /** Garante que o id é de um CLIENT existente; senão lança 404. */

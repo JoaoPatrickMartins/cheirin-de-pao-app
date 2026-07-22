@@ -8,6 +8,12 @@ type IconName = ComponentProps<typeof Icon>['name']
 
 const GRANT_MOTIVOS = ['Acerto', 'Bonificação', 'Compensação', 'Promoção'] as const
 const REMOVE_MOTIVOS = ['Estorno', 'Ajuste/Correção', 'Cancelamento', 'Uso indevido'] as const
+const OTP_TTL_OPTS = [
+  { label: '1 hora', min: 60 },
+  { label: '3 horas', min: 180 },
+  { label: '12 horas', min: 720 },
+  { label: '24 horas', min: 1440 },
+] as const
 
 // ------------------------------------------------------------------ tipos
 interface ClienteSchedule {
@@ -74,6 +80,12 @@ const DIA_ORDER = ['MON', 'seg', 'TUE', 'ter', 'WED', 'qua', 'THU', 'qui', 'FRI'
 
 function onlyDigits(v?: string | null): string {
   return (v ?? '').replace(/\D/g, '')
+}
+
+function formatOtpExpiry(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatCpf(cpf?: string | null): string {
@@ -204,6 +216,13 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [hookReason, setHookReason] = useState('')
   const [hookLoading, setHookLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
+
+  // código de acesso manual (fallback quando o e-mail/Resend falha)
+  const [showOtpModal, setShowOtpModal] = useState(false)
+  const [otpTtl, setOtpTtl] = useState(60)
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [otpResult, setOtpResult] = useState<{ code: string; expiresAt: string } | null>(null)
+  const [otpError, setOtpError] = useState<string | null>(null)
 
   // edição de cadastro
   const [showEditSheet, setShowEditSheet] = useState(false)
@@ -454,18 +473,49 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
     }
   }
 
+  function openOtpModal() {
+    setOtpTtl(60)
+    setOtpResult(null)
+    setOtpError(null)
+    setShowOtpModal(true)
+  }
+
+  async function handleGenerateOtp() {
+    if (!cliente || otpLoading) return
+    setOtpLoading(true)
+    setOtpError(null)
+    try {
+      const res = await apiFetch(`/admin/clients/${cliente.id}/otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ttlMinutes: otpTtl }),
+      })
+      if (res.ok) {
+        setOtpResult((await res.json()) as { code: string; expiresAt: string })
+      } else {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null
+        setOtpError(err?.error ?? 'Não foi possível gerar o código')
+      }
+    } catch {
+      setOtpError('Erro de conexão')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
   useEffect(() => {
-    if (!showGrantModal && !showEditSheet && !showRemoveModal) return
+    if (!showGrantModal && !showEditSheet && !showRemoveModal && !showOtpModal) return
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowGrantModal(false)
         setShowEditSheet(false)
         setShowRemoveModal(false)
+        setShowOtpModal(false)
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [showGrantModal, showEditSheet, showRemoveModal])
+  }, [showGrantModal, showEditSheet, showRemoveModal, showOtpModal])
 
   const entradas = agendaEntries(cliente?.schedule)
   const wa = whatsappLink(cliente?.phone)
@@ -865,6 +915,21 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
           {/* Sessões / dispositivos */}
           <SessoesCard clienteId={cliente.id} showToast={showToast} />
 
+          {/* Gerar código de acesso — fallback quando o envio por e-mail (Resend) falha */}
+          <button
+            onClick={openOtpModal}
+            aria-label="Gerar código de acesso para o cliente"
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              padding: '14px 20px', borderRadius: 16, border: '1.5px solid var(--color-border)',
+              background: 'transparent', color: 'var(--color-text)',
+              fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, cursor: 'pointer', minHeight: 44,
+            }}
+          >
+            <Icon name="lock" size={18} stroke={2} color="var(--color-text)" aria-hidden="true" />
+            Gerar código de acesso
+          </button>
+
           {/* Botão bloquear / desbloquear */}
           <button
             onClick={() => setShowDialog(true)}
@@ -1180,6 +1245,104 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
                 {hookLoading ? 'Concedendo...' : 'Conceder gancho'}
               </button>
             </div>
+          </div>
+        </>
+      )}
+
+      {/* ---------- Modal: gerar código de acesso ---------- */}
+      {showOtpModal && cliente && (
+        <>
+          <div onClick={() => setShowOtpModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50 }} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-otp-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed', bottom: 0, left: 0, right: 0, background: 'var(--color-app-bg)',
+              borderRadius: '20px 20px 0 0', padding: `24px 20px calc(32px + env(safe-area-inset-bottom, 0px))`,
+              maxHeight: '85vh', overflowY: 'auto', zIndex: 51,
+            }}
+          >
+            <div style={{ width: 36, height: 4, borderRadius: 999, background: 'var(--color-border)', margin: '0 auto 20px' }} />
+            <h2 id="modal-otp-title" style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--color-text)', margin: '0 0 8px' }}>
+              Código de acesso
+            </h2>
+
+            {!otpResult ? (
+              <>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: '0 0 20px' }}>
+                  Gera um código de login temporário para <strong>{cliente.name}</strong> quando o envio por
+                  e-mail não estiver funcionando. Repasse o código ao cliente para ele entrar em
+                  “Entrar com código no e-mail”.
+                </p>
+                <label style={editLabelStyle}>Validade</label>
+                <div style={{ display: 'flex', flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
+                  {OTP_TTL_OPTS.map((o) => (
+                    <button
+                      key={o.min}
+                      aria-pressed={otpTtl === o.min}
+                      onClick={() => setOtpTtl(o.min)}
+                      style={{
+                        minHeight: 44, padding: '8px 16px', borderRadius: 999, fontWeight: 700, fontSize: 13,
+                        cursor: 'pointer', fontFamily: 'var(--font-body)',
+                        border: otpTtl === o.min ? 'none' : '1.5px solid var(--color-border)',
+                        background: otpTtl === o.min ? 'var(--color-gold)' : 'transparent',
+                        color: otpTtl === o.min ? '#1E1207' : 'var(--color-text)',
+                      }}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+                {otpError && (
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-warn)', margin: '0 0 16px' }}>
+                    {otpError}
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                  <button onClick={() => setShowOtpModal(false)} style={sheetCancelBtn}>Descartar</button>
+                  <button
+                    onClick={() => { void handleGenerateOtp() }}
+                    disabled={otpLoading}
+                    style={{ ...sheetConfirmBtn, opacity: otpLoading ? 0.45 : 1, cursor: otpLoading ? 'wait' : 'pointer' }}
+                  >
+                    {otpLoading ? 'Gerando...' : 'Gerar código'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: '0 0 16px' }}>
+                  Compartilhe este código com <strong>{cliente.name}</strong>. Ele aparece <strong>uma única vez</strong>.
+                </p>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-display)', fontSize: 40, fontWeight: 800, letterSpacing: 8,
+                    textAlign: 'center', color: 'var(--color-text)', background: 'var(--color-surface)',
+                    border: '1.5px solid var(--color-border)', borderRadius: 16, padding: '20px 0', margin: '0 0 12px',
+                  }}
+                >
+                  {otpResult.code}
+                </div>
+                <button
+                  onClick={() => void copiar(otpResult.code, 'Código')}
+                  style={{ ...sheetCancelBtn, width: '100%', marginBottom: 16 }}
+                >
+                  Copiar código
+                </button>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: '0 0 8px' }}>
+                  Válido até {formatOtpExpiry(otpResult.expiresAt)}.
+                </p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: '0 0 20px' }}>
+                  Peça ao cliente para abrir “Entrar com código no e-mail”, informar o e-mail e digitar este código.
+                </p>
+                <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                  <button onClick={() => { setOtpResult(null); setOtpError(null) }} style={sheetCancelBtn}>Gerar outro</button>
+                  <button onClick={() => setShowOtpModal(false)} style={sheetConfirmBtn}>Concluir</button>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}

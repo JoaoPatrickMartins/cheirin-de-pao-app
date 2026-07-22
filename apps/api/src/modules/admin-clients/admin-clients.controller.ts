@@ -9,6 +9,7 @@ import {
   ScheduleActiveSchema,
   BlockToggleSchema,
   AddNoteSchema,
+  GenerateOtpSchema,
 } from './admin-clients.schema.js'
 import { AdminClientsService } from './admin-clients.service.js'
 
@@ -298,6 +299,37 @@ export class AdminClientsController {
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
       if (e.statusCode === 422) return reply.status(422).send({ error: e.message })
       if (e.statusCode === 400) return reply.status(400).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async generateAccessCode(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    const { id } = request.params as { id: string }
+
+    let body: ReturnType<typeof GenerateOtpSchema.parse>
+    try {
+      body = GenerateOtpSchema.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+    }
+
+    try {
+      // adminId extraído do JWT — nunca do body
+      const { code, expiresAt } = await this.service.generateAccessCode(id, body.ttlMinutes ?? 60, request.user.id)
+      return reply.status(200).send({ code, expiresAt: expiresAt.toISOString() })
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 409) return reply.status(409).send({ error: e.message })
+      if (e.statusCode === 422) return reply.status(422).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }

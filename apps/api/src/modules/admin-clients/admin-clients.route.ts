@@ -335,6 +335,49 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.removeCredits.bind(ctrl),
   )
 
+  fastify.post(
+    '/admin/clients/:id/otp',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Gerar código de acesso (OTP) para o cliente (admin)',
+        description:
+          'Gera um código de login (OTP) de validade estendida para um cliente e o retorna em texto claro (exibido apenas uma vez ao admin). Fallback para quando o envio por e-mail (Resend) estiver indisponível: o admin repassa o código ao cliente, que o usa no fluxo "Entrar com código no e-mail". NÃO envia e-mail. Invalida códigos de login ativos anteriores. Recusa clientes bloqueados (409) ou sem e-mail (422). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            ttlMinutes: {
+              type: 'integer',
+              minimum: 10,
+              maximum: 1440,
+              description: 'Validade do código em minutos (padrão 60 = 1h; máx 1440 = 24h).',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Código gerado — exibir uma única vez ao admin.',
+            properties: {
+              code: { type: 'string', description: 'Código de acesso em texto claro.' },
+              expiresAt: { type: 'string', description: 'Expiração do código (ISO 8601).' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.generateAccessCode.bind(ctrl),
+  )
+
   fastify.get(
     '/admin/clients/:id/credit-history',
     {
