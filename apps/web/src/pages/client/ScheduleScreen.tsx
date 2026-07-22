@@ -58,6 +58,11 @@ const DEFAULT_WEEKLY_QTY: WeeklyQty = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, 
 // Mínimo default por dia = 1 (sem snap além do min do stepper) até carregar a config do admin.
 const DEFAULT_MIN_QTY: WeeklyQty = { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 }
 
+// Dias bloqueados default = nenhum, até carregar a config do admin (/pricing).
+const DEFAULT_BLOCKED: Record<keyof WeeklyQty, boolean> = {
+  seg: false, ter: false, qua: false, qui: false, sex: false, sab: false, dom: false,
+}
+
 /**
  * Ajusta um valor ao pedido mínimo do dia: 0 (folga) é sempre válido; se > 0, precisa ser >= min.
  * Ao cruzar a faixa proibida (0, min), decide pela direção: subindo de 0 → salta pro min;
@@ -68,6 +73,31 @@ function snapToDayMin(prev: number, next: number, min: number): number {
   if (next <= 0) return 0
   if (next >= min) return next
   return next > prev ? min : 0
+}
+
+/** Pílula "Bloqueado" exibida no lugar do stepper em dias sem entrega (config do admin). */
+function BlockedPill() {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        padding: '6px 12px',
+        borderRadius: 11,
+        background: 'var(--color-surface-2)',
+        border: '1px solid var(--color-border-2)',
+        fontFamily: 'var(--font-body)',
+        fontSize: 12.5,
+        fontWeight: 700,
+        color: 'var(--color-text-ter)',
+        flexShrink: 0,
+      }}
+    >
+      <Icon name="lock" size={13} color="var(--color-text-ter)" />
+      Bloqueado
+    </span>
+  )
 }
 
 export function ScheduleScreen() {
@@ -97,6 +127,7 @@ export function ScheduleScreen() {
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
   const [agendaMin, setAgendaMin] = useState<WeeklyQty>(DEFAULT_MIN_QTY)
+  const [blockedDays, setBlockedDays] = useState<Record<keyof WeeklyQty, boolean>>(DEFAULT_BLOCKED)
   const [cutoffSlots, setCutoffSlots] = useState<CutoffSlot[]>([])
   const [cutoffDismissed, setCutoffDismissed] = useState(false)
 
@@ -112,13 +143,55 @@ export function ScheduleScreen() {
   useEffect(() => {
     apiFetch('/pricing')
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { pedidoMinimoAgenda?: Partial<WeeklyQty> } | null) => {
-        if (data?.pedidoMinimoAgenda) {
-          setAgendaMin({ ...DEFAULT_WEEKLY_QTY, ...data.pedidoMinimoAgenda })
-        }
-      })
+      .then(
+        (
+          data: {
+            pedidoMinimoAgenda?: Partial<WeeklyQty>
+            diasBloqueados?: Partial<Record<keyof WeeklyQty, boolean>>
+          } | null,
+        ) => {
+          if (data?.pedidoMinimoAgenda) {
+            setAgendaMin({ ...DEFAULT_WEEKLY_QTY, ...data.pedidoMinimoAgenda })
+          }
+          if (data?.diasBloqueados) {
+            setBlockedDays({ ...DEFAULT_BLOCKED, ...data.diasBloqueados })
+          }
+        },
+      )
       .catch(() => {})
   }, [])
+
+  // Zera dias que passaram a ser bloqueados desde o último salvamento — mantém o payload
+  // válido (o backend recusa agenda com qty > 0 em dia bloqueado) e coerente com "sem entregas".
+  useEffect(() => {
+    const anyBlocked = DAYS.some(({ key }) => blockedDays[key])
+    if (anyBlocked === false) return
+
+    let changedDays = false
+    const newDays: Record<string, WeeklyQty> = { ...days }
+    for (const slotKey of Object.keys(newDays)) {
+      const wq = { ...(newDays[slotKey] ?? DEFAULT_WEEKLY_QTY) }
+      for (const { key } of DAYS) {
+        if (blockedDays[key] && (wq[key] ?? 0) > 0) {
+          wq[key] = 0
+          changedDays = true
+        }
+      }
+      newDays[slotKey] = wq
+    }
+    if (changedDays) setDays(newDays)
+
+    let changedWq = false
+    const newWq = { ...weeklyQty }
+    for (const { key } of DAYS) {
+      if (blockedDays[key] && (newWq[key] ?? 0) > 0) {
+        newWq[key] = 0
+        changedWq = true
+      }
+    }
+    if (changedWq) setWeeklyQty(newWq)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockedDays, days, weeklyQty])
 
   // Etapa B: a agenda (days) é indexada por slotId. Chave estável do slot:
   const keyOf = (s: DeliverySlot) => s.slotId ?? s.name
@@ -474,6 +547,7 @@ export function ScheduleScreen() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {DAYS.map(({ label, key }) => {
                       const v = (days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY)[key]
+                      const blocked = blockedDays[key]
                       return (
                         <div
                           key={key}
@@ -485,7 +559,7 @@ export function ScheduleScreen() {
                             borderRadius: 18,
                             border: '1px solid var(--color-border-2)',
                             padding: '12px 16px',
-                            opacity: v === 0 ? 0.66 : 1,
+                            opacity: blocked ? 0.5 : v === 0 ? 0.66 : 1,
                             transition: 'opacity .15s',
                           }}
                         >
@@ -511,27 +585,31 @@ export function ScheduleScreen() {
                                 marginTop: 2,
                               }}
                             >
-                              {v === 0 ? 'folga' : `${v} pães`}
+                              {blocked ? 'sem entregas' : v === 0 ? 'folga' : `${v} pães`}
                             </p>
                           </div>
 
                           <div style={{ flex: 1 }} />
 
-                          <StepperInline
-                            min={0}
-                            max={12}
-                            value={v}
-                            showUnit
-                            onChange={(newV) =>
-                              setDays({
-                                ...days,
-                                [keyOf(slot)]: {
-                                  ...(days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY),
-                                  [key]: snapToDayMin(v, newV, agendaMin[key]),
-                                },
-                              })
-                            }
-                          />
+                          {blocked ? (
+                            <BlockedPill />
+                          ) : (
+                            <StepperInline
+                              min={0}
+                              max={12}
+                              value={v}
+                              showUnit
+                              onChange={(newV) =>
+                                setDays({
+                                  ...days,
+                                  [keyOf(slot)]: {
+                                    ...(days[keyOf(slot)] ?? DEFAULT_WEEKLY_QTY),
+                                    [key]: snapToDayMin(v, newV, agendaMin[key]),
+                                  },
+                                })
+                              }
+                            />
+                          )}
                         </div>
                       )
                     })}
@@ -571,6 +649,7 @@ export function ScheduleScreen() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {DAYS.map(({ label, key }) => {
                   const v = weeklyQty[key]
+                  const blocked = blockedDays[key]
                   return (
                     <div
                       key={key}
@@ -582,7 +661,7 @@ export function ScheduleScreen() {
                         borderRadius: 18,
                         border: '1px solid var(--color-border-2)',
                         padding: '12px 16px',
-                        opacity: v === 0 ? 0.66 : 1,
+                        opacity: blocked ? 0.5 : v === 0 ? 0.66 : 1,
                         transition: 'opacity .15s',
                       }}
                     >
@@ -609,14 +688,17 @@ export function ScheduleScreen() {
                             marginTop: 2,
                           }}
                         >
-                          {v === 0 ? 'folga' : `${v} pães`}
+                          {blocked ? 'sem entregas' : v === 0 ? 'folga' : `${v} pães`}
                         </p>
                       </div>
 
                       {/* Espaçador */}
                       <div style={{ flex: 1 }} />
 
-                      {/* StepperInline */}
+                      {/* StepperInline (ou pill quando o dia está bloqueado) */}
+                      {blocked ? (
+                        <BlockedPill />
+                      ) : (
                       <StepperInline
                         min={0}
                         max={12}
@@ -624,6 +706,7 @@ export function ScheduleScreen() {
                         showUnit
                         onChange={(newV) => setWeeklyQty({ ...weeklyQty, [key]: snapToDayMin(v, newV, agendaMin[key]) })}
                       />
+                      )}
                     </div>
                   )
                 })}

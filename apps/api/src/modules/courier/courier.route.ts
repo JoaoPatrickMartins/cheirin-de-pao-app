@@ -62,6 +62,36 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
               },
               totalStops: { type: 'integer', description: 'Total de pedidos/paradas a entregar hoje.' },
               totalBreads: { type: 'integer', description: 'Total de pãezinhos a entregar hoje.' },
+              completed: {
+                type: 'array',
+                description: 'Entregas já concluídas hoje (entregues ou não entregues), agrupadas por condomínio.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    condominiumId: { type: 'string', description: 'ID do condomínio.' },
+                    condominiumName: { type: 'string', description: 'Nome do condomínio.' },
+                    stops: {
+                      type: 'array',
+                      description: 'Entregas concluídas neste condomínio (ordenadas por bloco/apartamento).',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          orderId: { type: 'string', description: 'ID do pedido.' },
+                          apartment: { type: 'string', description: 'Apartamento.' },
+                          block: { type: 'string', nullable: true, description: 'Bloco (se aplicável).' },
+                          clientName: { type: 'string', description: 'Nome do cliente.' },
+                          quantity: { type: 'integer', description: 'Quantidade de pãezinhos.' },
+                          status: { type: 'string', description: 'DELIVERED ou NOT_DELIVERED.' },
+                          slotId: { type: 'string', description: 'Turno (manha/tarde) da entrega.' },
+                          slotLabel: { type: 'string', description: 'Rótulo do turno.' },
+                          completedAt: { type: 'string', nullable: true, description: 'Instante da conclusão (ISO 8601).' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              completedTotal: { type: 'integer', description: 'Total de entregas concluídas hoje.' },
               slots: {
                 type: 'array',
                 description: 'Turnos distintos presentes na rota de hoje (ordenados por horário).',

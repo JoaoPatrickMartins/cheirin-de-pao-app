@@ -1,14 +1,17 @@
 import { Icon } from '../brand/Icon'
 
+export type CourierTab = 'list' | 'route' | 'done'
+
 interface SegmentedControlProps {
-  value: 'list' | 'route'
-  onChange: (v: 'list' | 'route') => void
+  value: CourierTab
+  onChange: (v: CourierTab) => void
 }
 
 export function SegmentedControl({ value, onChange }: SegmentedControlProps) {
-  const tabs: { key: 'list' | 'route'; icon: 'list' | 'route'; label: string }[] = [
+  const tabs: { key: CourierTab; icon: 'list' | 'route' | 'check'; label: string }[] = [
     { key: 'list', icon: 'list', label: 'Lista' },
     { key: 'route', icon: 'route', label: 'Rota' },
+    { key: 'done', icon: 'check', label: 'Realizadas' },
   ]
 
   return (
@@ -41,8 +44,9 @@ export function SegmentedControl({ value, onChange }: SegmentedControlProps) {
               boxShadow: isActive ? 'var(--shadow-soft)' : 'none',
               transition: 'background 0.15s, box-shadow 0.15s',
               fontFamily: 'var(--font-body)',
-              fontSize: 15,
+              fontSize: 14,
               fontWeight: 700,
+              whiteSpace: 'nowrap',
               color: isActive ? 'var(--color-text)' : 'var(--color-text-sec)',
             }}
           >

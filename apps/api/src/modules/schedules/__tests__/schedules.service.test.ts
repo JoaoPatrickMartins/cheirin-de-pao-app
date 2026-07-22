@@ -100,6 +100,7 @@ function createMockFastify(overrides?: {
       },
       order: {
         findMany: orderFindManyFn ?? vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
       },
       user: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -107,9 +108,12 @@ function createMockFastify(overrides?: {
           return Promise.resolve(users[where.id] ?? null)
         }),
       },
-      // Config de pedido mínimo (global). Sem mock explícito → null = sem mínimo por dia.
+      // Config de pedido mínimo (global) por chave. Só 'pedidoMinimoAgenda' devolve a linha de
+      // mínimos; diasBloqueados/limitePedidosDia → null (sem bloqueio nem limite nos testes).
       setting: {
-        findUnique: vi.fn().mockResolvedValue(agendaMinimoRow ?? null),
+        findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) =>
+          Promise.resolve(where.key === 'pedidoMinimoAgenda' ? (agendaMinimoRow ?? null) : null),
+        ),
       },
       $transaction: transactionFn,
     },
@@ -875,8 +879,10 @@ describe('SchedulesService', () => {
         prisma: {
           condominium: { findMany: vi.fn().mockResolvedValue(opts.condominiums) },
           schedule: { findMany: vi.fn().mockResolvedValue(opts.schedules) },
+          setting: { findUnique: vi.fn().mockResolvedValue(null) },
           order: {
             findFirst: vi.fn().mockResolvedValue(opts.existingOrder ? { id: 'existing' } : null),
+            count: vi.fn().mockResolvedValue(0),
           },
           user: {
             findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
@@ -1064,10 +1070,12 @@ describe('SchedulesService', () => {
         prisma: {
           condominium: { findMany: vi.fn().mockResolvedValue([tardeOnlyCondo]) },
           schedule: { findMany: vi.fn().mockResolvedValue(opts.schedules) },
+          setting: { findUnique: vi.fn().mockResolvedValue(null) },
           order: {
             findFirst: vi.fn().mockImplementation(({ where }: { where: { userId: string; slotId: string } }) =>
               Promise.resolve(createdOrders.has(`${where.userId}|${where.slotId}`) ? { id: 'existing' } : null),
             ),
+            count: vi.fn().mockResolvedValue(0),
           },
           user: {
             findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>

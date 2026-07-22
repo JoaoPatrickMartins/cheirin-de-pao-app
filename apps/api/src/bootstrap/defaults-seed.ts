@@ -60,6 +60,28 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     create: { key: 'ganchoPreco', value: '5.00' },
   })
 
+  // Dias bloqueados para agendamento — default nenhum dia bloqueado (preserva o comportamento
+  // atual). true = dia sem entregas (pedido único, agenda e corte). O admin ajusta em Gestão.
+  await prisma.setting.upsert({
+    where: { key: 'diasBloqueados' },
+    update: {},
+    create: {
+      key: 'diasBloqueados',
+      value: JSON.stringify({ seg: false, ter: false, qua: false, qui: false, sex: false, sab: false, dom: false }),
+    },
+  })
+
+  // Limite de pedidos por dia da semana — default 0 (ilimitado) em todos os dias, preservando o
+  // comportamento atual. Positivo = teto de entregas naquele dia. O admin ajusta em Gestão.
+  await prisma.setting.upsert({
+    where: { key: 'limitePedidosDia' },
+    update: {},
+    create: {
+      key: 'limitePedidosDia',
+      value: JSON.stringify({ seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }),
+    },
+  })
+
   // Combo padrão — só quando não há nenhum combo (unidade < preço avulso, como manda a regra)
   const combosCount = await prisma.combo.count()
   if (combosCount === 0) {

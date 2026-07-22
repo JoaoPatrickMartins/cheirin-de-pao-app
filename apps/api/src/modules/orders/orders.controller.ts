@@ -47,6 +47,28 @@ export class OrdersController {
       if (e.statusCode === 400) {
         return reply.status(400).send({ error: e.message ?? 'Requisição inválida' })
       }
+      // 422: dia bloqueado / limite de pedidos do dia atingido (restrições do admin).
+      if (e.statusCode === 422) {
+        return reply.status(422).send({ error: e.message ?? 'Não é possível agendar neste dia' })
+      }
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /orders/availability?days=14 — disponibilidade por data para a régua do pedido único.
+   * Retorna, a partir de hoje (BRT), para cada data: se o dia está bloqueado e se o limite de
+   * pedidos daquele dia já foi atingido (full). userId vem do JWT (rota autenticada).
+   */
+  async getAvailability(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const query = request.query as { days?: string }
+      const parsed = query.days ? parseInt(query.days, 10) : 14
+      const days = Number.isFinite(parsed) ? Math.min(60, Math.max(1, parsed)) : 14
+      const availability = await this.service.getOrderAvailability(days)
+      return reply.status(200).send({ availability })
+    } catch (err) {
+      this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }

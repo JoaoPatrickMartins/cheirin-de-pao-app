@@ -331,4 +331,99 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.setGancho.bind(ctrl),
   )
+
+  // Restrições por dia da semana — dias bloqueados + limite de pedidos (global).
+  const weekdayBoolSchema = {
+    type: 'object',
+    properties: {
+      seg: { type: 'boolean' }, ter: { type: 'boolean' }, qua: { type: 'boolean' },
+      qui: { type: 'boolean' }, sex: { type: 'boolean' }, sab: { type: 'boolean' },
+      dom: { type: 'boolean' },
+    },
+  }
+  const weekdayLimitSchema = {
+    type: 'object',
+    description: 'Máximo de pedidos por dia da semana (0 = ilimitado).',
+    properties: {
+      seg: { type: 'integer' }, ter: { type: 'integer' }, qua: { type: 'integer' },
+      qui: { type: 'integer' }, sex: { type: 'integer' }, sab: { type: 'integer' },
+      dom: { type: 'integer' },
+    },
+  }
+
+  fastify.get(
+    '/admin/settings/restricoes-dias',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Consultar restrições por dia da semana (admin)',
+        description:
+          'Retorna os dias da semana bloqueados para agendamento e o limite máximo de pedidos por dia (0 = ilimitado). Aplica-se globalmente a pedidos únicos e à agenda semanal. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            description: 'Restrições por dia da semana.',
+            properties: {
+              diasBloqueados: weekdayBoolSchema,
+              limitePedidosDia: weekdayLimitSchema,
+            },
+          },
+        },
+      },
+    },
+    ctrl.getRestricoes.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/settings/restricoes-dias',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Atualizar restrições por dia da semana (admin)',
+        description:
+          'Bloqueia/desbloqueia dias da semana e define o limite máximo de pedidos por dia (0 = ilimitado). Ao bloquear um dia, clientes cuja agenda entrega nesse dia são avisados para reconfigurar. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['diasBloqueados', 'limitePedidosDia'],
+          properties: {
+            diasBloqueados: {
+              type: 'object',
+              required: ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'],
+              properties: {
+                seg: { type: 'boolean' }, ter: { type: 'boolean' }, qua: { type: 'boolean' },
+                qui: { type: 'boolean' }, sex: { type: 'boolean' }, sab: { type: 'boolean' },
+                dom: { type: 'boolean' },
+              },
+            },
+            limitePedidosDia: {
+              type: 'object',
+              required: ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'],
+              properties: {
+                seg: { type: 'integer', minimum: 0 }, ter: { type: 'integer', minimum: 0 },
+                qua: { type: 'integer', minimum: 0 }, qui: { type: 'integer', minimum: 0 },
+                sex: { type: 'integer', minimum: 0 }, sab: { type: 'integer', minimum: 0 },
+                dom: { type: 'integer', minimum: 0 },
+              },
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Restrições atualizadas.',
+            properties: {
+              ok: { type: 'boolean' },
+              diasBloqueados: weekdayBoolSchema,
+              limitePedidosDia: weekdayLimitSchema,
+            },
+          },
+        },
+      },
+    },
+    ctrl.setRestricoes.bind(ctrl),
+  )
 }

@@ -1,7 +1,9 @@
 import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
 import { CreateOrderBody } from './orders.schema.js'
-import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr } from '../../lib/cutoff.js'
+import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr, dayKeyOf } from '../../lib/cutoff.js'
+import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
+import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 
 /** Rótulo curto do cliente para avisos ao admin: "Nome · Apto 12B". */
@@ -98,6 +100,20 @@ export class OrdersService {
     // Armazena ao meio-dia BRT do dia escolhido (cai na janela correta de hoje/histórico)
     const scheduledDate = brtNoonFromStr(dateStr)
 
+    // Restrições por dia da semana (global, definidas pelo admin): dia bloqueado e teto de
+    // entregas. Checagem read-only antes da transação — o corte tem backstop hard (schedules).
+    const dayKey = dayKeyOf(scheduledDate)
+    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    if (isDayBlocked(blocked, dayKey)) {
+      throw { statusCode: 422, message: 'Não há entregas neste dia da semana.' }
+    }
+    if (limits[dayKey] > 0) {
+      const committed = await countCommittedDeliveries(this.prisma, scheduledDate)
+      if (committed >= limits[dayKey]) {
+        throw { statusCode: 422, message: 'O limite de pedidos para este dia foi atingido.' }
+      }
+    }
+
     // Enforçar horário de corte por slot. Quando um slot é escolhido (deliveryTime),
     // valida o corte DAQUELE slot para a data; senão (legado) aceita se houver ao menos
     // um slot ainda aberto. O slot resolvido é gravado em Order.deliveryTime.
@@ -189,9 +205,12 @@ export class OrdersService {
       return newOrder
     })
     .catch(async (err) => {
-      // Corrida frontend × webhook/pull: o índice único de paymentId barrou a duplicata.
-      // Devolve o pedido que o outro caminho já criou (o caminho comum já retornou lá em cima).
-      if (data.paymentId && (err as { code?: string })?.code === 'P2002') {
+      // Corrida frontend × webhook/pull: um caminho irmão pode já ter criado o pedido deste
+      // pagamento (e debitado os créditos). Vale para o índice único (P2002) E para o
+      // "Créditos insuficientes" que aparece quando o irmão já debitou mas a Order ainda não
+      // estava visível para esta transação. Se já existe Order para este paymentId, devolve-a
+      // em vez de falhar (idempotência por pagamento); senão, propaga o erro original.
+      if (data.paymentId) {
         const existing = await this.prisma.order.findFirst({ where: { paymentId: data.paymentId } })
         if (existing) return existing
       }
@@ -379,6 +398,36 @@ export class OrdersService {
    * @param userId  ID do usuário autenticado
    * @param days    Número de dias para trás (default: 30)
    */
+  /**
+   * Disponibilidade por data (global) para a régua de dias do pedido único, a partir de HOJE (BRT).
+   * Para cada data: `blocked` (dia da semana bloqueado) e `full` (limite de pedidos atingido).
+   * O limite é global (todos os condomínios) — coerente com a config do admin.
+   *
+   * Faz uma contagem por data; `days` é limitado (≤ 60) no controller. Pode ser otimizado com
+   * uma única varredura agregada se a janela crescer.
+   */
+  async getOrderAvailability(
+    days: number = 14,
+  ): Promise<Array<{ date: string; blocked: boolean; full: boolean }>> {
+    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    const now = new Date()
+    const out: Array<{ date: string; blocked: boolean; full: boolean }> = []
+
+    for (let i = 0; i < days; i++) {
+      const dateStr = brtDateStr(now, i)
+      const d = brtNoonFromStr(dateStr)
+      const dayKey = dayKeyOf(d)
+      const dayBlocked = isDayBlocked(blocked, dayKey)
+      let full = false
+      if (!dayBlocked && limits[dayKey] > 0) {
+        const committed = await countCommittedDeliveries(this.prisma, d)
+        full = committed >= limits[dayKey]
+      }
+      out.push({ date: dateStr, blocked: dayBlocked, full })
+    }
+    return out
+  }
+
   async getOrderHistory(userId: string, days: number = 30) {
     const since = new Date()
     since.setDate(since.getDate() - days)

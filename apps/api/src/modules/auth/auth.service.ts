@@ -96,7 +96,10 @@ export class AuthService {
   }
 
   // Sessão única por dispositivo: revoga refresh tokens ativos de outros devices.
-  private async revokeOtherDevices(userId: string, deviceId: string): Promise<void> {
+  // Exceção: ADMIN pode manter vários dispositivos logados ao mesmo tempo (a operação
+  // é compartilhada por mais de um operador). Os demais papéis seguem sessão única.
+  private async revokeOtherDevices(userId: string, deviceId: string, role: string): Promise<void> {
+    if (role === 'ADMIN') return
     const activeSessions = await this.repo.findActiveSessionsByUserId(userId)
     for (const session of activeSessions) {
       if (session.deviceId !== deviceId) {
@@ -139,7 +142,7 @@ export class AuthService {
     const res = await this.consumeOtp(userId, code)
     if ('error' in res) return res
 
-    await this.revokeOtherDevices(userId, deviceId)
+    await this.revokeOtherDevices(userId, deviceId, res.user.role)
     return this.issueTokens(
       { id: res.user.id, role: res.user.role, name: res.user.name },
       deviceId,
@@ -202,7 +205,7 @@ export class AuthService {
       return { error: 'Conta bloqueada. Fale com o suporte.', status: 403 }
     }
 
-    await this.revokeOtherDevices(user.id, deviceId)
+    await this.revokeOtherDevices(user.id, deviceId, user.role)
     return this.issueTokens(
       { id: user.id, role: user.role, name: user.name },
       deviceId,
@@ -236,7 +239,7 @@ export class AuthService {
     const hash = await this.hashPassword(newPassword)
     await this.repo.updatePassword(userId, hash)
 
-    await this.revokeOtherDevices(userId, deviceId)
+    await this.revokeOtherDevices(userId, deviceId, res.user.role)
     return this.issueTokens(
       { id: res.user.id, role: res.user.role, name: res.user.name },
       deviceId,

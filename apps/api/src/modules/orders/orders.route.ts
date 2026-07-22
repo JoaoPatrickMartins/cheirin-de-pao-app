@@ -17,13 +17,13 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: 'Criar pedido avulso',
-        description: 'Cria um pedido avulso único fora da agenda semanal. Os créditos são debitados imediatamente. O pedido é aceito apenas se: (1) o cliente tem créditos suficientes, (2) a data está no futuro e não está bloqueada pelo corte de pedidos (cutoffTime). Limite de 1 a 20 pãezinhos por pedido avulso.',
+        description: 'Cria um pedido avulso único fora da agenda semanal. Os créditos são debitados imediatamente. O pedido é aceito apenas se: (1) o cliente tem créditos suficientes, (2) a data está no futuro e não está bloqueada pelo corte de pedidos (cutoffTime). Limite de 1 a 100 pãezinhos por pedido avulso.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
           required: ['quantity', 'scheduledDate'],
           properties: {
-            quantity: { type: 'integer', minimum: 1, maximum: 20, description: 'Quantidade de pãezinhos para o pedido avulso (1–20).' },
+            quantity: { type: 'integer', minimum: 1, maximum: 100, description: 'Quantidade de pãezinhos para o pedido avulso (1–100). Alinhado ao Zod CreateOrderSchema e ao PEDIDO_UNICO_MAX do front.' },
             scheduledDate: { type: 'string', format: 'date', description: 'Data de entrega no formato ISO (YYYY-MM-DD). Deve ser futura e antes do cutoff do dia.' },
             deliveryTime: { type: 'string', description: 'Horário do slot de entrega escolhido ("HH:MM"). Deve corresponder a um slot ativo do condomínio cujo corte ainda não passou para a data.' },
             paymentId: { type: 'string', description: 'ID do pagamento que financiou este avulso (fluxo "precisa pagar"). Vincula o pedido ao pagamento para eventual estorno de dinheiro. Omitido quando pago só com saldo.' },
@@ -174,5 +174,44 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.getOrderHistory.bind(ctrl),
+  )
+
+  fastify.get(
+    '/orders/availability',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['orders'],
+        summary: 'Disponibilidade de datas para pedido único',
+        description: 'Retorna, a partir de hoje (BRT), para cada data da janela: se o dia da semana está bloqueado (blocked) e se o limite de pedidos daquele dia já foi atingido (full). Usado para desabilitar dias na régua do pedido único.',
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            days: { type: 'integer', minimum: 1, maximum: 60, default: 14, description: 'Tamanho da janela em dias (padrão 14).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Disponibilidade por data.',
+            properties: {
+              availability: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    date: { type: 'string', description: 'Data no formato YYYY-MM-DD (BRT).' },
+                    blocked: { type: 'boolean', description: 'true se o dia da semana está bloqueado.' },
+                    full: { type: 'boolean', description: 'true se o limite de pedidos do dia já foi atingido.' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getAvailability.bind(ctrl),
   )
 }

@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { UpdateSlotsSchema, UpdateAvulsoSchema, UpdatePedidoMinimoSchema, UpdateGanchoSchema } from './admin-settings.schema.js'
+import { UpdateSlotsSchema, UpdateAvulsoSchema, UpdatePedidoMinimoSchema, UpdateGanchoSchema, UpdateRestricoesSchema } from './admin-settings.schema.js'
 import { AdminSettingsService } from './admin-settings.service.js'
 
 type ZodIssue = { message: string }
@@ -229,6 +229,56 @@ export class AdminSettingsController {
     try {
       await this.service.setGanchoConfig(body.pedidoUnicoMin, body.preco)
       return reply.status(200).send({ ok: true, pedidoUnicoMin: body.pedidoUnicoMin, preco: body.preco })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/settings/restricoes-dias
+   * Retorna as restrições por dia da semana: { diasBloqueados, limitePedidosDia }.
+   */
+  async getRestricoes(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    try {
+      const { blocked, limits } = await this.service.getRestricoes()
+      return reply.status(200).send({ diasBloqueados: blocked, limitePedidosDia: limits })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * PATCH /admin/settings/restricoes-dias
+   * Atualiza as restrições. Body: { diasBloqueados: {seg..dom:bool}, limitePedidosDia: {seg..dom:int} }
+   */
+  async setRestricoes(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    let body: ReturnType<typeof UpdateRestricoesSchema.parse>
+    try {
+      body = UpdateRestricoesSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      await this.service.setRestricoes(body.diasBloqueados, body.limitePedidosDia)
+      return reply.status(200).send({
+        ok: true,
+        diasBloqueados: body.diasBloqueados,
+        limitePedidosDia: body.limitePedidosDia,
+      })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })

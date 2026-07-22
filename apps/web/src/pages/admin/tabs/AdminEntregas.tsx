@@ -6,7 +6,7 @@ import { ProgressBar } from '../../../components/admin/ProgressBar'
 import {
   DeliveryDivisionCard,
   type Assignment,
-  type CondoItem,
+  type DeliveryUnit,
 } from '../../../components/admin/DeliveryDivisionCard'
 import { Icon } from '../../../components/brand/Icon'
 import { OrderDetailSheet, STATUS_META, type LedgerRow } from '../../../components/admin/OrderDetailSheet'
@@ -17,16 +17,23 @@ type Segment = 'hoje' | 'historico'
 interface DivisionSuggestionItem {
   courierId: string
   courierName: string
-  condominiums: CondoItem[]
+  condominiums: DeliveryUnit[]
   total: number
 }
 
+interface DeliveryBlockStatus {
+  block: string
+  scheduled: number
+  delivered: number
+  orderIds: string[]
+}
 interface DeliveryStatus {
   condominiumId: string
   condominiumName: string
   scheduled: number
   delivered: number
   orderIds: string[]
+  blocks: DeliveryBlockStatus[]
 }
 
 // Filtros de status do histórico
@@ -188,16 +195,11 @@ export function AdminEntregas({
     setIsApproving(true)
     try {
       // Monta os grupos entregador → pedidos a partir da divisão atual (já com eventuais
-      // ajustes manuais via drag-and-drop). O backend despacha SEPARATED → OUT_FOR_DELIVERY.
+      // ajustes manuais via drag-and-drop, incluindo blocos individuais). Cada unidade já
+      // carrega seus orderIds — o backend despacha SEPARATED → OUT_FOR_DELIVERY.
       const payload = assignments
         .filter((a) => a.condos.length > 0)
-        .map((a) => {
-          const condoIds = a.condos.map((c) => c.condominiumId)
-          const orderIds = deliveryStatus
-            .filter((ds) => condoIds.includes(ds.condominiumId))
-            .flatMap((ds) => ds.orderIds)
-          return { courierId: a.courierId, orderIds }
-        })
+        .map((a) => ({ courierId: a.courierId, orderIds: a.condos.flatMap((c) => c.orderIds) }))
         .filter((g) => g.orderIds.length > 0)
       if (payload.length === 0) return
       const res = await apiFetch('/admin/orders/approve-division', {
@@ -359,10 +361,15 @@ function HojeView({
     )
   }
 
-  // Condomínios totalmente entregues — travados ao reabrir a divisão.
-  const lockedCondoIds = new Set(
-    deliveryStatus.filter((d) => d.scheduled > 0 && d.delivered >= d.scheduled).map((d) => d.condominiumId),
-  )
+  // Unidades totalmente entregues — travadas ao reabrir a divisão. Chave:
+  // `${condominiumId}|${block ?? '*'}` (condomínio inteiro E cada bloco).
+  const lockedUnitKeys = new Set<string>()
+  for (const d of deliveryStatus) {
+    if (d.scheduled > 0 && d.delivered >= d.scheduled) lockedUnitKeys.add(`${d.condominiumId}|*`)
+    for (const b of d.blocks ?? []) {
+      if (b.scheduled > 0 && b.delivered >= b.scheduled) lockedUnitKeys.add(`${d.condominiumId}|${b.block}`)
+    }
+  }
 
   return (
     <>
@@ -372,7 +379,7 @@ function HojeView({
         onApprove={handleApprove}
         isApproved={isApproved}
         isApproving={isApproving}
-        lockedCondoIds={lockedCondoIds}
+        lockedUnitKeys={lockedUnitKeys}
       />
       {deliveryStatus.length > 0 && (
         <div style={{ marginTop: 20 }}>

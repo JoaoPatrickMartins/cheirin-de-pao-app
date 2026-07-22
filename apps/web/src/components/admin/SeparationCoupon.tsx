@@ -42,8 +42,11 @@ const COUPON_CSS = `
   html, body { background: #fff !important; }
   body > *:not(.coupon-print-host) { display: none !important; }
   .coupon-print-host { display: block !important; }
-  .cdp-coupon { page-break-after: always; }
-  .cdp-coupon:last-child { page-break-after: auto; }
+  /* Cada cupom = uma página bem delimitada, para o driver da térmica cortar por página
+     (Epson APD: "Paper Cut = Per Page"). break-* moderno + fallback page-break-*;
+     break-inside evita que um cupom se parta entre duas páginas/cortes. */
+  .cdp-coupon { page-break-after: always; break-after: page; break-inside: avoid; page-break-inside: avoid; }
+  .cdp-coupon:last-child { page-break-after: auto; break-after: auto; }
 }
 .cdp-coupon {
   width: 72mm;

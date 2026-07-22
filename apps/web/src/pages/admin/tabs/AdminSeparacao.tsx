@@ -73,6 +73,21 @@ function blockLabel(block: string): string {
   return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
 }
 
+/**
+ * Agrupa os pedidos de um turno por bloco, preservando a ordem já recebida (o backend
+ * ordena por bloco → apartamento → nome). Pedidos sem bloco caem num grupo block === ''.
+ */
+function groupByBlock(orders: BoardOrder[]): Array<{ block: string; orders: BoardOrder[] }> {
+  const groups: Array<{ block: string; orders: BoardOrder[] }> = []
+  for (const o of orders) {
+    const b = (o.block || '').trim()
+    const last = groups[groups.length - 1]
+    if (last && last.block === b) last.orders.push(o)
+    else groups.push({ block: b, orders: [o] })
+  }
+  return groups
+}
+
 export function AdminSeparacao() {
   const [board, setBoard] = useState<Board | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -329,16 +344,47 @@ export function AdminSeparacao() {
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {slot.orders.map((order) => (
-                              <OrderRow
-                                key={order.orderId}
-                                order={order}
-                                onToggle={() => toggleOrder(condo.condominiumId, slot.slotId, order)}
-                                onPrint={() => setCoupons(toCoupons([order], condo.name))}
-                              />
-                            ))}
-                          </div>
+                          {(() => {
+                            const groups = groupByBlock(slot.orders)
+                            const hasBlocks = groups.some((g) => g.block !== '')
+                            const renderRows = (orders: BoardOrder[], showBlock: boolean) =>
+                              orders.map((order) => (
+                                <OrderRow
+                                  key={order.orderId}
+                                  order={order}
+                                  showBlock={showBlock}
+                                  onToggle={() => toggleOrder(condo.condominiumId, slot.slotId, order)}
+                                  onPrint={() => setCoupons(toCoupons([order], condo.name))}
+                                />
+                              ))
+                            if (!hasBlocks) {
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  {renderRows(slot.orders, true)}
+                                </div>
+                              )
+                            }
+                            // Subgrupos por bloco (crescente), cada um com "Imprimir bloco".
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                {groups.map((g) => (
+                                  <div key={g.block || 'sem-bloco'} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                      <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 800, letterSpacing: '0.02em', color: 'var(--color-text-sec)', textTransform: 'uppercase' }}>
+                                        {g.block ? blockLabel(g.block) : 'Sem bloco'}
+                                      </span>
+                                      <PrintButton
+                                        label="Imprimir bloco"
+                                        small
+                                        onClick={() => setCoupons(toCoupons(g.orders, condo.name))}
+                                      />
+                                    </div>
+                                    {renderRows(g.orders, false)}
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          })()}
                         </div>
                       )
                     })}
@@ -414,8 +460,8 @@ function SummaryCard({ board }: { board: Board }) {
   )
 }
 
-function OrderRow({ order, onToggle, onPrint }: { order: BoardOrder; onToggle: () => void; onPrint: () => void }) {
-  const blk = blockLabel(order.block)
+function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: BoardOrder; onToggle: () => void; onPrint: () => void; showBlock?: boolean }) {
+  const blk = showBlock ? blockLabel(order.block) : ''
   const location = blk ? `${blk} · Apto ${order.apartment || '—'}` : `Apto ${order.apartment || '—'}`
   return (
     <div
