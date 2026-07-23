@@ -8,6 +8,7 @@
 import { FastifyInstance } from 'fastify'
 import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
+import { separateMarketOrders } from '../../lib/market-pipeline.js'
 
 const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 
@@ -29,6 +30,10 @@ export interface SeparationOrder {
   type: 'SINGLE' | 'SCHEDULED'
   status: string
   separated: boolean
+  // Mini market ("Além do Pãozin") que pega carona nesta parada.
+  marketOrderId?: string // presente em parada SÓ-market (sem pedido de pão)
+  marketItems: { name: string; qty: number }[]
+  marketItemCount: number
 }
 
 /** Um turno (lote físico) de um condomínio. */
@@ -39,6 +44,8 @@ export interface SeparationSlot {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   concluded: boolean
   orders: SeparationOrder[]
 }
@@ -50,6 +57,8 @@ export interface SeparationCondo {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   slots: SeparationSlot[]
 }
 
@@ -59,6 +68,8 @@ export interface SeparationBoard {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   condominiums: SeparationCondo[]
 }
 
@@ -82,7 +93,7 @@ export class AdminSeparationService {
    */
   async getBoard(dateStr?: string, slotId?: string): Promise<SeparationBoard> {
     const { date, start, end } = this.resolveDate(dateStr)
-    const empty: SeparationBoard = { date, totalDeliveries: 0, separatedDeliveries: 0, totalBreads: 0, separatedBreads: 0, condominiums: [] }
+    const empty: SeparationBoard = { date, totalDeliveries: 0, separatedDeliveries: 0, totalBreads: 0, separatedBreads: 0, totalItems: 0, separatedItems: 0, condominiums: [] }
 
     // Gate progressivo: um turno só entra na Separação depois que sua COMPRA é finalizada.
     // (O pedido pode já estar materializado pelo cron, mas só aparece aqui após o corte.)
@@ -115,10 +126,27 @@ export class AdminSeparationService {
     // Mantém só pedidos de turnos cuja compra foi finalizada
     const orders = allOrders.filter((o) => o.slotId != null && finalizedSlots.has(o.slotId))
 
-    if (orders.length === 0) return empty
+    // MarketOrders (Cestinha) confirmados do dia — pegam carona nos mesmos turnos finalizados.
+    const allMarket = await this.prisma.marketOrder.findMany({
+      where: {
+        scheduledDate: { gte: start, lte: end },
+        status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] },
+        ...(slotId ? { slotId } : {}),
+      },
+      select: { id: true, userId: true, condominiumId: true, slotId: true, status: true, breadQty: true, items: { select: { name: true, qty: true } } },
+    })
+    const marketOrders = allMarket.filter((m) => m.slotId && finalizedSlots.has(m.slotId))
 
-    const userIds = [...new Set(orders.map((o) => o.userId))]
-    const condoIds = [...new Set(orders.map((o) => o.condominiumId).filter((c): c is string => !!c))]
+    if (orders.length === 0 && marketOrders.length === 0) return empty
+
+    const userIds = [...new Set([...orders.map((o) => o.userId), ...marketOrders.map((m) => m.userId)])]
+    const condoIds = [
+      ...new Set(
+        [...orders.map((o) => o.condominiumId), ...marketOrders.map((m) => m.condominiumId)].filter(
+          (c): c is string => !!c,
+        ),
+      ),
+    ]
 
     const [users, condos] = await Promise.all([
       this.prisma.user.findMany({
@@ -161,6 +189,8 @@ export class AdminSeparationService {
           separatedDeliveries: 0,
           totalBreads: 0,
           separatedBreads: 0,
+          totalItems: 0,
+          separatedItems: 0,
           concluded: false,
           orders: [],
         })
@@ -179,6 +209,8 @@ export class AdminSeparationService {
         type: o.type,
         status: o.status,
         separated,
+        marketItems: [],
+        marketItemCount: 0,
       })
       slot.totalDeliveries += 1
       slot.totalBreads += o.quantity
@@ -188,10 +220,82 @@ export class AdminSeparationService {
       }
     }
 
+    // ── Cestinha pega carona: mescla os MarketOrder por (condo, slot, cliente) ──
+    for (const mo of marketOrders) {
+      const condoId = mo.condominiumId as string
+      const moSlotId = mo.slotId ?? ''
+      const items = mo.items.map((i) => ({ name: i.name, qty: i.qty }))
+      const itemCount = items.reduce((n, i) => n + i.qty, 0)
+      const separated = mo.status !== 'SCHEDULED'
+
+      if (!condoMap.has(condoId)) {
+        condoMap.set(condoId, { condominiumId: condoId, name: condoById.get(condoId)?.name ?? condoId, slots: new Map() })
+      }
+      const condo = condoMap.get(condoId)!
+      if (!condo.slots.has(moSlotId)) {
+        condo.slots.set(moSlotId, {
+          slotId: moSlotId,
+          slotLabel: slotLabelFor(condoId, moSlotId),
+          totalDeliveries: 0,
+          separatedDeliveries: 0,
+          totalBreads: 0,
+          separatedBreads: 0,
+          totalItems: 0,
+          separatedItems: 0,
+          concluded: false,
+          orders: [],
+        })
+      }
+      const slot = condo.slots.get(moSlotId)!
+      const existing = slot.orders.find((r) => r.userId === mo.userId)
+
+      if (existing) {
+        // Parada combinada: anexa itens do market + soma os pães da cestinha aos pães.
+        existing.marketItems.push(...items)
+        existing.marketItemCount += itemCount
+        existing.quantity += mo.breadQty
+        slot.totalBreads += mo.breadQty
+        slot.totalItems += itemCount
+        if (existing.separated) {
+          slot.separatedBreads += mo.breadQty
+          slot.separatedItems += itemCount
+        }
+      } else {
+        // Parada SÓ-market: cliente sem pedido de pão neste turno.
+        const u = userById.get(mo.userId)
+        slot.orders.push({
+          orderId: '',
+          marketOrderId: mo.id,
+          userId: mo.userId,
+          name: u?.name ?? 'Cliente',
+          block: u?.block ?? '',
+          apartment: u?.apartment ?? '',
+          quantity: mo.breadQty,
+          slotId: moSlotId,
+          slotLabel: slot.slotLabel,
+          type: 'SINGLE',
+          status: mo.status,
+          separated,
+          marketItems: items,
+          marketItemCount: itemCount,
+        })
+        slot.totalDeliveries += 1
+        slot.totalBreads += mo.breadQty
+        slot.totalItems += itemCount
+        if (separated) {
+          slot.separatedDeliveries += 1
+          slot.separatedBreads += mo.breadQty
+          slot.separatedItems += itemCount
+        }
+      }
+    }
+
     let totalDeliveries = 0
     let separatedDeliveries = 0
     let totalBreads = 0
     let separatedBreads = 0
+    let totalItems = 0
+    let separatedItems = 0
 
     const condominiums: SeparationCondo[] = [...condoMap.values()]
       .map((c) => {
@@ -211,11 +315,15 @@ export class AdminSeparationService {
         const cSepDel = slots.reduce((n, s) => n + s.separatedDeliveries, 0)
         const cTotalBreads = slots.reduce((n, s) => n + s.totalBreads, 0)
         const cSepBreads = slots.reduce((n, s) => n + s.separatedBreads, 0)
+        const cTotalItems = slots.reduce((n, s) => n + s.totalItems, 0)
+        const cSepItems = slots.reduce((n, s) => n + s.separatedItems, 0)
 
         totalDeliveries += cTotalDel
         separatedDeliveries += cSepDel
         totalBreads += cTotalBreads
         separatedBreads += cSepBreads
+        totalItems += cTotalItems
+        separatedItems += cSepItems
 
         return {
           condominiumId: c.condominiumId,
@@ -224,12 +332,14 @@ export class AdminSeparationService {
           separatedDeliveries: cSepDel,
           totalBreads: cTotalBreads,
           separatedBreads: cSepBreads,
+          totalItems: cTotalItems,
+          separatedItems: cSepItems,
           slots,
         }
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 
-    return { date, totalDeliveries, separatedDeliveries, totalBreads, separatedBreads, condominiums }
+    return { date, totalDeliveries, separatedDeliveries, totalBreads, separatedBreads, totalItems, separatedItems, condominiums }
   }
 
   /**
@@ -275,6 +385,8 @@ export class AdminSeparationService {
       },
       data: { status: 'SEPARATED', separatedAt: new Date() },
     })
-    return { count: result.count }
+    // A Cestinha pega carona: separa também os MarketOrder do mesmo (condo, slot, dia).
+    const marketCount = await separateMarketOrders(this.prisma, condominiumId, slotId, start, end)
+    return { count: result.count + marketCount }
   }
 }

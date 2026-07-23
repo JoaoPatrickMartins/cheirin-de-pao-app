@@ -10,7 +10,12 @@ export interface CompletedStop {
   slotId?: string
   slotLabel?: string
   completedAt: string | null
+  marketOrderId?: string
+  marketItems?: { name: string; qty: number }[]
+  marketItemCount?: number
 }
+
+const completedKey = (s: CompletedStop) => s.orderId || s.marketOrderId || ''
 
 export interface CompletedCondo {
   condominiumId: string
@@ -100,6 +105,26 @@ function CompletedRow({ stop, showBlock }: { stop: CompletedStop; showBlock: boo
         >
           {stop.clientName}
         </p>
+        {stop.marketItems && stop.marketItems.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+            {stop.marketItems.map((it, i) => (
+              <span
+                key={i}
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'var(--color-espresso)',
+                  background: 'var(--color-gold-soft)',
+                  borderRadius: 999,
+                  padding: '2px 8px',
+                }}
+              >
+                {it.qty}× {it.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Etiqueta de status + horário */}
@@ -119,7 +144,7 @@ function CompletedRow({ stop, showBlock }: { stop: CompletedStop; showBlock: boo
         </span>
         {time && (
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: 'var(--color-text-ter)' }}>
-            {time} · {stop.quantity} 🥖
+            {time}{stop.quantity > 0 ? ` · ${stop.quantity} 🥖` : ' · 🧺'}
           </span>
         )}
       </div>
@@ -190,11 +215,11 @@ export function CourierCompletedList({ condos }: { condos: CompletedCondo[] }) {
                   <div key={g.block ?? '—'}>
                     <p style={captionStyle}>{g.block ? blockLabel(g.block) : 'Sem bloco'}</p>
                     {g.stops.map((stop) => (
-                      <CompletedRow key={stop.orderId} stop={stop} showBlock={false} />
+                      <CompletedRow key={completedKey(stop)} stop={stop} showBlock={false} />
                     ))}
                   </div>
                 ))
-              : condo.stops.map((stop) => <CompletedRow key={stop.orderId} stop={stop} showBlock={true} />)}
+              : condo.stops.map((stop) => <CompletedRow key={completedKey(stop)} stop={stop} showBlock={true} />)}
           </div>
         )
       })}

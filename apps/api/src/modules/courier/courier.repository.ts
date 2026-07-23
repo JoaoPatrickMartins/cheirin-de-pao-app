@@ -56,4 +56,26 @@ export class CourierRepository {
   async findById(id: string) {
     return this.prisma.order.findUnique({ where: { id } })
   }
+
+  // ── Cestinha (MarketOrder) — pega carona na rota do entregador ──
+  /** MarketOrders em rota do entregador hoje (OUT_FOR_DELIVERY). */
+  async findTodayMarketByCourierId(courierId: string, start: Date, end: Date) {
+    return this.prisma.marketOrder.findMany({
+      where: { courierId, scheduledDate: { gte: start, lte: end }, status: 'OUT_FOR_DELIVERY' },
+      select: { id: true, userId: true, breadQty: true, status: true, slotId: true, items: { select: { name: true, qty: true } } },
+    })
+  }
+
+  /** MarketOrders já concluídos hoje (DELIVERED/NOT_DELIVERED) do entregador. */
+  async findTodayCompletedMarketByCourierId(courierId: string, start: Date, end: Date) {
+    return this.prisma.marketOrder.findMany({
+      where: { courierId, scheduledDate: { gte: start, lte: end }, status: { in: ['DELIVERED', 'NOT_DELIVERED'] } },
+      select: { id: true, userId: true, breadQty: true, status: true, slotId: true, deliveredAt: true, failedAt: true, items: { select: { name: true, qty: true } } },
+    })
+  }
+
+  /** MarketOrder por ID (para confirmar/negar parada só-market). */
+  async findMarketById(id: string) {
+    return this.prisma.marketOrder.findUnique({ where: { id } })
+  }
 }

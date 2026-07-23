@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { Prisma } from '@prisma/client'
 import { AdminPaymentsRepository } from './admin-payments.repository.js'
 import { StripeService } from '../payments/stripe.service.js'
 
@@ -49,6 +50,7 @@ export class AdminPaymentsService {
           amount: payment.amount,
           method: payment.method,
           status: payment.status,
+          purpose: payment.purpose, // §4.7: distingue CREDITS (null) × HOOK × MARKET
           comboId: payment.comboId,
           customQuantity: payment.customQuantity,
           createdAt: payment.createdAt,
@@ -80,6 +82,7 @@ export class AdminPaymentsService {
       amount: payment.amount,
       method: payment.method,
       status: payment.status,
+      purpose: payment.purpose, // §4.7: distingue CREDITS (null) × HOOK × MARKET
       mercadoPagoId: payment.mercadoPagoId,
       stripePaymentIntentId: payment.stripePaymentIntentId,
       comboId: payment.comboId,
@@ -114,6 +117,17 @@ export class AdminPaymentsService {
       }
     }
 
+    // §4.7: pagamento de Cestinha (mini market) NÃO pode ser estornado por este caminho genérico —
+    // estornaria o dinheiro mas deixaria o MarketOrder ativo (ainda seria entregue) e os créditos
+    // aplicados presos. O estorno correto (tudo em crédito + devolve estoque + cancela) é feito pelo
+    // cancelamento da Cestinha (Onda 6). Trava de segurança contra prejuízo por engano.
+    if (payment.purpose === 'MARKET') {
+      throw {
+        statusCode: 400,
+        message: 'Estorno de Cestinha (Além do Pãozin) deve ser feito pelo cancelamento do pedido, não por aqui.',
+      }
+    }
+
     // 3. Verificar stripePaymentIntentId não nulo (T-07-05-03)
     if (!payment.stripePaymentIntentId) {
       throw { statusCode: 400, message: 'Pagamento sem ID do Stripe — não pode ser estornado' }
@@ -129,6 +143,10 @@ export class AdminPaymentsService {
       throw { statusCode: 404, message: 'Usuário não encontrado' }
     }
 
+    // §4.7: pagamentos HOOK/MARKET não compram pães (comboId/customQuantity null) → 0 créditos
+    // a debitar. Nesse caso, estorna no gateway e marca REFUNDED, mas NÃO grava CreditTransaction
+    // de qty 0 nem mexe no saldo (seria ruído no extrato). O estorno do MarketOrder (crédito ao
+    // cliente) é tratado no fluxo de cancelamento do market, não aqui.
     let paesQty = 0
     if (payment.comboId) {
       const combo = await this.prisma.combo.findUnique({ where: { id: payment.comboId } })
@@ -139,27 +157,28 @@ export class AdminPaymentsService {
 
     const creditsToDebit = Math.min(paesQty, user.creditBalance)
 
-    // 6. $transaction atomica: Payment.status=REFUNDED + CreditTransaction + user.decrement
-    // (T-07-05-02: atomicidade evita debito duplo)
-    await this.prisma.$transaction([
-      this.prisma.payment.update({
-        where: { id },
-        data: { status: 'REFUNDED' },
-      }),
-      this.prisma.creditTransaction.create({
-        data: {
-          userId,
-          type: 'REFUND',
-          quantity: -creditsToDebit,
-          referenceId: id,
-          description: `Estorno de ${creditsToDebit} crédito(s) — pagamento ${id}`,
-        },
-      }),
-      this.prisma.user.update({
-        where: { id: userId },
-        data: { creditBalance: { decrement: creditsToDebit } },
-      }),
-    ])
+    // 6. $transaction atomica: Payment.status=REFUNDED (+ débito de crédito só quando aplicável)
+    const ops: Prisma.PrismaPromise<unknown>[] = [
+      this.prisma.payment.update({ where: { id }, data: { status: 'REFUNDED' } }),
+    ]
+    if (creditsToDebit > 0) {
+      ops.push(
+        this.prisma.creditTransaction.create({
+          data: {
+            userId,
+            type: 'REFUND',
+            quantity: -creditsToDebit,
+            referenceId: id,
+            description: `Estorno de ${creditsToDebit} crédito(s) — pagamento ${id}`,
+          },
+        }),
+        this.prisma.user.update({
+          where: { id: userId },
+          data: { creditBalance: { decrement: creditsToDebit } },
+        }),
+      )
+    }
+    await this.prisma.$transaction(ops)
 
     return { refunded: true, paymentId: id, creditsDebited: creditsToDebit }
   }

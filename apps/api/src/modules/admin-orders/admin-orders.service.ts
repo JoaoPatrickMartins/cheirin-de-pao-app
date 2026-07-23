@@ -4,6 +4,9 @@ import { NotificationType, OrderStatus, PaymentStatus, Prisma } from '@prisma/cl
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
+import { excludeNonCreditPurpose } from '../../lib/revenue.js'
+import { propagateMarketStatusForOrder, dispatchMarketForOrders, assignMarketByCondoDay } from '../../lib/market-pipeline.js'
+import { notifyMarketDelivered } from '../market/market-notify.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 
 /**
@@ -207,8 +210,25 @@ export class AdminOrdersService {
 
     await this.prisma.order.update({ where: { id: orderId }, data })
 
+    // A Cestinha do mesmo cliente/dia/slot acompanha a transição (parada combinada pão+market).
+    await propagateMarketStatusForOrder(this.prisma, order, newStatus, reason)
+
     if (newStatus === 'DELIVERED') {
       await this.notifyAndPersist(order)
+      // MKT-35: se o cliente tinha Cestinha nesta parada, avisa a entrega dela também.
+      if (order.condominiumId && order.slotId) {
+        const { start, end } = brtDayRange(order.scheduledDate)
+        const marketDelivered = await this.prisma.marketOrder.count({
+          where: {
+            userId: order.userId,
+            condominiumId: order.condominiumId,
+            slotId: order.slotId,
+            scheduledDate: { gte: start, lte: end },
+            status: 'DELIVERED',
+          },
+        })
+        if (marketDelivered > 0) await notifyMarketDelivered(this.fastify, order.userId)
+      }
     }
 
     // Avisos ao admin — entrega realizada / não realizada (best-effort).
@@ -343,6 +363,12 @@ export class AdminOrdersService {
         where: { id: { in: opts.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
         data: { courierId },
       })
+      // Cestinha pega carona: mesmo courier nos MarketOrder do escopo dos pedidos atribuídos.
+      const scopeOrders = await this.prisma.order.findMany({
+        where: { id: { in: opts.orderIds } },
+        select: { userId: true, condominiumId: true, slotId: true, scheduledDate: true },
+      })
+      await dispatchMarketForOrders(this.prisma, scopeOrders, courierId, false)
       await this.notifyCourierNewOrders(courierId, result.count)
       return { count: result.count }
     }
@@ -370,6 +396,8 @@ export class AdminOrdersService {
         where: { id: { in: orders.map((o: { id: string }) => o.id) } },
         data: { courierId },
       })
+      // Cestinha pega carona: mesmo courier nos MarketOrder do condomínio no dia.
+      await assignMarketByCondoDay(this.prisma, opts.condominiumId, startOfDay, endOfDay, courierId)
       await this.notifyCourierNewOrders(courierId, result.count)
       return { count: result.count }
     }
@@ -398,6 +426,12 @@ export class AdminOrdersService {
         where: { id: { in: a.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
         data: { courierId: a.courierId, status: 'OUT_FOR_DELIVERY' },
       })
+      // Cestinha pega carona: despacha os MarketOrder do escopo dos pedidos deste entregador.
+      const scopeOrders = await this.prisma.order.findMany({
+        where: { id: { in: a.orderIds } },
+        select: { userId: true, condominiumId: true, slotId: true, scheduledDate: true },
+      })
+      await dispatchMarketForOrders(this.prisma, scopeOrders, a.courierId, true)
       count += result.count
       // Avisa o entregador que foi despachado (best-effort, por entregador).
       await this.notifyCourierNewOrders(a.courierId, result.count)
@@ -483,15 +517,15 @@ export class AdminOrdersService {
         _sum: { quantity: true },
         where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { not: 'CANCELLED' } },
       }),
-      // revenueToday
+      // revenueToday (§4.7: exclui HOOK/MARKET — receita de crédito apenas)
       this.prisma.payment.aggregate({
         _sum: { amount: true },
-        where: { status: 'PAID', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt } },
+        where: { status: 'PAID', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt }, ...excludeNonCreditPurpose },
       }),
       // revenue de ontem (delta do card "Receita do dia")
       this.prisma.payment.aggregate({
         _sum: { amount: true },
-        where: { status: 'PAID', createdAt: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt } },
+        where: { status: 'PAID', createdAt: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, ...excludeNonCreditPurpose },
       }),
       // clientsCount
       this.prisma.user.count({ where: { role: 'CLIENT', isBlocked: false } }),

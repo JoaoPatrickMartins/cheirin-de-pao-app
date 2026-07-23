@@ -7,6 +7,7 @@ import { isPastCutoffForDelivery } from '../../lib/cutoff'
 import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
 import { CancelOrderDialog } from '../../components/client/CancelOrderDialog'
+import { MarketOrdersSection } from '../../components/client/MarketOrdersSection'
 
 interface HistoryOrder {
   id: string
@@ -508,6 +509,9 @@ export function TrackingScreen() {
             </div>
           </div>
         )}
+
+        {/* Cestinhas do Além do Pãozin (C7) — seção própria, não mistura com o fluxo do pão */}
+        <MarketOrdersSection />
 
         {/* Histórico */}
         <h2

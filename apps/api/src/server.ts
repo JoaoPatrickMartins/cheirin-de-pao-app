@@ -3,6 +3,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import env from '@fastify/env'
+import multipart from '@fastify/multipart'
 import jwt from '@fastify/jwt'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
@@ -22,6 +23,8 @@ import { adminOrdersRoute } from './modules/admin-orders/admin-orders.route.js'
 import { adminSettingsRoute } from './modules/admin-settings/admin-settings.route.js'
 import { adminCondominiumsRoute } from './modules/admin-condominiums/admin-condominiums.route.js'
 import { adminCombosRoute } from './modules/admin-combos/admin-combos.route.js'
+import { adminMarketRoute } from './modules/admin-market/admin-market.route.js'
+import { marketRoute } from './modules/market/market.route.js'
 import { adminSuppliersRoute } from './modules/admin-suppliers/admin-suppliers.route.js'
 import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.route.js'
 import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
@@ -77,6 +80,14 @@ const envSchema = {
     // lança erro claro se ausente ao criar um Pix; não obrigatório para bootar a API.
     MP_ACCESS_TOKEN: { type: 'string' },
     MP_WEBHOOK_SECRET: { type: 'string' },
+    // Mini market — armazenamento de fotos de produto no S3. TODAS opcionais: a API sobe
+    // sem elas; o upload só funciona quando preenchidas (senão o endpoint responde erro claro).
+    S3_REGION: { type: 'string', default: '' },
+    S3_BUCKET: { type: 'string', default: '' },
+    S3_ACCESS_KEY_ID: { type: 'string', default: '' },
+    S3_SECRET_ACCESS_KEY: { type: 'string', default: '' },
+    // Base pública opcional (CDN/CloudFront). Vazio = usa o endpoint padrão do bucket S3.
+    S3_PUBLIC_BASE_URL: { type: 'string', default: '' },
   },
 }
 
@@ -149,6 +160,8 @@ const start = async () => {
           { name: 'admin — settings', description: 'Configurações operacionais (cutoff, avulso, pedido mínimo)' },
           { name: 'admin — condominiums', description: 'CRUD de condomínios' },
           { name: 'admin — combos', description: 'CRUD de combos e promoções' },
+          { name: 'admin — market', description: 'Mini market "Além do Pãozin": produtos, categorias, estoque, config' },
+          { name: 'market', description: 'Mini market "Além do Pãozin": catálogo do cliente' },
           { name: 'admin — suppliers', description: 'CRUD de fornecedores' },
           { name: 'admin — couriers', description: 'Gestão de entregadores' },
           { name: 'admin — clients', description: 'Gestão de clientes' },
@@ -174,6 +187,11 @@ const start = async () => {
     // Rate-limit global — 200 req/min para uso normal da app
     // OTP endpoints têm limite próprio mais restritivo definido em auth.route.ts
     await fastify.register(rateLimit, { max: 200, timeWindow: '1 minute' })
+
+    // Multipart — upload de foto de produto do mini market (limite 5 MB, 1 arquivo)
+    await fastify.register(multipart, {
+      limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    })
 
     // Prisma plugin — connects to MongoDB Atlas and decorates fastify with .prisma
     await fastify.register(prismaPlugin)
@@ -222,6 +240,8 @@ const start = async () => {
     await fastify.register(adminSettingsRoute)       // Phase 7 — GET/PATCH /admin/settings/slots + /avulso (07-02)
     await fastify.register(adminCondominiumsRoute)   // Phase 7 — CRUD /admin/condominiums (07-02)
     await fastify.register(adminCombosRoute)         // Phase 7 — CRUD /admin/combos + /promotion (07-02)
+    await fastify.register(adminMarketRoute)         // Mini market — CRUD produtos/categorias/estoque/upload/config
+    await fastify.register(marketRoute)              // Mini market — catálogo do cliente
     await fastify.register(adminSuppliersRoute)      // Phase 7 — CRUD /admin/suppliers (07-03)
     await fastify.register(adminCouriersRoute)       // Phase 7 — CRUD /admin/couriers (07-03)
     await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)

@@ -4,6 +4,7 @@ import { StripeService } from './stripe.service.js'
 import { MercadoPagoPixService } from './mercadopago-pix.service.js'
 import { creditForPayment } from './credit-payment.js'
 import { fulfillSingleOrderFromMetadata } from './fulfill-single-order.js'
+import { fulfillMarketOrder } from './fulfill-market-order.js'
 import { effectiveComboPrice } from '../../lib/combo-pricing.js'
 import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
 import { getGanchoConfig } from '../../lib/gancho-config.js'
@@ -216,6 +217,104 @@ export class PaymentsService {
       comboId,
       customQuantity,
     })
+    return { paymentId: payment.id, status: 'pending' as const, clientSecret: intent.client_secret }
+  }
+
+  // ── Cestinha (mini market) — pagamento da parte em dinheiro ──────────────────
+  // Valor arbitrário (moneyAmount calculado no checkout), purpose MARKET. NÃO credita pães:
+  // o fulfillment (credit-payment.ts, ramo MARKET) confirma o MarketOrder vinculado por
+  // paymentId. Ambos os métodos gravam MarketOrder.paymentId logo após criar o Payment, para
+  // que webhook/pull encontrem a ordem.
+  async createMarketPix(params: { userId: string; amount: number; marketOrderId: string }) {
+    const { userId, amount, marketOrderId } = params
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (!user) throw { error: 'Usuário não encontrado', status: 404 }
+
+    const pix = await this.mp.createPix({
+      amount,
+      description: 'Cestinha — Além do Pãozin',
+      payerEmail: user.email,
+      payerName: user.name,
+      payerCpf: user.cpf,
+      metadata: { userId, purpose: 'market', marketOrderId },
+    })
+
+    const payment = await this.repo.createPayment({
+      userId,
+      amount,
+      method: 'PIX',
+      status: 'PENDING',
+      mercadoPagoId: pix.id,
+      purpose: 'MARKET',
+    })
+    await this.prisma.marketOrder.update({ where: { id: marketOrderId }, data: { paymentId: payment.id } })
+
+    return {
+      paymentId: payment.id,
+      status: 'pending' as const,
+      pixCopyPaste: pix.qrCode,
+      pixQrCodeUrl: pix.qrCodeBase64 ? `data:image/png;base64,${pix.qrCodeBase64}` : '',
+      expiresAt: pix.expiresAt,
+    }
+  }
+
+  async createMarketCard(params: {
+    userId: string
+    amount: number
+    marketOrderId: string
+    savedCardId?: string
+    saveCard?: boolean
+  }) {
+    const { userId, amount, marketOrderId, savedCardId, saveCard = false } = params
+    const customerId = await this.stripe.getOrCreateCustomer(userId)
+    const description = 'Cestinha — Além do Pãozin'
+    const metadata = { userId, purpose: 'market', marketOrderId }
+
+    // ── Cartão salvo: off_session, aprovação síncrona → confirma o MarketOrder já ──
+    if (savedCardId) {
+      const card = await this.prisma.savedCard.findUnique({ where: { id: savedCardId } })
+      if (!card || card.userId !== userId) throw { error: 'Cartão não encontrado', status: 404 }
+      if (!card.stripePaymentMethodId) throw { error: 'Cartão sem vínculo de pagamento', status: 400 }
+
+      const intent = await this.stripe.chargeOffSession({
+        customerId,
+        paymentMethodId: card.stripePaymentMethodId,
+        amount,
+        description,
+        metadata,
+        // Trava anti-duplo-clique no Stripe, amarrada ao pedido (o createCard de pão não usa).
+        idempotencyKey: `market_${marketOrderId}`,
+      })
+
+      const payment = await this.repo.createPayment({
+        userId,
+        amount,
+        method: 'CREDIT_CARD',
+        status: 'PENDING',
+        stripePaymentIntentId: intent.id,
+        purpose: 'MARKET',
+      })
+      await this.prisma.marketOrder.update({ where: { id: marketOrderId }, data: { paymentId: payment.id } })
+
+      if (intent.status === 'succeeded') {
+        // Confirma agora (webhook/pull são rede de segurança idempotente).
+        await fulfillMarketOrder(this.fastify, payment)
+        return { paymentId: payment.id, status: 'approved' as const }
+      }
+      return { paymentId: payment.id, status: 'pending' as const }
+    }
+
+    // ── Cartão novo: PaymentIntent + clientSecret (confirmação no front via Elements) ──
+    const intent = await this.stripe.createCardIntent({ customerId, amount, description, saveCard, metadata })
+    const payment = await this.repo.createPayment({
+      userId,
+      amount,
+      method: 'CREDIT_CARD',
+      status: 'PENDING',
+      stripePaymentIntentId: intent.id,
+      purpose: 'MARKET',
+    })
+    await this.prisma.marketOrder.update({ where: { id: marketOrderId }, data: { paymentId: payment.id } })
     return { paymentId: payment.id, status: 'pending' as const, clientSecret: intent.client_secret }
   }
 

@@ -5,6 +5,7 @@ import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { addressToQuery, geocodeAddress, type AddressLike } from '../../lib/geocode.js'
 import { nowHHMM, brtDayRange } from '../../lib/cutoff.js'
+import { notifyMarketDelivered } from '../market/market-notify.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import type { TodayOrdersResponse } from './courier.schema.js'
 
@@ -94,6 +95,26 @@ export class CourierService {
     const orders = await this.repository.findTodayByCourierId(courierId, start, end)
     const completedOrders = await this.repository.findTodayCompletedByCourierId(courierId, start, end)
 
+    // Cestinha (MarketOrder) que pega carona: em rota (ativa) e concluída hoje.
+    const marketActive = await this.repository.findTodayMarketByCourierId(courierId, start, end)
+    const marketCompleted = await this.repository.findTodayCompletedMarketByCourierId(courierId, start, end)
+    type MarketAgg = { items: { name: string; qty: number }[]; breadQty: number; marketOrderId: string; status: string; slotId: string | null; completedAt: Date | null }
+    const aggMarket = (rows: typeof marketCompleted): Map<string, MarketAgg> => {
+      const map = new Map<string, MarketAgg>()
+      for (const m of rows) {
+        const cur = map.get(m.userId)
+        const items = m.items.map((i) => ({ name: i.name, qty: i.qty }))
+        const completedAt = ('deliveredAt' in m ? (m.deliveredAt as Date | null) : null) ?? ('failedAt' in m ? (m.failedAt as Date | null) : null) ?? null
+        if (cur) { cur.items.push(...items); cur.breadQty += m.breadQty }
+        else map.set(m.userId, { items, breadQty: m.breadQty, marketOrderId: m.id, status: m.status, slotId: m.slotId, completedAt })
+      }
+      return map
+    }
+    const marketByUserActive = aggMarket(marketActive as unknown as typeof marketCompleted)
+    const marketByUserCompleted = aggMarket(marketCompleted)
+    const breadUserIdsActive = new Set(orders.map((o: Record<string, unknown>) => o.userId as string))
+    const breadUserIdsCompleted = new Set(completedOrders.map((o: Record<string, unknown>) => o.userId as string))
+
     // Config de turnos (slot) — para rotular cada entrega como manhã/tarde + horário.
     const slotConfig = await getGlobalDeliverySlots(this.prisma)
     const slotById = new Map(slotConfig.map((s) => [s.slotId, s]))
@@ -119,6 +140,9 @@ export class CourierService {
 
         const addr = condominium?.address as AddressLike | undefined
         const sortKey = parseInt(user?.apartment ?? '9999', 10)
+        // Cestinha do mesmo cliente nesta rota: soma os pães da cestinha + anexa os itens.
+        const mk = marketByUserActive.get(order.userId as string)
+        const marketItems = mk?.items ?? []
         return {
           orderId: order.id as string,
           userId: order.userId as string,
@@ -132,13 +156,57 @@ export class CourierService {
           apartment: user?.apartment ?? '',
           block: user?.block ?? null,
           clientName: user?.name ?? 'Cliente',
-          quantity: order.quantity as number,
+          quantity: (order.quantity as number) + (mk?.breadQty ?? 0),
           status: order.status as string,
           slotId: (order.slotId as string | null) ?? '',
           sortKey: isNaN(sortKey) ? 9999 : sortKey,
+          marketOrderId: undefined as string | undefined, // parada combinada confirma pelo orderId do pão
+          marketItems,
+          marketItemCount: marketItems.reduce((n, i) => n + i.qty, 0),
         }
       }),
     )
+
+    // Paradas SÓ-market ativas (cliente sem pedido de pão nesta rota).
+    const marketOnlyActive = await Promise.all(
+      [...marketByUserActive.entries()]
+        .filter(([userId]) => !breadUserIdsActive.has(userId))
+        .map(async ([userId, mk]) => {
+          const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, condominiumId: true, apartment: true, block: true },
+          })
+          const condominium = user?.condominiumId
+            ? await this.prisma.condominium.findUnique({
+                where: { id: user.condominiumId },
+                select: { id: true, name: true, address: true, lat: true, lng: true },
+              })
+            : null
+          const addr = condominium?.address as AddressLike | undefined
+          const sortKey = parseInt(user?.apartment ?? '9999', 10)
+          return {
+            orderId: '',
+            userId,
+            condominiumId: user?.condominiumId ?? 'unknown',
+            condominiumName: condominium?.name ?? 'Condominio desconhecido',
+            address: addr ? `${addr.street}, ${addr.number}` : '',
+            condoLat: condominium?.lat ?? null,
+            condoLng: condominium?.lng ?? null,
+            geoQuery: addr ? addressToQuery(addr) : '',
+            apartment: user?.apartment ?? '',
+            block: user?.block ?? null,
+            clientName: user?.name ?? 'Cliente',
+            quantity: mk.breadQty,
+            status: mk.status,
+            slotId: mk.slotId ?? '',
+            sortKey: isNaN(sortKey) ? 9999 : sortKey,
+            marketOrderId: mk.marketOrderId as string | undefined,
+            marketItems: mk.items,
+            marketItemCount: mk.items.reduce((n, i) => n + i.qty, 0),
+          }
+        }),
+    )
+    enriched.push(...marketOnlyActive)
 
     // Agrupar por condominiumId
     const condoMap = new Map<
@@ -202,6 +270,9 @@ export class CourierService {
             sortKey: s.sortKey,
             slotId: s.slotId,
             slotLabel: slotLabelOf(s.slotId),
+            ...(s.marketOrderId ? { marketOrderId: s.marketOrderId } : {}),
+            marketItems: s.marketItems,
+            marketItemCount: s.marketItemCount,
           })),
         }
       }),
@@ -209,6 +280,7 @@ export class CourierService {
 
     const totalStops = enriched.length
     const totalBreads = enriched.reduce((sum, o) => sum + o.quantity, 0)
+    const totalItems = enriched.reduce((sum, o) => sum + o.marketItemCount, 0)
 
     // Turnos distintos presentes na rota de hoje, ordenados por horário de entrega.
     // Alimenta o cabeçalho do app (informa manhã/tarde + horário do dia).
@@ -277,6 +349,8 @@ export class CourierService {
         const status = order.status as string
         const completedAt =
           (order.deliveredAt as Date | null) ?? (order.failedAt as Date | null) ?? null
+        const mk = marketByUserCompleted.get(order.userId as string)
+        const marketItems = mk?.items ?? []
         return {
           orderId: order.id as string,
           condominiumId: user?.condominiumId ?? 'unknown',
@@ -284,14 +358,49 @@ export class CourierService {
           apartment: user?.apartment ?? '',
           block: user?.block ?? null,
           clientName: user?.name ?? 'Cliente',
-          quantity: order.quantity as number,
+          quantity: (order.quantity as number) + (mk?.breadQty ?? 0),
           status,
           slotId: (order.slotId as string | null) ?? '',
           slotLabel: slotLabelOf(order.slotId as string | null),
           completedAt: completedAt ? completedAt.toISOString() : null,
+          marketOrderId: undefined as string | undefined,
+          marketItems,
+          marketItemCount: marketItems.reduce((n, i) => n + i.qty, 0),
         }
       }),
     )
+
+    // Paradas SÓ-market concluídas.
+    const marketOnlyCompleted = await Promise.all(
+      [...marketByUserCompleted.entries()]
+        .filter(([userId]) => !breadUserIdsCompleted.has(userId))
+        .map(async ([userId, mk]) => {
+          const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { name: true, condominiumId: true, apartment: true, block: true },
+          })
+          const condominium = user?.condominiumId
+            ? await this.prisma.condominium.findUnique({ where: { id: user.condominiumId }, select: { name: true } })
+            : null
+          return {
+            orderId: '',
+            condominiumId: user?.condominiumId ?? 'unknown',
+            condominiumName: condominium?.name ?? 'Condominio desconhecido',
+            apartment: user?.apartment ?? '',
+            block: user?.block ?? null,
+            clientName: user?.name ?? 'Cliente',
+            quantity: mk.breadQty,
+            status: mk.status,
+            slotId: mk.slotId ?? '',
+            slotLabel: slotLabelOf(mk.slotId),
+            completedAt: mk.completedAt ? mk.completedAt.toISOString() : null,
+            marketOrderId: mk.marketOrderId as string | undefined,
+            marketItems: mk.items,
+            marketItemCount: mk.items.reduce((n, i) => n + i.qty, 0),
+          }
+        }),
+    )
+    completedEnriched.push(...marketOnlyCompleted)
 
     const completedMap = new Map<
       string,
@@ -324,11 +433,14 @@ export class CourierService {
             slotId: s.slotId,
             slotLabel: s.slotLabel,
             completedAt: s.completedAt,
+            ...(s.marketOrderId ? { marketOrderId: s.marketOrderId } : {}),
+            marketItems: s.marketItems,
+            marketItemCount: s.marketItemCount,
           })),
       }))
       .sort((a, b) => a.condominiumName.localeCompare(b.condominiumName, 'pt-BR'))
 
-    return { condos, totalStops, totalBreads, route, slots, completed, completedTotal: completedEnriched.length }
+    return { condos, totalStops, totalBreads, totalItems, route, slots, completed, completedTotal: completedEnriched.length }
   }
 
   /**
@@ -383,6 +495,31 @@ export class CourierService {
 
     const adminOrdersService = new AdminOrdersService(this.fastify)
     await adminOrdersService.updateOrderStatus(orderId, 'NOT_DELIVERED', reason)
+  }
+
+  /**
+   * Confirma a entrega de uma parada SÓ-market (MarketOrder sem pedido de pão). Paradas
+   * combinadas (pão + Cestinha) são confirmadas pelo orderId do pão, que já propaga ao
+   * MarketOrder (ver market-pipeline). Aqui é só para o caso puro só-market.
+   */
+  async confirmMarketDelivery(marketOrderId: string, courierId: string): Promise<void> {
+    const mo = await this.repository.findMarketById(marketOrderId)
+    if (!mo) throw { statusCode: 404, message: 'Pedido nao encontrado' }
+    if (mo.courierId !== courierId) throw { statusCode: 403, message: 'Acesso negado: esta entrega nao pertence a voce' }
+    if (mo.status !== 'OUT_FOR_DELIVERY') throw { statusCode: 422, message: `Transição inválida: ${mo.status} → DELIVERED` }
+    await this.prisma.marketOrder.update({ where: { id: marketOrderId }, data: { status: 'DELIVERED', deliveredAt: new Date() } })
+    await notifyMarketDelivered(this.fastify, mo.userId) // MKT-35
+  }
+
+  async markMarketNotDelivered(marketOrderId: string, courierId: string, reason?: string): Promise<void> {
+    const mo = await this.repository.findMarketById(marketOrderId)
+    if (!mo) throw { statusCode: 404, message: 'Pedido nao encontrado' }
+    if (mo.courierId !== courierId) throw { statusCode: 403, message: 'Acesso negado: esta entrega nao pertence a voce' }
+    if (mo.status !== 'OUT_FOR_DELIVERY') throw { statusCode: 422, message: `Transição inválida: ${mo.status} → NOT_DELIVERED` }
+    await this.prisma.marketOrder.update({
+      where: { id: marketOrderId },
+      data: { status: 'NOT_DELIVERED', failedAt: new Date(), failureReason: reason ?? null },
+    })
   }
 
   /**

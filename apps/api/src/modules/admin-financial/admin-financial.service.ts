@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { excludeNonCreditPurpose, nonCreditPurposeMatchRaw } from '../../lib/revenue.js'
 
 /**
  * AdminFinancialService — receita por período, tipo e condomínio
@@ -73,11 +74,13 @@ export class AdminFinancialService {
     const { startDate, endDate } = this.getDateRange(period)
 
     // ── Total geral ──────────────────────────────────────────────────────────
+    // §4.7: exclui HOOK/MARKET — receita de crédito (pão) apenas.
     const totalResult = await this.prisma.payment.aggregate({
       _sum: { amount: true },
       where: {
         status: 'PAID',
         createdAt: { gte: startDate, lte: endDate },
+        ...excludeNonCreditPurpose,
       },
     })
     const total = totalResult._sum.amount ?? 0
@@ -89,6 +92,7 @@ export class AdminFinancialService {
         status: 'PAID',
         createdAt: { gte: startDate, lte: endDate },
         comboId: { not: null },
+        ...excludeNonCreditPurpose,
       },
     })
     const combos = combosResult._sum.amount ?? 0
@@ -100,6 +104,7 @@ export class AdminFinancialService {
         status: 'PAID',
         createdAt: { gte: startDate, lte: endDate },
         customQuantity: { not: null },
+        ...excludeNonCreditPurpose,
       },
     })
     const avulso = avulsoResult._sum.amount ?? 0
@@ -113,6 +118,7 @@ export class AdminFinancialService {
             $gte: { $date: startDate.toISOString() },
             $lte: { $date: endDate.toISOString() },
           },
+          ...nonCreditPurposeMatchRaw, // §4.7: exclui HOOK/MARKET
         },
       },
       {

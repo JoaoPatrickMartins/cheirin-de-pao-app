@@ -104,6 +104,41 @@ export const router = createBrowserRouter([
               })),
           },
           {
+            path: 'market',
+            lazy: () =>
+              import('../pages/client/MarketCatalog').then((m) => ({
+                Component: m.MarketCatalog,
+              })),
+          },
+          {
+            path: 'market/produto/:id',
+            lazy: () =>
+              import('../pages/client/ProductDetail').then((m) => ({
+                Component: m.ProductDetail,
+              })),
+          },
+          {
+            path: 'market/cestinha',
+            lazy: () =>
+              import('../pages/client/CestinhaScreen').then((m) => ({
+                Component: m.CestinhaScreen,
+              })),
+          },
+          {
+            path: 'market/checkout',
+            lazy: () =>
+              import('../pages/client/MarketCheckoutScreen').then((m) => ({
+                Component: m.MarketCheckoutScreen,
+              })),
+          },
+          {
+            path: 'market/sucesso',
+            lazy: () =>
+              import('../pages/client/MarketDoneScreen').then((m) => ({
+                Component: m.MarketDoneScreen,
+              })),
+          },
+          {
             path: 'notificacoes',
             lazy: () =>
               import('../pages/client/NotificationsScreen').then((m) => ({

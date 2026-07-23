@@ -11,6 +11,7 @@ vi.mock('@onesignal/node-onesignal', () => ({
 
 interface MockOpts {
   orders?: unknown[]
+  marketOrders?: unknown[]
   users?: unknown[]
   condos?: unknown[]
   order?: unknown
@@ -30,6 +31,11 @@ function makeMock(opts: MockOpts = {}) {
       findUnique: vi.fn().mockResolvedValue(opts.order ?? null),
       update: vi.fn().mockResolvedValue({}),
       updateMany: vi.fn().mockResolvedValue({ count: opts.count ?? 0 }),
+    },
+    // Cestinha pega carona na separação — sem market nestes testes.
+    marketOrder: {
+      findMany: vi.fn().mockResolvedValue(opts.marketOrders ?? []),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     user: {
       findMany: vi.fn().mockResolvedValue(opts.users ?? []),

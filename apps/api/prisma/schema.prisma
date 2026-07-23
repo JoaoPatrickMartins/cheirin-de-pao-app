@@ -32,6 +32,20 @@ type DeliverySlot {
   isActive    Boolean
 }
 
+// Item de um pedido do mercadinho — snapshot de nome e preço no momento da compra.
+type MarketOrderItem {
+  productId String // referência ao Product (hex ObjectId como string)
+  name      String // snapshot do nome no momento da compra
+  qty       Int
+  unitPrice Float  // snapshot do preço unitário (R$)
+}
+
+// Item do carrinho persistente ("Cestinha") — referência viva ao produto + quantidade.
+type CartItem {
+  productId String
+  qty       Int
+}
+
 // ===== ENUMS =====
 
 enum UserRole {
@@ -57,6 +71,8 @@ enum TransactionType {
   EXPIRY
   ADMIN_GRANT
   ADMIN_DEBIT
+  MARKET_PURCHASE // débito ao pagar produtos do mini market com pãezinhos
+  MARKET_REFUND   // crédito no cancelamento de um MarketOrder (inclui a parte paga em dinheiro)
 }
 
 enum OrderType {
@@ -105,9 +121,12 @@ enum PaymentStatus {
 // Finalidade de um Payment. Ausente/null = CREDITS (compra de créditos combo/avulso) —
 // nullable de propósito: docs criados antes deste campo leem null no Mongo (o @default só
 // vale na criação). HOOK = compra de um gancho de porta adicional (não credita pães).
+// MARKET = parte em dinheiro de um pedido do mini market — NÃO credita pães; confirma o
+// MarketOrder e baixa estoque (fulfill-market-order). comboId/customQuantity ficam nulos.
 enum PaymentPurpose {
   CREDITS
   HOOK
+  MARKET
 }
 
 // Tipo do gancho de porta concedido ao cliente (ver model HookRequest).
@@ -154,6 +173,25 @@ enum NotificationType {
 enum AnalyticsEventType {
   ACCESS // abertura do app / carga da PWA por um visitante (anônimo)
   LOGIN  // verificação de OTP bem-sucedida que cria uma sessão
+}
+
+// Tipo de estoque de um Product do mini market.
+enum StockType {
+  DAILY // capacidade que reseta a cada dia (ex.: bolos)
+  FIXED // inventário absoluto que só cai até ser reposto (ex.: geleia)
+}
+
+// Ciclo de vida de um MarketOrder. Espelha OrderStatus (mesmos valores de string, para pegar
+// carona na esteira do Order) + PENDING_PAYMENT (aguardando pagamento em dinheiro, ainda fora
+// da esteira). Enum próprio para NÃO tocar em OrderStatus (Order de pão permanece intocado).
+enum MarketOrderStatus {
+  PENDING_PAYMENT
+  SCHEDULED
+  SEPARATED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  NOT_DELIVERED
+  CANCELLED
 }
 
 // ===== MODELS (15 collections) =====
@@ -524,4 +562,92 @@ model AnalyticsEvent {
 
   @@index([type, createdAt])
   @@index([visitorId, createdAt])
+}
+
+// ===== MINI MARKET "Além do Pãozin" (feature nova) =====
+
+// 21. ProductCategory — categorias do mini market (6 padrão semeadas + criadas pelo admin)
+model ProductCategory {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  emoji     String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 22. Product — produtos do mini market (café da manhã além do pão francês)
+model Product {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  description   String?
+  categoryId    String    @db.ObjectId
+  price         Float     // preço em R$
+  photoUrl      String?   // URL no S3; ausente → ícone/cor da categoria no front
+  stockType     StockType
+  stock         Int?      // FIXED: inventário atual (null quando DAILY)
+  dailyCapacity Int?      // DAILY: capacidade por dia (null quando FIXED)
+  availableDays Json?     // null/ausente = sempre; senão lista de dias ["seg","qua",...]
+  isActive      Boolean   @default(true)
+  sortOrder     Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([categoryId, isActive])
+}
+
+// 23. Cart — carrinho ("Cestinha") persistente por cliente (1 por usuário)
+model Cart {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String     @unique @db.ObjectId
+  items     CartItem[]
+  breadQty  Int        @default(0) // pães adicionados via add-on do pedido de pão (C8)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+// 24. MarketOrder — pedido do mini market. Pega carona na esteira do Order (mesma tripla
+// condominiumId+scheduledDate+slotId) SEM refatorar o Order. breadQty = pães da cestinha.
+model MarketOrder {
+  id             String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String            @db.ObjectId
+  condominiumId  String            @db.ObjectId
+  scheduledDate  DateTime          // meio-dia BRT do dia de entrega (mesma convenção do Order)
+  slotId         String
+  deliveryTime   String?           // snapshot do horário (exibição)
+  status         MarketOrderStatus
+  courierId      String?           @db.ObjectId
+  breadQty       Int               @default(0) // pães da cestinha — somam no total de pães da parada
+  items          MarketOrderItem[]
+  totalValue     Float             // R$ total (produtos + breadQty*avulsoUnit)
+  creditsApplied Int               @default(0) // pãezinhos aplicados
+  moneyAmount    Float             @default(0) // R$ cobrado no gateway (0 = 100% crédito)
+  paymentId      String?           @db.ObjectId
+  idempotencyKey String            @unique     // trava anti-duplo-clique do checkout
+  separatedAt    DateTime?
+  deliveredAt    DateTime?
+  failedAt       DateTime?
+  failureReason  String?
+  cancelledAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([condominiumId, scheduledDate])
+  @@index([courierId, scheduledDate])
+  @@index([userId, createdAt])
+}
+
+// 25. ProductDailyStock — contador atômico de reservas por (produto, dia) p/ estoque DAILY.
+// disponível = Product.dailyCapacity − reserved. Dia novo = doc novo (chave por data BRT).
+model ProductDailyStock {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId String   @db.ObjectId
+  date      String   // dia de entrega BRT no formato YYYY-MM-DD
+  reserved  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, date])
 }

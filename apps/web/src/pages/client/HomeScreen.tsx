@@ -7,6 +7,7 @@ import { PushNudge } from '../../components/client/PushNudge'
 import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
 import { DeliveryBannerCarousel } from '../../components/client/DeliveryBannerCarousel'
+import { MarketHomeBlock } from '../../components/client/MarketHomeBlock'
 import { useOrderTracking } from '../../hooks/useOrderTracking'
 import { useCutoffStatus } from '../../hooks/useCutoffStatus'
 import { useNotif } from '../../contexts/NotifContext'
@@ -462,6 +463,10 @@ export function HomeScreen() {
 
           {/* Ações rápidas */}
           <QuickActions onGo={navigate} />
+
+          {/* Além do Pãozin — bloco fixo do mini market. Renderiza direto (sem wrapper motion)
+              para que, ao retornar null (catálogo vazio), não sobre um gap fantasma na coluna. */}
+          <MarketHomeBlock />
 
           {/* Próximas entregas */}
           <NextDays

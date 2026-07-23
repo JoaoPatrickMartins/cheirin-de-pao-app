@@ -1,5 +1,5 @@
 import { Icon } from '../brand/Icon'
-import { StopRow, Stop } from './StopRow'
+import { StopRow, Stop, stopKey } from './StopRow'
 
 /** Rótulo do bloco sem duplicar "Bloco" (o valor já pode contê-la). */
 function blockLabel(block: string): string {
@@ -55,7 +55,7 @@ export function CondoAccordion({
   onConfirm,
 }: CondoAccordionProps) {
   // "Resolvidas" = entregues OU marcadas como não entregues (ambas saem da fila de ação)
-  const feitas = condo.stops.filter((s) => confirmedIds.has(s.orderId) || notDeliveredIds.has(s.orderId)).length
+  const feitas = condo.stops.filter((s) => confirmedIds.has(stopKey(s)) || notDeliveredIds.has(stopKey(s))).length
   const total = condo.stops.length
   const isAllDone = feitas === total && total > 0
 
@@ -208,11 +208,11 @@ export function CondoAccordion({
         const renderStops = (stops: Stop[]) =>
           stops.map((stop, idx) => (
             <StopRow
-              key={stop.orderId}
+              key={stopKey(stop) || `${stop.apartment}-${idx}`}
               stop={stop}
               order={idx + 1}
-              isConfirmed={confirmedIds.has(stop.orderId)}
-              isNotDelivered={notDeliveredIds.has(stop.orderId)}
+              isConfirmed={confirmedIds.has(stopKey(stop))}
+              isNotDelivered={notDeliveredIds.has(stopKey(stop))}
               showSlot={showSlot}
               showBlock={!hasBlocks}
               onPress={onConfirm}

@@ -12,8 +12,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
+import { useCart } from '../../contexts/CartContext'
 import { Icon } from '../../components/brand/Icon'
 import QuantityStepper from '../../components/client/QuantityStepper'
+import { MarketAddonStrip } from '../../components/client/MarketAddonStrip'
 import { CutoffPopup } from '../../components/client/CutoffPopup'
 import { OrderSummarySheet } from '../../components/client/OrderSummarySheet'
 import { apiFetch } from '../../lib/apiFetch'
@@ -106,7 +108,11 @@ function slotPillStyle(active: boolean, disabled: boolean): React.CSSProperties 
 export function SingleScreen() {
   const navigate = useNavigate()
   const { user, updateCreditBalance } = useAuth()
+  const { cart, setBreadQty } = useCart()
   const creditBalance = user?.creditBalance ?? 0
+  // Fluxo único: se há ≥1 produto do Além do Pãozin na Cestinha, o pedido único deixa de ter
+  // agendamento/pagamento próprios e passa a finalizar TUDO pela Cestinha (um só fluxo).
+  const hasMarket = cart.items.length > 0
 
   const [qtd, setQtd] = useState(1)
   const [pedidoMinimo, setPedidoMinimo] = useState(1)
@@ -444,6 +450,12 @@ export function SingleScreen() {
     openSummary()
   }
 
+  // Fluxo único (com produto do market): leva os pães escolhidos como breadQty e finaliza na Cestinha.
+  const goToCestinha = () => {
+    setBreadQty(qtd)
+    navigate('/client/market/cestinha')
+  }
+
   const ctaLabel = precisaPagar
     ? `Pagar ${formatBRL(totalPagar)} e agendar`
     : 'Reservar e confirmar'
@@ -618,7 +630,12 @@ export function SingleScreen() {
           )}
         </div>
 
-        {/* Bloco inferior — preenche o espaço livre e fica perto do botão */}
+        {/* Add-on C8 — "Adicione algo do Além do Pãozin" */}
+        <MarketAddonStrip />
+
+        {/* Bloco inferior (agendamento + pagamento do PÃO). Some quando há produto do market:
+            nesse caso o pedido finaliza pela Cestinha (fluxo único). */}
+        {!hasMarket && (
         <div style={{ marginTop: 'auto', paddingTop: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Para quando? — régua de dias deslizável + calendário para datas distantes */}
           <div>
@@ -935,6 +952,7 @@ export function SingleScreen() {
           </div>
         )}
         </div>
+        )}
       </div>
 
       {/* Footer */}
@@ -945,6 +963,31 @@ export function SingleScreen() {
           background: 'var(--color-app-bg)',
         }}
       >
+        {hasMarket ? (
+          <button
+            onClick={goToCestinha}
+            style={{
+              width: '100%',
+              minHeight: 52,
+              borderRadius: 'var(--radius-btn)',
+              border: 'none',
+              background: 'var(--color-espresso)',
+              color: 'var(--color-primary-btn-text)',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 16,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}
+          >
+            <Icon name="basket" size={18} color="var(--color-gold)" stroke={2} />
+            Ir para a Cestinha · {cart.count} {cart.count === 1 ? 'item' : 'itens'}
+          </button>
+        ) : (
+        <>
         {diaIndisponivelMsg && (
           <p
             style={{
@@ -1006,6 +1049,8 @@ export function SingleScreen() {
             </>
           )}
         </button>
+        </>
+        )}
       </div>
 
       {/* Diálogo: oferecer completar até o mínimo do gancho grátis */}

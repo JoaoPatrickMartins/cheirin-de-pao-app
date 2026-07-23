@@ -15,6 +15,10 @@ function localDateStr(d: Date): string {
 }
 
 // ── Tipos (espelham GET /admin/separation/board) ──────────────────────────────
+interface MarketItem {
+  name: string
+  qty: number
+}
 interface BoardOrder {
   orderId: string
   userId: string
@@ -27,6 +31,10 @@ interface BoardOrder {
   type: string
   status: string
   separated: boolean
+  // Mini market ("Além do Pãozin") — presente em parada combinada ou só-market.
+  marketOrderId?: string
+  marketItems: MarketItem[]
+  marketItemCount: number
 }
 interface BoardSlot {
   slotId: string
@@ -35,6 +43,8 @@ interface BoardSlot {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   concluded: boolean
   orders: BoardOrder[]
 }
@@ -45,6 +55,8 @@ interface BoardCondo {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   slots: BoardSlot[]
 }
 interface Board {
@@ -53,6 +65,8 @@ interface Board {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   condominiums: BoardCondo[]
 }
 
@@ -158,21 +172,26 @@ export function AdminSeparacao() {
   const dayLabel = 'hoje'
 
   function toCoupons(orders: BoardOrder[], condoName: string): CouponData[] {
-    return orders.map((o) => ({
-      orderId: o.orderId,
-      code: shortCode(o.orderId),
-      clientName: o.name,
-      condominiumName: condoName,
-      block: o.block,
-      apartment: o.apartment,
-      quantity: o.quantity,
-      slotLabel: o.slotLabel,
-      dateLabel,
-    }))
+    return orders.map((o) => {
+      const ref = o.orderId || o.marketOrderId || ''
+      return {
+        orderId: ref,
+        code: shortCode(ref),
+        clientName: o.name,
+        condominiumName: condoName,
+        block: o.block,
+        apartment: o.apartment,
+        quantity: o.quantity,
+        slotLabel: o.slotLabel,
+        dateLabel,
+        marketItems: o.marketItems,
+      }
+    })
   }
 
-  // Toggle otimista de um pedido
+  // Toggle otimista de um pedido (só pedidos de pão — parada só-market separa no "Concluir").
   async function toggleOrder(condoId: string, slotId: string, order: BoardOrder) {
+    if (!order.orderId) return
     const next = !order.separated
     setBoard((prev) => patchOrder(prev, condoId, slotId, order.orderId, next))
     try {
@@ -303,6 +322,7 @@ export function AdminSeparacao() {
                       </p>
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
                         {condoSep}/{condoTotal} separados · {condo.totalBreads} pães
+                        {condo.totalItems > 0 ? ` + ${condo.totalItems} ${condo.totalItems === 1 ? 'item' : 'itens'}` : ''}
                       </p>
                     </div>
                     <PrintButton
@@ -453,8 +473,8 @@ function SummaryCard({ board }: { board: Board }) {
       </div>
       <ProgressBar value={sep} max={total} color={done ? 'var(--color-good)' : 'var(--color-gold)'} />
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
-        {board.totalBreads} pães · {total} {total === 1 ? 'entrega' : 'entregas'} em {condoCount}{' '}
-        {condoCount === 1 ? 'condomínio' : 'condomínios'}
+        {board.totalBreads} pães{board.totalItems > 0 ? ` + ${board.totalItems} ${board.totalItems === 1 ? 'item' : 'itens'}` : ''} · {total}{' '}
+        {total === 1 ? 'entrega' : 'entregas'} em {condoCount} {condoCount === 1 ? 'condomínio' : 'condomínios'}
       </p>
     </div>
   )
@@ -463,6 +483,9 @@ function SummaryCard({ board }: { board: Board }) {
 function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: BoardOrder; onToggle: () => void; onPrint: () => void; showBlock?: boolean }) {
   const blk = showBlock ? blockLabel(order.block) : ''
   const location = blk ? `${blk} · Apto ${order.apartment || '—'}` : `Apto ${order.apartment || '—'}`
+  // Parada só-market (sem pedido de pão): estado de separação é read-only (separa no "Concluir").
+  const marketOnly = !order.orderId
+  const items = order.marketItems ?? []
   return (
     <div
       style={{
@@ -475,8 +498,9 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
       }}
     >
       <button
-        onClick={onToggle}
-        aria-label={order.separated ? 'Desmarcar separado' : 'Marcar separado'}
+        onClick={marketOnly ? undefined : onToggle}
+        disabled={marketOnly}
+        aria-label={order.separated ? 'Separado' : 'Marcar separado'}
         aria-pressed={order.separated}
         style={{
           width: 26,
@@ -488,7 +512,8 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          cursor: 'pointer',
+          cursor: marketOnly ? 'default' : 'pointer',
+          opacity: marketOnly && !order.separated ? 0.5 : 1,
         }}
       >
         {order.separated && <Icon name="check" size={15} stroke={3} color="#fff" />}
@@ -501,23 +526,45 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
           {location}
         </p>
+        {items.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+            {items.map((it, i) => (
+              <span
+                key={i}
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'var(--color-accent)',
+                  background: 'var(--color-gold-soft)',
+                  borderRadius: 999,
+                  padding: '2px 8px',
+                }}
+              >
+                {it.qty}× {it.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'baseline',
-          gap: 4,
-          fontFamily: 'var(--font-display)',
-          fontSize: 15,
-          fontWeight: 800,
-          color: 'var(--color-text)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {order.quantity}
-        <span style={{ fontSize: 13 }}>🥖</span>
-      </span>
+      {order.quantity > 0 && (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'baseline',
+            gap: 4,
+            fontFamily: 'var(--font-display)',
+            fontSize: 15,
+            fontWeight: 800,
+            color: 'var(--color-text)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {order.quantity}
+          <span style={{ fontSize: 13 }}>🥖</span>
+        </span>
+      )}
 
       <button
         onClick={onPrint}

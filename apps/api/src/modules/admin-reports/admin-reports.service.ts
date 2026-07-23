@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { getDateRange, type ReportPeriod } from '../../lib/date-range.js'
+import { excludeNonCreditPurpose, nonCreditPurposeMatchRaw } from '../../lib/revenue.js'
 
 /** Resultado agregado de uma fatia de eventos (acessos OU logins). */
 interface EventAggregate {
@@ -283,6 +284,7 @@ export class AdminReportsService {
     // Funil de ativação (base de clientes)
     const [registered, purchasers, deliverers] = await Promise.all([
       this.prisma.user.count({ where: { role: 'CLIENT' } }),
+      // Retenção conta toda atividade de pagamento (comportamento do cliente), incluindo HOOK/MARKET.
       this.prisma.payment.findMany({ where: { status: 'PAID' }, distinct: ['userId'], select: { userId: true } }),
       this.prisma.order.findMany({ where: { status: 'DELIVERED' }, distinct: ['userId'], select: { userId: true } }),
     ])
@@ -355,7 +357,8 @@ export class AdminReportsService {
   async getCreditLiability(): Promise<CreditLiabilityReport> {
     const [balanceAgg, paidAgg, purchaseAgg, withCredit] = await Promise.all([
       this.prisma.user.aggregate({ _sum: { creditBalance: true }, where: { role: 'CLIENT' } }),
-      this.prisma.payment.aggregate({ _sum: { amount: true }, where: { status: 'PAID' } }),
+      // §4.7: passivo de crédito usa só receita de crédito (HOOK/MARKET não compram pães).
+      this.prisma.payment.aggregate({ _sum: { amount: true }, where: { status: 'PAID', ...excludeNonCreditPurpose } }),
       this.prisma.creditTransaction.aggregate({ _sum: { quantity: true }, where: { type: 'PURCHASE' } }),
       this.prisma.user.count({ where: { role: 'CLIENT', creditBalance: { gt: 0 } } }),
     ])
@@ -389,6 +392,7 @@ export class AdminReportsService {
             $gte: { $date: startDate.toISOString() },
             $lte: { $date: endDate.toISOString() },
           },
+          ...nonCreditPurposeMatchRaw, // §4.7: exclui HOOK/MARKET
         },
       },
       { $lookup: { from: 'User', localField: 'userId', foreignField: '_id', as: 'user' } },
@@ -597,6 +601,8 @@ export class AdminReportsService {
     const { startDate, endDate } = getDateRange(period)
     const dateRange = { gte: startDate, lte: endDate }
 
+    // Saúde do gateway: conta TODA atividade de pagamento (inclui HOOK/MARKET) — recusas do
+    // fluxo novo (Cestinha) precisam aparecer aqui. (Segmentação §4.7 vale só p/ receita/passivo.)
     const [statusGroups, methodGroups, failed] = await Promise.all([
       this.prisma.payment.groupBy({ by: ['status'], where: { createdAt: dateRange }, _count: true }),
       this.prisma.payment.groupBy({

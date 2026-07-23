@@ -10,6 +10,16 @@ export interface Stop {
   sortKey: number
   slotId?: string
   slotLabel?: string
+  // Mini market ("Além do Pãozin"): itens que acompanham a parada. `marketOrderId` só é
+  // preenchido em parada SÓ-market (sem pedido de pão) — a confirmação usa rota própria.
+  marketOrderId?: string
+  marketItems?: { name: string; qty: number }[]
+  marketItemCount?: number
+}
+
+/** Chave estável de rastreio de uma parada (pão OU só-market). */
+export function stopKey(stop: Stop): string {
+  return stop.orderId || stop.marketOrderId || ''
 }
 
 interface StopRowProps {
@@ -121,6 +131,27 @@ export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, show
         >
           {stop.clientName}
         </p>
+        {/* Chips dos itens da Cestinha (Além do Pãozin) que acompanham esta parada. */}
+        {stop.marketItems && stop.marketItems.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+            {stop.marketItems.map((it, i) => (
+              <span
+                key={i}
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'var(--color-espresso)',
+                  background: 'var(--color-gold-soft)',
+                  borderRadius: 999,
+                  padding: '2px 8px',
+                }}
+              >
+                {it.qty}× {it.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Turno (quando a rota mistura manhã e tarde) */}
@@ -141,7 +172,7 @@ export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, show
         </span>
       )}
 
-      {/* Quantidade — número + emoji de pãozinho (ex.: 8 🥖) */}
+      {/* Quantidade — pães (ex.: 8 🥖); parada só-market (0 pães) mostra a cestinha. */}
       <span
         style={{
           display: 'inline-flex',
@@ -155,8 +186,14 @@ export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, show
           flexShrink: 0,
         }}
       >
-        {stop.quantity}
-        <span style={{ fontSize: 15, lineHeight: 1 }} aria-hidden="true">🥖</span>
+        {stop.quantity > 0 ? (
+          <>
+            {stop.quantity}
+            <span style={{ fontSize: 15, lineHeight: 1 }} aria-hidden="true">🥖</span>
+          </>
+        ) : (
+          <span style={{ fontSize: 15, lineHeight: 1 }} aria-hidden="true">🧺</span>
+        )}
       </span>
     </button>
   )

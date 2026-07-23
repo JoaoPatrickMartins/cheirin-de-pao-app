@@ -54,6 +54,9 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
                           sortKey: { type: 'integer', description: 'Chave de ordenação (apartamento numérico).' },
                           slotId: { type: 'string', description: 'Turno (manha/tarde) da entrega.' },
                           slotLabel: { type: 'string', description: 'Rótulo do turno (ex.: Manhã, Tarde).' },
+                          marketOrderId: { type: 'string', description: 'ID do MarketOrder (só em parada só-market — confirma por rota própria).' },
+                          marketItems: { type: 'array', description: 'Itens da Cestinha nesta parada.', items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } } } },
+                          marketItemCount: { type: 'integer', description: 'Total de itens de produto da Cestinha nesta parada.' },
                         },
                       },
                     },
@@ -62,6 +65,7 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
               },
               totalStops: { type: 'integer', description: 'Total de pedidos/paradas a entregar hoje.' },
               totalBreads: { type: 'integer', description: 'Total de pãezinhos a entregar hoje.' },
+              totalItems: { type: 'integer', description: 'Total de itens do mini market a entregar hoje.' },
               completed: {
                 type: 'array',
                 description: 'Entregas já concluídas hoje (entregues ou não entregues), agrupadas por condomínio.',
@@ -85,6 +89,9 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
                           slotId: { type: 'string', description: 'Turno (manha/tarde) da entrega.' },
                           slotLabel: { type: 'string', description: 'Rótulo do turno.' },
                           completedAt: { type: 'string', nullable: true, description: 'Instante da conclusão (ISO 8601).' },
+                          marketOrderId: { type: 'string', description: 'ID do MarketOrder (só em parada só-market).' },
+                          marketItems: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } } } },
+                          marketItemCount: { type: 'integer' },
                         },
                       },
                     },
@@ -189,5 +196,42 @@ export const courierRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.markNotDelivered.bind(ctrl),
+  )
+
+  // ── Cestinha: confirmar/negar parada SÓ-market (sem pedido de pão) ──
+  const okResp = { response: { 200: { type: 'object', properties: { ok: { type: 'boolean' } } } } }
+  const idParam = { type: 'object', required: ['id'], properties: { id: { type: 'string', description: 'ID do MarketOrder.' } } }
+
+  fastify.patch(
+    '/courier/market-orders/:id/confirm',
+    {
+      preHandler: [fastify.authenticate, fastify.requireCourier],
+      schema: {
+        tags: ['courier'],
+        summary: 'Confirmar entrega de parada só-market',
+        description: 'Confirma a entrega de uma Cestinha em parada sem pedido de pão (MarketOrder → DELIVERED). Paradas combinadas pão+Cestinha são confirmadas pelo pedido de pão. Restrito ao entregador dono da entrega.',
+        security: [{ bearerAuth: [] }],
+        params: idParam,
+        ...okResp,
+      },
+    },
+    ctrl.confirmMarketDelivery.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/courier/market-orders/:id/not-delivered',
+    {
+      preHandler: [fastify.authenticate, fastify.requireCourier],
+      schema: {
+        tags: ['courier'],
+        summary: 'Marcar parada só-market como não realizada',
+        description: 'Registra que uma Cestinha em parada só-market não pôde ser entregue (MarketOrder → NOT_DELIVERED).',
+        security: [{ bearerAuth: [] }],
+        params: idParam,
+        body: { type: 'object', properties: { reason: { type: 'string', description: 'Motivo da não-entrega.' } } },
+        ...okResp,
+      },
+    },
+    ctrl.markMarketNotDelivered.bind(ctrl),
   )
 }

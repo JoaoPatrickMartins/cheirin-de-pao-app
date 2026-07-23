@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
-import { Stop } from './StopRow'
+import { Stop, stopKey } from './StopRow'
 
 interface ConfirmDeliveryDialogProps {
   stop: Stop | null
@@ -24,6 +24,12 @@ export function ConfirmDeliveryDialog({
 
   if (!isOpen || !stop) return null
 
+  const key = stopKey(stop)
+  // Parada só-market (sem pedido de pão) confirma pelo MarketOrder; combinada, pelo Order do pão.
+  const basePath = stop.orderId
+    ? `/courier/orders/${stop.orderId}`
+    : `/courier/market-orders/${stop.marketOrderId}`
+
   const reset = () => {
     setMode('menu')
     setReason('')
@@ -34,10 +40,10 @@ export function ConfirmDeliveryDialog({
     setIsLoading(true)
     setError(null)
     try {
-      const res = await apiFetch(`/courier/orders/${stop.orderId}/confirm`, { method: 'PATCH' })
+      const res = await apiFetch(`${basePath}/confirm`, { method: 'PATCH' })
       if (res.ok) {
         reset()
-        onConfirmed(stop.orderId)
+        onConfirmed(key)
       } else {
         setError('Falha na conexão. Tente novamente.')
       }
@@ -52,14 +58,14 @@ export function ConfirmDeliveryDialog({
     setIsLoading(true)
     setError(null)
     try {
-      const res = await apiFetch(`/courier/orders/${stop.orderId}/not-delivered`, {
+      const res = await apiFetch(`${basePath}/not-delivered`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: reason.trim() || undefined }),
       })
       if (res.ok) {
         reset()
-        onNotDelivered(stop.orderId)
+        onNotDelivered(key)
       } else {
         setError('Falha na conexão. Tente novamente.')
       }
@@ -102,7 +108,13 @@ export function ConfirmDeliveryDialog({
         </h2>
 
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: 'var(--color-text-sec)', margin: '0 0 20px' }}>
-          {stop.quantity === 1 ? '1 pão' : `${stop.quantity} pães`} para {stop.clientName} · Apartamento {stop.apartment}
+          {[
+            stop.quantity > 0 ? (stop.quantity === 1 ? '1 pão' : `${stop.quantity} pães`) : null,
+            stop.marketItemCount ? `${stop.marketItemCount} ${stop.marketItemCount === 1 ? 'item' : 'itens'} da Cestinha` : null,
+          ]
+            .filter(Boolean)
+            .join(' + ') || 'Entrega'}{' '}
+          para {stop.clientName} · Apartamento {stop.apartment}
         </p>
 
         {mode === 'menu' ? (

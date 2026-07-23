@@ -13,6 +13,7 @@ const TABS: TabItem[] = [
   { label: 'Início',   icon: 'home',     path: '/client/home'     },
   { label: 'Agenda',   icon: 'calendar', path: '/client/agenda'   },
   { label: 'Pães',     brand: true,      path: '/client/creditos' },
+  { label: 'Cestinha', icon: 'basket',   path: '/client/market'   },
   { label: 'Pedidos',  icon: 'bag',      path: '/client/pedidos'  },
   { label: 'Perfil',   icon: 'user',     path: '/client/perfil'   },
 ]
@@ -56,11 +57,11 @@ export function ClientTabBar() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 4,
+              gap: 3,
               background: 'none',
               border: 'none',
               cursor: 'pointer',
-              padding: '4px 0',
+              padding: '4px 1px',
             }}
           >
             {tab.brand ? (
@@ -69,8 +70,8 @@ export function ClientTabBar() {
               // (sem wrapper/transform). viewBox = janela 84×84 centrada em (50, 52.6),
               // o centro visual do desenho. Paths idênticos ao BreadMark não-reduzido.
               <svg
-                width={22}
-                height={22}
+                width={21}
+                height={21}
                 viewBox="8 10.6 84 84"
                 fill="none"
                 stroke={isActive ? 'var(--color-gold)' : 'var(--color-text-ter)'}
@@ -86,7 +87,7 @@ export function ClientTabBar() {
             ) : (
               <Icon
                 name={tab.icon!}
-                size={22}
+                size={21}
                 stroke={isActive ? 2.2 : 1.9}
                 color={isActive ? 'var(--color-gold)' : 'var(--color-text-ter)'}
               />
@@ -94,11 +95,12 @@ export function ClientTabBar() {
             <span
               style={{
                 fontFamily: 'var(--font-body)',
-                fontSize: 10.5,
+                fontSize: 10,
                 fontWeight: isActive ? 700 : 600,
                 color: isActive ? 'var(--color-accent)' : 'var(--color-text-ter)',
                 lineHeight: 1,
-                letterSpacing: '0.01em',
+                letterSpacing: '0',
+                whiteSpace: 'nowrap',
               }}
             >
               {tab.label}

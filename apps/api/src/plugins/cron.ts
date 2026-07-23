@@ -5,6 +5,7 @@ import { SchedulesService } from '../modules/schedules/schedules.service.js'
 import { AdminSettingsService } from '../modules/admin-settings/admin-settings.service.js'
 import { AdminSupplierOrdersService } from '../modules/admin-supplier-orders/admin-supplier-orders.service.js'
 import { CourierService } from '../modules/courier/courier.service.js'
+import { MarketCheckoutService } from '../modules/market/market-checkout.service.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -87,6 +88,7 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   const adminSettingsService = new AdminSettingsService(fastify)
   const supplierOrdersService = new AdminSupplierOrdersService(fastify)
   const courierService = new CourierService(fastify)
+  const marketCheckoutService = new MarketCheckoutService(fastify)
   cron.schedule(
     '* * * * *',
     async () => {
@@ -159,6 +161,14 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         await adminSettingsService.processCutoff()
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em processCutoff — servidor mantido ativo')
+      }
+
+      // Cestinha (Além do Pãozin): libera pedidos presos em PENDING_PAYMENT (Pix
+      // expirado/abandonado ou recusado) — devolve estoque + créditos + cancela.
+      try {
+        await marketCheckoutService.sweepStuckPayments()
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sweepStuckPayments (market) — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'cutoff-orders' },

@@ -17,6 +17,12 @@ import { AdminSeparationController } from './admin-separation.controller.js'
 export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
   const ctrl = new AdminSeparationController(fastify)
 
+  // Itens do mini market ("Além do Pãozin") que pegam carona na mesma parada.
+  const marketItemProps = {
+    type: 'array',
+    items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } } },
+  }
+
   const orderProps = {
     orderId: { type: 'string' },
     userId: { type: 'string' },
@@ -29,6 +35,10 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     type: { type: 'string' },
     status: { type: 'string' },
     separated: { type: 'boolean' },
+    // Market: id do MarketOrder (em parada só-market), itens e contagem de itens de produto.
+    marketOrderId: { type: 'string' },
+    marketItems: marketItemProps,
+    marketItemCount: { type: 'integer' },
   }
 
   const slotProps = {
@@ -38,6 +48,8 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     separatedDeliveries: { type: 'integer' },
     totalBreads: { type: 'integer' },
     separatedBreads: { type: 'integer' },
+    totalItems: { type: 'integer' },
+    separatedItems: { type: 'integer' },
     concluded: { type: 'boolean' },
     orders: { type: 'array', items: { type: 'object', properties: orderProps } },
   }
@@ -49,6 +61,8 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     separatedDeliveries: { type: 'integer' },
     totalBreads: { type: 'integer' },
     separatedBreads: { type: 'integer' },
+    totalItems: { type: 'integer' },
+    separatedItems: { type: 'integer' },
     slots: { type: 'array', items: { type: 'object', properties: slotProps } },
   }
 
@@ -79,6 +93,8 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
               separatedDeliveries: { type: 'integer' },
               totalBreads: { type: 'integer' },
               separatedBreads: { type: 'integer' },
+              totalItems: { type: 'integer' },
+              separatedItems: { type: 'integer' },
               condominiums: { type: 'array', items: { type: 'object', properties: condoProps } },
             },
           },

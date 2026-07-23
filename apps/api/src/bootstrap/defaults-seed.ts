@@ -98,4 +98,30 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     })
     console.log('[bootstrap] Combo padrão criado (Combo 10 Pãezinhos)')
   }
+
+  // ── Mini market "Além do Pãozin" ──────────────────────────────────────────
+  // Mínimo da Cestinha (R$) — pedido do mercadinho abaixo disso fica bloqueado no checkout.
+  // default R$ 15,00 — o admin ajusta em Gestão → Além do Pãozin.
+  await prisma.setting.upsert({
+    where: { key: 'marketMinimoCestinha' },
+    update: {},
+    create: { key: 'marketMinimoCestinha', value: '15.00' },
+  })
+
+  // Categorias padrão do mini market — criadas apenas quando NÃO há nenhuma categoria.
+  // O admin pode criar/editar/excluir depois (CRUD /admin/market/categories).
+  const categoriesCount = await prisma.productCategory.count()
+  if (categoriesCount === 0) {
+    await prisma.productCategory.createMany({
+      data: [
+        { name: 'Geleias & Mel', emoji: '🍯', sortOrder: 0 },
+        { name: 'Bolos & Doces', emoji: '🍰', sortOrder: 1 },
+        { name: 'Pão de Queijo & Salgados', emoji: '🧀', sortOrder: 2 },
+        { name: 'Bebidas', emoji: '🥤', sortOrder: 3 },
+        { name: 'Frios & Frescos', emoji: '🥓', sortOrder: 4 },
+        { name: 'Especiais', emoji: '🎁', sortOrder: 5 },
+      ],
+    })
+    console.log('[bootstrap] 6 categorias padrão do mini market criadas')
+  }
 }

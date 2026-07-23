@@ -69,6 +69,13 @@ function makeFastifyMock(overrides: {
       update: vi.fn().mockResolvedValue({ ...order, status: 'DELIVERED' }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    // Cestinha (Além do Pãozin) pega carona na rota — sem market nestes testes.
+    marketOrder: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     user: {
       findUnique: vi.fn().mockResolvedValue(user),
     },
