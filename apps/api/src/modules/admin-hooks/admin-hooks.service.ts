@@ -8,9 +8,23 @@ export interface ListHooksParams {
   q?: string
   status?: 'pending' | 'delivered' | 'all'
   type?: 'all' | 'free' | 'paid' | 'bonus'
-  sort?: 'recent' | 'name'
+  sort?: 'recent' | 'name' | 'location'
   page?: number
   limit?: number
+}
+
+/**
+ * Ordena por bloco e depois por apartamento com comparação numérica
+ * ("Bloco 2" antes de "Bloco 10", "Apto 20" antes de "Apto 101").
+ */
+function byBlockThenApartment(
+  a: { block?: string | null; apartment?: string | null },
+  b: { block?: string | null; apartment?: string | null },
+): number {
+  const ba = (a.block ?? '').trim()
+  const bb = (b.block ?? '').trim()
+  if (ba !== bb) return ba.localeCompare(bb, 'pt-BR', { numeric: true })
+  return (a.apartment ?? '').trim().localeCompare((b.apartment ?? '').trim(), 'pt-BR', { numeric: true })
 }
 
 function createOsClient() {
@@ -78,6 +92,39 @@ export class AdminHooksService {
       where.userId = { in: ids }
     }
 
+    // Ordenação por localização (condomínio → bloco → apartamento) depende de dados do
+    // User, que só são resolvidos após a query — o banco não consegue ordenar por eles.
+    // Então carregamos o conjunto filtrado COMPLETO, ordenamos e paginamos em memória.
+    // Mesmo padrão já usado em courier/separação (a fila de ganchos é limitada).
+    if (sort === 'location') {
+      const allHooks = await this.prisma.hookRequest.findMany({
+        where,
+        orderBy: { requestedAt: 'desc' },
+        select: {
+          id: true,
+          userId: true,
+          type: true,
+          status: true,
+          reason: true,
+          requestedAt: true,
+          deliveredAt: true,
+        },
+      })
+      const allItems = await this.enrich(allHooks)
+      allItems.sort((a, b) => {
+        const byCondo = (a.condominiumName ?? '').localeCompare(b.condominiumName ?? '', 'pt-BR')
+        if (byCondo !== 0) return byCondo
+        const byLocal = byBlockThenApartment(a, b)
+        if (byLocal !== 0) return byLocal
+        // Desempate estável: mais recente primeiro.
+        const ta = a.requestedAt ? new Date(a.requestedAt).getTime() : 0
+        const tb = b.requestedAt ? new Date(b.requestedAt).getTime() : 0
+        return tb - ta
+      })
+      const start = (page - 1) * limit
+      return { items: allItems.slice(start, start + limit), total: allItems.length, page, limit }
+    }
+
     const [total, hooks] = await Promise.all([
       this.prisma.hookRequest.count({ where }),
       this.prisma.hookRequest.findMany({
@@ -97,6 +144,32 @@ export class AdminHooksService {
       }),
     ])
 
+    let items = await this.enrich(hooks)
+
+    if (sort === 'name') {
+      items = [...items].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    }
+
+    return { items, total, page, limit }
+  }
+
+  /**
+   * Resolve nome/local do cliente e nome do condomínio em queries batch (evita N+1)
+   * e monta os itens de saída da listagem a partir dos HookRequest crus.
+   */
+  private async enrich(
+    hooks: Prisma.HookRequestGetPayload<{
+      select: {
+        id: true
+        userId: true
+        type: true
+        status: true
+        reason: true
+        requestedAt: true
+        deliveredAt: true
+      }
+    }>[],
+  ) {
     // Resolve clientes em UMA query batch
     const userIds = [...new Set(hooks.map((h) => h.userId))]
     const users =
@@ -119,7 +192,7 @@ export class AdminHooksService {
       for (const c of condos) condoMap.set(c.id, c.name)
     }
 
-    let items = hooks.map((h) => {
+    return hooks.map((h) => {
       const u = userMap.get(h.userId)
       return {
         id: h.id,
@@ -137,12 +210,6 @@ export class AdminHooksService {
         condominiumName: u?.condominiumId ? condoMap.get(u.condominiumId) ?? null : null,
       }
     })
-
-    if (sort === 'name') {
-      items = [...items].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-    }
-
-    return { items, total, page, limit }
   }
 
   /**

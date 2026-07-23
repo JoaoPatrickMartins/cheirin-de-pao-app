@@ -293,6 +293,91 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.grantCredits.bind(ctrl),
   )
 
+  fastify.post(
+    '/admin/clients/:id/remove-credits',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Remover créditos manualmente (admin)',
+        description: 'Remove (debita) créditos de um cliente de forma manual com auditoria (adminId + reason). Operação atômica: CreditTransaction ADMIN_DEBIT (quantity negativo) + User.creditBalance decrement. Não permite remover mais que o saldo atual (422). Não dispara push nem notificação — remoção é correção interna, apenas registrada no extrato. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['quantity', 'reason'],
+          properties: {
+            quantity: { type: 'integer', minimum: 1, description: 'Quantidade de créditos a remover (mínimo 1). Deve ser <= saldo atual.' },
+            reason: {
+              type: 'string',
+              enum: ['Estorno', 'Ajuste/Correção', 'Cancelamento', 'Uso indevido'],
+              description: 'Motivo da remoção para fins de auditoria.',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Dados atualizados do cliente após a remoção.',
+            properties: {
+              creditBalance: { type: 'integer', description: 'Novo saldo de créditos do cliente.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.removeCredits.bind(ctrl),
+  )
+
+  fastify.post(
+    '/admin/clients/:id/otp',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Gerar código de acesso (OTP) para o cliente (admin)',
+        description:
+          'Gera um código de login (OTP) de validade estendida para um cliente e o retorna em texto claro (exibido apenas uma vez ao admin). Fallback para quando o envio por e-mail (Resend) estiver indisponível: o admin repassa o código ao cliente, que o usa no fluxo "Entrar com código no e-mail". NÃO envia e-mail. Invalida códigos de login ativos anteriores. Recusa clientes bloqueados (409) ou sem e-mail (422). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            ttlMinutes: {
+              type: 'integer',
+              minimum: 10,
+              maximum: 1440,
+              description: 'Validade do código em minutos (padrão 60 = 1h; máx 1440 = 24h).',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Código gerado — exibir uma única vez ao admin.',
+            properties: {
+              code: { type: 'string', description: 'Código de acesso em texto claro.' },
+              expiresAt: { type: 'string', description: 'Expiração do código (ISO 8601).' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.generateAccessCode.bind(ctrl),
+  )
+
   fastify.get(
     '/admin/clients/:id/credit-history',
     {
@@ -319,7 +404,7 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
               type: 'object',
               properties: {
                 id: { type: 'string', description: 'ID da transação.' },
-                type: { type: 'string', description: 'PURCHASE | DELIVERY | REFUND | EXPIRY | ADMIN_GRANT.' },
+                type: { type: 'string', description: 'PURCHASE | DELIVERY | REFUND | EXPIRY | ADMIN_GRANT | ADMIN_DEBIT.' },
                 quantity: { type: 'integer', description: 'Variação de créditos (positiva = entrada, negativa = saída).' },
                 description: { type: 'string', nullable: true, description: 'Descrição legível.' },
                 reason: { type: 'string', nullable: true, description: 'Motivo (em ADMIN_GRANT).' },

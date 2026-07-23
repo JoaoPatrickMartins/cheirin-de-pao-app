@@ -431,9 +431,22 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                 {rows.map((d, i) => {
                   const rLabel = riskLabel(d.risk)
                   const isRisk = !!rLabel
+                  // Clicar no card abre o cliente na aba Clientes (AdminLayout ouve este evento).
+                  const openClient = () =>
+                    window.dispatchEvent(new CustomEvent('cdp:open-admin-client', { detail: { clientId: d.userId } }))
                   return (
                     <div
                       key={`${d.userId}-${d.slotId}-${i}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Ver cliente ${d.name}`}
+                      onClick={openClient}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          openClient()
+                        }
+                      }}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -444,6 +457,7 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                         border: `1px solid ${isRisk ? 'rgba(180,84,31,0.22)' : 'var(--color-border-2)'}`,
                         borderRadius: 14,
                         boxShadow: 'var(--shadow-soft)',
+                        cursor: 'pointer',
                       }}
                     >
                       <div

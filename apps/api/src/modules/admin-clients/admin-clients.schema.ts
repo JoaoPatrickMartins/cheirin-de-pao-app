@@ -35,6 +35,19 @@ export const GrantCreditsSchema = z.object({
 export type GrantCreditsBody = z.infer<typeof GrantCreditsSchema>
 
 /**
+ * RemoveCreditsSchema — body para POST /admin/clients/:id/remove-credits.
+ *
+ * quantity int min 1 (a subtração é aplicada no service com sinal negativo).
+ * reason enum com motivos próprios de remoção — distinto do grant (Bonificação/
+ * Promoção não fazem sentido em saída). adminId vem do JWT, nunca do body.
+ */
+export const RemoveCreditsSchema = z.object({
+  quantity: z.number().int().min(1),
+  reason: z.enum(['Estorno', 'Ajuste/Correção', 'Cancelamento', 'Uso indevido']),
+})
+export type RemoveCreditsBody = z.infer<typeof RemoveCreditsSchema>
+
+/**
  * UpdateClientSchema — body para PATCH /admin/clients/:id (edição de cadastro).
  *
  * Todos os campos opcionais (atualização parcial). CPF e telefone normalizados
@@ -78,3 +91,15 @@ export const AddNoteSchema = z.object({
   body: z.string().min(1, 'Nota vazia').max(2000, 'Nota muito longa'),
 })
 export type AddNoteBody = z.infer<typeof AddNoteSchema>
+
+/**
+ * GenerateOtpSchema — body para POST /admin/clients/:id/otp.
+ *
+ * ttlMinutes: validade do código em minutos (opcional; padrão 60 = 1h aplicado
+ * no service). Mínimo 10 min, máximo 1440 (24h). Fallback quando o e-mail (Resend)
+ * está indisponível — o admin gera e repassa o código ao cliente.
+ */
+export const GenerateOtpSchema = z.object({
+  ttlMinutes: z.number().int().min(10).max(1440).optional(),
+})
+export type GenerateOtpBody = z.infer<typeof GenerateOtpSchema>
