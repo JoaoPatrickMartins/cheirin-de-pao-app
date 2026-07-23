@@ -3,7 +3,18 @@ import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
 
 // ------------------------------------------------------------------ tipos
+/** Dados iniciais do entregador em modo edição (vindos da lista — não há GET /:id). */
+interface EntregadorFormInitial {
+  id: string
+  name: string
+  phone?: string | null
+  email?: string | null
+  cpf?: string | null
+}
+
 interface EntregadorFormProps {
+  /** Se presente, o formulário entra em modo edição (PATCH). Ausente = cadastro (POST). */
+  entregador?: EntregadorFormInitial
   onBack: () => void
   onSaved: () => void
 }
@@ -54,11 +65,12 @@ function isValidEmail(value: string): boolean {
 }
 
 // ------------------------------------------------------------------ componente
-export function EntregadorForm({ onBack, onSaved }: EntregadorFormProps) {
-  const [nome, setNome] = useState('')
-  const [cpf, setCpf] = useState('')
-  const [telefone, setTelefone] = useState('')
-  const [email, setEmail] = useState('')
+export function EntregadorForm({ entregador, onBack, onSaved }: EntregadorFormProps) {
+  const isEdit = !!entregador
+  const [nome, setNome] = useState(entregador?.name ?? '')
+  const [cpf, setCpf] = useState(entregador?.cpf ? maskCPF(entregador.cpf) : '')
+  const [telefone, setTelefone] = useState(entregador?.phone ? maskPhone(entregador.phone) : '')
+  const [email, setEmail] = useState(entregador?.email ?? '')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,21 +78,27 @@ export function EntregadorForm({ onBack, onSaved }: EntregadorFormProps) {
     setError(null)
     setIsSaving(true)
     try {
+      // Em edição o CPF é imutável — não é enviado no PATCH.
       const body = {
         name: nome.trim(),
-        cpf: onlyDigits(cpf),
+        ...(isEdit ? {} : { cpf: onlyDigits(cpf) }),
         ...(telefone.trim() ? { phone: onlyDigits(telefone) } : {}),
         ...(email.trim() ? { email: email.trim() } : {}),
       }
-      const res = await apiFetch('/admin/couriers', {
-        method: 'POST',
+      const res = await apiFetch(isEdit ? `/admin/couriers/${entregador.id}` : '/admin/couriers', {
+        method: isEdit ? 'PATCH' : 'POST',
         body: JSON.stringify(body),
       })
       if (res.ok) {
         onSaved()
       } else {
         const err = (await res.json().catch(() => null)) as { error?: string } | null
-        setError(err?.error ?? 'Não foi possível cadastrar. Tente novamente.')
+        setError(
+          err?.error ??
+            (isEdit
+              ? 'Não foi possível salvar. Tente novamente.'
+              : 'Não foi possível cadastrar. Tente novamente.'),
+        )
       }
     } catch {
       setError('Erro de conexão. Tente novamente.')
@@ -91,7 +109,7 @@ export function EntregadorForm({ onBack, onSaved }: EntregadorFormProps) {
 
   const isValid =
     nome.trim() !== '' &&
-    isValidCPF(cpf) &&
+    (isEdit || isValidCPF(cpf)) &&
     (email.trim() === '' || isValidEmail(email.trim()))
 
   return (
@@ -134,7 +152,7 @@ export function EntregadorForm({ onBack, onSaved }: EntregadorFormProps) {
             margin: 0,
           }}
         >
-          Cadastrar entregador
+          {isEdit ? 'Editar entregador' : 'Cadastrar entregador'}
         </h2>
       </div>
 
@@ -164,7 +182,9 @@ export function EntregadorForm({ onBack, onSaved }: EntregadorFormProps) {
           value={cpf}
           onChange={(v) => setCpf(maskCPF(v))}
           placeholder="000.000.000-00"
-          error={cpf.trim() !== '' && !isValidCPF(cpf) ? 'CPF inválido' : undefined}
+          // CPF é imutável após o cadastro — bloqueado em modo edição.
+          disabled={isEdit}
+          error={!isEdit && cpf.trim() !== '' && !isValidCPF(cpf) ? 'CPF inválido' : undefined}
         />
 
         <FormField
@@ -224,7 +244,13 @@ export function EntregadorForm({ onBack, onSaved }: EntregadorFormProps) {
             letterSpacing: '-0.01em',
           }}
         >
-          {isSaving ? 'Cadastrando...' : 'Cadastrar entregador'}
+          {isSaving
+            ? isEdit
+              ? 'Salvando...'
+              : 'Cadastrando...'
+            : isEdit
+              ? 'Salvar'
+              : 'Cadastrar entregador'}
         </button>
       </div>
     </div>
@@ -240,9 +266,10 @@ interface FormFieldProps {
   placeholder?: string
   type?: string
   error?: string
+  disabled?: boolean
 }
 
-function FormField({ label, icon, value, onChange, placeholder, type = 'text', error }: FormFieldProps) {
+function FormField({ label, icon, value, onChange, placeholder, type = 'text', error, disabled }: FormFieldProps) {
   const [focused, setFocused] = useState(false)
 
   return (
@@ -269,6 +296,7 @@ function FormField({ label, icon, value, onChange, placeholder, type = 'text', e
           borderRadius: 14,
           padding: '12px 14px',
           transition: 'border-color 0.15s ease',
+          opacity: disabled ? 0.6 : 1,
         }}
       >
         <Icon name={icon as Parameters<typeof Icon>[0]['name']} size={18} color="var(--color-text-ter)" />
@@ -279,6 +307,7 @@ function FormField({ label, icon, value, onChange, placeholder, type = 'text', e
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
+          disabled={disabled}
           style={{
             flex: 1,
             border: 'none',
@@ -289,6 +318,7 @@ function FormField({ label, icon, value, onChange, placeholder, type = 'text', e
             fontWeight: 500,
             color: 'var(--color-text)',
             minWidth: 0,
+            cursor: disabled ? 'not-allowed' : 'text',
           }}
         />
       </div>

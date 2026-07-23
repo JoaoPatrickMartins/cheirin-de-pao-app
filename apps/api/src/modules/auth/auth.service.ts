@@ -48,6 +48,14 @@ export class AuthService {
   // OTP enviado apenas por e-mail neste primeiro momento. O segundo canal
   // (WhatsApp) será adicionado depois reaproveitando esta mecânica.
   async sendOtp(userId: string, email: string): Promise<void> {
+    // Fallback manual: se o ADMIN gerou um código de acesso ainda ativo para
+    // este usuário (channel 'admin-manual'), não invalida nem tenta enviar
+    // e-mail — o cliente usa esse código. Assim o clique em "Enviar código"
+    // funciona mesmo com o Resend fora do ar (que é justamente quando o admin
+    // gera o código manual). Ver AdminClientsService.generateAccessCode.
+    const activeOtp = await this.repo.findActiveOtp(userId)
+    if (activeOtp?.channel === 'admin-manual') return
+
     if (process.env.NODE_ENV === 'development') {
       const devCode = process.env.OTP_DEV_CODE ?? '1234'
       const existing = await this.repo.findActiveOtp(userId)
@@ -68,6 +76,29 @@ export class AuthService {
     await this.repo.createOtp({ userId, code: this.hashValue(code), channel: 'email', expiresAt })
 
     await sendEmailOtp(email, code)
+  }
+
+  // Gera um OTP de login manual (ADMIN) com validade estendida, SEM enviar e-mail.
+  // Usado como fallback quando o Resend está indisponível: o admin repassa o
+  // código ao cliente, que o usa no fluxo normal de "Entrar com código no e-mail".
+  // Marca channel 'admin-manual' (preservado por sendOtp) e purpose 'LOGIN' (para
+  // ser encontrado por findActiveOtp/consumeOtp na verificação). Invalida OTPs de
+  // login ativos anteriores para garantir um único código válido. Retorna o código
+  // em texto claro — única vez em que ele fica visível (é gravado em SHA-256).
+  async createManualOtp(userId: string, ttlMinutes: number): Promise<{ code: string; expiresAt: Date }> {
+    await this.repo.invalidateActiveLoginOtps(userId)
+
+    const code = this.generateOtpCode()
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000)
+    await this.repo.createOtp({
+      userId,
+      code: this.hashValue(code),
+      channel: 'admin-manual',
+      expiresAt,
+      purpose: 'LOGIN',
+    })
+
+    return { code, expiresAt }
   }
 
   // Assina o access token JWT (vida curta — expiresIn definido no registro do plugin).

@@ -135,6 +135,14 @@ function makeFastifyMock(overrides: {
       findMany: vi.fn().mockResolvedValue([]),
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
+    otpCode: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: 'otp-01', ...data }),
+      ),
+      update: vi.fn().mockResolvedValue({ id: 'otp-01' }),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
   }
 
   return {
@@ -696,6 +704,130 @@ describe('AdminClientsService', () => {
       await expect(
         service.grantCredits('user-01', { quantity: 0, reason: 'Acerto', adminId: 'admin-01' }),
       ).rejects.toMatchObject({ statusCode: 400 })
+    })
+  })
+
+  describe('removeCredits', () => {
+    it('cria CreditTransaction ADMIN_DEBIT com quantity negativo e decrementa creditBalance', async () => {
+      const { fastify, prisma } = makeFastifyMock() // creditBalance default = 10
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await service.removeCredits('user-01', { quantity: 5, reason: 'Estorno', adminId: 'admin-01' })
+
+      expect(prisma.$transaction).toHaveBeenCalled()
+      expect(prisma.creditTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'ADMIN_DEBIT',
+            quantity: -5,
+            reason: 'Estorno',
+            adminId: 'admin-01',
+          }),
+        }),
+      )
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { creditBalance: { decrement: 5 } },
+        }),
+      )
+    })
+
+    it('lança { statusCode: 422 } quando quantity é maior que o saldo atual', async () => {
+      const { fastify, prisma } = makeFastifyMock() // creditBalance default = 10
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(
+        service.removeCredits('user-01', { quantity: 20, reason: 'Estorno', adminId: 'admin-01' }),
+      ).rejects.toMatchObject({ statusCode: 422 })
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it('lança { statusCode: 404 } quando cliente não existe', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(
+        service.removeCredits('id-inexistente', { quantity: 5, reason: 'Estorno', adminId: 'admin-01' }),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: expect.stringMatching(/não encontrado/i),
+      })
+    })
+
+    it('lança { statusCode: 400 } quando quantity é menor que 1', async () => {
+      const { fastify } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(
+        service.removeCredits('user-01', { quantity: 0, reason: 'Estorno', adminId: 'admin-01' }),
+      ).rejects.toMatchObject({ statusCode: 400 })
+    })
+  })
+
+  describe('generateAccessCode', () => {
+    it('gera um código admin-manual e retorna { code, expiresAt } para um CLIENT válido', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      const { code, expiresAt } = await service.generateAccessCode('user-01', 60, 'admin-01')
+
+      expect(code).toMatch(/^\d{4}$/)
+      expect(expiresAt).toBeInstanceOf(Date)
+      // grava o OTP com origem admin-manual e purpose LOGIN
+      expect(prisma.otpCode.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ channel: 'admin-manual', purpose: 'LOGIN', userId: 'user-01' }),
+        }),
+      )
+    })
+
+    it('lança { statusCode: 404 } quando o cliente não existe', async () => {
+      const { fastify } = makeFastifyMock({ client: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.generateAccessCode('inexistente', 60, 'admin-01')).rejects.toMatchObject({
+        statusCode: 404,
+      })
+    })
+
+    it('lança { statusCode: 404 } quando o usuário não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({ client: { role: 'ADMIN' } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.generateAccessCode('user-01', 60, 'admin-01')).rejects.toMatchObject({
+        statusCode: 404,
+      })
+    })
+
+    it('lança { statusCode: 409 } quando o cliente está bloqueado', async () => {
+      const { fastify } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', email: 'joao@email.com', role: 'CLIENT', isBlocked: true },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.generateAccessCode('user-01', 60, 'admin-01')).rejects.toMatchObject({
+        statusCode: 409,
+      })
+    })
+
+    it('lança { statusCode: 422 } quando o cliente não tem e-mail', async () => {
+      const { fastify } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', email: undefined, role: 'CLIENT', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      await expect(service.generateAccessCode('user-01', 60, 'admin-01')).rejects.toMatchObject({
+        statusCode: 422,
+      })
     })
   })
 })

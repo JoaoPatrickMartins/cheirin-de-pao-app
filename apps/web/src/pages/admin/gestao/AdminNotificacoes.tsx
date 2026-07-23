@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
 import { SwitchToggle } from '../../../components/admin/SwitchToggle'
+import { PushNotificationToggle } from '../../../components/PushNotificationToggle'
 
 interface AdminNotificacoesProps {
   onBack: () => void
@@ -119,6 +120,9 @@ export function AdminNotificacoes({ onBack }: AdminNotificacoesProps) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0 20px 24px' }}>
+        {/* Ativar push neste aparelho — independente das preferências por-tipo abaixo */}
+        <PushNotificationToggle description="Receba avisos de novos pedidos, ganchos, entregas e cortes." />
+
         {isLoading && (
           <>
             {[1, 2, 3, 4].map((n) => (

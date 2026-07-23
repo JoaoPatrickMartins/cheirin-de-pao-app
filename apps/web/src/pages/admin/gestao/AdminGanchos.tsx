@@ -68,6 +68,45 @@ function localLabel(item: HookItem): string {
   return parts.join(' · ') || 'Sem apartamento'
 }
 
+/** Só o apartamento — usado no card quando o bloco já é o cabeçalho da seção. */
+function aptLabel(item: HookItem): string {
+  return item.apartment ? `Apto ${item.apartment}` : 'Sem apartamento'
+}
+
+/** Evita duplicar "Bloco": "B" → "Bloco B"; "Bloco 2" → "Bloco 2". */
+function blockLabel(block: string): string {
+  const b = (block || '').trim()
+  if (!b || b === '—') return ''
+  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
+}
+
+/**
+ * Agrupa itens contíguos por condomínio (a lista já vem ordenada do backend por
+ * condomínio → bloco → apartamento, então basta quebrar em subgrupos contíguos).
+ */
+function groupByCondo(items: HookItem[]): Array<{ condominiumId: string | null; condominiumName: string | null; items: HookItem[] }> {
+  const groups: Array<{ condominiumId: string | null; condominiumName: string | null; items: HookItem[] }> = []
+  for (const item of items) {
+    const cid = item.condominiumId ?? null
+    const last = groups[groups.length - 1]
+    if (last && last.condominiumId === cid) last.items.push(item)
+    else groups.push({ condominiumId: cid, condominiumName: item.condominiumName ?? null, items: [item] })
+  }
+  return groups
+}
+
+/** Agrupa itens contíguos por bloco (preserva a ordem já recebida). */
+function groupByBlock(items: HookItem[]): Array<{ block: string | null; items: HookItem[] }> {
+  const groups: Array<{ block: string | null; items: HookItem[] }> = []
+  for (const item of items) {
+    const b = item.block && item.block.trim() ? item.block.trim() : null
+    const last = groups[groups.length - 1]
+    if (last && last.block === b) last.items.push(item)
+    else groups.push({ block: b, items: [item] })
+  }
+  return groups
+}
+
 // ------------------------------------------------------------------ componente
 export function AdminGanchos({ onBack }: AdminGanchosProps) {
   const [searchInput, setSearchInput] = useState('')
@@ -97,6 +136,9 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
       if (debouncedQ) params.set('q', debouncedQ)
       params.set('status', status)
       if (tipo !== 'all') params.set('type', tipo)
+      // Agrupar por condomínio → bloco → apartamento: o backend ordena o conjunto
+      // completo antes de paginar, então os grupos ficam coerentes entre páginas.
+      params.set('sort', 'location')
       params.set('page', String(p))
       params.set('limit', String(PAGE_SIZE))
       return `/admin/hook-requests?${params.toString()}`
@@ -178,6 +220,17 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
   }
 
   const hasMore = items.length < total
+
+  const renderCard = (item: HookItem) => (
+    <HookCard
+      key={item.id}
+      item={item}
+      onDeliver={() => setConfirmItem(item)}
+      onViewClient={() =>
+        window.dispatchEvent(new CustomEvent('cdp:open-admin-client', { detail: { clientId: item.userId } }))
+      }
+    />
+  )
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -346,9 +399,47 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
           </div>
         ) : (
           <>
-            {items.map((item) => (
-              <HookCard key={item.id} item={item} onDeliver={() => setConfirmItem(item)} />
-            ))}
+            {groupByCondo(items).map((condo) => {
+              const hasBlocks = condo.items.some((i) => i.block && i.block.trim())
+              return (
+                <div key={condo.condominiumId ?? '—'} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Cabeçalho do condomínio */}
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 16,
+                      fontWeight: 700,
+                      letterSpacing: '-0.01em',
+                      color: 'var(--color-text)',
+                      margin: '4px 0 0',
+                    }}
+                  >
+                    {condo.condominiumName ?? 'Sem condomínio'}
+                  </p>
+                  {hasBlocks
+                    ? groupByBlock(condo.items).map((g) => (
+                        <div key={g.block ?? '—'} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          {/* Subcabeçalho do bloco */}
+                          <p
+                            style={{
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                              color: 'var(--color-text-ter)',
+                              margin: '2px 0 0',
+                            }}
+                          >
+                            {g.block ? blockLabel(g.block) : 'Sem bloco'}
+                          </p>
+                          {g.items.map(renderCard)}
+                        </div>
+                      ))
+                    : condo.items.map(renderCard)}
+                </div>
+              )
+            })}
             {hasMore && (
               <button
                 onClick={() => void loadMore()}
@@ -393,7 +484,15 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
 }
 
 // ------------------------------------------------------------------ HookCard
-function HookCard({ item, onDeliver }: { item: HookItem; onDeliver: () => void }) {
+function HookCard({
+  item,
+  onDeliver,
+  onViewClient,
+}: {
+  item: HookItem
+  onDeliver: () => void
+  onViewClient: () => void
+}) {
   const entregue = item.status === 'DELIVERED'
   const badge = TYPE_BADGE[item.type]
 
@@ -431,13 +530,8 @@ function HookCard({ item, onDeliver }: { item: HookItem; onDeliver: () => void }
             {item.name}
           </p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 500, color: 'var(--color-text-ter)', margin: '2px 0 0', lineHeight: 1.3 }}>
-            {localLabel(item)}
+            {aptLabel(item)}
           </p>
-          {item.condominiumName && (
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 500, color: 'var(--color-text-ter)', margin: '2px 0 0', lineHeight: 1.3 }}>
-              {item.condominiumName}
-            </p>
-          )}
         </div>
 
         {/* Pílulas de tipo + status */}
@@ -497,6 +591,8 @@ function HookCard({ item, onDeliver }: { item: HookItem; onDeliver: () => void }
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
+          rowGap: 10,
+          flexWrap: 'wrap',
           paddingTop: 12,
           borderTop: '1px solid var(--color-border-2)',
         }}
@@ -508,30 +604,53 @@ function HookCard({ item, onDeliver }: { item: HookItem; onDeliver: () => void }
           </span>
         </div>
 
-        {!entregue && (
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
-            onClick={onDeliver}
+            onClick={onViewClient}
             style={{
-              flexShrink: 0,
               display: 'flex',
               alignItems: 'center',
               gap: 6,
               minHeight: 38,
               padding: '0 14px',
               borderRadius: 12,
-              border: 'none',
-              background: 'var(--color-espresso)',
-              color: '#FAF5EC',
+              border: '1.5px solid var(--color-border)',
+              background: 'transparent',
+              color: 'var(--color-text-sec)',
               fontFamily: 'var(--font-body)',
               fontSize: 13,
               fontWeight: 700,
               cursor: 'pointer',
             }}
           >
-            <Icon name="check" size={16} color="#FAF5EC" stroke={2.4} />
-            Marcar entregue
+            <Icon name="user" size={16} color="var(--color-text-sec)" />
+            Ver cliente
           </button>
-        )}
+
+          {!entregue && (
+            <button
+              onClick={onDeliver}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minHeight: 38,
+                padding: '0 14px',
+                borderRadius: 12,
+                border: 'none',
+                background: 'var(--color-espresso)',
+                color: '#FAF5EC',
+                fontFamily: 'var(--font-body)',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              <Icon name="check" size={16} color="#FAF5EC" stroke={2.4} />
+              Marcar entregue
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
