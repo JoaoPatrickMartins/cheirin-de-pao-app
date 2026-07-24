@@ -7,6 +7,8 @@ const LOW_STOCK_THRESHOLD = 5
 const AVULSO_KEY = 'avulsoUnit'
 const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
 const DEFAULT_MIN_CESTINHA = 15
+const BREAD_PRODUCT_KEY = 'breadProductId'
+const PEDIDO_MINIMO_UNICO_KEY = 'pedidoMinimoUnico'
 
 // Linha da Cestinha com snapshot do produto (nome/preço/foto no momento da leitura).
 export interface CartLineView {
@@ -31,6 +33,8 @@ export interface CartView {
   count: number
   avulsoUnit: number
   minimo: number
+  /** Mínimo em QUANTIDADE de pães (Pão Francês), herdado do pedido único (pedidoMinimoUnico). */
+  breadMin: number
   meetsMinimum: boolean
 }
 
@@ -48,10 +52,13 @@ export class MarketService {
   }
 
   async getCatalog() {
-    const [products, categories] = await Promise.all([
+    const [products, categories, avulsoUnit, breadRow] = await Promise.all([
       this.repo.listActiveProducts(),
       this.repo.listActiveCategories(),
+      this.getAvulsoUnit(),
+      this.repo.getSetting(BREAD_PRODUCT_KEY),
     ])
+    const breadId = breadRow?.value ?? null
 
     return {
       categories: categories.map((c) => ({
@@ -61,6 +68,7 @@ export class MarketService {
         sortOrder: c.sortOrder,
       })),
       products: products.map((p) => {
+        const isBread = p.id === breadId
         const soldOut = p.stockType === 'FIXED' && p.stock != null && p.stock <= 0
         const limited =
           p.stockType === 'FIXED' && p.stock != null && p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD
@@ -69,11 +77,13 @@ export class MarketService {
           name: p.name,
           description: p.description,
           categoryId: p.categoryId,
-          price: p.price,
+          // Pão Francês: preço SEMPRE = avulso (o pão do pedido único), ignora o preço salvo.
+          price: isBread ? avulsoUnit : p.price,
           photoUrl: p.photoUrl,
           availableDays: (p.availableDays as string[] | null) ?? [],
-          soldOut,
-          limited,
+          soldOut: isBread ? false : soldOut,
+          limited: isBread ? false : limited,
+          isBread,
         }
       }),
     }
@@ -92,6 +102,19 @@ export class MarketService {
     return Number.isFinite(v) ? v : DEFAULT_MIN_CESTINHA
   }
 
+  /** Mínimo em quantidade de pães do Pão Francês — herdado do pedido único. */
+  private async getBreadMin(): Promise<number> {
+    const s = await this.repo.getSetting(PEDIDO_MINIMO_UNICO_KEY)
+    const v = s ? parseInt(s.value, 10) : 1
+    return Number.isFinite(v) && v >= 1 ? v : 1
+  }
+
+  /** Id do produto fixo "Pão Francês" — ele só pode existir como breadQty, nunca como item. */
+  private async getBreadProductId(): Promise<string | null> {
+    const s = await this.repo.getSetting(BREAD_PRODUCT_KEY)
+    return s?.value ?? null
+  }
+
   private round2(n: number): number {
     return Math.round(n * 100) / 100
   }
@@ -102,14 +125,22 @@ export class MarketService {
     rawItems: { productId: string; qty: number }[],
     breadQty: number,
   ): Promise<CartView> {
-    const [avulsoUnit, minimo] = await Promise.all([this.getAvulsoUnit(), this.getMinimo()])
+    const [avulsoUnit, minimo, breadMin, breadId] = await Promise.all([
+      this.getAvulsoUnit(),
+      this.getMinimo(),
+      this.getBreadMin(),
+      this.getBreadProductId(),
+    ])
 
-    const ids = rawItems.map((i) => i.productId)
+    // O produto-pão só pode existir como breadQty — se aparecer em items[], é ignorado
+    // (auto-cura carrinhos antigos que o tenham como item separado).
+    const cleanItems = rawItems.filter((i) => i.productId !== breadId)
+    const ids = cleanItems.map((i) => i.productId)
     const products = await this.repo.findProductsByIds(ids)
     const byId = new Map(products.map((p) => [p.id, p]))
 
     const items: CartLineView[] = []
-    for (const it of rawItems) {
+    for (const it of cleanItems) {
       const p = byId.get(it.productId)
       // Ignora produto inexistente ou inativo (some da Cestinha).
       if (!p || !p.isActive) continue
@@ -132,9 +163,14 @@ export class MarketService {
     const safeBread = Math.max(0, Math.min(100, breadQty))
     const subtotal = this.round2(productSubtotal + safeBread * avulsoUnit)
     const count = items.reduce((acc, l) => acc + l.qty, 0)
-    // O mínimo só faz sentido com algo na Cestinha.
-    const hasContent = items.length > 0 || safeBread > 0
-    const meetsMinimum = hasContent && subtotal >= minimo
+    // Mínimo (segue o pedido único p/ o pão): carrinho só de pão respeita a quantidade mínima
+    // (breadMin) e é isento do mínimo em R$; com produtos, vale o mínimo em R$ da Cestinha e o
+    // pão ainda exige a quantidade mínima.
+    const hasProducts = items.length > 0
+    const hasBread = safeBread > 0
+    const breadOk = !hasBread || safeBread >= breadMin
+    const moneyMinOk = !hasProducts || subtotal >= minimo
+    const meetsMinimum = (hasProducts || hasBread) && breadOk && moneyMinOk
 
     return {
       items,
@@ -144,6 +180,7 @@ export class MarketService {
       count,
       avulsoUnit,
       minimo,
+      breadMin,
       meetsMinimum,
     }
   }
@@ -167,12 +204,16 @@ export class MarketService {
     }
 
     const ids = [...merged.keys()]
-    const products = await this.repo.findProductsByIds(ids)
+    const [products, breadId] = await Promise.all([
+      this.repo.findProductsByIds(ids),
+      this.getBreadProductId(),
+    ])
     const validIds = new Set(products.filter((p) => p.isActive).map((p) => p.id))
 
     const normalized: { productId: string; qty: number }[] = []
     for (const [productId, qtyRaw] of merged) {
       if (!validIds.has(productId)) continue // descarta inativo/inexistente
+      if (productId === breadId) continue // o pão só existe como breadQty, nunca como item
       const qty = Math.max(1, Math.min(99, qtyRaw))
       normalized.push({ productId, qty })
     }

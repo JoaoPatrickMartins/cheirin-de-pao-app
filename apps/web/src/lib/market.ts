@@ -9,6 +9,19 @@ export interface MarketCategory {
   sortOrder?: number | null
 }
 
+/**
+ * Pão Francês — produto "virtual" fixo do catálogo da Cestinha. Não é um registro do banco:
+ * seu controle de quantidade escreve no `cart.breadQty` (add-on de pão já existente), então
+ * comprar por aqui vira uma MarketOrder (entrega), sem passar pelo pedido único. Preço = avulsoUnit.
+ */
+export const PAO_FRANCES = {
+  categoryId: '__paes__',
+  categoryName: 'Pães',
+  categoryEmoji: '🥖',
+  name: 'Pão Francês',
+  emoji: '🥖',
+} as const
+
 export interface MarketProduct {
   id: string
   name: string
@@ -22,6 +35,8 @@ export interface MarketProduct {
   soldOut: boolean
   /** Estoque FIXO baixo — selo "Últimas". */
   limited: boolean
+  /** Pão Francês (produto fixo) — compra via breadQty, preço = avulso, mínimo do pedido único. */
+  isBread?: boolean
 }
 
 export interface MarketCatalog {
@@ -52,6 +67,8 @@ export interface CartView {
   count: number
   avulsoUnit: number
   minimo: number
+  /** Mínimo em QUANTIDADE de pães (Pão Francês), herdado do pedido único. */
+  breadMin: number
   meetsMinimum: boolean
 }
 
@@ -65,6 +82,7 @@ export function emptyCart(): CartView {
     count: 0,
     avulsoUnit: 0,
     minimo: 0,
+    breadMin: 1,
     meetsMinimum: false,
   }
 }

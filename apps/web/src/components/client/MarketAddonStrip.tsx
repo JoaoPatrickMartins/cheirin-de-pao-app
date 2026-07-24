@@ -14,10 +14,15 @@ export function MarketAddonStrip() {
   const { categories, products, avulsoUnit, maxEconomyPercent, isLoading } = useMarketCatalog()
   const { addProduct, qtyOf } = useCart()
 
-  if (isLoading || products.length === 0) return null
+  if (isLoading) return null
+
+  // O Pão Francês já é o próprio pedido único (quantidade principal) — fora da faixa de add-on
+  // para não duplicar (e não virar um item separado da Cestinha). Só aparece na aba Cestinha.
+  const visible = products.filter((p) => !p.isBread)
+  if (visible.length === 0) return null
 
   const emojiOf = (categoryId: string) => categories.find((c) => c.id === categoryId)?.emoji ?? null
-  const featured = [...products].sort((a, b) => Number(a.soldOut) - Number(b.soldOut)).slice(0, 8)
+  const featured = [...visible].sort((a, b) => Number(a.soldOut) - Number(b.soldOut)).slice(0, 8)
 
   return (
     <div

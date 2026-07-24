@@ -7,8 +7,10 @@ import { useSchedule } from '../../hooks/useSchedule'
 import { usePaymentPolling } from '../../hooks/usePaymentPolling'
 import { apiFetch } from '../../lib/apiFetch'
 import { brtDateStr, isPastCutoffForDelivery } from '../../lib/cutoff'
-import { formatBRL } from '../../lib/market'
+import { formatBRL, PAO_FRANCES, type CartLine } from '../../lib/market'
 import { Icon } from '../../components/brand/Icon'
+import { BreadMark } from '../../components/brand/BreadMark'
+import { ProdPhoto } from '../../components/client/ProdPhoto'
 import { SavedCardsList } from '../../components/client/SavedCardsList'
 import { AddCardForm } from '../../components/client/AddCardForm'
 import { SwitchToggle } from '../../components/admin/SwitchToggle'
@@ -27,10 +29,20 @@ interface DeliverySlot {
 const SLOT_LABEL: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 const SLOT_EMOJI: Record<string, string> = { manha: '☀️', tarde: '🌙' }
 const WEEKDAY = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+const WEEKDAY_FULL = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const MONTHS_FULL = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 function parseDate(s: string): Date {
   const [y, m, d] = s.split('-').map(Number)
   return new Date(y, m - 1, d)
+}
+/** Data por extenso p/ o resumo: "Amanhã, 25 de julho" / "Domingo, 26 de julho". */
+function whenExtenso(dateStr: string): string {
+  const today = brtDateStr(new Date(), 0)
+  const tomorrow = brtDateStr(new Date(), 1)
+  const d = parseDate(dateStr)
+  const word = dateStr === today ? 'Hoje' : dateStr === tomorrow ? 'Amanhã' : WEEKDAY_FULL[d.getDay()]
+  return `${word}, ${d.getDate()} de ${MONTHS_FULL[d.getMonth()]}`
 }
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -46,7 +58,8 @@ export function MarketCheckoutScreen() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { cart, isLoading: cartLoading, reload: reloadCart } = useCart()
-  const { avulsoUnit: catalogAvulso } = useMarketCatalog()
+  const { avulsoUnit: catalogAvulso, categories } = useMarketCatalog()
+  const emojiOf = (categoryId: string) => categories.find((c) => c.id === categoryId)?.emoji ?? null
   const creditBalance = user?.creditBalance ?? 0
   const { dailyQty } = useSchedule(creditBalance)
 
@@ -111,6 +124,7 @@ export function MarketCheckoutScreen() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const [method, setMethod] = useState<'pix' | 'card'>('pix')
   const [addCardOpen, setAddCardOpen] = useState(false)
+  const [cardSheetOpen, setCardSheetOpen] = useState(false)
   useEffect(() => {
     apiFetch('/users/me/cards')
       .then((r) => (r.ok ? r.json() : []))
@@ -134,6 +148,7 @@ export function MarketCheckoutScreen() {
   const [idemKey] = useState(() => crypto.randomUUID())
   const [phase, setPhase] = useState<Phase>('form')
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [itemsOpen, setItemsOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pix, setPix] = useState<{ paymentId: string; qr: string; code: string } | null>(null)
@@ -246,7 +261,9 @@ export function MarketCheckoutScreen() {
     )
   }
 
-  const canConfirm = subtotal >= cart.minimo && slotReady && !submitting
+  const selectedCard = savedCards.find((c) => c.id === selectedCardId) ?? null
+  const needsCard = moneyAmount > 0 && method === 'card'
+  const canConfirm = cart.meetsMinimum && slotReady && !submitting && (!needsCard || !!selectedCard)
 
   return (
     <div style={{ background: 'var(--color-app-bg)', minHeight: 'calc(100dvh - 56px)', paddingBottom: 120 }}>
@@ -261,13 +278,20 @@ export function MarketCheckoutScreen() {
       </div>
 
       <div style={{ padding: '4px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Resumo curto */}
-        <Card>
-          <RowBetween>
-            <span style={muted}>{itemsLabel(cart.items.length, cart.breadQty)}</span>
-            <strong style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--color-text)' }}>{formatBRL(subtotal)}</strong>
-          </RowBetween>
-        </Card>
+        {/* Resumo curto — toca para ver os itens em detalhe (sem sair da tela) */}
+        <button
+          onClick={() => setItemsOpen(true)}
+          aria-label="Ver itens da Cestinha"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', textAlign: 'left', background: 'var(--color-surface)', border: '1px solid var(--color-border-2)', borderRadius: 16, padding: 14, cursor: 'pointer' }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span style={{ ...muted, display: 'block' }}>{itemsLabel(cart.items.length, cart.breadQty)}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2, fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--color-accent)' }}>
+              Ver itens <Icon name="chevR" size={13} color="var(--color-accent)" stroke={2.4} />
+            </span>
+          </span>
+          <strong style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--color-text)', flexShrink: 0 }}>{formatBRL(subtotal)}</strong>
+        </button>
 
         {/* Entrega */}
         <Section title="Quando chega">
@@ -376,27 +400,37 @@ export function MarketCheckoutScreen() {
         {/* Forma de pagamento (só quando sobra dinheiro) */}
         {moneyAmount > 0 && (
           <Section title="Como pagar o dinheiro">
-            <div style={{ display: 'flex', gap: 8, marginBottom: savedCards.length > 0 || method === 'card' ? 12 : 0 }}>
-              <MethodBtn active={method === 'pix'} onClick={() => { setMethod('pix'); setAddCardOpen(false) }} label="Pix" />
+            <div style={{ display: 'flex', gap: 8, marginBottom: method === 'card' ? 10 : 0 }}>
+              <MethodBtn active={method === 'pix'} onClick={() => setMethod('pix')} label="Pix" />
               <MethodBtn active={method === 'card'} onClick={() => setMethod('card')} label="Cartão" />
             </div>
 
+            {/* Cartão selecionado — toca para escolher/adicionar (abre o sheet, sem esticar a tela) */}
             {method === 'card' && (
-              <>
-                {savedCards.length > 0 && !addCardOpen && (
-                  <SavedCardsList cards={savedCards} loading={false} mode="select" selectedCardId={selectedCardId} onSelect={setSelectedCardId} />
-                )}
-                {savedCards.length > 0 && (
-                  <button onClick={() => setAddCardOpen((v) => !v)} style={linkBtn}>
-                    {addCardOpen ? 'Usar um cartão salvo' : '+ Novo cartão'}
-                  </button>
-                )}
-                {(addCardOpen || savedCards.length === 0) && (
-                  <div style={{ marginTop: 10 }}>
-                    <AddCardForm submitLabel={`Pagar ${formatBRL(moneyAmount)} e confirmar`} onSubmit={handleAddAndPay} />
-                  </div>
-                )}
-              </>
+              <button
+                onClick={() => { setAddCardOpen(savedCards.length === 0); setCardSheetOpen(true) }}
+                aria-label={selectedCard ? 'Trocar cartão' : 'Adicionar cartão'}
+                style={{ ...cardSelectLine, borderColor: selectedCard ? 'var(--color-accent)' : 'var(--color-border)' }}
+              >
+                <Icon name="card" size={20} color="var(--color-accent)" stroke={2} />
+                <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  {selectedCard ? (
+                    <>
+                      <span style={{ display: 'block', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+                        {selectedCard.brand.toUpperCase()} •••• {selectedCard.lastFour}
+                      </span>
+                      <span style={{ display: 'block', fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)' }}>
+                        Val. {selectedCard.expiresAt}
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+                      Adicionar cartão
+                    </span>
+                  )}
+                </span>
+                <Icon name="chevR" size={18} color="var(--color-text-ter)" />
+              </button>
             )}
           </Section>
         )}
@@ -406,29 +440,200 @@ export function MarketCheckoutScreen() {
         )}
       </div>
 
-      {/* CTA fixa (esconde quando o formulário de cartão novo está aberto — ele tem botão próprio) */}
-      {!(moneyAmount > 0 && method === 'card' && (addCardOpen || savedCards.length === 0)) && (
-        <div style={footerBar}>
-          <button onClick={() => canConfirm && setSheetOpen(true)} disabled={!canConfirm} style={primaryCta(canConfirm)}>
-            {moneyAmount > 0 ? `Confirmar · ${formatBRL(subtotal)}` : `Confirmar com pãezinhos`}
-          </button>
-        </div>
-      )}
+      {/* CTA fixa — sempre visível (o cartão é escolhido/adicionado num sheet, não inline) */}
+      <div style={footerBar}>
+        <button onClick={() => canConfirm && setSheetOpen(true)} disabled={!canConfirm} style={primaryCta(canConfirm)}>
+          {moneyAmount > 0 ? `Confirmar · ${formatBRL(subtotal)}` : `Confirmar com pãezinhos`}
+        </button>
+      </div>
 
-      {/* Sheet de confirmação (MKT-33) */}
-      {sheetOpen && (
-        <ConfirmSheet
-          itemsLabel={itemsLabel(cart.items.length, cart.breadQty)}
-          whenLabel={whenLabel(dateStr, slots.find((s) => (s.slotId ?? s.name) === slotId))}
-          credits={credits}
-          creditValue={creditValue}
-          moneyAmount={moneyAmount}
-          total={subtotal}
-          submitting={submitting}
-          onConfirm={handleConfirm}
-          onReview={() => setSheetOpen(false)}
+      {/* Sheet de confirmação (MKT-33) — padronizado com o OrderSummarySheet */}
+      {sheetOpen && (() => {
+        const selSlot = slots.find((s) => (s.slotId ?? s.name) === slotId)
+        const paymentLabel = moneyAmount > 0 ? (method === 'pix' ? 'Pix' : 'Cartão') : 'Saldo'
+        return (
+          <ConfirmSheet
+            itemsLabel={itemsLabel(cart.items.length, cart.breadQty)}
+            whenLabel={whenExtenso(dateStr)}
+            slotEmoji={selSlot ? (selSlot.emoji ?? SLOT_EMOJI[selSlot.name]) : undefined}
+            slotLabel={selSlot ? (selSlot.label ?? SLOT_LABEL[selSlot.name] ?? selSlot.name) : undefined}
+            slotTime={selSlot?.time}
+            paymentLabel={paymentLabel}
+            credits={credits}
+            creditValue={creditValue}
+            creditBalance={creditBalance}
+            moneyAmount={moneyAmount}
+            total={subtotal}
+            submitting={submitting}
+            onConfirm={handleConfirm}
+            onReview={() => setSheetOpen(false)}
+          />
+        )
+      })()}
+
+      {/* Sheet de itens — detalhe da Cestinha sem sair do Pagamento */}
+      {itemsOpen && (
+        <ItemsSheet
+          items={cart.items}
+          breadQty={cart.breadQty}
+          breadValue={round2(cart.breadQty * avulso)}
+          subtotal={subtotal}
+          emojiOf={emojiOf}
+          onClose={() => setItemsOpen(false)}
         />
       )}
+
+      {/* Sheet de cartão — escolher salvo ou adicionar novo (MKT-B) */}
+      {cardSheetOpen && moneyAmount > 0 && (
+        <CardSheet
+          savedCards={savedCards}
+          selectedCardId={selectedCardId}
+          addOpen={addCardOpen}
+          moneyAmount={moneyAmount}
+          onSelect={(id) => { setSelectedCardId(id); setCardSheetOpen(false) }}
+          onToggleAdd={setAddCardOpen}
+          onAddCard={handleAddAndPay}
+          onClose={() => setCardSheetOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Sheet de itens (detalhe da Cestinha) ──
+function ItemsSheet({
+  items,
+  breadQty,
+  breadValue,
+  subtotal,
+  emojiOf,
+  onClose,
+}: {
+  items: CartLine[]
+  breadQty: number
+  breadValue: number
+  subtotal: number
+  emojiOf: (categoryId: string) => string | null
+  onClose: () => void
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{ width: '100%', maxHeight: '85vh', overflowY: 'auto', background: 'var(--color-surface)', borderRadius: '22px 22px 0 0', padding: '16px 20px calc(20px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ width: 40, height: 4, borderRadius: 999, background: 'var(--color-border)', alignSelf: 'center' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: 0 }}>
+            Itens da Cestinha
+          </h2>
+          <button onClick={onClose} aria-label="Fechar" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'grid', placeItems: 'center' }}>
+            <Icon name="x" size={18} color="var(--color-text-ter)" />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {items.map((line) => (
+            <div key={line.productId} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, flexShrink: 0 }}>
+                <ProdPhoto photoUrl={line.photoUrl} emoji={emojiOf(line.categoryId)} tintSeed={line.categoryId} alt={line.name} radius={11} height={44} emojiSize={22} dimmed={line.soldOut} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.25 }}>{line.name}</p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                  {line.qty} × {formatBRL(line.price)}
+                </p>
+              </div>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em', flexShrink: 0 }}>
+                {formatBRL(line.lineTotal)}
+              </span>
+            </div>
+          ))}
+
+          {breadQty > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 11, background: 'var(--color-gold-soft)', display: 'grid', placeItems: 'center', flexShrink: 0, fontSize: 22 }}>🥖</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>{PAO_FRANCES.name}</p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                  {breadQty} {breadQty === 1 ? 'pão' : 'pães'}
+                </p>
+              </div>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em', flexShrink: 0 }}>
+                {formatBRL(breadValue)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div style={{ height: 1, background: 'var(--color-border-2)' }} />
+        <RowBetween>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>Subtotal</span>
+          <strong style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>{formatBRL(subtotal)}</strong>
+        </RowBetween>
+
+        <button onClick={onClose} style={primaryCta(true)}>Fechar</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Sheet de cartão (escolher salvo / adicionar novo) ──
+function CardSheet({
+  savedCards,
+  selectedCardId,
+  addOpen,
+  moneyAmount,
+  onSelect,
+  onToggleAdd,
+  onAddCard,
+  onClose,
+}: {
+  savedCards: SavedCard[]
+  selectedCardId: string | null
+  addOpen: boolean
+  moneyAmount: number
+  onSelect: (id: string) => void
+  onToggleAdd: (v: boolean) => void
+  onAddCard: (paymentMethodId: string) => Promise<string | null>
+  onClose: () => void
+}) {
+  const hasCards = savedCards.length > 0
+  const showForm = addOpen || !hasCards
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{ width: '100%', maxHeight: '85vh', overflowY: 'auto', background: 'var(--color-surface)', borderRadius: '22px 22px 0 0', padding: '16px 20px calc(20px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ width: 40, height: 4, borderRadius: 999, background: 'var(--color-border)', alignSelf: 'center' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: 0 }}>
+            {showForm ? 'Novo cartão' : 'Escolher cartão'}
+          </h2>
+          <button onClick={onClose} aria-label="Fechar" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'grid', placeItems: 'center' }}>
+            <Icon name="x" size={18} color="var(--color-text-ter)" />
+          </button>
+        </div>
+
+        {showForm ? (
+          <>
+            <AddCardForm submitLabel={`Pagar ${formatBRL(moneyAmount)} e confirmar`} onSubmit={onAddCard} />
+            {hasCards && (
+              <button onClick={() => onToggleAdd(false)} style={linkBtn}>Usar um cartão salvo</button>
+            )}
+          </>
+        ) : (
+          <>
+            <SavedCardsList cards={savedCards} loading={false} mode="select" selectedCardId={selectedCardId} onSelect={onSelect} />
+            <button onClick={() => onToggleAdd(true)} style={linkBtn}>+ Novo cartão</button>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -495,8 +700,13 @@ function WaitingView({
 function ConfirmSheet({
   itemsLabel,
   whenLabel,
+  slotEmoji,
+  slotLabel,
+  slotTime,
+  paymentLabel,
   credits,
   creditValue,
+  creditBalance,
   moneyAmount,
   total,
   submitting,
@@ -505,44 +715,139 @@ function ConfirmSheet({
 }: {
   itemsLabel: string
   whenLabel: string
+  slotEmoji?: string
+  slotLabel?: string
+  slotTime?: string
+  paymentLabel: string
   credits: number
   creditValue: number
+  creditBalance: number
   moneyAmount: number
   total: number
   submitting: boolean
   onConfirm: () => void
   onReview: () => void
 }) {
+  const precisaPagar = moneyAmount > 0
+  const saldoApos = Math.max(0, creditBalance - credits)
+  const divider = <div style={{ height: 1, background: 'var(--color-border-2)', margin: '2px 0' }} />
+
   return (
     <div
       role="dialog"
       aria-modal="true"
-      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end' }}
+      aria-labelledby="mkt-confirm-title"
+      style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={(e) => { if (e.target === e.currentTarget && !submitting) onReview() }}
     >
-      <div style={{ width: '100%', background: 'var(--color-surface)', borderRadius: '22px 22px 0 0', padding: '20px 20px calc(20px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ width: 40, height: 4, borderRadius: 999, background: 'var(--color-border)', alignSelf: 'center' }} />
-        <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: 0 }}>Revisar pedido</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <RowBetween><span style={muted}>{itemsLabel}</span><span /></RowBetween>
-          <RowBetween><span style={muted}>Chega</span><span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text)' }}>{whenLabel}</span></RowBetween>
-          {credits > 0 && (
-            <RowBetween><span style={muted}>Com pãezinhos</span><span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-accent)', fontWeight: 700 }}>{credits} 🥖 ({formatBRL(creditValue)})</span></RowBetween>
-          )}
-          <RowBetween><span style={muted}>Em dinheiro</span><span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text)', fontWeight: 700 }}>{formatBRL(moneyAmount)}</span></RowBetween>
-          <div style={{ height: 1, background: 'var(--color-border-2)', margin: '2px 0' }} />
-          <RowBetween>
-            <strong style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: 'var(--color-text)' }}>Total a pagar</strong>
-            <strong style={{ fontFamily: 'var(--font-display)', fontSize: 20, color: 'var(--color-text)' }}>{formatBRL(total)}</strong>
-          </RowBetween>
+      <div
+        className="order-summary-sheet"
+        style={{ width: '100%', maxWidth: 480, maxHeight: '92dvh', overflowY: 'auto', scrollbarWidth: 'none', background: 'var(--color-app-bg)', borderRadius: '24px 24px 0 0', padding: '10px 20px calc(22px + env(safe-area-inset-bottom))', boxShadow: '0 -12px 40px rgba(30,18,7,0.24)' }}
+      >
+        <style>{`.order-summary-sheet::-webkit-scrollbar{display:none}`}</style>
+        {/* Grabber */}
+        <div aria-hidden="true" style={{ width: 40, height: 4, borderRadius: 'var(--radius-pill)', background: 'var(--color-border)', margin: '0 auto 16px' }} />
+
+        {/* Cabeçalho */}
+        <h2 id="mkt-confirm-title" style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--color-text)', margin: '0 0 3px' }}>
+          Confirme seu pedido
+        </h2>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', margin: '0 0 16px' }}>
+          Revise os detalhes antes de finalizar.
+        </p>
+
+        {/* Ticket espresso */}
+        <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 'var(--radius-card)', background: 'linear-gradient(135deg, #1E1207, #2E1D0D)', padding: '18px 20px', boxShadow: 'var(--shadow-strong)', marginBottom: 12 }}>
+          <span className="cdp-sheen" aria-hidden="true" />
+          <div className="cdp-float" style={{ position: 'absolute', bottom: -46, right: -28, opacity: 0.1, pointerEvents: 'none' }}>
+            <BreadMark size={170} color="#E3AC3F" />
+          </div>
+          <div style={{ position: 'relative' }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: '#C7B595', letterSpacing: '0.06em', textTransform: 'uppercase', margin: '0 0 4px' }}>
+              Seu pedido
+            </p>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 28, lineHeight: 1.05, letterSpacing: '-0.02em', color: '#FAF5EC' }}>
+              {itemsLabel}
+            </div>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: '#C7B595', margin: '10px 0 0' }}>
+              {whenLabel}
+              {slotLabel ? ` · ${slotEmoji ? `${slotEmoji} ` : ''}${slotLabel}${slotTime ? ` ${slotTime}` : ''}` : ''}
+            </p>
+          </div>
         </div>
-        <button onClick={onConfirm} disabled={submitting} style={primaryCta(!submitting)}>
-          {submitting ? 'Processando...' : `Confirmar e pagar · ${formatBRL(total)}`}
+
+        {/* Detalhes */}
+        <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-card)', border: '1px solid var(--color-border-2)', boxShadow: 'var(--shadow-soft)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+          <DetailRow icon="calendar" label="Entrega" value={whenLabel} />
+          {slotLabel && (
+            <DetailRow icon="clock" label="Horário" value={`${slotEmoji ? `${slotEmoji} ` : ''}${slotLabel}${slotTime ? ` · ${slotTime}` : ''}`} />
+          )}
+          <DetailRow icon="card" label="Pagamento" value={paymentLabel} />
+
+          {credits > 0 && (
+            <>
+              {divider}
+              <DetailRow icon="wallet" label="Com pãezinhos" value={`${credits} 🥖 (${formatBRL(creditValue)})`} />
+            </>
+          )}
+          {precisaPagar && (
+            <DetailRow icon="coin" label="Em dinheiro" value={formatBRL(moneyAmount)} />
+          )}
+
+          {divider}
+          <DetailRow icon="bag" label="Total" value={precisaPagar ? formatBRL(total) : 'Usa seu saldo'} emphasis />
+          {credits > 0 && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '-4px 0 0', textAlign: 'right' }}>
+              Saldo após: {saldoApos} 🥖
+            </p>
+          )}
+        </div>
+
+        {/* CTA */}
+        <button
+          onClick={onConfirm}
+          disabled={submitting}
+          style={{ width: '100%', minHeight: 52, borderRadius: 'var(--radius-btn)', border: 'none', background: 'var(--color-espresso)', color: 'var(--color-primary-btn-text)', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'opacity .15s' }}
+        >
+          {submitting ? (
+            <>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+                <path d="M21 12a9 9 0 1 1-3-6.7" />
+              </svg>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              Processando...
+            </>
+          ) : (
+            <>
+              <Icon name="check" size={18} color="var(--color-primary-btn-text)" />
+              {precisaPagar ? `Confirmar e pagar ${formatBRL(total)}` : 'Confirmar pedido'}
+            </>
+          )}
         </button>
-        <button onClick={onReview} disabled={submitting} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text-sec)', padding: 6 }}>
-          Revisar itens
+
+        <button
+          onClick={onReview}
+          disabled={submitting}
+          style={{ width: '100%', minHeight: 44, marginTop: 8, background: 'transparent', border: 'none', color: 'var(--color-text-sec)', fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, cursor: submitting ? 'default' : 'pointer' }}
+        >
+          Voltar
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Linha de detalhe do resumo: ícone + rótulo à esquerda, valor à direita. */
+function DetailRow({ icon, label, value, emphasis = false }: { icon: string; label: string; value: React.ReactNode; emphasis?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <Icon name={icon} size={18} color="var(--color-text-ter)" stroke={2} />
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }}>{label}</span>
+      </div>
+      <span style={{ fontFamily: 'var(--font-display)', fontWeight: emphasis ? 800 : 700, fontSize: emphasis ? 17 : 14.5, color: 'var(--color-text)', textAlign: 'right', flexShrink: 0 }}>
+        {value}
+      </span>
     </div>
   )
 }
@@ -573,20 +878,12 @@ function itemsLabel(products: number, bread: number): string {
   return parts.join(' + ') || 'Cestinha'
 }
 
-function whenLabel(dateStr: string, slot?: DeliverySlot): string {
-  const today = brtDateStr(new Date(), 0)
-  const tomorrow = brtDateStr(new Date(), 1)
-  const d = parseDate(dateStr)
-  const dm = `${d.getDate()}/${d.getMonth() + 1}`
-  const day = dateStr === today ? 'hoje' : dateStr === tomorrow ? 'amanhã' : dm
-  const s = slot ? ` · ${slot.label ?? SLOT_LABEL[slot.name] ?? slot.name}` : ''
-  return `${day}${s}`
-}
 
 const backBtn: React.CSSProperties = { width: 38, height: 38, borderRadius: 12, background: 'var(--color-surface)', border: '1px solid var(--color-border-2)', display: 'grid', placeItems: 'center', cursor: 'pointer', flexShrink: 0 }
 const muted: React.CSSProperties = { fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }
 const footerBar: React.CSSProperties = { position: 'fixed', left: 0, right: 0, bottom: 'calc(56px + env(safe-area-inset-bottom))', background: 'var(--color-app-bg)', borderTop: '1px solid var(--color-border-2)', padding: '12px 20px' }
 const linkBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-accent)', padding: '10px 2px 2px' }
+const cardSelectLine: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, width: '100%', background: 'var(--color-surface)', border: '1.5px solid var(--color-border)', borderRadius: 14, padding: '12px 14px', cursor: 'pointer' }
 
 function primaryCta(enabled: boolean): React.CSSProperties {
   return { width: '100%', minHeight: 52, borderRadius: 'var(--radius-btn)', border: 'none', background: 'var(--color-espresso)', color: 'var(--color-primary-btn-text)', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, cursor: enabled ? 'pointer' : 'default', opacity: enabled ? 1 : 0.45 }

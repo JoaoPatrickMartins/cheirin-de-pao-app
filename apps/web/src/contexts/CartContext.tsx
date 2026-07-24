@@ -28,12 +28,23 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 
 // Recalcula a visão local (otimista) a partir das linhas + pães. Mantém avulsoUnit/minimo
 // (vêm do servidor); o servidor é a autoridade final e reconcilia após o PUT.
-function recompute(lines: CartLine[], breadQty: number, avulsoUnit: number, minimo: number): CartView {
+function recompute(
+  lines: CartLine[],
+  breadQty: number,
+  avulsoUnit: number,
+  minimo: number,
+  breadMin: number,
+): CartView {
   const items = lines.map((l) => ({ ...l, lineTotal: round2(l.price * l.qty) }))
   const productSubtotal = round2(items.reduce((acc, l) => acc + l.lineTotal, 0))
   const subtotal = round2(productSubtotal + breadQty * avulsoUnit)
   const count = items.reduce((acc, l) => acc + l.qty, 0)
-  const hasContent = items.length > 0 || breadQty > 0
+  // Mesma regra do servidor: só de pão respeita a quantidade mínima e é isento do mínimo em R$;
+  // com produtos, vale o mínimo em R$ e o pão ainda exige a quantidade mínima.
+  const hasProducts = items.length > 0
+  const hasBread = breadQty > 0
+  const breadOk = !hasBread || breadQty >= breadMin
+  const moneyMinOk = !hasProducts || subtotal >= minimo
   return {
     items,
     breadQty,
@@ -42,7 +53,8 @@ function recompute(lines: CartLine[], breadQty: number, avulsoUnit: number, mini
     count,
     avulsoUnit,
     minimo,
-    meetsMinimum: hasContent && subtotal >= minimo,
+    breadMin,
+    meetsMinimum: (hasProducts || hasBread) && breadOk && moneyMinOk,
   }
 }
 
@@ -121,7 +133,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       seqRef.current += 1
       setCart((prev) => {
         const { lines, breadQty } = transform(prev)
-        const next = recompute(lines, breadQty, prev.avulsoUnit, prev.minimo)
+        const next = recompute(lines, breadQty, prev.avulsoUnit, prev.minimo, prev.breadMin)
         scheduleSync(next)
         return next
       })

@@ -4,7 +4,7 @@ import { useMarketCatalog } from '../../hooks/useMarketCatalog'
 import { ProdPhoto } from '../../components/client/ProdPhoto'
 import StepperInline from '../../components/client/StepperInline'
 import { Icon } from '../../components/brand/Icon'
-import { formatBRL, paezinhosDe, type CartLine } from '../../lib/market'
+import { formatBRL, PAO_FRANCES, type CartLine } from '../../lib/market'
 
 /**
  * CestinhaScreen — o carrinho unificado (produtos + pães do add-on C8). Persistido por
@@ -21,9 +21,12 @@ export function CestinhaScreen() {
   const isEmpty = cart.items.length === 0 && cart.breadQty === 0
   const breadValue = cart.breadQty * cart.avulsoUnit
   const faltam = Math.max(0, cart.minimo - cart.subtotal)
+  // Mensagens de mínimo: pão só de pão respeita a quantidade (breadMin); com produtos, o R$.
+  const breadShort = cart.breadQty > 0 && cart.breadQty < cart.breadMin
+  const moneyShort = cart.items.length > 0 && cart.subtotal < cart.minimo
 
   return (
-    <div style={{ background: 'var(--color-app-bg)', minHeight: 'calc(100dvh - 56px)', paddingBottom: isEmpty ? 24 : 132 }}>
+    <div style={{ background: 'var(--color-app-bg)', minHeight: 'calc(100dvh - 56px)', paddingBottom: isEmpty ? 24 : 168 }}>
       {/* AppBar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 'calc(10px + env(safe-area-inset-top)) 20px 10px' }}>
         <button
@@ -34,7 +37,7 @@ export function CestinhaScreen() {
           <Icon name="arrowL" size={18} color="var(--color-text)" />
         </button>
         <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 21, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: 0 }}>
-          Cestinha
+          Sua Cestinha
         </h1>
       </div>
 
@@ -70,7 +73,6 @@ export function CestinhaScreen() {
               key={line.productId}
               line={line}
               emoji={emojiOf(line.categoryId)}
-              avulsoUnit={cart.avulsoUnit}
               onQty={(q) => setQty(line.productId, q)}
               onRemove={() => removeProduct(line.productId)}
             />
@@ -84,40 +86,46 @@ export function CestinhaScreen() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                  Seu pedido de pão
+                  {PAO_FRANCES.name}
                 </p>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-                  {cart.breadQty} {cart.breadQty === 1 ? 'pão' : 'pães'} · {formatBRL(breadValue)} · pago com pãezinhos
+                  {cart.breadQty} {cart.breadQty === 1 ? 'pão' : 'pães'} · {formatBRL(breadValue)}
                 </p>
                 <div style={{ marginTop: 8 }}>
-                  <StepperInline min={0} max={100} value={cart.breadQty} onChange={setBreadQty} />
+                  {/* Mesmo mínimo do pedido único: abaixo do piso, remove (0 ou ≥ mínimo). */}
+                  <StepperInline
+                    min={0}
+                    max={100}
+                    value={cart.breadQty}
+                    onChange={(v) => setBreadQty(v < cart.breadMin ? 0 : v)}
+                  />
                 </div>
               </div>
             </div>
           )}
 
-          {/* Resumo */}
-          <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border-2)', borderRadius: 16, padding: 16, marginTop: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-sec)' }}>Subtotal</span>
-              <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
-                {formatBRL(cart.subtotal)}
-              </span>
-            </div>
-            {!cart.meetsMinimum && (
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-accent)', margin: '8px 0 0', lineHeight: 1.4 }}>
-                Faltam <strong>{formatBRL(faltam)}</strong> para o pedido mínimo de {formatBRL(cart.minimo)}.
-              </p>
-            )}
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '8px 0 0', lineHeight: 1.4 }}>
-              Você escolhe quanto pagar em dinheiro ou com pãezinhos no pagamento.
-            </p>
-          </div>
-
+          {/* Continuar comprando (botão tracejado) */}
           <button
             onClick={() => navigate('/client/market')}
-            style={{ alignSelf: 'center', marginTop: 4, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-accent)', padding: 8 }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              width: '100%',
+              minHeight: 48,
+              marginTop: 4,
+              borderRadius: 14,
+              border: '1.5px dashed var(--color-border)',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-body)',
+              fontSize: 14,
+              fontWeight: 700,
+              color: 'var(--color-accent)',
+            }}
           >
+            <Icon name="plus" size={17} color="var(--color-accent)" stroke={2.4} />
             Continuar comprando
           </button>
         </div>
@@ -136,10 +144,30 @@ export function CestinhaScreen() {
             padding: '12px 20px',
           }}
         >
+          {breadShort && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-accent)', margin: '0 0 8px', lineHeight: 1.4 }}>
+              Pedido mínimo de <strong>{cart.breadMin} pães</strong> — faltam {cart.breadMin - cart.breadQty}.
+            </p>
+          )}
+          {moneyShort && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-accent)', margin: '0 0 8px', lineHeight: 1.4 }}>
+              Faltam <strong>{formatBRL(faltam)}</strong> para o pedido mínimo de {formatBRL(cart.minimo)}.
+            </p>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }}>Subtotal do mercadinho</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
+              {formatBRL(cart.subtotal)}
+            </span>
+          </div>
           <button
             onClick={() => cart.meetsMinimum && navigate('/client/market/checkout')}
             disabled={!cart.meetsMinimum}
             style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
               width: '100%',
               minHeight: 52,
               borderRadius: 'var(--radius-btn)',
@@ -153,7 +181,8 @@ export function CestinhaScreen() {
               opacity: cart.meetsMinimum ? 1 : 0.45,
             }}
           >
-            Ir para pagamento · {formatBRL(cart.subtotal)}
+            <Icon name="chevR" size={18} color="var(--color-primary-btn-text)" stroke={2.4} />
+            Ir para pagamento
           </button>
         </div>
       )}
@@ -174,48 +203,45 @@ const rowStyle: React.CSSProperties = {
 function CartItemRow({
   line,
   emoji,
-  avulsoUnit,
   onQty,
   onRemove,
 }: {
   line: CartLine
   emoji?: string | null
-  avulsoUnit: number
   onQty: (q: number) => void
   onRemove: () => void
 }) {
-  const paes = paezinhosDe(line.price, avulsoUnit)
   return (
     <div style={rowStyle}>
       <div style={{ width: 56, flexShrink: 0 }}>
         <ProdPhoto photoUrl={line.photoUrl} emoji={emoji} tintSeed={line.categoryId} alt={line.name} radius={12} height={56} emojiSize={26} dimmed={line.soldOut} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.25 }}>
             {line.name}
           </p>
-          <button
-            onClick={onRemove}
-            aria-label={`Remover ${line.name}`}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0, display: 'grid', placeItems: 'center', height: 24 }}
-          >
-            <Icon name="x" size={16} color="var(--color-text-ter)" />
-          </button>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            {formatBRL(line.lineTotal)}
+          </span>
         </div>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-          {formatBRL(line.price)}{paes > 0 ? ` · ou ${paes} 🥖` : ''}
+          {formatBRL(line.price)} · un
         </p>
         {line.soldOut && (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-accent)', margin: '3px 0 0' }}>
             Esgotado — remova para continuar
           </p>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
           <StepperInline min={1} max={99} value={line.qty} onChange={onQty} />
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
-            {formatBRL(line.lineTotal)}
-          </span>
+          <button
+            onClick={onRemove}
+            aria-label={`Remover ${line.name}`}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0, display: 'grid', placeItems: 'center' }}
+          >
+            <Icon name="trash" size={18} color="var(--color-text-ter)" stroke={1.9} />
+          </button>
         </div>
       </div>
     </div>

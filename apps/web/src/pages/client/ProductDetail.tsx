@@ -170,6 +170,7 @@ function DetailFooter({ product }: { product: MarketProduct }) {
               </>
             ) : (
               <>
+                <Icon name="basket" size={18} color="#FBF3E4" stroke={2} />
                 Adicionar · {formatBRL(product.price * qty)}
                 {inCart > 0 ? ` (${inCart})` : ''}
               </>
@@ -235,63 +236,108 @@ function ProductBody({
         ) : null}
       </div>
 
-      {/* Categoria + nome */}
-      <div>
+      {/* Categoria (chip) + nome */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {(categoryName || categoryEmoji) && (
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-accent)', margin: '0 0 4px', letterSpacing: '0.02em' }}>
+          <span
+            style={{
+              alignSelf: 'flex-start',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              background: 'var(--color-gold-soft)',
+              color: 'var(--color-accent)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              fontWeight: 800,
+              borderRadius: 999,
+              padding: '4px 11px',
+              letterSpacing: '0.01em',
+            }}
+          >
             {categoryEmoji ? `${categoryEmoji} ` : ''}{categoryName ?? ''}
-          </p>
+          </span>
         )}
         <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 24, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.15 }}>
           {name}
         </h1>
       </div>
 
-      {/* Painel de 2 preços */}
-      <div
-        style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border-2)',
-          borderRadius: 18,
-          boxShadow: 'var(--shadow-soft)',
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{ display: 'flex' }}>
-          {/* À vista */}
-          <div style={{ flex: 1, padding: '15px 16px' }}>
-            <p style={priceLabel}>À vista</p>
-            <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: '3px 0 0' }}>
-              {formatBRL(price)}
-            </p>
-          </div>
-          {/* divisória */}
-          <div style={{ width: 1, background: 'var(--color-border-2)' }} />
-          {/* Com pãezinhos */}
-          <div style={{ flex: 1, padding: '15px 16px', background: 'var(--color-gold-soft)' }}>
-            <p style={{ ...priceLabel, color: 'var(--color-accent)' }}>Com pãezinhos</p>
-            <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--color-accent)', letterSpacing: '-0.02em', margin: '3px 0 0' }}>
-              {paes > 0 ? `${paes} 🥖` : '—'}
-            </p>
-          </div>
+      {/* Painel de 2 preços — dois cards lado a lado */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch' }}>
+        {/* À vista */}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border-2)',
+            borderRadius: 16,
+            boxShadow: 'var(--shadow-soft)',
+            padding: '14px 15px',
+          }}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="card" size={15} color="var(--color-text-ter)" stroke={2} />
+            <span style={priceLabel}>À vista</span>
+          </span>
+          <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: '2px 0 0' }}>
+            {formatBRL(price)}
+          </p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: 0 }}>em dinheiro</p>
         </div>
-        {showEconomy && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '10px 16px',
-              borderTop: '1px solid var(--color-border-2)',
-              background: 'var(--color-good-soft)',
-            }}
-          >
-            <Icon name="spark" size={16} color="var(--color-good)" stroke={2} />
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-good)', margin: 0 }}>
-              Pagando com pãezinhos você economiza até {Math.round(maxEconomyPercent)}%
-            </p>
-          </div>
-        )}
+
+        {/* Com pãezinhos */}
+        <div
+          style={{
+            position: 'relative',
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+            background: 'var(--color-gold-soft)',
+            borderRadius: 16,
+            padding: '14px 15px',
+            overflow: 'hidden',
+          }}
+        >
+          {showEconomy && (
+            <span
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                background: 'var(--color-accent)',
+                color: '#fff',
+                fontFamily: 'var(--font-body)',
+                fontSize: 11,
+                fontWeight: 800,
+                borderRadius: 999,
+                padding: '3px 8px',
+              }}
+            >
+              −{Math.round(maxEconomyPercent)}%
+            </span>
+          )}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span aria-hidden="true" style={{ fontSize: 15, lineHeight: 1 }}>🥖</span>
+            <span style={{ ...priceLabel, color: 'var(--color-accent)' }}>Com pãezinhos</span>
+          </span>
+          <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--color-accent)', letterSpacing: '-0.02em', margin: '2px 0 0' }}>
+            {paes > 0 ? (
+              <>
+                {paes} <span style={{ fontSize: 15, fontWeight: 700 }}>{paes === 1 ? 'pãozinho' : 'pãezinhos'}</span>
+              </>
+            ) : (
+              '—'
+            )}
+          </p>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-accent)', margin: 0 }}>
+            {showEconomy ? `economize até ${Math.round(maxEconomyPercent)}%` : 'pague com créditos'}
+          </p>
+        </div>
       </div>
 
       {/* Descrição */}

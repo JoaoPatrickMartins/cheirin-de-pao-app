@@ -9,12 +9,12 @@ interface TabItem {
   path: string
 }
 
+// "Pedidos" saiu da barra (ficou cheia com a Cestinha) e virou "Meus Pedidos" dentro do Perfil.
 const TABS: TabItem[] = [
   { label: 'Início',   icon: 'home',     path: '/client/home'     },
   { label: 'Agenda',   icon: 'calendar', path: '/client/agenda'   },
   { label: 'Pães',     brand: true,      path: '/client/creditos' },
   { label: 'Cestinha', icon: 'basket',   path: '/client/market'   },
-  { label: 'Pedidos',  icon: 'bag',      path: '/client/pedidos'  },
   { label: 'Perfil',   icon: 'user',     path: '/client/perfil'   },
 ]
 

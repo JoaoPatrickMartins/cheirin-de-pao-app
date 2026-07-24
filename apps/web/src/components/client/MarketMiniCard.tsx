@@ -169,7 +169,7 @@ function plusBadge(): React.CSSProperties {
     padding: '0 8px',
     borderRadius: 10,
     background: 'var(--color-espresso)',
-    color: 'var(--color-gold)',
+    color: '#fff',
     fontFamily: 'var(--font-body)',
     fontWeight: 800,
     display: 'inline-flex',

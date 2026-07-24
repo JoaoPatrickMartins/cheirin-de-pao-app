@@ -8,6 +8,8 @@ import { MarketRepository } from './market.repository.js'
 const AVULSO_KEY = 'avulsoUnit'
 const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
 const DEFAULT_MIN_CESTINHA = 15
+const PEDIDO_MINIMO_UNICO_KEY = 'pedidoMinimoUnico'
+const BREAD_PRODUCT_KEY = 'breadProductId'
 const WEEKDAY_PT: Record<string, string> = {
   seg: 'segunda', ter: 'terça', qua: 'quarta', qui: 'quinta', sex: 'sexta', sab: 'sábado', dom: 'domingo',
 }
@@ -59,9 +61,13 @@ export class MarketCheckoutService {
     const existing = await this.prisma.marketOrder.findUnique({ where: { idempotencyKey: input.idempotencyKey } })
     if (existing) return this.buildResult(existing)
 
-    // 2. Cestinha no servidor.
+    // 2. Cestinha no servidor. O produto-pão só existe como breadQty — nunca como item.
     const cart = await this.repo.getCart(userId)
-    const rawItems = (cart?.items ?? []).map((i) => ({ productId: i.productId, qty: Math.max(1, Math.min(99, i.qty)) }))
+    const breadRow = await this.repo.getSetting(BREAD_PRODUCT_KEY)
+    const breadProductId = breadRow?.value ?? null
+    const rawItems = (cart?.items ?? [])
+      .filter((i) => i.productId !== breadProductId)
+      .map((i) => ({ productId: i.productId, qty: Math.max(1, Math.min(99, i.qty)) }))
     const breadQty = Math.max(0, Math.min(100, cart?.breadQty ?? 0))
     if (rawItems.length === 0 && breadQty === 0) {
       throw { statusCode: 400, message: 'Sua Cestinha está vazia.' }
@@ -126,10 +132,19 @@ export class MarketCheckoutService {
       }
     }
 
-    // 9. Total (recalculado no servidor) + mínimo.
+    // 9. Total (recalculado no servidor) + mínimo (segue o pedido único p/ o pão).
     const productSubtotal = round2(lines.reduce((acc, l) => acc + l.product.price * l.qty, 0))
     const total = round2(productSubtotal + breadQty * avulsoUnit)
-    if (total < minimo) throw { statusCode: 422, message: `O pedido mínimo da Cestinha é ${fmtBRL(minimo)}.` }
+    const hasProducts = lines.length > 0
+    // Pão Francês: quantidade mínima herdada do pedido único (pedidoMinimoUnico).
+    const breadMin = Math.max(1, Math.floor(await this.getNumberSetting(PEDIDO_MINIMO_UNICO_KEY, 1)))
+    if (breadQty > 0 && breadQty < breadMin) {
+      throw { statusCode: 422, message: `O pedido mínimo de pães é ${breadMin === 1 ? '1 pão' : `${breadMin} pães`}.` }
+    }
+    // Mínimo em R$ da Cestinha só quando há produtos (carrinho só de pão é isento).
+    if (hasProducts && total < minimo) {
+      throw { statusCode: 422, message: `O pedido mínimo da Cestinha é ${fmtBRL(minimo)}.` }
+    }
 
     // 10. Split crédito × dinheiro (servidor é autoridade; cliente só sugere).
     const maxCredits = Math.floor(total / avulsoUnit)

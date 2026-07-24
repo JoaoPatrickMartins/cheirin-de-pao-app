@@ -43,6 +43,8 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
   const [dias, setDias] = useState<string[]>([]) // vazio = sempre
   const [restrito, setRestrito] = useState(false)
   const [ativo, setAtivo] = useState(true)
+  // Pão Francês (produto fixo): só apresentação é editável — preço/estoque/ativo/exclusão travados.
+  const [isBread, setIsBread] = useState(false)
 
   const [loading, setLoading] = useState(!!id)
   const [saving, setSaving] = useState(false)
@@ -87,6 +89,7 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
           setDias(d)
           setRestrito(d.length > 0)
           setAtivo(p.isActive)
+          setIsBread(!!p.isBread)
         }
       } catch {
         /* silencioso */
@@ -128,9 +131,10 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
   const toggleDia = (key: string) =>
     setDias((prev) => (prev.includes(key) ? prev.filter((d) => d !== key) : [...prev, key]))
 
-  const isValid =
-    nome.trim() !== '' && categoryId !== '' && precoNum > 0 && Number(stockValue) >= 0 &&
-    (!restrito || dias.length > 0)
+  const isValid = isBread
+    ? nome.trim() !== '' && categoryId !== '' && (!restrito || dias.length > 0)
+    : nome.trim() !== '' && categoryId !== '' && precoNum > 0 && Number(stockValue) >= 0 &&
+      (!restrito || dias.length > 0)
 
   const handleSave = async () => {
     setError(null)
@@ -138,17 +142,26 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
     try {
       const stockNum = Number(stockValue)
       const daysPayload = restrito ? dias : id ? null : undefined
-      const body = {
-        name: nome.trim(),
-        description: descricao.trim() ? descricao.trim() : id ? null : undefined,
-        categoryId,
-        price: precoNum,
-        photoUrl: photoUrl ?? (id ? null : undefined),
-        stockType,
-        ...(stockType === 'FIXED' ? { stock: stockNum } : { dailyCapacity: stockNum }),
-        availableDays: daysPayload,
-        isActive: ativo,
-      }
+      // Pão Francês: só apresentação (o backend ignora preço/estoque/ativo e força os valores fixos).
+      const body = isBread
+        ? {
+            name: nome.trim(),
+            description: descricao.trim() ? descricao.trim() : null,
+            categoryId,
+            photoUrl: photoUrl ?? null,
+            availableDays: daysPayload,
+          }
+        : {
+            name: nome.trim(),
+            description: descricao.trim() ? descricao.trim() : id ? null : undefined,
+            categoryId,
+            price: precoNum,
+            photoUrl: photoUrl ?? (id ? null : undefined),
+            stockType,
+            ...(stockType === 'FIXED' ? { stock: stockNum } : { dailyCapacity: stockNum }),
+            availableDays: daysPayload,
+            isActive: ativo,
+          }
       const res = await apiFetch(id ? `/admin/market/products/${id}` : '/admin/market/products', {
         method: id ? 'PATCH' : 'POST',
         body: JSON.stringify(body),
@@ -199,6 +212,16 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
           {id ? 'Editar produto' : 'Novo produto'}
         </h3>
       </div>
+
+      {isBread && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: 'var(--color-gold-soft)', borderRadius: 14, padding: '12px 14px' }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>🥖</span>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text)', margin: 0, lineHeight: 1.45 }}>
+            Item fixo da Cestinha. Você configura só a apresentação (foto, nome, descrição e dias).
+            O <strong>preço</strong> e o <strong>mínimo</strong> vêm da <strong>Compra personalizada</strong> (pedido único) — é o mesmo pão, em outro fluxo.
+          </p>
+        </div>
+      )}
 
       {/* Foto */}
       <div>
@@ -278,7 +301,20 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
         </div>
       </div>
 
-      {/* Preço + precificação ao vivo */}
+      {/* Preço — travado no avulso para o Pão Francês */}
+      {isBread ? (
+        <div>
+          <FieldLabel>Preço (R$)</FieldLabel>
+          <div style={{ background: 'var(--color-surface-2)', borderRadius: 14, padding: '12px 14px' }}>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+              {formatBRL(avulsoUnit)} <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: 'var(--color-text-ter)' }}>a unidade</span>
+            </p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '4px 0 0' }}>
+              Definido em Gestão → Compra personalizada (avulso).
+            </p>
+          </div>
+        </div>
+      ) : (
       <div>
         <TextField label="Preço (R$)" value={preco} onChange={setPreco} placeholder="Ex.: 12.00" type="number" step="0.01" />
         {paezinhos > 0 && (
@@ -295,23 +331,28 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
           </div>
         )}
       </div>
+      )}
 
-      {/* Tipo de estoque */}
-      <div>
-        <FieldLabel>Tipo de estoque</FieldLabel>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <SegBtn active={stockType === 'DAILY'} onClick={() => setStockType('DAILY')} title="Diário" sub="Reseta a cada dia" />
-          <SegBtn active={stockType === 'FIXED'} onClick={() => setStockType('FIXED')} title="Fixo" sub="Inventário total" />
-        </div>
-      </div>
+      {/* Tipo de estoque + quantidade — o Pão Francês é sempre disponível (oculto) */}
+      {!isBread && (
+        <>
+          <div>
+            <FieldLabel>Tipo de estoque</FieldLabel>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <SegBtn active={stockType === 'DAILY'} onClick={() => setStockType('DAILY')} title="Diário" sub="Reseta a cada dia" />
+              <SegBtn active={stockType === 'FIXED'} onClick={() => setStockType('FIXED')} title="Fixo" sub="Inventário total" />
+            </div>
+          </div>
 
-      <TextField
-        label={stockType === 'FIXED' ? 'Quantidade em estoque' : 'Capacidade por dia'}
-        value={stockValue}
-        onChange={setStockValue}
-        placeholder="Ex.: 18"
-        type="number"
-      />
+          <TextField
+            label={stockType === 'FIXED' ? 'Quantidade em estoque' : 'Capacidade por dia'}
+            value={stockValue}
+            onChange={setStockValue}
+            placeholder="Ex.: 18"
+            type="number"
+          />
+        </>
+      )}
 
       {/* Disponibilidade */}
       <div>
@@ -350,14 +391,16 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
         )}
       </div>
 
-      {/* Ativo */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-surface)', border: '1px solid var(--color-border-2)', borderRadius: 14, padding: '12px 14px' }}>
-        <div>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>Produto ativo</p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '1px 0 0' }}>Aparece no catálogo do cliente</p>
+      {/* Ativo — o Pão Francês fica sempre ativo (oculto) */}
+      {!isBread && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-surface)', border: '1px solid var(--color-border-2)', borderRadius: 14, padding: '12px 14px' }}>
+          <div>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>Produto ativo</p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '1px 0 0' }}>Aparece no catálogo do cliente</p>
+          </div>
+          <SwitchToggle on={ativo} onChange={() => setAtivo((v) => !v)} aria-label="Ativar produto" />
         </div>
-        <SwitchToggle on={ativo} onChange={() => setAtivo((v) => !v)} aria-label="Ativar produto" />
-      </div>
+      )}
 
       {error && (
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-accent)', margin: 0 }}>{error}</p>
@@ -385,7 +428,7 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
         {saving ? 'Salvando...' : id ? 'Salvar alterações' : 'Criar produto'}
       </button>
 
-      {id && (
+      {id && !isBread && (
         <button
           type="button"
           onClick={() => setConfirmDelete(true)}

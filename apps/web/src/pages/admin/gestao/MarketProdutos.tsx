@@ -25,6 +25,8 @@ export interface MarketProduct {
   isActive: boolean
   sortOrder?: number
   lowStock?: boolean
+  /** Produto fixo "Pão Francês" — preço/estoque travados, não excluível. */
+  isBread?: boolean
 }
 
 function formatBRL(v: number): string {

@@ -2,8 +2,12 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useMarketCatalog } from '../../hooks/useMarketCatalog'
 import { ProdCard } from '../../components/client/ProdCard'
+import { BreadCard } from '../../components/client/BreadCard'
 import { CartButton } from '../../components/client/CartButton'
 import { Icon } from '../../components/brand/Icon'
+
+// Termos que fazem o card do Pão Francês aparecer na busca.
+const BREAD_TERMS = 'pão francês pao frances pães paes pao padaria'
 
 /**
  * MarketCatalog — catálogo do mini market "Além do Pãozin" (aba Cestinha).
@@ -21,14 +25,31 @@ export function MarketCatalog() {
   const emojiOf = (categoryId: string) =>
     categories.find((c) => c.id === categoryId)?.emoji ?? null
 
+  const categoryNameOf = (categoryId: string) =>
+    categories.find((c) => c.id === categoryId)?.name ?? null
+
+  // Pão Francês vem no catálogo como produto (isBread), mas é renderizado à parte (BreadCard,
+  // ligado ao breadQty) e não entra na grade normal de ProdCards.
+  const breadProduct = useMemo(() => products.find((p) => p.isBread) ?? null, [products])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return products.filter((p) => {
+      if (p.isBread) return false
       if (activeCat !== 'all' && p.categoryId !== activeCat) return false
       if (q && !p.name.toLowerCase().includes(q)) return false
       return true
     })
   }, [products, activeCat, query])
+
+  // Card fixo do Pão Francês: aparece em "Tudo" e na sua categoria, respeitando a busca,
+  // e só quando há preço (avulsoUnit > 0).
+  const showBread = useMemo(() => {
+    if (!breadProduct || !(avulsoUnit > 0)) return false
+    if (activeCat !== 'all' && activeCat !== breadProduct.categoryId) return false
+    const q = query.trim().toLowerCase()
+    return !q || breadProduct.name.toLowerCase().includes(q) || BREAD_TERMS.includes(q)
+  }, [breadProduct, avulsoUnit, activeCat, query])
 
   return (
     <div style={{ background: 'var(--color-app-bg)', minHeight: 'calc(100dvh - 56px)', paddingBottom: 24 }}>
@@ -167,23 +188,33 @@ export function MarketCatalog() {
             subtitle={error}
             action={{ label: 'Tentar novamente', onClick: reload }}
           />
-        ) : products.length === 0 ? (
+        ) : products.length === 0 && !showBread ? (
           <EmptyState
             title="Em breve por aqui"
             subtitle="O Além do Pãozin ainda não tem produtos. Volte logo!"
           />
-        ) : filtered.length === 0 ? (
+        ) : filtered.length === 0 && !showBread ? (
           <EmptyState
             title="Nada encontrado"
             subtitle={query ? `Nenhum produto para "${query.trim()}".` : 'Nenhum produto nesta categoria.'}
           />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {showBread && breadProduct && (
+              <BreadCard
+                product={breadProduct}
+                categoryName={categoryNameOf(breadProduct.categoryId)}
+                emoji={emojiOf(breadProduct.categoryId)}
+                avulsoUnit={avulsoUnit}
+                economyPercent={maxEconomyPercent}
+              />
+            )}
             {filtered.map((p) => (
               <ProdCard
                 key={p.id}
                 product={p}
                 emoji={emojiOf(p.categoryId)}
+                categoryName={categoryNameOf(p.categoryId)}
                 avulsoUnit={avulsoUnit}
                 economyPercent={maxEconomyPercent}
                 onOpen={() => navigate(`/client/market/produto/${p.id}`)}

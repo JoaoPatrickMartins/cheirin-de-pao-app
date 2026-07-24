@@ -13,6 +13,7 @@ import type { SetStockBody } from './admin-market.schema.js'
 const LOW_STOCK_THRESHOLD = 5
 const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
 const DEFAULT_MIN_CESTINHA = 15
+const BREAD_PRODUCT_KEY = 'breadProductId'
 
 type ProductRow = Awaited<ReturnType<AdminMarketRepository['findProduct']>>
 
@@ -35,16 +36,22 @@ export class AdminMarketService {
     return { ...p, lowStock: this.isLowStock(p) }
   }
 
+  /** Id do produto FIXO "Pão Francês" (marcado por Setting) — ou null se ainda não semeado. */
+  private async getBreadProductId(): Promise<string | null> {
+    const s = await this.repo.getSetting(BREAD_PRODUCT_KEY)
+    return s?.value ?? null
+  }
+
   // ── Produtos ──
   async listProducts() {
-    const products = await this.repo.listProducts()
-    return products.map((p) => this.withFlags(p))
+    const [products, breadId] = await Promise.all([this.repo.listProducts(), this.getBreadProductId()])
+    return products.map((p) => ({ ...this.withFlags(p), isBread: p.id === breadId }))
   }
 
   async getProduct(id: string) {
-    const p = await this.repo.findProduct(id)
+    const [p, breadId] = await Promise.all([this.repo.findProduct(id), this.getBreadProductId()])
     if (!p) throw { statusCode: 404, message: 'Produto não encontrado' }
-    return this.withFlags(p)
+    return { ...this.withFlags(p), isBread: p.id === breadId }
   }
 
   async createProduct(input: CreateProductInput) {
@@ -75,6 +82,23 @@ export class AdminMarketService {
     if (input.categoryId) {
       const cat = await this.repo.findCategory(input.categoryId)
       if (!cat) throw { statusCode: 400, message: 'Categoria inválida' }
+    }
+
+    // Pão Francês (fixo): só apresentação é editável. Preço vem sempre do avulso (o catálogo
+    // sobrescreve), estoque é sempre disponível (DAILY) e o produto permanece ativo.
+    const breadId = await this.getBreadProductId()
+    if (id === breadId) {
+      const breadData: Prisma.ProductUncheckedUpdateInput = {
+        name: input.name,
+        description: input.description,
+        categoryId: input.categoryId,
+        photoUrl: input.photoUrl,
+        isActive: true,
+      }
+      if (input.availableDays !== undefined) {
+        breadData.availableDays = (input.availableDays ?? []) as Prisma.InputJsonValue
+      }
+      return this.repo.updateProduct(id, breadData)
     }
 
     const data: Prisma.ProductUncheckedUpdateInput = {
@@ -112,6 +136,10 @@ export class AdminMarketService {
   async removeProduct(id: string) {
     const existing = await this.repo.findProduct(id)
     if (!existing) throw { statusCode: 404, message: 'Produto não encontrado' }
+    const breadId = await this.getBreadProductId()
+    if (id === breadId) {
+      throw { statusCode: 409, message: 'O Pão Francês é um item fixo da Cestinha e não pode ser excluído.' }
+    }
     return this.repo.deleteProduct(id)
   }
 

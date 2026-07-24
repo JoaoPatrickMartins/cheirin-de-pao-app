@@ -7,22 +7,26 @@ interface ProdCardProps {
   product: MarketProduct
   /** Emoji da categoria (fallback de foto). */
   emoji?: string | null
+  /** Nome da categoria (rótulo em CAIXA ALTA acima do nome). */
+  categoryName?: string | null
   avulsoUnit: number
-  /** Maior economia % dos combos ativos — selo "🥖 −X%". 0 = sem selo. */
+  /** Maior economia % dos combos ativos — selo "−X%". 0 = sem selo. */
   economyPercent: number
   onOpen: () => void
 }
 
 /**
- * ProdCard — card do grid do catálogo (2 colunas). Tocar no corpo abre o detalhe;
- * o controle de adicionar (+ / stepper) fica isolado (stopPropagation). Estados:
- * esgotado (esmaecido, sem add) e "Últimas" (estoque fixo baixo).
+ * ProdCard — card do grid do catálogo (2 colunas), no layout do design: selo de desconto
+ * sobre a foto, rótulo da categoria, preço "à vista", faixa "🥖 N pães · −X%" e, no rodapé,
+ * o botão "Adicionar" (largura total) ou o stepper "− N +". Tocar no corpo abre o detalhe;
+ * o rodapé de adicionar fica isolado (stopPropagation). Estados: esgotado e "Últimas".
  */
-export function ProdCard({ product, emoji, avulsoUnit, economyPercent, onOpen }: ProdCardProps) {
+export function ProdCard({ product, emoji, categoryName, avulsoUnit, economyPercent, onOpen }: ProdCardProps) {
   const { qtyOf, addProduct, setQty } = useCart()
   const qty = qtyOf(product.id)
   const paes = paezinhosDe(product.price, avulsoUnit)
-  const showEconomy = economyPercent > 0
+  const showEconomy = economyPercent > 0 && !product.soldOut
+  const pct = Math.round(economyPercent)
 
   const stop = (e: React.MouseEvent) => e.stopPropagation()
 
@@ -42,7 +46,7 @@ export function ProdCard({ product, emoji, avulsoUnit, economyPercent, onOpen }:
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 9,
         padding: 10,
         background: 'var(--color-surface)',
         border: '1px solid var(--color-border-2)',
@@ -58,25 +62,43 @@ export function ProdCard({ product, emoji, avulsoUnit, economyPercent, onOpen }:
           tintSeed={product.categoryId}
           alt={product.name}
           radius={12}
+          height={104}
           emojiSize={38}
           dimmed={product.soldOut}
         />
-        {/* Estado de estoque no canto superior esquerdo */}
+        {/* Estado de estoque no canto superior direito */}
         {product.soldOut ? (
-          <span style={badgeStyle('var(--color-text-sec)', '#fff', 'left')}>Esgotado</span>
+          <span style={cornerBadge('var(--color-text-sec)', '#fff')}>Esgotado</span>
         ) : product.limited ? (
-          <span style={badgeStyle('var(--color-gold)', 'var(--color-espresso)', 'left')}>Últimas</span>
+          <span style={cornerBadge('var(--color-gold)', 'var(--color-espresso)')}>Últimas</span>
         ) : null}
-        {/* Selo de economia no canto superior direito */}
-        {showEconomy && !product.soldOut && (
-          <span style={badgeStyle('var(--color-good)', '#fff', 'right')}>🥖 −{Math.round(economyPercent)}%</span>
-        )}
       </div>
 
+      {/* Rótulo da categoria */}
+      {categoryName && (
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 10,
+            fontWeight: 700,
+            color: 'var(--color-text-ter)',
+            letterSpacing: '0.07em',
+            textTransform: 'uppercase',
+            margin: 0,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {categoryName}
+        </p>
+      )}
+
+      {/* Nome (até 2 linhas) */}
       <p
         style={{
           fontFamily: 'var(--font-body)',
-          fontSize: 13.5,
+          fontSize: 14,
           fontWeight: 700,
           color: 'var(--color-text)',
           margin: 0,
@@ -85,84 +107,93 @@ export function ProdCard({ product, emoji, avulsoUnit, economyPercent, onOpen }:
           WebkitLineClamp: 2,
           WebkitBoxOrient: 'vertical',
           overflow: 'hidden',
-          minHeight: 34,
+          minHeight: 35,
         }}
       >
         {product.name}
       </p>
 
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 6 }}>
-        <div style={{ minWidth: 0 }}>
-          <p
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: 16,
-              fontWeight: 700,
-              color: 'var(--color-text)',
-              letterSpacing: '-0.01em',
-              margin: 0,
-            }}
-          >
-            {formatBRL(product.price)}
-          </p>
-          {paes > 0 && (
-            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '1px 0 0' }}>
-              ou {paes} 🥖
-            </p>
+      {/* Preço à vista */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
+          {formatBRL(product.price)}
+        </span>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: 'var(--color-text-ter)' }}>à vista</span>
+      </div>
+
+      {/* Faixa: pague com pãezinhos (N pães · −X%) */}
+      {paes > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 6,
+            background: 'var(--color-gold-soft)',
+            borderRadius: 10,
+            padding: '5px 9px',
+          }}
+        >
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-accent)' }}>
+            🥖 {paes} {paes === 1 ? 'pão' : 'pães'}
+          </span>
+          {showEconomy && (
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 800, color: 'var(--color-accent)' }}>
+              −{pct}%
+            </span>
           )}
         </div>
+      )}
 
-        {/* Controle de adicionar (isolado do clique do card) */}
-        {product.soldOut ? null : qty > 0 ? (
-          <div onClick={stop} style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <RoundBtn label="Diminuir" onClick={() => setQty(product.id, qty - 1)} variant="ghost">
-              <Icon name="minus" size={15} color="var(--color-espresso)" stroke={2.4} />
-            </RoundBtn>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-accent)', minWidth: 14, textAlign: 'center' }}>
-              {qty}
-            </span>
-            <RoundBtn label="Aumentar" onClick={() => addProduct(product, 1)} variant="solid">
-              <Icon name="plus" size={15} color="var(--color-gold)" stroke={2.4} />
-            </RoundBtn>
-          </div>
-        ) : (
-          <div onClick={stop} style={{ flexShrink: 0 }}>
-            <RoundBtn label={`Adicionar ${product.name}`} onClick={() => addProduct(product, 1)} variant="solid">
-              <Icon name="plus" size={17} color="var(--color-gold)" stroke={2.4} />
-            </RoundBtn>
-          </div>
-        )}
-      </div>
+      {/* Rodapé: adicionar (largura total) — isolado do clique do card */}
+      {product.soldOut ? (
+        <div style={soldOutFooter()}>Indisponível</div>
+      ) : qty > 0 ? (
+        <div onClick={stop} style={stepperBox()}>
+          <StepBtn label="Diminuir" onClick={() => setQty(product.id, qty - 1)}>
+            <Icon name="minus" size={16} color="#fff" stroke={2.4} />
+          </StepBtn>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#fff', minWidth: 20, textAlign: 'center' }}>
+            {qty}
+          </span>
+          <StepBtn label="Aumentar" onClick={() => addProduct(product, 1)}>
+            <Icon name="plus" size={16} color="#fff" stroke={2.4} />
+          </StepBtn>
+        </div>
+      ) : (
+        <button
+          type="button"
+          aria-label={`Adicionar ${product.name}`}
+          onClick={(e) => {
+            stop(e)
+            addProduct(product, 1)
+          }}
+          style={addButton()}
+        >
+          <Icon name="plus" size={16} color="#fff" stroke={2.4} />
+          Adicionar
+        </button>
+      )}
     </div>
   )
 }
 
-function RoundBtn({
-  children,
-  onClick,
-  label,
-  variant,
-}: {
-  children: React.ReactNode
-  onClick: () => void
-  label: string
-  variant: 'solid' | 'ghost'
-}) {
+function StepBtn({ children, onClick, label }: { children: React.ReactNode; onClick: () => void; label: string }) {
   return (
     <button
       type="button"
       aria-label={label}
       onClick={onClick}
       style={{
-        width: 30,
-        height: 30,
-        borderRadius: 10,
+        width: 34,
+        height: 34,
+        borderRadius: 9,
         display: 'grid',
         placeItems: 'center',
         cursor: 'pointer',
         flexShrink: 0,
-        border: variant === 'solid' ? 'none' : '1.5px solid var(--color-border)',
-        background: variant === 'solid' ? 'var(--color-espresso)' : 'var(--color-surface)',
+        border: 'none',
+        background: 'transparent',
       }}
     >
       {children}
@@ -170,12 +201,60 @@ function RoundBtn({
   )
 }
 
-function badgeStyle(bg: string, color: string, side: 'left' | 'right'): React.CSSProperties {
+function addButton(): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    width: '100%',
+    height: 40,
+    borderRadius: 12,
+    border: 'none',
+    background: 'var(--color-espresso)',
+    color: '#fff',
+    fontFamily: 'var(--font-body)',
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+  }
+}
+
+function stepperBox(): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    width: '100%',
+    height: 40,
+    padding: '0 3px',
+    borderRadius: 12,
+    border: 'none',
+    background: 'var(--color-espresso)',
+  }
+}
+
+function soldOutFooter(): React.CSSProperties {
+  return {
+    display: 'grid',
+    placeItems: 'center',
+    width: '100%',
+    height: 40,
+    borderRadius: 12,
+    background: 'var(--color-surface-2)',
+    color: 'var(--color-text-ter)',
+    fontFamily: 'var(--font-body)',
+    fontSize: 13,
+    fontWeight: 700,
+  }
+}
+
+function cornerBadge(bg: string, color: string): React.CSSProperties {
   return {
     position: 'absolute',
     top: 6,
-    left: side === 'left' ? 6 : undefined,
-    right: side === 'right' ? 6 : undefined,
+    right: 6,
     background: bg,
     color,
     fontFamily: 'var(--font-body)',
@@ -184,5 +263,6 @@ function badgeStyle(bg: string, color: string, side: 'left' | 'right'): React.CS
     borderRadius: 999,
     padding: '3px 8px',
     letterSpacing: '0.01em',
+    zIndex: 2,
   }
 }

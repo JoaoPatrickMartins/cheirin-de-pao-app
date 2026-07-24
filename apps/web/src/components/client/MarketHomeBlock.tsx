@@ -28,14 +28,16 @@ export function MarketHomeBlock() {
     )
   }
 
-  // Sem produtos ativos → não renderiza o bloco.
-  if (products.length === 0) return null
+  // O Pão Francês tem UI própria (Avulso/pedido único) e vive só na aba Cestinha — fora da faixa.
+  const visible = products.filter((p) => !p.isBread)
+  // Sem produtos (afora o pão) → não renderiza o bloco.
+  if (visible.length === 0) return null
 
   const emojiOf = (categoryId: string) =>
     categories.find((c) => c.id === categoryId)?.emoji ?? null
 
   // Disponíveis primeiro; até 6 na faixa de destaque.
-  const featured = [...products]
+  const featured = [...visible]
     .sort((a, b) => Number(a.soldOut) - Number(b.soldOut))
     .slice(0, 6)
 
