@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useMarketCatalog } from '../../hooks/useMarketCatalog'
 import { ProdCard } from '../../components/client/ProdCard'
@@ -21,6 +21,38 @@ export function MarketCatalog() {
 
   const [activeCat, setActiveCat] = useState<string>('all')
   const [query, setQuery] = useState('')
+
+  // Drag-to-scroll (mouse) na barra de categorias — rola arrastando, sem scrollbar visível.
+  // No touch, o swipe nativo cuida da rolagem (só sequestramos o mouse).
+  const chipsRef = useRef<HTMLDivElement>(null)
+  const chipDrag = useRef({ down: false, moved: false, startX: 0, startLeft: 0 })
+
+  const onChipsPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return
+    const el = chipsRef.current
+    if (!el) return
+    chipDrag.current = { down: true, moved: false, startX: e.clientX, startLeft: el.scrollLeft }
+    el.style.cursor = 'grabbing'
+  }
+  const onChipsPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = chipsRef.current
+    if (!el || !chipDrag.current.down) return
+    const dx = e.clientX - chipDrag.current.startX
+    if (Math.abs(dx) > 4) chipDrag.current.moved = true
+    el.scrollLeft = chipDrag.current.startLeft - dx
+  }
+  const endChipsDrag = () => {
+    chipDrag.current.down = false
+    if (chipsRef.current) chipsRef.current.style.cursor = 'grab'
+  }
+  // Se houve arraste, cancela o clique que borbulharia para o chip (não troca de categoria).
+  const onChipsClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (chipDrag.current.moved) {
+      e.stopPropagation()
+      e.preventDefault()
+      chipDrag.current.moved = false
+    }
+  }
 
   const emojiOf = (categoryId: string) =>
     categories.find((c) => c.id === categoryId)?.emoji ?? null
@@ -159,8 +191,24 @@ export function MarketCatalog() {
       {/* Chips de categoria */}
       {categories.length > 0 && (
         <div
-          className="cdp-carousel"
-          style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '14px 20px 2px', scrollSnapType: 'x proximity' }}
+          ref={chipsRef}
+          className="cdp-chips"
+          onPointerDown={onChipsPointerDown}
+          onPointerMove={onChipsPointerMove}
+          onPointerUp={endChipsDrag}
+          onPointerLeave={endChipsDrag}
+          onClickCapture={onChipsClickCapture}
+          style={{
+            display: 'flex',
+            flexWrap: 'nowrap',
+            gap: 8,
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            padding: '14px 20px 2px',
+            cursor: 'grab',
+            userSelect: 'none',
+            WebkitOverflowScrolling: 'touch',
+          }}
         >
           <CatChip label="Tudo" active={activeCat === 'all'} onClick={() => setActiveCat('all')} />
           {categories.map((c) => (
