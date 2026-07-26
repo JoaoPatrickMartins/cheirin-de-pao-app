@@ -108,6 +108,15 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     create: { key: 'marketMinimoCestinha', value: '15.00' },
   })
 
+  // Valor mínimo (R$) da parte EM DINHEIRO para liberar cartão de crédito na Cestinha; abaixo
+  // disso só Pix. default '0' = cartão sempre liberado (regra desligada). Admin ajusta em
+  // Gestão → Além do Pãozin.
+  await prisma.setting.upsert({
+    where: { key: 'marketCartaoMinimo' },
+    update: {},
+    create: { key: 'marketCartaoMinimo', value: '0' },
+  })
+
   // Categorias padrão do mini market — criadas apenas quando NÃO há nenhuma categoria.
   // O admin pode criar/editar/excluir depois (CRUD /admin/market/categories).
   const categoriesCount = await prisma.productCategory.count()

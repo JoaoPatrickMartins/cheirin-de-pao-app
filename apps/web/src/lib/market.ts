@@ -35,6 +35,10 @@ export interface MarketProduct {
   soldOut: boolean
   /** Estoque FIXO baixo — selo "Últimas". */
   limited: boolean
+  /** Tipo de estoque: 'DAILY' (capacidade por dia) ou 'FIXED' (inventário total). */
+  stockType?: 'DAILY' | 'FIXED'
+  /** Teto de quantidade por pedido (DAILY = capacidade/dia; FIXED = estoque). null = sem teto (pão). */
+  maxQty?: number | null
   /** Pão Francês (produto fixo) — compra via breadQty, preço = avulso, mínimo do pedido único. */
   isBread?: boolean
 }
@@ -54,6 +58,10 @@ export interface CartLine {
   categoryId: string
   lineTotal: number
   soldOut: boolean
+  /** Teto por pedido (capacidade diária / estoque) — limita o stepper na Cestinha. */
+  maxQty?: number
+  /** Tipo de estoque — só para o rótulo "máx N/dia" (DAILY). */
+  stockType?: 'DAILY' | 'FIXED'
 }
 
 export interface CartView {
@@ -69,6 +77,8 @@ export interface CartView {
   minimo: number
   /** Mínimo em QUANTIDADE de pães (Pão Francês), herdado do pedido único. */
   breadMin: number
+  /** Mínimo (R$) da parte em dinheiro para liberar cartão de crédito; 0 = sempre liberado. */
+  cartaoMinimo: number
   meetsMinimum: boolean
 }
 
@@ -83,6 +93,7 @@ export function emptyCart(): CartView {
     avulsoUnit: 0,
     minimo: 0,
     breadMin: 1,
+    cartaoMinimo: 0,
     meetsMinimum: false,
   }
 }

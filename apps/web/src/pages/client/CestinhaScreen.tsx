@@ -85,13 +85,18 @@ export function CestinhaScreen() {
                 🥖
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                  {PAO_FRANCES.name}
-                </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.25 }}>
+                    {PAO_FRANCES.name}
+                  </p>
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                    {formatBRL(breadValue)}
+                  </span>
+                </div>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-                  {cart.breadQty} {cart.breadQty === 1 ? 'pão' : 'pães'} · {formatBRL(breadValue)}
+                  {formatBRL(cart.avulsoUnit)} · pão
                 </p>
-                <div style={{ marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
                   {/* Mesmo mínimo do pedido único: abaixo do piso, remove (0 ou ≥ mínimo). */}
                   <StepperInline
                     min={0}
@@ -99,6 +104,13 @@ export function CestinhaScreen() {
                     value={cart.breadQty}
                     onChange={(v) => setBreadQty(v < cart.breadMin ? 0 : v)}
                   />
+                  <button
+                    onClick={() => setBreadQty(0)}
+                    aria-label={`Remover ${PAO_FRANCES.name}`}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0, display: 'grid', placeItems: 'center' }}
+                  >
+                    <Icon name="trash" size={18} color="var(--color-text-ter)" stroke={1.9} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -228,13 +240,18 @@ function CartItemRow({
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
           {formatBRL(line.price)} · un
         </p>
+        {line.stockType === 'DAILY' && line.maxQty != null && line.maxQty < 99 && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+            máx {line.maxQty}/dia
+          </p>
+        )}
         {line.soldOut && (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-accent)', margin: '3px 0 0' }}>
             Esgotado — remova para continuar
           </p>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
-          <StepperInline min={1} max={99} value={line.qty} onChange={onQty} />
+          <StepperInline min={1} max={line.maxQty ?? 99} value={line.qty} onChange={onQty} />
           <button
             onClick={onRemove}
             aria-label={`Remover ${line.name}`}

@@ -14,8 +14,9 @@ export const SetStockSchema = z
   })
 export type SetStockBody = z.infer<typeof SetStockSchema>
 
-// Config do mini market — mínimo da Cestinha (R$).
+// Config do mini market — mínimo da Cestinha (R$) e mínimo p/ liberar cartão (R$; 0 = sempre).
 export const SetMarketConfigSchema = z.object({
   minimo: z.number().min(0),
+  cartaoMinimo: z.number().min(0).optional(),
 })
 export type SetMarketConfigBody = z.infer<typeof SetMarketConfigSchema>

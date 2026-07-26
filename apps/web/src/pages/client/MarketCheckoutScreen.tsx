@@ -74,11 +74,18 @@ export function MarketCheckoutScreen() {
   const creditValue = round2(credits * avulso)
   const moneyAmount = round2(subtotal - creditValue)
 
+  // Política de cartão do admin: abaixo do mínimo (parte EM DINHEIRO), só Pix é permitido.
+  const cartaoMinimo = cart.cartaoMinimo ?? 0
+  const cardBlocked = moneyAmount > 0 && cartaoMinimo > 0 && moneyAmount < cartaoMinimo
+
   // ── Entrega (slots + corte) ──
   const [slots, setSlots] = useState<DeliverySlot[]>([])
   const [slotsLoaded, setSlotsLoaded] = useState(false)
   const [dateStr, setDateStr] = useState<string>(() => brtDateStr(new Date(), 1))
   const [slotId, setSlotId] = useState<string | null>(null)
+  // Disponibilidade por data (dia bloqueado ou limite atingido) — MESMA fonte do pedido único
+  // (GET /orders/availability), pra Cestinha exibir CHEIO/bloqueado igual à agenda e ao pão.
+  const [availability, setAvailability] = useState<Record<string, { blocked: boolean; full: boolean }>>({})
 
   useEffect(() => {
     apiFetch('/client/condominium/slots')
@@ -88,21 +95,40 @@ export function MarketCheckoutScreen() {
       .finally(() => setSlotsLoaded(true))
   }, [])
 
+  useEffect(() => {
+    apiFetch('/orders/availability?days=8')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { availability?: Array<{ date: string; blocked: boolean; full: boolean }> } | null) => {
+        if (!data?.availability) return
+        const map: Record<string, { blocked: boolean; full: boolean }> = {}
+        for (const a of data.availability) map[a.date] = { blocked: a.blocked, full: a.full }
+        setAvailability(map)
+      })
+      .catch(() => {})
+  }, [])
+
   const now = new Date()
   const slotOpen = (s: DeliverySlot, date: string) => !isPastCutoffForDelivery(s.time, s.cutoffTime, date, now)
   const dateHasOpenSlot = (date: string) => slots.some((s) => slotOpen(s, date))
+  // Indisponível quando o dia da semana está bloqueado OU o limite foi atingido (sem carona) —
+  // além do corte de slot. Antes de a disponibilidade carregar, cai no comportamento por slot.
+  const dateBlockedOrFull = (date: string) => {
+    const info = availability[date]
+    return !!(info && (info.blocked || info.full))
+  }
+  const dateAvailable = (date: string) => !dateBlockedOrFull(date) && dateHasOpenSlot(date)
 
-  // Régua: hoje..+7; habilita a data só se tiver algum slot aberto.
+  // Régua: hoje..+7; habilita a data só se tiver slot aberto e não estiver bloqueada/cheia.
   const stripDates = useMemo(() => Array.from({ length: 8 }, (_, i) => brtDateStr(now, i)), [slotsLoaded])
-  // Default: primeira data com slot aberto (>= amanhã se hoje já fechou).
+  // Default: primeira data disponível (>= amanhã se hoje já fechou; pula bloqueadas/cheias).
   useEffect(() => {
     if (!slotsLoaded) return
-    if (!dateHasOpenSlot(dateStr)) {
-      const firstOk = stripDates.find(dateHasOpenSlot)
+    if (!dateAvailable(dateStr)) {
+      const firstOk = stripDates.find(dateAvailable)
       if (firstOk) setDateStr(firstOk)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slotsLoaded])
+  }, [slotsLoaded, availability])
 
   const slotsForDate = slots.map((s) => ({ s, open: slotOpen(s, dateStr) }))
   // Auto-seleciona quando só há 1 slot aberto; limpa seleção inválida ao trocar data.
@@ -138,6 +164,11 @@ export function MarketCheckoutScreen() {
       })
       .catch(() => {})
   }, [])
+
+  // Abaixo do mínimo de cartão (admin), força Pix — inclusive quando um cartão salvo pré-selecionou.
+  useEffect(() => {
+    if (cardBlocked && method === 'card') setMethod('pix')
+  }, [cardBlocked, method])
 
   // ── Aviso suave saldo × agenda ──
   const weeklyNeed = Object.values(dailyQty ?? {}).reduce((a, v) => a + (v || 0), 0)
@@ -297,8 +328,13 @@ export function MarketCheckoutScreen() {
         <Section title="Quando chega">
           <div className="cdp-carousel" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
             {stripDates.map((d) => {
-              const enabled = !slotsLoaded || dateHasOpenSlot(d)
+              const info = availability[d]
+              const blocked = !!info?.blocked
+              const full = !!info?.full
+              const enabled = !slotsLoaded || dateAvailable(d)
               const active = d === dateStr
+              // Rótulo inferior: motivo da indisponibilidade tem prioridade sobre o mês (igual ao pedido único).
+              const bottomLabel = blocked ? '—' : full ? 'CHEIO' : MONTHS[parseDate(d).getMonth()]
               return (
                 <button
                   key={d}
@@ -309,11 +345,11 @@ export function MarketCheckoutScreen() {
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: active ? 'var(--color-accent)' : 'var(--color-text-ter)' }}>
                     {d === brtDateStr(now, 0) ? 'Hoje' : d === brtDateStr(now, 1) ? 'Amanhã' : WEEKDAY[parseDate(d).getDay()]}
                   </span>
-                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: active ? 'var(--color-accent)' : 'var(--color-text)' }}>
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: active ? 'var(--color-accent)' : blocked || full ? 'var(--color-text-ter)' : 'var(--color-text)', textDecoration: blocked ? 'line-through' : 'none' }}>
                     {parseDate(d).getDate()}
                   </span>
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: 9.5, textTransform: 'uppercase', color: 'var(--color-text-ter)' }}>
-                    {MONTHS[parseDate(d).getMonth()]}
+                    {bottomLabel}
                   </span>
                 </button>
               )
@@ -400,13 +436,18 @@ export function MarketCheckoutScreen() {
         {/* Forma de pagamento (só quando sobra dinheiro) */}
         {moneyAmount > 0 && (
           <Section title="Como pagar o dinheiro">
-            <div style={{ display: 'flex', gap: 8, marginBottom: method === 'card' ? 10 : 0 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: method === 'card' && !cardBlocked ? 10 : 0 }}>
               <MethodBtn active={method === 'pix'} onClick={() => setMethod('pix')} label="Pix" />
-              <MethodBtn active={method === 'card'} onClick={() => setMethod('card')} label="Cartão" />
+              {cardBlocked ? (
+                <LockedMethod label="Cartão" />
+              ) : (
+                <MethodBtn active={method === 'card'} onClick={() => setMethod('card')} label="Cartão" />
+              )}
             </div>
+            {cardBlocked && <CardLockNote minimo={cartaoMinimo} />}
 
             {/* Cartão selecionado — toca para escolher/adicionar (abre o sheet, sem esticar a tela) */}
-            {method === 'card' && (
+            {method === 'card' && !cardBlocked && (
               <button
                 onClick={() => { setAddCardOpen(savedCards.length === 0); setCardSheetOpen(true) }}
                 aria-label={selectedCard ? 'Trocar cartão' : 'Adicionar cartão'}
@@ -909,11 +950,53 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function RowBetween({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>{children}</div>
 }
-function MethodBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+function MethodBtn({ active, onClick, label, disabled = false }: { active: boolean; onClick: () => void; label: string; disabled?: boolean }) {
   return (
-    <button onClick={onClick} style={{ flex: 1, minHeight: 44, borderRadius: 'var(--radius-btn)', border: active ? '1.5px solid var(--color-accent)' : '1.5px solid var(--color-border)', background: active ? 'var(--color-surface)' : 'transparent', color: active ? 'var(--color-accent)' : 'var(--color-text-sec)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+    <button onClick={onClick} disabled={disabled} style={{ flex: 1, minHeight: 44, borderRadius: 'var(--radius-btn)', border: active ? '1.5px solid var(--color-accent)' : '1.5px solid var(--color-border)', background: active ? 'var(--color-surface)' : 'transparent', color: active ? 'var(--color-accent)' : 'var(--color-text-sec)', fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.45 : 1 }}>
       {label}
     </button>
+  )
+}
+
+/** Cartão bloqueado pela política de valor mínimo (admin): visual de "cadeado", não de erro. */
+function LockedMethod({ label }: { label: string }) {
+  return (
+    <div
+      aria-disabled="true"
+      style={{
+        flex: 1,
+        minHeight: 44,
+        borderRadius: 'var(--radius-btn)',
+        border: '1.5px solid var(--color-border)',
+        background: 'var(--color-surface-2)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+      }}
+    >
+      <Icon name="lock" size={13} color="var(--color-text-ter)" stroke={2.2} />
+      <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: 'var(--color-text-ter)' }}>{label}</span>
+    </div>
+  )
+}
+
+/** Aviso (on-brand) do porquê do cartão estar bloqueado + enquadramento positivo do Pix. */
+function CardLockNote({ minimo }: { minimo: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 11, background: 'var(--color-gold-soft)', borderRadius: 14, padding: '11px 13px', marginTop: 10 }}>
+      <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--color-surface)', display: 'grid', placeItems: 'center', flexShrink: 0, boxShadow: 'var(--shadow-soft)' }}>
+        <Icon name="lock" size={16} color="var(--color-accent)" stroke={2} />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.3 }}>
+          Cartão a partir de {formatBRL(minimo)}
+        </p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-sec)', margin: '2px 0 0', lineHeight: 1.35 }}>
+          Pra valores menores, a diferença vai no Pix — cai na hora.
+        </p>
+      </div>
+    </div>
   )
 }
 function StatusBox({ tone, text, ctaLabel, onCta }: { tone: 'bad' | 'warn'; text: string; ctaLabel: string; onCta: () => void }) {

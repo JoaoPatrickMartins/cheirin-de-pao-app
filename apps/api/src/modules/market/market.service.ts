@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import type { UpdateCartInput } from '@cheirin-de-pao/shared'
+import { MARKET_CARTAO_MIN_KEY, parseCartaoMinimo } from '../../lib/market-card-policy.js'
 import { MarketRepository } from './market.repository.js'
 
 // Abaixo disso, um produto FIXO exibe "Últimas unidades" no catálogo.
@@ -20,6 +21,10 @@ export interface CartLineView {
   categoryId: string
   lineTotal: number
   soldOut: boolean
+  /** Teto por pedido (DAILY = capacidade/dia; FIXED = estoque). O front limita o stepper por isso. */
+  maxQty: number
+  /** Tipo de estoque — só para o rótulo do teto ("máx N/dia" no DAILY). */
+  stockType: 'DAILY' | 'FIXED'
 }
 
 export interface CartView {
@@ -35,6 +40,8 @@ export interface CartView {
   minimo: number
   /** Mínimo em QUANTIDADE de pães (Pão Francês), herdado do pedido único (pedidoMinimoUnico). */
   breadMin: number
+  /** Mínimo (R$) da parte em dinheiro para liberar cartão de crédito; 0 = sempre liberado. */
+  cartaoMinimo: number
   meetsMinimum: boolean
 }
 
@@ -69,7 +76,11 @@ export class MarketService {
       })),
       products: products.map((p) => {
         const isBread = p.id === breadId
-        const soldOut = p.stockType === 'FIXED' && p.stock != null && p.stock <= 0
+        // Teto por pedido: FIXED = estoque atual; DAILY = capacidade por dia. Um único pedido
+        // nunca pode passar do teto (independe da data), então o front limita o stepper por ele.
+        const maxQty = p.stockType === 'FIXED' ? Math.max(0, p.stock ?? 0) : Math.max(0, p.dailyCapacity ?? 0)
+        // Indisponível: FIXED sem inventário OU DAILY sem capacidade (cap <= 0).
+        const soldOut = maxQty <= 0
         const limited =
           p.stockType === 'FIXED' && p.stock != null && p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD
         return {
@@ -81,6 +92,9 @@ export class MarketService {
           price: isBread ? avulsoUnit : p.price,
           photoUrl: p.photoUrl,
           availableDays: (p.availableDays as string[] | null) ?? [],
+          stockType: p.stockType,
+          // Pão Francês compra via breadQty (fluxo próprio) → sem teto de stepper (null).
+          maxQty: isBread ? null : maxQty,
           soldOut: isBread ? false : soldOut,
           limited: isBread ? false : limited,
           isBread,
@@ -100,6 +114,12 @@ export class MarketService {
     const s = await this.repo.getSetting(MIN_CESTINHA_KEY)
     const v = s ? parseFloat(s.value) : DEFAULT_MIN_CESTINHA
     return Number.isFinite(v) ? v : DEFAULT_MIN_CESTINHA
+  }
+
+  /** Mínimo (R$) da parte em dinheiro para liberar cartão; 0 = sempre liberado (regra desligada). */
+  private async getCartaoMinimo(): Promise<number> {
+    const s = await this.repo.getSetting(MARKET_CARTAO_MIN_KEY)
+    return parseCartaoMinimo(s?.value)
   }
 
   /** Mínimo em quantidade de pães do Pão Francês — herdado do pedido único. */
@@ -125,11 +145,12 @@ export class MarketService {
     rawItems: { productId: string; qty: number }[],
     breadQty: number,
   ): Promise<CartView> {
-    const [avulsoUnit, minimo, breadMin, breadId] = await Promise.all([
+    const [avulsoUnit, minimo, breadMin, breadId, cartaoMinimo] = await Promise.all([
       this.getAvulsoUnit(),
       this.getMinimo(),
       this.getBreadMin(),
       this.getBreadProductId(),
+      this.getCartaoMinimo(),
     ])
 
     // O produto-pão só pode existir como breadQty — se aparecer em items[], é ignorado
@@ -144,9 +165,13 @@ export class MarketService {
       const p = byId.get(it.productId)
       // Ignora produto inexistente ou inativo (some da Cestinha).
       if (!p || !p.isActive) continue
-      const qty = Math.max(1, Math.min(99, it.qty))
+      // Teto por pedido (DAILY = capacidade/dia; FIXED = estoque). Clampa a quantidade ao teto —
+      // auto-cura Cestinhas antigas acima do limite (ex.: 2 de um produto com capacidade 1).
+      const maxQty = p.stockType === 'FIXED' ? Math.max(0, p.stock ?? 0) : Math.max(0, p.dailyCapacity ?? 0)
+      let qty = Math.max(1, Math.min(99, it.qty))
+      if (maxQty > 0) qty = Math.min(qty, maxQty)
       const lineTotal = this.round2(p.price * qty)
-      const soldOut = p.stockType === 'FIXED' && p.stock != null && p.stock <= 0
+      const soldOut = maxQty <= 0
       items.push({
         productId: p.id,
         qty,
@@ -156,6 +181,8 @@ export class MarketService {
         categoryId: p.categoryId,
         lineTotal,
         soldOut,
+        maxQty,
+        stockType: p.stockType,
       })
     }
 
@@ -181,6 +208,7 @@ export class MarketService {
       avulsoUnit,
       minimo,
       breadMin,
+      cartaoMinimo,
       meetsMinimum,
     }
   }
@@ -209,12 +237,19 @@ export class MarketService {
       this.getBreadProductId(),
     ])
     const validIds = new Set(products.filter((p) => p.isActive).map((p) => p.id))
+    // Teto por pedido de cada produto (DAILY = capacidade/dia; FIXED = estoque) — a quantidade
+    // persistida nunca passa disso.
+    const maxQtyById = new Map(
+      products.map((p) => [p.id, p.stockType === 'FIXED' ? Math.max(0, p.stock ?? 0) : Math.max(0, p.dailyCapacity ?? 0)]),
+    )
 
     const normalized: { productId: string; qty: number }[] = []
     for (const [productId, qtyRaw] of merged) {
       if (!validIds.has(productId)) continue // descarta inativo/inexistente
       if (productId === breadId) continue // o pão só existe como breadQty, nunca como item
-      const qty = Math.max(1, Math.min(99, qtyRaw))
+      const cap = maxQtyById.get(productId) ?? 0
+      let qty = Math.max(1, Math.min(99, qtyRaw))
+      if (cap > 0) qty = Math.min(qty, cap)
       normalized.push({ productId, qty })
     }
 

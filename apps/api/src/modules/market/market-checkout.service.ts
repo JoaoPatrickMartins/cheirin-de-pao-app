@@ -2,6 +2,9 @@ import { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
 import type { MarketCheckoutInput } from '@cheirin-de-pao/shared'
 import { brtNoonFromStr, brtDateStr, dayKeyOf, isPastCutoffForDelivery } from '../../lib/cutoff.js'
+import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
+import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
+import { MARKET_CARTAO_MIN_KEY, isCardBelowMinimum, parseCartaoMinimo } from '../../lib/market-card-policy.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import { MarketRepository } from './market.repository.js'
 
@@ -91,7 +94,11 @@ export class MarketCheckoutService {
       if (!product || !product.isActive) {
         throw { statusCode: 409, message: 'Um item saiu do catálogo. Revise a Cestinha.' }
       }
-      return { product, qty: it.qty }
+      // Teto por pedido (DAILY = capacidade/dia; FIXED = estoque). Clampa aqui também para não
+      // barrar Cestinhas antigas acima do teto — o front já limita o stepper por esse valor.
+      const cap = product.stockType === 'FIXED' ? Math.max(0, product.stock ?? 0) : Math.max(0, product.dailyCapacity ?? 0)
+      const qty = cap > 0 ? Math.min(it.qty, cap) : it.qty
+      return { product, qty }
     })
 
     // 6. Slot + corte.
@@ -117,17 +124,42 @@ export class MarketCheckoutService {
       }
     }
 
-    // 8. Estoque (pré-checagem amigável; a reserva real é atômica na transação).
+    // 7.5. Restrições do admin por dia da semana — MESMA regra do pedido único e da agenda
+    // (getAgendaRestrictions): dia bloqueado nunca aceita entrega; com limite ativo, barra
+    // quando as entregas comprometidas do dia atingem o teto. A contagem já inclui Cestinhas
+    // (por parada userId+slotId), então a Cestinha respeita e consome o limite igual ao pão.
+    // Backend é a autoridade — o front só sugere a régua de dias.
+    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    if (isDayBlocked(blocked, dayKey)) {
+      throw { statusCode: 422, message: 'Não há entregas neste dia da semana.' }
+    }
+    if (limits[dayKey] > 0) {
+      const committed = await countCommittedDeliveries(this.prisma, scheduledDate)
+      if (committed >= limits[dayKey]) {
+        throw { statusCode: 422, message: 'O limite de pedidos para este dia foi atingido.' }
+      }
+    }
+
+    // 8. Estoque (pré-checagem amigável; a reserva real é atômica na transação). Mensagem
+    // acionável: diz quantas unidades ainda cabem no dia (ou no estoque), em vez de "sem vagas".
     for (const { product, qty } of lines) {
       if (product.stockType === 'FIXED') {
-        if ((product.stock ?? 0) < qty) throw { statusCode: 409, message: `${product.name} está sem estoque suficiente.` }
+        const stock = Math.max(0, product.stock ?? 0)
+        if (stock < qty) {
+          throw { statusCode: 409, message: stock <= 0
+            ? `${product.name} está esgotado.`
+            : `${product.name}: resta${stock === 1 ? '' : 'm'} só ${stock} em estoque.` }
+        }
       } else {
         const cap = product.dailyCapacity ?? 0
         const ds = await this.prisma.productDailyStock.findUnique({
           where: { productId_date: { productId: product.id, date: dateStr } },
         })
-        if ((ds?.reserved ?? 0) + qty > cap) {
-          throw { statusCode: 409, message: `${product.name} está sem vagas para esse dia.` }
+        const available = Math.max(0, cap - (ds?.reserved ?? 0))
+        if (qty > available) {
+          throw { statusCode: 409, message: available <= 0
+            ? `${product.name} está sem vagas para esse dia.`
+            : `${product.name}: resta${available === 1 ? '' : 'm'} só ${available} para esse dia.` }
         }
       }
     }
@@ -152,6 +184,14 @@ export class MarketCheckoutService {
     const moneyAmount = round2(total - creditsApplied * avulsoUnit)
     if (moneyAmount > 0 && !input.paymentMethod) {
       throw { statusCode: 400, message: 'Escolha a forma de pagamento da parte em dinheiro.' }
+    }
+    // Política de cartão (admin): abaixo do mínimo configurado, a parte em dinheiro só via Pix.
+    const cartaoMinimo = parseCartaoMinimo((await this.repo.getSetting(MARKET_CARTAO_MIN_KEY))?.value)
+    if (input.paymentMethod === 'card' && isCardBelowMinimum(moneyAmount, cartaoMinimo)) {
+      throw {
+        statusCode: 422,
+        message: `Pagamento com cartão disponível a partir de ${fmtBRL(cartaoMinimo)}. Use Pix para valores menores.`,
+      }
     }
 
     const orderStatus = moneyAmount > 0 ? 'PENDING_PAYMENT' : 'SCHEDULED'

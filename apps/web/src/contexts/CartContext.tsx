@@ -23,6 +23,9 @@ const CartContext = createContext<CartContextType | null>(null)
 
 const SYNC_DEBOUNCE_MS = 400
 const clampQty = (n: number) => Math.max(1, Math.min(99, Math.round(n)))
+// Limita ao teto do produto (capacidade diária / estoque) quando houver; senão só o clamp global.
+const capTo = (n: number, maxQty?: number | null) =>
+  maxQty && maxQty > 0 ? Math.min(clampQty(n), maxQty) : clampQty(n)
 const clampBread = (n: number) => Math.max(0, Math.min(100, Math.round(n)))
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -34,6 +37,7 @@ function recompute(
   avulsoUnit: number,
   minimo: number,
   breadMin: number,
+  cartaoMinimo: number,
 ): CartView {
   const items = lines.map((l) => ({ ...l, lineTotal: round2(l.price * l.qty) }))
   const productSubtotal = round2(items.reduce((acc, l) => acc + l.lineTotal, 0))
@@ -54,6 +58,7 @@ function recompute(
     avulsoUnit,
     minimo,
     breadMin,
+    cartaoMinimo,
     meetsMinimum: (hasProducts || hasBread) && breadOk && moneyMinOk,
   }
 }
@@ -133,7 +138,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       seqRef.current += 1
       setCart((prev) => {
         const { lines, breadQty } = transform(prev)
-        const next = recompute(lines, breadQty, prev.avulsoUnit, prev.minimo, prev.breadMin)
+        const next = recompute(lines, breadQty, prev.avulsoUnit, prev.minimo, prev.breadMin, prev.cartaoMinimo)
         scheduleSync(next)
         return next
       })
@@ -147,17 +152,21 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         const idx = prev.items.findIndex((l) => l.productId === product.id)
         let lines: CartLine[]
         if (idx >= 0) {
-          lines = prev.items.map((l, i) => (i === idx ? { ...l, qty: clampQty(l.qty + delta) } : l))
+          lines = prev.items.map((l, i) =>
+            i === idx ? { ...l, qty: capTo(l.qty + delta, l.maxQty ?? product.maxQty) } : l,
+          )
         } else {
           const line: CartLine = {
             productId: product.id,
-            qty: clampQty(delta),
+            qty: capTo(delta, product.maxQty),
             name: product.name,
             price: product.price,
             photoUrl: product.photoUrl ?? null,
             categoryId: product.categoryId,
             lineTotal: 0,
             soldOut: product.soldOut,
+            maxQty: product.maxQty ?? undefined,
+            stockType: product.stockType,
           }
           lines = [...prev.items, line]
         }
@@ -173,7 +182,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         const lines =
           qty <= 0
             ? prev.items.filter((l) => l.productId !== productId)
-            : prev.items.map((l) => (l.productId === productId ? { ...l, qty: clampQty(qty) } : l))
+            : prev.items.map((l) => (l.productId === productId ? { ...l, qty: capTo(qty, l.maxQty) } : l))
         return { lines, breadQty: prev.breadQty }
       })
     },

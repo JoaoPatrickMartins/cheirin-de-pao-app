@@ -3,16 +3,22 @@ import { apiFetch } from '../../../lib/apiFetch'
 
 export function MarketConfig() {
   const [minimo, setMinimo] = useState('')
+  const [cartaoMinimo, setCartaoMinimo] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [focusedCard, setFocusedCard] = useState(false)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   useEffect(() => {
     const load = async () => {
       try {
         const r = await apiFetch('/admin/market/config')
-        if (r.ok) setMinimo(String(((await r.json()) as { minimo: number }).minimo))
+        if (r.ok) {
+          const c = (await r.json()) as { minimo: number; cartaoMinimo?: number }
+          setMinimo(String(c.minimo))
+          setCartaoMinimo(String(c.cartaoMinimo ?? 0))
+        }
       } catch {
         /* falha silenciosa */
       } finally {
@@ -28,7 +34,7 @@ export function MarketConfig() {
     try {
       const r = await apiFetch('/admin/market/config', {
         method: 'PATCH',
-        body: JSON.stringify({ minimo: Number(minimo) }),
+        body: JSON.stringify({ minimo: Number(minimo), cartaoMinimo: Number(cartaoMinimo || 0) }),
       })
       setMsg(r.ok ? { text: 'Salvo!', ok: true } : { text: 'Não foi possível salvar.', ok: false })
     } catch {
@@ -42,15 +48,31 @@ export function MarketConfig() {
     return <p style={{ textAlign: 'center', paddingTop: 28, fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)' }}>Carregando...</p>
   }
 
-  const valid = Number(minimo) >= 0 && minimo.trim() !== ''
+  const valid =
+    Number(minimo) >= 0 && minimo.trim() !== '' && Number(cartaoMinimo || 0) >= 0
+
+  const inputBox = (isFocused: boolean): React.CSSProperties => ({
+    background: 'var(--color-surface-alt, #FBF6EC)',
+    border: `1.5px solid ${isFocused ? 'var(--color-accent)' : 'var(--color-border)'}`,
+    borderRadius: 14,
+    padding: '12px 14px',
+  })
+  const inputStyle: React.CSSProperties = {
+    width: '100%', border: 'none', outline: 'none', background: 'transparent',
+    fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 500, color: 'var(--color-text)',
+  }
+  const labelStyle: React.CSSProperties = {
+    fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-sec)', marginBottom: 7,
+  }
+  const helpStyle: React.CSSProperties = {
+    fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)', margin: 0, lineHeight: 1.5,
+  }
 
   return (
     <div style={{ padding: '0 20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <label style={{ display: 'block' }}>
-        <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-sec)', marginBottom: 7 }}>
-          Mínimo da Cestinha (R$)
-        </div>
-        <div style={{ background: 'var(--color-surface-alt, #FBF6EC)', border: `1.5px solid ${focused ? 'var(--color-accent)' : 'var(--color-border)'}`, borderRadius: 14, padding: '12px 14px' }}>
+        <div style={labelStyle}>Mínimo da Cestinha (R$)</div>
+        <div style={inputBox(focused)}>
           <input
             type="number"
             step="0.01"
@@ -59,14 +81,36 @@ export function MarketConfig() {
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder="Ex.: 15.00"
-            style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 500, color: 'var(--color-text)' }}
+            style={inputStyle}
           />
         </div>
       </label>
 
-      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)', margin: 0, lineHeight: 1.5 }}>
+      <p style={helpStyle}>
         Pedidos do mercadinho abaixo desse valor ficam bloqueados no checkout. O resgate com pãezinhos
         segue sempre o preço do pão avulso (Gestão → Compra personalizada).
+      </p>
+
+      <label style={{ display: 'block' }}>
+        <div style={labelStyle}>Valor mínimo para cartão (R$)</div>
+        <div style={inputBox(focusedCard)}>
+          <input
+            type="number"
+            step="0.01"
+            value={cartaoMinimo}
+            onChange={(e) => setCartaoMinimo(e.target.value)}
+            onFocus={() => setFocusedCard(true)}
+            onBlur={() => setFocusedCard(false)}
+            placeholder="Ex.: 20.00  (0 = sempre)"
+            style={inputStyle}
+          />
+        </div>
+      </label>
+
+      <p style={helpStyle}>
+        Abaixo desse valor, a parte <strong>em dinheiro</strong> da Cestinha (o que sobra depois dos
+        pãezinhos) só pode ser paga por <strong>Pix</strong>. O cartão de crédito é liberado a partir dele.{' '}
+        <strong>0</strong> = cartão sempre disponível.
       </p>
 
       {msg && (

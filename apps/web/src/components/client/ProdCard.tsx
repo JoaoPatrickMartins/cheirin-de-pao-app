@@ -24,6 +24,8 @@ interface ProdCardProps {
 export function ProdCard({ product, emoji, categoryName, avulsoUnit, economyPercent, onOpen }: ProdCardProps) {
   const { qtyOf, addProduct, setQty } = useCart()
   const qty = qtyOf(product.id)
+  // Teto por pedido (capacidade diária / estoque): no limite, desabilita o "+".
+  const atMax = product.maxQty != null && qty >= product.maxQty
   const paes = paezinhosDe(product.price, avulsoUnit)
   const showEconomy = economyPercent > 0 && !product.soldOut
   const pct = Math.round(economyPercent)
@@ -62,7 +64,7 @@ export function ProdCard({ product, emoji, categoryName, avulsoUnit, economyPerc
           tintSeed={product.categoryId}
           alt={product.name}
           radius={12}
-          height={104}
+          height={132}
           emojiSize={38}
           dimmed={product.soldOut}
         />
@@ -156,7 +158,7 @@ export function ProdCard({ product, emoji, categoryName, avulsoUnit, economyPerc
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: '#fff', minWidth: 20, textAlign: 'center' }}>
             {qty}
           </span>
-          <StepBtn label="Aumentar" onClick={() => addProduct(product, 1)}>
+          <StepBtn label="Aumentar" disabled={atMax} onClick={() => addProduct(product, 1)}>
             <Icon name="plus" size={16} color="#fff" stroke={2.4} />
           </StepBtn>
         </div>
@@ -174,15 +176,23 @@ export function ProdCard({ product, emoji, categoryName, avulsoUnit, economyPerc
           Adicionar
         </button>
       )}
+
+      {/* Teto diário do produto (só p/ DAILY com limite baixo) — explica o "+" travado */}
+      {product.stockType === 'DAILY' && product.maxQty != null && product.maxQty > 0 && product.maxQty < 99 && (
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: 'var(--color-text-ter)', margin: '-3px 0 0', textAlign: 'center' }}>
+          máx {product.maxQty}/dia
+        </p>
+      )}
     </div>
   )
 }
 
-function StepBtn({ children, onClick, label }: { children: React.ReactNode; onClick: () => void; label: string }) {
+function StepBtn({ children, onClick, label, disabled = false }: { children: React.ReactNode; onClick: () => void; label: string; disabled?: boolean }) {
   return (
     <button
       type="button"
       aria-label={label}
+      disabled={disabled}
       onClick={onClick}
       style={{
         width: 34,
@@ -190,10 +200,11 @@ function StepBtn({ children, onClick, label }: { children: React.ReactNode; onCl
         borderRadius: 9,
         display: 'grid',
         placeItems: 'center',
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
         flexShrink: 0,
         border: 'none',
         background: 'transparent',
+        opacity: disabled ? 0.4 : 1,
       }}
     >
       {children}

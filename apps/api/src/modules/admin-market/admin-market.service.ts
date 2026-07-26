@@ -13,6 +13,8 @@ import type { SetStockBody } from './admin-market.schema.js'
 const LOW_STOCK_THRESHOLD = 5
 const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
 const DEFAULT_MIN_CESTINHA = 15
+const CARTAO_MIN_KEY = 'marketCartaoMinimo'
+const DEFAULT_CARTAO_MIN = 0
 const BREAD_PRODUCT_KEY = 'breadProductId'
 
 type ProductRow = Awaited<ReturnType<AdminMarketRepository['findProduct']>>
@@ -198,14 +200,22 @@ export class AdminMarketService {
   }
 
   // ── Config ──
-  async getConfig(): Promise<{ minimo: number }> {
-    const s = await this.repo.getSetting(MIN_CESTINHA_KEY)
-    const minimo = s ? parseFloat(s.value) : DEFAULT_MIN_CESTINHA
-    return { minimo: Number.isFinite(minimo) ? minimo : DEFAULT_MIN_CESTINHA }
+  async getConfig(): Promise<{ minimo: number; cartaoMinimo: number }> {
+    const [mRow, cRow] = await Promise.all([
+      this.repo.getSetting(MIN_CESTINHA_KEY),
+      this.repo.getSetting(CARTAO_MIN_KEY),
+    ])
+    const minimo = mRow ? parseFloat(mRow.value) : DEFAULT_MIN_CESTINHA
+    const cartaoMinimo = cRow ? parseFloat(cRow.value) : DEFAULT_CARTAO_MIN
+    return {
+      minimo: Number.isFinite(minimo) ? minimo : DEFAULT_MIN_CESTINHA,
+      cartaoMinimo: Number.isFinite(cartaoMinimo) && cartaoMinimo > 0 ? cartaoMinimo : DEFAULT_CARTAO_MIN,
+    }
   }
 
-  async setConfig(minimo: number): Promise<{ minimo: number }> {
+  async setConfig(minimo: number, cartaoMinimo?: number): Promise<{ minimo: number; cartaoMinimo: number }> {
     await this.repo.upsertSetting(MIN_CESTINHA_KEY, String(minimo))
-    return { minimo }
+    if (cartaoMinimo != null) await this.repo.upsertSetting(CARTAO_MIN_KEY, String(cartaoMinimo))
+    return this.getConfig()
   }
 }

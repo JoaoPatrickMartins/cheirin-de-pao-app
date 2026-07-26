@@ -55,7 +55,7 @@ export function BreadCard({ product, categoryName, emoji, avulsoUnit, economyPer
         tintSeed={product.categoryId}
         alt={product.name}
         radius={12}
-        height={104}
+        height={132}
         emojiSize={40}
       />
 
