@@ -40,7 +40,7 @@ function Ponto({ icon, children }: { icon: 'gift' | 'check' | 'bag'; children: R
  * Exibido pelo ClientLayout após o cliente fazer o primeiro pedido (needsConsent).
  * É obrigatório: não fecha por backdrop/ESC e não tem botão de dispensar — só sai
  * quando o cliente confirma o recebimento (POST /client/hook-request). Reaparece
- * enquanto não confirmado. Modelado em CancelOrderDialog (tokens + isLoading/error).
+ * enquanto não confirmado. Modelado em ConfirmDeliveryDialog (tokens + isLoading/error).
  */
 export function GanchoConsentModal({ isOpen, onConfirmed }: GanchoConsentModalProps) {
   const [isLoading, setIsLoading] = useState(false)

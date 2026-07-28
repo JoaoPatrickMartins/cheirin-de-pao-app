@@ -6,8 +6,8 @@ import { apiFetch } from '../../lib/apiFetch'
 import { isPastCutoffForDelivery } from '../../lib/cutoff'
 import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
-import { CancelOrderDialog } from '../../components/client/CancelOrderDialog'
-import { MarketOrdersSection } from '../../components/client/MarketOrdersSection'
+import { InlineCancelConfirm, inlineCancelBtnStyle } from '../../components/client/InlineCancelConfirm'
+import { MarketOrderCard, MarketOrderView } from '../../components/client/MarketOrderCard'
 
 interface HistoryOrder {
   id: string
@@ -17,7 +17,16 @@ interface HistoryOrder {
   deliveryTime?: string
   slotId?: string
   type: 'SCHEDULED' | 'SINGLE'
+  createdAt?: string
 }
+
+/** Item da lista única de histórico: pedido de pão ou Cestinha ("Além do Pãozin"). */
+type HistoryEntry =
+  | { kind: 'bread'; id: string; dateKey: string; createdAt: string; order: HistoryOrder }
+  | { kind: 'market'; id: string; dateKey: string; createdAt: string; order: MarketOrderView }
+
+/** Alvo da confirmação de cancelamento embutida (só uma aberta por vez). */
+type CancelTarget = { kind: 'bread' | 'market'; id: string }
 
 // Casa um pedido ao slot do condomínio: por slotId (Etapa B) com fallback ao horário (legado).
 function matchSlot(order: { slotId?: string; deliveryTime?: string }, slots: CondoSlot[]): CondoSlot | undefined {
@@ -367,9 +376,14 @@ export function TrackingScreen() {
   const { order, isToday } = useOrderTracking({ fallbackToNext: true })
   const [history, setHistory] = useState<HistoryOrder[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  // Cestinhas (Além do Pãozin) — entram na MESMA lista de histórico dos pedidos de pão.
+  const [marketOrders, setMarketOrders] = useState<MarketOrderView[]>([])
+  const [isLoadingMarket, setIsLoadingMarket] = useState(true)
   const [slots, setSlots] = useState<CondoSlot[]>([])
-  // Pedido único selecionado para o diálogo de cancelamento (null = fechado).
-  const [cancelTarget, setCancelTarget] = useState<HistoryOrder | null>(null)
+  // Pedido com a confirmação de cancelamento aberta (null = nenhuma).
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   useEffect(() => {
     // Slots do condomínio para resolver o nome real (manhã/tarde) pelo deliveryTime
@@ -395,8 +409,92 @@ export function TrackingScreen() {
     void fetchHistory()
   }, [])
 
+  useEffect(() => {
+    apiFetch('/market/orders/history')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: MarketOrderView[]) => setMarketOrders(Array.isArray(data) ? data : []))
+      .catch(() => setMarketOrders([]))
+      .finally(() => setIsLoadingMarket(false))
+  }, [])
+
   // Pedidos cancelados aparecem com o pill "Cancelado" (não são mais escondidos).
   const visibleHistory = history
+
+  const isLoadingList = isLoadingHistory || isLoadingMarket
+
+  // Lista única: pães + Cestinhas ordenados pela data de entrega (desc) e, no empate, pela
+  // criação (desc). Sem seções separadas — o cliente vê tudo em ordem cronológica.
+  const entries: HistoryEntry[] = [
+    ...visibleHistory.map<HistoryEntry>((o) => ({
+      kind: 'bread',
+      id: o.id,
+      dateKey: o.scheduledDate.slice(0, 10),
+      createdAt: o.createdAt ?? '',
+      order: o,
+    })),
+    ...marketOrders.map<HistoryEntry>((o) => ({
+      kind: 'market',
+      id: o.id,
+      dateKey: o.scheduledDate.slice(0, 10),
+      createdAt: o.createdAt ?? '',
+      order: o,
+    })),
+  ].sort((a, b) => b.dateKey.localeCompare(a.dateKey) || b.createdAt.localeCompare(a.createdAt))
+
+  const openCancel = (target: CancelTarget) => {
+    setCancelTarget(target)
+    setCancelError(null)
+  }
+
+  const closeCancel = () => {
+    if (isCancelling) return
+    setCancelTarget(null)
+    setCancelError(null)
+  }
+
+  // Cancela o pedido de pão (pedido único antes do corte): os pães voltam ao saldo.
+  const cancelBreadOrder = async (id: string) => {
+    setIsCancelling(true)
+    setCancelError(null)
+    try {
+      const res = await apiFetch(`/orders/${id}/cancel`, { method: 'PATCH' })
+      if (res.ok) {
+        const result = (await res.json()) as { id: string; creditBalance: number }
+        setHistory((prev) => prev.map((h) => (h.id === result.id ? { ...h, status: 'CANCELLED' } : h)))
+        updateCreditBalance(result.creditBalance)
+        setCancelTarget(null)
+        return
+      }
+      // 422 (corte passou / não cancelável), 404 etc. — mostra a mensagem do servidor.
+      const data = (await res.json().catch(() => null)) as { error?: string } | null
+      setCancelError(data?.error ?? 'Não foi possível cancelar. Tente novamente.')
+    } catch {
+      setCancelError('Falha na conexão. Tente novamente.')
+    } finally {
+      setIsCancelling(false)
+    }
+  }
+
+  // Cancela a Cestinha: estorna tudo em crédito (inclusive a parte paga em dinheiro).
+  const cancelMarketOrder = async (id: string) => {
+    setIsCancelling(true)
+    setCancelError(null)
+    try {
+      const res = await apiFetch(`/market/orders/${id}/cancel`, { method: 'POST' })
+      if (res.ok) {
+        const updated = (await res.json()) as MarketOrderView
+        setMarketOrders((prev) => prev.map((o) => (o.id === id ? updated : o)))
+        setCancelTarget(null)
+        return
+      }
+      const data = (await res.json().catch(() => null)) as { error?: string } | null
+      setCancelError(data?.error ?? 'Não foi possível cancelar. Tente novamente.')
+    } catch {
+      setCancelError('Erro de conexão. Tente novamente.')
+    } finally {
+      setIsCancelling(false)
+    }
+  }
 
   // Nome do slot (manhã/tarde) cruzando o pedido (por slotId; fallback horário) com os slots
   const heroSlot = order ? matchSlot(order, slots) : undefined
@@ -510,10 +608,7 @@ export function TrackingScreen() {
           </div>
         )}
 
-        {/* Cestinhas do Além do Pãozin (C7) — seção própria, não mistura com o fluxo do pão */}
-        <MarketOrdersSection />
-
-        {/* Histórico */}
+        {/* Histórico — lista única: pedidos de pão + Cestinhas (Além do Pãozin) */}
         <h2
           style={{
             fontFamily: 'var(--font-display)',
@@ -527,7 +622,7 @@ export function TrackingScreen() {
           Histórico
         </h2>
 
-        {isLoadingHistory && (
+        {isLoadingList && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {[1, 2, 3].map((n) => (
               <div
@@ -538,7 +633,7 @@ export function TrackingScreen() {
           </div>
         )}
 
-        {!isLoadingHistory && visibleHistory.length === 0 && (
+        {!isLoadingList && entries.length === 0 && (
           <div
             style={{
               display: 'flex',
@@ -574,9 +669,28 @@ export function TrackingScreen() {
           </div>
         )}
 
-        {!isLoadingHistory && visibleHistory.length > 0 && (
+        {!isLoadingList && entries.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {visibleHistory.map((o) => {
+            {entries.map((entry) => {
+              // Cestinha (Além do Pãozin) — card próprio, mesma lista e mesma confirmação.
+              if (entry.kind === 'market') {
+                const confirming = cancelTarget?.kind === 'market' && cancelTarget.id === entry.id
+                return (
+                  <MarketOrderCard
+                    key={`market-${entry.id}`}
+                    order={entry.order}
+                    confirming={confirming}
+                    busy={confirming && isCancelling}
+                    error={confirming ? cancelError : null}
+                    onAskCancel={() => openCancel({ kind: 'market', id: entry.id })}
+                    onConfirmCancel={() => void cancelMarketOrder(entry.id)}
+                    onBack={closeCancel}
+                  />
+                )
+              }
+
+              const o = entry.order
+              const confirming = cancelTarget?.kind === 'bread' && cancelTarget.id === o.id
               const dateLabel = formatHistoryDate(o.scheduledDate)
               const matched = matchSlot(o, slots)
               const slotEmoji = matched ? matched.emoji ?? SLOT_EMOJI[matched.name] ?? '' : ''
@@ -599,7 +713,7 @@ export function TrackingScreen() {
               const canCancel = isCancelable && !cutoffPassed
               return (
                 <div
-                  key={o.id}
+                  key={`bread-${o.id}`}
                   aria-label={`${dateLabel}, ${statusLabel(o.status)}`}
                   style={{
                     display: 'flex',
@@ -667,25 +781,26 @@ export function TrackingScreen() {
                     <StatusPill status={o.status} />
                   </div>
 
-                  {canCancel && (
+                  {canCancel && !confirming && (
                     <button
-                      onClick={() => setCancelTarget(o)}
-                      style={{
-                        alignSelf: 'flex-start',
-                        marginTop: 12,
-                        padding: '7px 12px',
-                        background: 'transparent',
-                        color: 'var(--color-bad, #C2410C)',
-                        border: '1.5px solid var(--color-bad, #C2410C)',
-                        borderRadius: 'var(--radius-btn)',
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
+                      onClick={() => openCancel({ kind: 'bread', id: o.id })}
+                      style={inlineCancelBtnStyle}
                     >
                       Cancelar pedido
                     </button>
+                  )}
+                  {confirming && (
+                    <InlineCancelConfirm
+                      message={
+                        o.quantity === 1
+                          ? 'Cancelar este pedido? O pão volta para o seu saldo e você pode usá-lo quando quiser.'
+                          : `Cancelar este pedido? Os ${qtyText} voltam para o seu saldo e você pode usá-los quando quiser.`
+                      }
+                      error={cancelError}
+                      busy={isCancelling}
+                      onConfirm={() => void cancelBreadOrder(o.id)}
+                      onBack={closeCancel}
+                    />
                   )}
                   {cutoffPassed && (
                     <p
@@ -706,21 +821,6 @@ export function TrackingScreen() {
           </div>
         )}
       </div>
-
-      <CancelOrderDialog
-        orderId={cancelTarget?.id ?? null}
-        quantity={cancelTarget?.quantity ?? 0}
-        isOpen={cancelTarget !== null}
-        onClose={() => setCancelTarget(null)}
-        onCancelled={(result) => {
-          // Reflete o cancelamento na lista (pill vira "Cancelado") e atualiza o saldo de pães.
-          setHistory((prev) =>
-            prev.map((h) => (h.id === result.id ? { ...h, status: 'CANCELLED' } : h)),
-          )
-          updateCreditBalance(result.creditBalance)
-          setCancelTarget(null)
-        }}
-      />
     </div>
   )
 }

@@ -56,7 +56,7 @@ type Phase = 'form' | 'waiting'
  */
 export function MarketCheckoutScreen() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, updateCreditBalance } = useAuth()
   const { cart, isLoading: cartLoading, reload: reloadCart } = useCart()
   const { avulsoUnit: catalogAvulso, categories } = useMarketCatalog()
   const emojiOf = (categoryId: string) => categories.find((c) => c.id === categoryId)?.emoji ?? null
@@ -184,8 +184,12 @@ export function MarketCheckoutScreen() {
   const [error, setError] = useState<string | null>(null)
   const [pix, setPix] = useState<{ paymentId: string; qr: string; code: string } | null>(null)
   const [pendingPaymentId, setPendingPaymentId] = useState<string | null>(null)
+  // Snapshot do pedido como o SERVIDOR devolveu. Quando o sucesso só chega depois (Pix, ou
+  // cartão em análise/3DS), a tela de sucesso precisa destes valores — recalcular do carrinho
+  // na hora da aprovação daria zero, porque o checkout já esvaziou a Cestinha (reloadCart).
+  const [doneSnapshot, setDoneSnapshot] = useState<DoneNavState | null>(null)
 
-  const doneState = (data: CheckoutResponse) => ({
+  const doneState = (data: CheckoutResponse): DoneNavState => ({
     marketOrderId: data.marketOrderId,
     creditsApplied: data.creditsApplied,
     moneyAmount: data.moneyAmount,
@@ -211,6 +215,12 @@ export function MarketCheckoutScreen() {
     if (!res.ok || !data) return data?.error ?? 'Não foi possível concluir o pedido.'
 
     void reloadCart() // servidor já limpou a Cestinha
+    // Congela o resumo AGORA, enquanto os valores do servidor estão em mão.
+    const done = doneState(data)
+    setDoneSnapshot(done)
+    // Saldo local: o servidor já debitou os créditos aplicados na transação do checkout.
+    if (data.creditsApplied > 0) updateCreditBalance(Math.max(0, creditBalance - data.creditsApplied))
+
     if (data.payment?.method === 'pix' && data.payment.pixCopyPaste) {
       setPix({ paymentId: data.payment.paymentId, qr: data.payment.pixQrCodeUrl ?? '', code: data.payment.pixCopyPaste })
       setPhase('waiting')
@@ -222,7 +232,7 @@ export function MarketCheckoutScreen() {
       return null
     }
     // money==0 ou cartão aprovado → sucesso
-    navigate('/client/market/sucesso', { replace: true, state: doneState(data) })
+    navigate('/client/market/sucesso', { replace: true, state: done })
     return null
   }
 
@@ -275,17 +285,9 @@ export function MarketCheckoutScreen() {
         pix={pix}
         cardPaymentId={pendingPaymentId}
         onApproved={() =>
-          navigate('/client/market/sucesso', {
-            replace: true,
-            state: {
-              creditsApplied: credits,
-              moneyAmount,
-              totalValue: subtotal,
-              scheduledDate: dateStr,
-              deliveryTime: slots.find((s) => (s.slotId ?? s.name) === slotId)?.time ?? null,
-              breadQty: cart.breadQty,
-            },
-          })
+          // Sempre o snapshot do servidor (setado no runCheckout) — nunca o carrinho vivo, que
+          // já está vazio neste ponto e zeraria total, split, data e horário.
+          navigate('/client/market/sucesso', { replace: true, state: doneSnapshot ?? undefined })
         }
         onGiveUp={() => navigate('/client/home')}
       />
@@ -894,6 +896,17 @@ function DetailRow({ icon, label, value, emphasis = false }: { icon: string; lab
 }
 
 // ── helpers de apresentação ──
+/** Resumo navegado para a MarketDoneScreen — sempre derivado da resposta do servidor. */
+interface DoneNavState {
+  marketOrderId: string
+  creditsApplied: number
+  moneyAmount: number
+  totalValue: number
+  scheduledDate: string
+  deliveryTime: string | null
+  breadQty: number
+}
+
 interface CheckoutResponse {
   marketOrderId: string
   status: string
