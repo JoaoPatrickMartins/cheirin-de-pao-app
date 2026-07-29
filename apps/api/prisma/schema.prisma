@@ -105,6 +105,17 @@ enum PurchaseOrderStatus {
   FINALIZED
 }
 
+// Regime de compra de um PurchaseOrder (D-9).
+// DELIVERY_BATCH — produtos `stockType: DAILY` (pão, bolo): quantidade DERIVADA da demanda
+//   confirmada do (dia, turno), gerada no corte. É o fluxo histórico, generalizado para N produtos.
+// RESTOCK — produtos `stockType: FIXED` (geleia, café): inventário, sem demanda diária. Pedido
+//   avulso, SEM turno, disparado por estoque baixo.
+// Ausente/null = DELIVERY_BATCH (docs criados antes deste campo leem null no Mongo).
+enum PurchaseOrderKind {
+  DELIVERY_BATCH
+  RESTOCK
+}
+
 enum PaymentMethod {
   PIX
   CREDIT_CARD
@@ -154,6 +165,10 @@ enum NotificationType {
   CREDIT_GRANTED
   SCHEDULE_PAUSED
   HOOK_DELIVERED
+  // Cliente — Cestinha ("Além do Pãozin"). A entrega reusa DELIVERY_DONE (paridade com o pão);
+  // estes dois não têm equivalente no pão e por isso são tipos próprios.
+  MARKET_ORDER_CANCELLED // Cestinha cancelada sem ação do cliente (sweep de pagamento / admin)
+  MARKET_NOT_DELIVERED   // Cestinha não entregue (cliente ausente, endereço, etc.)
   // Admin — avisos operacionais (cada um com toggle individual em adminNotificationPrefs)
   ADMIN_ORDER_PLACED
   ADMIN_HOOK_REQUESTED
@@ -165,6 +180,7 @@ enum NotificationType {
   ADMIN_CUTOFF_REACHED
   ADMIN_AUTOGEN_WARNING
   ADMIN_AUTOGEN_DONE
+  ADMIN_LOW_STOCK // produto do mercadinho com estoque baixo / esgotado
   // Entregador — avisos automáticos (sem toggle)
   COURIER_NEW_ORDERS
   COURIER_PENDING_REMINDER
@@ -391,7 +407,7 @@ model DeliveryList {
   updatedAt     DateTime           @updatedAt
 }
 
-// 11. Supplier — fornecedores de pãezinhos
+// 11. Supplier — fornecedores
 model Supplier {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   name         String
@@ -399,34 +415,74 @@ model Supplier {
   phone        String?
   email        String?
   address      Address
+  // LEGADO (D-10) — preço unitário DO PÃO. Substituído pela matriz `SupplierProduct`, que guarda
+  // um custo por (fornecedor, produto). NÃO removido: há dados em produção e ele serve de fallback
+  // de leitura até o backfill rodar. Não escrever mais aqui como fonte de verdade de preço.
   pricePerUnit Float
   isActive     Boolean  @default(true)
+  // LEGADO (D-10) — "principal global". Virou a semente do `isPreferred` do pão na matriz.
   isPrincipal  Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
+// 26. SupplierProduct — catálogo de fornecimento: quem fornece o quê, por quanto (D-7/D-8).
+//
+// A EXISTÊNCIA da linha É a afirmação "este fornecedor fornece este produto". Sem linha não há
+// custo cadastrável e o fornecedor nem aparece como opção para aquele produto. Antes disto o
+// modelo só sabia comprar UM produto: `Supplier.pricePerUnit` era um preço só (o do pão) e
+// `PurchaseOrderItem` não tinha `productId`.
+model SupplierProduct {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  supplierId      String   @db.ObjectId
+  productId       String   @db.ObjectId
+  unitCost        Float    // custo unitário DESTE produto NESTE fornecedor (R$)
+  // Fatia padrão da demanda deste produto neste fornecedor (0..100). A soma por produto deve ser
+  // 0 (sem rateio definido → 100% no `isPreferred`) ou 100. Cobre "tudo no X" (100/0) e
+  // "parte no X, parte no Y" (75/25) — preservando o split 75/25 histórico do pão.
+  defaultSharePct Int      @default(0)
+  // Fornecedor padrão do produto: desempata o arredondamento do rateio e recebe o resto.
+  isPreferred     Boolean  @default(false)
+  minOrderQty     Int?     // pedido mínimo do fornecedor para este produto (aviso, não bloqueio)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([supplierId, productId])
+  @@index([productId, isActive])
+}
+
 // 12. PurchaseOrder — pedidos de compra ao fornecedor (cabeçalho)
-// Um pedido por TURNO (slot): cada (date, slotId) gera seu próprio PurchaseOrder.
+// DELIVERY_BATCH: um pedido por TURNO (slot) — cada (date, slotId) gera o seu.
+// RESTOCK: pedido avulso de reposição de inventário — `slotId` fica nulo (D-9).
 model PurchaseOrder {
   id            String              @id @default(auto()) @map("_id") @db.ObjectId
   date          DateTime
-  slotId        String?             // turno do pedido (manha/tarde) — pipeline por slot
+  slotId        String?             // turno do pedido (manha/tarde) — nulo em RESTOCK
   slotLabel     String?             // rótulo de exibição do turno (ex.: "Manhã")
+  // ATENÇÃO: `totalQuantity` continua significando **só PÃES**. `getWasteReport` compara este
+  // campo com os pães entregues; se ele passasse a somar bolos e geleias, o desperdício explodiria.
+  // Os totais dos outros produtos vivem em `totalItems`/`totalValue`.
   totalQuantity Int
+  totalItems    Int?                // unidades de produtos NÃO-pão neste pedido
+  totalValue    Float?              // custo total do pedido (R$)
+  kind          PurchaseOrderKind?  // null/ausente = DELIVERY_BATCH (compat com docs antigos)
   cutoffTime    DateTime
   status        PurchaseOrderStatus
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 }
 
-// 13. PurchaseOrderItem — itens do pedido separados por fornecedor
+// 13. PurchaseOrderItem — uma linha por (produto, fornecedor) do pedido
 model PurchaseOrderItem {
   id              String   @id @default(auto()) @map("_id") @db.ObjectId
   purchaseOrderId String   @db.ObjectId
   supplierId      String   @db.ObjectId
+  // null/ausente = pão (itens criados antes da matriz de fornecimento). Novos itens sempre gravam.
+  productId       String?  @db.ObjectId
+  productName     String?  // snapshot do nome no momento da compra
   quantity        Int
-  unitPrice       Float
+  unitPrice       Float    // snapshot de SupplierProduct.unitCost
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -631,6 +687,14 @@ model MarketOrder {
   failureReason  String?
   cancelledAt    DateTime?
   cancelReason   String?
+  // Desfecho FÍSICO de uma Cestinha NOT_DELIVERED (Onda G2). O status terminal diz que a entrega
+  // falhou; estes campos dizem o que aconteceu com a mercadoria e com o crédito — coisas que só
+  // quem recebeu o entregador de volta sabe. `lossResolvedAt: null` numa NOT_DELIVERED = PENDENTE,
+  // e é isso que a torna visível no admin em vez de virar prejuízo silencioso.
+  lossResolvedAt DateTime?
+  lossResolvedBy String?           @db.ObjectId // admin que deu o desfecho (auditoria)
+  stockReturned  Boolean?          // true = itens voltaram à prateleira; false = perda real
+  lossReason     String?           // o que aconteceu (perdido, avariado, devolvido…)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 

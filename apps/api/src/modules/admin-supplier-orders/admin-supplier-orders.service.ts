@@ -17,7 +17,10 @@ import {
   cutoffInstantForDelivery,
   nowHHMM,
 } from '../../lib/cutoff.js'
-import { projectScheduleDetailForDate } from '../../lib/schedule-projection.js'
+import { buildBreadDemand, type MarketItemLine } from '../../lib/bread-demand.js'
+import { buildProductDemand, loadSourcingOptions } from '../../lib/product-demand.js'
+import { splitDemandBySupplier, type UnsourcedProduct } from '../../lib/supplier-split.js'
+import { buildRestockCandidates, RESTOCK_COVER_DAYS, type RestockCandidate } from '../../lib/restock-demand.js'
 import { SchedulesService } from '../schedules/schedules.service.js'
 import { getGlobalDeliverySlots, type GlobalDeliverySlot } from '../../lib/delivery-slots.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
@@ -30,13 +33,23 @@ function createOsClient() {
   return new OneSignal.DefaultApi(configuration)
 }
 
-/** Setting key do split padrão (percentual do fornecedor principal). */
+/** Setting key do split padrão (percentual do fornecedor principal). LEGADO — ver D-10. */
 const SUPPLIER_SPLIT_KEY = 'supplierSplitPrincipalPct'
+const BREAD_PRODUCT_KEY = 'breadProductId'
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 /** Flag de risco de uma entrega prevista que pode não se materializar. */
 export type RiskFlag = '' | 'no-credit' | 'blocked'
 
-/** Uma linha de entrega para amanhã — materializada (Order) ou prevista (agenda). */
+/**
+ * Uma PARADA de entrega para o dia — pedido de pão, Cestinha, previsto da agenda, ou a combinação.
+ *
+ * Uma linha = uma visita física `(userId, slotId)` (D-5). `quantity` é o total de PÃES da parada
+ * (pedido + Cestinha + previsto); os produtos do mercadinho ficam em `marketItems`, contados em
+ * paralelo (D-1). `source` continua sendo o rótulo grosso ('order' = tem algo pago) para manter a
+ * compatibilidade das telas; os números precisos vivem nos campos `bread*`.
+ */
 export interface DeliveryRow {
   condominiumId: string
   condominiumName: string
@@ -44,12 +57,28 @@ export interface DeliveryRow {
   name: string
   apartment: string
   block: string
+  /** Total de PÃES da parada = confirmados (pedido + Cestinha) + previstos. */
   quantity: number
   slotId: string
   slotLabel: string
   type: 'SINGLE' | 'SCHEDULED'
   source: 'order' | 'projected'
   risk: RiskFlag
+  /** Pães já pagos — é o que entra no pedido ao fornecedor. */
+  breadConfirmed: number
+  /** Pães previstos pela agenda, ainda não materializados. */
+  breadProjected: number
+  /** Recorte de `breadConfirmed` vindo da Cestinha (`MarketOrder.breadQty`). */
+  breadFromMarket: number
+  /** Pães confirmados de pedido avulso. */
+  breadSingle: number
+  /** Pães confirmados de pedido da agenda. */
+  breadScheduled: number
+  /** Produtos do mercadinho desta parada (não-pão). */
+  marketItems: MarketItemLine[]
+  marketItemCount: number
+  marketOrderIds: string[]
+  origin: 'bread' | 'market' | 'both'
 }
 
 /** Quebra por slot (turno) usada na lista e no detalhe. */
@@ -58,6 +87,8 @@ export interface SlotBreakdown {
   label: string
   breads: number
   deliveries: number
+  /** Itens do mercadinho do turno — métrica paralela aos pães (D-1). */
+  items: number
 }
 
 const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
@@ -119,12 +150,16 @@ export class AdminSupplierOrdersService {
   }
 
   /**
-   * _buildDeliveryRows — fonte única de verdade das entregas de amanhã (BRT).
+   * _buildDeliveryRows — fonte única de verdade das entregas do dia (BRT).
    *
-   * Une pedidos JÁ materializados (Order) com previstos da agenda (ainda não materializados),
-   * resolvendo nome/apartamento/bloco do cliente, label do slot e flag de risco. Tanto a lista
-   * (getDraft) quanto o detalhe (getCondominiumDetail) derivam destas linhas — assim os números
-   * sempre reconciliam (ex.: os chips ☀/☾ somam o total do card).
+   * Delega a demanda para `buildBreadDemand` (`lib/bread-demand.ts`), que une pedidos de pão
+   * (`Order`), **Cestinhas confirmadas** (`MarketOrder.breadQty` é pão — D-1) e os previstos da
+   * agenda, já mesclados por PARADA `(userId, slotId)` (D-5). Aqui só resolvemos apresentação:
+   * nome/apartamento/bloco, label do turno e a flag de risco.
+   *
+   * Tanto a lista (getDraft) quanto o detalhe (getCondominiumDetail), os dias em aberto
+   * (getUpcomingDays), a geração do pedido (createQuick) e os avisos de corte derivam destas
+   * linhas — então os números reconciliam entre todas as telas.
    *
    * Risco (só para previstos, que ainda dependem de saldo/conta ativa para virar pedido):
    * - 'blocked'  → cliente bloqueado
@@ -132,120 +167,96 @@ export class AdminSupplierOrdersService {
    *               ativa (com autoRecharge.active o sistema cobra/recarrega antes do corte → não é risco)
    */
   private async _buildDeliveryRows(slotId: string, deliveryDate: Date, condominiumId?: string): Promise<DeliveryRow[]> {
-    const { start: startOfDay, end: endOfDay } = brtDayRange(deliveryDate)
-
-    // Pedidos JÁ materializados deste turno para a data (não cancelados)
-    const orders = await this.prisma.order.findMany({
-      where: {
-        scheduledDate: { gte: startOfDay, lte: endOfDay },
-        status: { not: 'CANCELLED' },
-        slotId,
-        condominiumId: condominiumId ?? { not: null },
-      },
-      select: { userId: true, quantity: true, slotId: true, type: true, condominiumId: true },
-    })
-
-    // Previstos pela agenda — APENAS deste turno, ainda não materializados
-    let projected = await projectScheduleDetailForDate(this.prisma, deliveryDate)
-    projected = projected.filter((p) => p.slotId === slotId)
-    if (condominiumId) projected = projected.filter((p) => p.condominiumId === condominiumId)
+    const stops = await buildBreadDemand(this.prisma, slotId, deliveryDate, { condominiumId })
+    if (stops.length === 0) return []
 
     // Carregar clientes (nome, ap/bloco, saldo, bloqueio) e condomínios (nome + slots) referenciados
-    const userIds = [...new Set([...orders.map((o) => o.userId), ...projected.map((p) => p.userId)])]
-    const condoIds = [
-      ...new Set([
-        ...orders.map((o) => o.condominiumId).filter((c): c is string => !!c),
-        ...projected.map((p) => p.condominiumId),
-      ]),
-    ]
+    const userIds = [...new Set(stops.map((s) => s.userId))]
+    const condoIds = [...new Set(stops.map((s) => s.condominiumId))]
 
     const [users, condos] = await Promise.all([
-      userIds.length
-        ? this.prisma.user.findMany({
-            where: { id: { in: userIds } },
-            select: { id: true, name: true, apartment: true, block: true, creditBalance: true, isBlocked: true, autoRecharge: true },
-          })
-        : Promise.resolve([]),
-      condoIds.length
-        ? this.prisma.condominium.findMany({
-            where: { id: { in: condoIds } },
-            select: { id: true, name: true, deliverySlots: true },
-          })
-        : Promise.resolve([]),
+      this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, apartment: true, block: true, creditBalance: true, isBlocked: true, autoRecharge: true },
+      }),
+      this.prisma.condominium.findMany({
+        where: { id: { in: condoIds } },
+        select: { id: true, name: true, deliverySlots: true },
+      }),
     ])
 
     const userById = new Map(users.map((u) => [u.id, u]))
     const condoById = new Map(condos.map((c) => [c.id, c]))
 
     // Resolver label do slot por condomínio (deliverySlots embute slotId/name/label)
-    const slotLabelFor = (condoId: string, slotId: string): string => {
+    const slotLabelFor = (condoId: string, sid: string): string => {
       const condo = condoById.get(condoId)
-      const slot = condo?.deliverySlots?.find((s) => s.slotId === slotId || s.name === slotId)
-      return slot?.label ?? fallbackSlotLabel(slotId)
+      const slot = condo?.deliverySlots?.find((s) => s.slotId === sid || s.name === sid)
+      return slot?.label ?? fallbackSlotLabel(sid)
     }
 
     // Total previsto por usuário — base do flag 'no-credit' (saldo cobre tudo que vem?)
     const projTotalByUser = new Map<string, number>()
-    for (const p of projected) projTotalByUser.set(p.userId, (projTotalByUser.get(p.userId) ?? 0) + p.quantity)
-
-    const rows: DeliveryRow[] = []
-
-    for (const o of orders) {
-      if (!o.condominiumId) continue
-      const u = userById.get(o.userId)
-      const slotId = o.slotId ?? ''
-      rows.push({
-        condominiumId: o.condominiumId,
-        condominiumName: condoById.get(o.condominiumId)?.name ?? o.condominiumId,
-        userId: o.userId,
-        name: u?.name ?? 'Cliente',
-        apartment: u?.apartment ?? '',
-        block: u?.block ?? '',
-        quantity: o.quantity,
-        slotId,
-        slotLabel: slotLabelFor(o.condominiumId, slotId),
-        type: o.type,
-        source: 'order',
-        risk: '', // já é um pedido real (pago) — não está em risco de não materializar
-      })
+    for (const s of stops) {
+      if (s.breadProjected > 0) {
+        projTotalByUser.set(s.userId, (projTotalByUser.get(s.userId) ?? 0) + s.breadProjected)
+      }
     }
 
-    for (const p of projected) {
-      const u = userById.get(p.userId)
+    return stops.map((s) => {
+      const u = userById.get(s.userId)
+      // Risco só existe para a parte PREVISTA — o que já foi pago não corre risco de não materializar.
       // Recarga automática ativa cobre o saldo no corte (cobrança off_session antes de materializar),
       // então um previsto sem saldo deixa de ser risco 'no-credit'. Bloqueio segue valendo sempre.
       const autoRechargeActive = Boolean((u?.autoRecharge as { active?: boolean } | null)?.active)
-      const risk: RiskFlag = u?.isBlocked
-        ? 'blocked'
-        : !autoRechargeActive && (projTotalByUser.get(p.userId) ?? 0) > (u?.creditBalance ?? 0)
-          ? 'no-credit'
-          : ''
-      rows.push({
-        condominiumId: p.condominiumId,
-        condominiumName: condoById.get(p.condominiumId)?.name ?? p.condominiumId,
-        userId: p.userId,
+      const risk: RiskFlag =
+        s.breadProjected <= 0
+          ? ''
+          : u?.isBlocked
+            ? 'blocked'
+            : !autoRechargeActive && (projTotalByUser.get(s.userId) ?? 0) > (u?.creditBalance ?? 0)
+              ? 'no-credit'
+              : ''
+      return {
+        condominiumId: s.condominiumId,
+        condominiumName: condoById.get(s.condominiumId)?.name ?? s.condominiumId,
+        userId: s.userId,
         name: u?.name ?? 'Cliente',
         apartment: u?.apartment ?? '',
         block: u?.block ?? '',
-        quantity: p.quantity,
-        slotId: p.slotId,
-        slotLabel: slotLabelFor(p.condominiumId, p.slotId),
-        type: 'SCHEDULED',
-        source: 'projected',
+        quantity: s.breadConfirmed + s.breadProjected,
+        slotId: s.slotId,
+        slotLabel: slotLabelFor(s.condominiumId, s.slotId),
+        // Rótulo de exibição da parada: agenda quando há pão de agenda; senão avulso
+        // (parada só-Cestinha também cai em SINGLE — é uma compra pontual).
+        type: s.breadScheduled > 0 || (s.breadProjected > 0 && s.breadConfirmed === 0) ? 'SCHEDULED' : 'SINGLE',
+        source: s.hasConfirmed ? 'order' : 'projected',
         risk,
-      })
-    }
-
-    return rows
+        breadConfirmed: s.breadConfirmed,
+        breadProjected: s.breadProjected,
+        breadFromMarket: s.breadFromMarket,
+        breadSingle: s.breadSingle,
+        breadScheduled: s.breadScheduled,
+        marketItems: s.marketItems,
+        marketItemCount: s.marketItemCount,
+        marketOrderIds: s.marketOrderIds,
+        origin: s.origin,
+      }
+    })
   }
 
-  /** Agrega linhas em quebra por slot (turno), ordenada por label. */
+  /**
+   * Agrega paradas em quebra por turno, ordenada por label. `breads` é o total de pães
+   * (confirmados + previstos) e `deliveries` conta PARADAS (D-5) — um cliente com pão + Cestinha
+   * no mesmo turno conta 1. `items` é a métrica paralela dos produtos do mercadinho (D-1).
+   */
   private _slotBreakdown(rows: DeliveryRow[]): SlotBreakdown[] {
     const map = new Map<string, SlotBreakdown>()
     for (const r of rows) {
-      const cur = map.get(r.slotId) ?? { slotId: r.slotId, label: r.slotLabel, breads: 0, deliveries: 0 }
+      const cur = map.get(r.slotId) ?? { slotId: r.slotId, label: r.slotLabel, breads: 0, deliveries: 0, items: 0 }
       cur.breads += r.quantity
       cur.deliveries += 1
+      cur.items += r.marketItemCount
       map.set(r.slotId, cur)
     }
     return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
@@ -267,6 +278,8 @@ export class AdminSupplierOrdersService {
       projectedDeliveries: number
       bySlot: SlotBreakdown[]
       riskCount: number
+      marketItemCount: number
+      marketBreads: number
     }>
   > {
     const { deliveryDate } = await this._resolveSlot(slotId, dateStr)
@@ -280,18 +293,23 @@ export class AdminSupplierOrdersService {
     }
 
     const result = [...byCondo.entries()].map(([condominiumId, condoRows]) => {
-      const mat = condoRows.filter((r) => r.source === 'order')
-      const proj = condoRows.filter((r) => r.source === 'projected')
-      const riskUsers = new Set(proj.filter((r) => r.risk !== '').map((r) => r.userId))
+      // `deliveryCount` e `projectedDeliveries` contam PARADAS e são disjuntos por construção
+      // (a parada tem algo pago, ou é puramente prevista) — o front soma os dois para "entregas".
+      const confirmed = condoRows.filter((r) => r.source === 'order')
+      const riskUsers = new Set(condoRows.filter((r) => r.risk !== '').map((r) => r.userId))
       return {
         condominiumId,
         name: condoRows[0]?.condominiumName ?? condominiumId,
-        deliveryCount: mat.length,
-        totalBreads: mat.reduce((s, r) => s + r.quantity, 0),
-        projectedBreads: proj.reduce((s, r) => s + r.quantity, 0),
-        projectedDeliveries: new Set(proj.map((r) => r.userId)).size,
+        deliveryCount: confirmed.length,
+        // Pães já pagos — inclui o pão vendido dentro da Cestinha (D-1).
+        totalBreads: condoRows.reduce((s, r) => s + r.breadConfirmed, 0),
+        projectedBreads: condoRows.reduce((s, r) => s + r.breadProjected, 0),
+        projectedDeliveries: condoRows.length - confirmed.length,
         bySlot: this._slotBreakdown(condoRows),
         riskCount: riskUsers.size,
+        // Métricas paralelas da Cestinha (D-1) — nunca somadas aos pães.
+        marketItemCount: condoRows.reduce((s, r) => s + r.marketItemCount, 0),
+        marketBreads: condoRows.reduce((s, r) => s + r.breadFromMarket, 0),
       }
     })
 
@@ -315,7 +333,8 @@ export class AdminSupplierOrdersService {
     projectedDeliveries: number
     riskCount: number
     bySlot: SlotBreakdown[]
-    byType: { single: number; scheduled: number }
+    byType: { single: number; scheduled: number; cestinha: number }
+    marketItemCount: number
     deliveries: Array<{
       userId: string
       name: string
@@ -327,6 +346,10 @@ export class AdminSupplierOrdersService {
       type: 'SINGLE' | 'SCHEDULED'
       source: 'order' | 'projected'
       risk: RiskFlag
+      marketItems: MarketItemLine[]
+      marketItemCount: number
+      breadFromMarket: number
+      origin: 'bread' | 'market' | 'both'
     }>
   }> {
     const { deliveryDate } = await this._resolveSlot(slotId, dateStr)
@@ -342,9 +365,8 @@ export class AdminSupplierOrdersService {
       name = condo?.name ?? condominiumId
     }
 
-    const mat = rows.filter((r) => r.source === 'order')
-    const proj = rows.filter((r) => r.source === 'projected')
-    const riskUsers = new Set(proj.filter((r) => r.risk !== '').map((r) => r.userId))
+    const confirmed = rows.filter((r) => r.source === 'order')
+    const riskUsers = new Set(rows.filter((r) => r.risk !== '').map((r) => r.userId))
 
     // Ordenar entregas: bloco, depois apartamento (numérico quando possível), depois nome
     const deliveries = [...rows].sort((a, b) => {
@@ -357,16 +379,20 @@ export class AdminSupplierOrdersService {
       condominiumId,
       name,
       totalBreads: rows.reduce((s, r) => s + r.quantity, 0),
-      materializedBreads: mat.reduce((s, r) => s + r.quantity, 0),
-      projectedBreads: proj.reduce((s, r) => s + r.quantity, 0),
-      deliveryCount: mat.length,
-      projectedDeliveries: new Set(proj.map((r) => r.userId)).size,
+      materializedBreads: rows.reduce((s, r) => s + r.breadConfirmed, 0),
+      projectedBreads: rows.reduce((s, r) => s + r.breadProjected, 0),
+      deliveryCount: confirmed.length,
+      projectedDeliveries: rows.length - confirmed.length,
       riskCount: riskUsers.size,
       bySlot: this._slotBreakdown(rows),
+      // Quebra dos PÃES por origem — single + scheduled + cestinha = pães confirmados (D-1).
+      // (previstos ficam fora: ainda não são pão de ninguém.)
       byType: {
-        single: rows.filter((r) => r.type === 'SINGLE').reduce((s, r) => s + r.quantity, 0),
-        scheduled: rows.filter((r) => r.type === 'SCHEDULED').reduce((s, r) => s + r.quantity, 0),
+        single: rows.reduce((s, r) => s + r.breadSingle, 0),
+        scheduled: rows.reduce((s, r) => s + r.breadScheduled, 0),
+        cestinha: rows.reduce((s, r) => s + r.breadFromMarket, 0),
       },
+      marketItemCount: rows.reduce((s, r) => s + r.marketItemCount, 0),
       deliveries: deliveries.map((r) => ({
         userId: r.userId,
         name: r.name,
@@ -378,6 +404,10 @@ export class AdminSupplierOrdersService {
         type: r.type,
         source: r.source,
         risk: r.risk,
+        marketItems: r.marketItems,
+        marketItemCount: r.marketItemCount,
+        breadFromMarket: r.breadFromMarket,
+        origin: r.origin,
       })),
     }
   }
@@ -390,7 +420,12 @@ export class AdminSupplierOrdersService {
    * @returns { id: string } ID do PurchaseOrder criado
    */
   async create(data: {
-    items: Array<{ supplierId: string; quantity: number }>
+    /**
+     * Linhas do pedido. `productId` ausente = pão (compat com chamadas antigas do front, que só
+     * sabiam pedir pão). Com `productId`, o custo vem da matriz de fornecimento (D-8) daquele
+     * (fornecedor, produto) — não mais do `Supplier.pricePerUnit`, que é o preço do pão.
+     */
+    items: Array<{ supplierId: string; productId?: string; quantity: number }>
     cutoffTime?: string
     slotId: string
     date?: string
@@ -403,27 +438,59 @@ export class AdminSupplierOrdersService {
       ? new Date(data.cutoffTime)
       : new Date(new Date().setUTCHours(23, 0, 0, 0)) // 20:00 BRT = 23:00 UTC
 
-    // Resolver preços dos fornecedores e validar existência
+    const breadProductId = (await this.prisma.setting.findUnique({ where: { key: BREAD_PRODUCT_KEY } }))?.value ?? null
+
+    // Resolve custo e nome de cada linha, validando fornecedor e o vínculo na matriz.
     const itemsWithPrice = await Promise.all(
       data.items.map(async (item) => {
-        const supplier = await this.prisma.supplier.findUnique({
-          where: { id: item.supplierId },
-        })
+        const supplier = await this.prisma.supplier.findUnique({ where: { id: item.supplierId } })
         if (!supplier) {
           throw { statusCode: 404, message: `Fornecedor ${item.supplierId} não encontrado` }
         }
         if (supplier.isActive === false) {
           throw { statusCode: 400, message: `Fornecedor ${supplier.name} está inativo` }
         }
+
+        const productId = item.productId ?? breadProductId
+        let unitPrice = supplier.pricePerUnit // fallback legado (D-10)
+        let productName: string | null = null
+
+        if (productId) {
+          const link = await this.prisma.supplierProduct.findUnique({
+            where: { supplierId_productId: { supplierId: item.supplierId, productId } },
+          })
+          const product = await this.prisma.product.findUnique({
+            where: { id: productId },
+            select: { name: true },
+          })
+          productName = product?.name ?? null
+          if (link) {
+            unitPrice = link.unitCost
+          } else if (item.productId) {
+            // Pedido explícito de um produto que este fornecedor NÃO fornece: barrar em vez de
+            // inventar um custo. (Sem `item.productId`, a chamada é legada e o fallback vale.)
+            throw {
+              statusCode: 409,
+              message: `${supplier.name} não fornece "${productName ?? productId}". Cadastre o produto no fornecedor primeiro.`,
+            }
+          }
+        }
+
         return {
           supplierId: item.supplierId,
+          productId: productId ?? null,
+          productName,
           quantity: item.quantity,
-          unitPrice: supplier.pricePerUnit,
+          unitPrice,
+          isBread: productId != null && productId === breadProductId,
         }
       }),
     )
 
-    const totalQuantity = itemsWithPrice.reduce((sum, item) => sum + item.quantity, 0)
+    // `totalQuantity` continua sendo SÓ PÃES (o desperdício compara com pães entregues).
+    const totalQuantity = itemsWithPrice.filter((i) => i.isBread).reduce((s, i) => s + i.quantity, 0)
+    const totalItems = itemsWithPrice.filter((i) => !i.isBread).reduce((s, i) => s + i.quantity, 0)
+    const totalValue = round2(itemsWithPrice.reduce((s, i) => s + i.quantity * i.unitPrice, 0))
 
     const order = await this.repository.create({
       date: deliveryDate,
@@ -431,7 +498,10 @@ export class AdminSupplierOrdersService {
       slotLabel: slot.label,
       cutoffTime,
       totalQuantity,
-      items: itemsWithPrice,
+      totalItems,
+      totalValue,
+      kind: 'DELIVERY_BATCH',
+      items: itemsWithPrice.map(({ isBread: _isBread, ...rest }) => rest),
     })
 
     // Fecha o ciclo do corte DESTE turno:
@@ -451,6 +521,165 @@ export class AdminSupplierOrdersService {
     }
 
     return { id: order.id }
+  }
+
+  /**
+   * getRestockSuggestion — o que repor de inventário (`FIXED`) e de quem comprar (H8 / D-9).
+   *
+   * Junta três coisas que já existem e nunca se falavam: o ritmo de venda do produto
+   * (`buildRestockCandidates`), a matriz de fornecimento (`loadSourcingOptions` — D-7/D-8) e o
+   * motor de rateio (`splitDemandBySupplier`). Não cria nada; é o que a tela mostra antes de
+   * confirmar.
+   *
+   * `unsourced` sai explícito (regra 4 do §3-B.4): produto que precisa de reposição e não tem
+   * fornecedor cadastrado **não** pode desaparecer da tela em silêncio.
+   */
+  async getRestockSuggestion(coverDays?: number): Promise<{
+    coverDays: number
+    products: Array<
+      RestockCandidate & {
+        options: Array<{
+          supplierId: string
+          supplierName: string
+          unitCost: number
+          defaultSharePct: number
+          isPreferred: boolean
+          minOrderQty: number | null
+          /** Quantidade sugerida DESTE fornecedor (rateio da sugestão pela matriz). */
+          suggested: number
+          belowMinimum: boolean
+        }>
+      }
+    >
+    unsourced: UnsourcedProduct[]
+    totalQuantity: number
+    totalValue: number
+  }> {
+    const candidates = await buildRestockCandidates(this.prisma, { coverDays })
+    const options = await loadSourcingOptions(
+      this.prisma,
+      candidates.map((c) => c.productId),
+    )
+    // Rateia só o que tem quantidade a comprar — um produto crítico com sugestão 0 (sem base de
+    // consumo e ainda fora da faixa) aparece na tela como contexto, não como linha de compra.
+    const split = splitDemandBySupplier(
+      candidates.map((c) => ({ productId: c.productId, productName: c.productName, qty: c.suggestedQty })),
+      options,
+    )
+    const lineBy = new Map(split.lines.map((l) => [`${l.productId}|${l.supplierId}`, l]))
+
+    return {
+      coverDays: coverDays ?? RESTOCK_COVER_DAYS,
+      products: candidates.map((c) => ({
+        ...c,
+        options: (options.get(c.productId) ?? []).map((o) => {
+          const line = lineBy.get(`${c.productId}|${o.supplierId}`)
+          return {
+            supplierId: o.supplierId,
+            supplierName: o.supplierName,
+            unitCost: o.unitCost,
+            defaultSharePct: o.defaultSharePct,
+            isPreferred: o.isPreferred,
+            minOrderQty: o.minOrderQty ?? null,
+            suggested: line?.quantity ?? 0,
+            belowMinimum: line?.belowMinimum ?? false,
+          }
+        }),
+      })),
+      unsourced: split.unsourced,
+      totalQuantity: split.totalQuantity,
+      totalValue: split.totalValue,
+    }
+  }
+
+  /**
+   * createRestock — pedido de REPOSIÇÃO de inventário (D-9), sem turno e sem data de entrega.
+   *
+   * Diferenças em relação ao `create` (que é `DELIVERY_BATCH`) e por que elas importam:
+   * - **`slotId: null`.** Reposição não pertence a um turno. Isso também é o que mantém o RESTOCK
+   *   fora do resto da operação de graça: `getGeneratedStatus`/`getSlotsStatus` filtram por
+   *   `slotId` e o gate da Separação descarta `slotId` nulo — um pedido de geleia não pode fazer a
+   *   tela dizer "pedido do turno gerado" nem abrir uma separação.
+   * - **`totalQuantity: 0` SEMPRE.** Esse campo é "pães" e o `getWasteReport` compara ele com os
+   *   pães entregues (decisão 4 da Onda H1–H7). Um RESTOCK de 20 potes de geleia ali dentro faria
+   *   o relatório de desperdício acusar 20 pães jogados no lixo. As unidades vão em `totalItems`.
+   * - **Só produto `FIXED`.** `DAILY` (pão, bolo) se compra pela demanda do turno; comprar
+   *   "inventário" de um produto que reseta a capacidade todo dia não significa nada.
+   *
+   * Finaliza na hora, como o `create`: o admin não está redigindo um rascunho, está comprando —
+   * e o histórico (`getHistory`) só lista FINALIZED, então um DRAFT ficaria invisível.
+   */
+  async createRestock(data: {
+    items: Array<{ supplierId: string; productId: string; quantity: number }>
+  }): Promise<{ id: string; totalItems: number; totalValue: number }> {
+    const now = new Date()
+    const breadProductId =
+      (await this.prisma.setting.findUnique({ where: { key: BREAD_PRODUCT_KEY } }))?.value ?? null
+
+    const itemsWithPrice = await Promise.all(
+      data.items.map(async (item) => {
+        const [supplier, product] = await Promise.all([
+          this.prisma.supplier.findUnique({ where: { id: item.supplierId } }),
+          this.prisma.product.findUnique({
+            where: { id: item.productId },
+            select: { name: true, stockType: true, isActive: true },
+          }),
+        ])
+        if (!supplier) throw { statusCode: 404, message: `Fornecedor ${item.supplierId} não encontrado` }
+        if (supplier.isActive === false) throw { statusCode: 400, message: `Fornecedor ${supplier.name} está inativo` }
+        if (!product) throw { statusCode: 404, message: `Produto ${item.productId} não encontrado` }
+        if (item.productId === breadProductId) {
+          throw {
+            statusCode: 400,
+            message: 'O pão é comprado pela demanda do turno, não por reposição de estoque.',
+          }
+        }
+        if (product.stockType !== 'FIXED') {
+          throw {
+            statusCode: 400,
+            message: `"${product.name}" tem capacidade por dia, não estoque — peça pela demanda do turno.`,
+          }
+        }
+
+        // D-8: o custo mora na relação (fornecedor, produto). Sem a linha, o fornecedor não
+        // fornece este produto — barrar em vez de inventar um preço.
+        const link = await this.prisma.supplierProduct.findUnique({
+          where: { supplierId_productId: { supplierId: item.supplierId, productId: item.productId } },
+        })
+        if (!link) {
+          throw {
+            statusCode: 409,
+            message: `${supplier.name} não fornece "${product.name}". Cadastre o produto no fornecedor primeiro.`,
+          }
+        }
+
+        return {
+          supplierId: item.supplierId,
+          productId: item.productId,
+          productName: product.name,
+          quantity: item.quantity,
+          unitPrice: link.unitCost,
+        }
+      }),
+    )
+
+    const totalItems = itemsWithPrice.reduce((s, i) => s + i.quantity, 0)
+    const totalValue = round2(itemsWithPrice.reduce((s, i) => s + i.quantity * i.unitPrice, 0))
+
+    const order = await this.repository.create({
+      date: now,
+      slotId: null,
+      slotLabel: null,
+      cutoffTime: now, // sem corte: reposição não depende de turno (campo obrigatório no modelo)
+      totalQuantity: 0, // ver cabeçalho — NUNCA somar itens aqui
+      totalItems,
+      totalValue,
+      kind: 'RESTOCK',
+      items: itemsWithPrice,
+    })
+    await this.repository.finalize(order.id)
+
+    return { id: order.id, totalItems, totalValue }
   }
 
   /**
@@ -497,6 +726,7 @@ export class AdminSupplierOrdersService {
       hasOrders: boolean
       generated: boolean
       totalBreads: number
+      totalItems: number
     }>
   > {
     const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
@@ -506,6 +736,7 @@ export class AdminSupplierOrdersService {
         const { start, end } = brtDayRange(deliveryDate)
         const rows = await this._buildDeliveryRows(slot.slotId, deliveryDate)
         const totalBreads = rows.reduce((s, r) => s + r.quantity, 0)
+        const totalItems = rows.reduce((s, r) => s + r.marketItemCount, 0)
         const po = await this.prisma.purchaseOrder.findFirst({
           where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
           select: { id: true },
@@ -520,6 +751,7 @@ export class AdminSupplierOrdersService {
           hasOrders: rows.length > 0,
           generated: !!po,
           totalBreads,
+          totalItems,
         }
       }),
     )
@@ -558,8 +790,11 @@ export class AdminSupplierOrdersService {
         generated: boolean
         pastCutoff: boolean
         hasOrders: boolean
+        items: number
+        marketBreads: number
       }>
       totalBreads: number
+      totalItems: number
       hasOrders: boolean
       allGenerated: boolean
       anyPending: boolean
@@ -576,9 +811,10 @@ export class AdminSupplierOrdersService {
         const slotStates = await Promise.all(
           slots.map(async (slot) => {
             const rows = await this._buildDeliveryRows(slot.slotId, deliveryDate)
-            // breads = confirmados (o que será pedido); projectedBreads = previstos (contexto).
-            const breads = rows.filter((r) => r.source === 'order').reduce((s, r) => s + r.quantity, 0)
-            const projectedBreads = rows.filter((r) => r.source === 'projected').reduce((s, r) => s + r.quantity, 0)
+            // breads = confirmados (o que será pedido, JÁ incluindo o pão da Cestinha — D-1);
+            // projectedBreads = previstos (contexto).
+            const breads = rows.reduce((s, r) => s + r.breadConfirmed, 0)
+            const projectedBreads = rows.reduce((s, r) => s + r.breadProjected, 0)
             const riskUsers = new Set(rows.filter((r) => r.risk !== '').map((r) => r.userId))
             const po = await this.prisma.purchaseOrder.findFirst({
               where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
@@ -598,7 +834,10 @@ export class AdminSupplierOrdersService {
               riskCount: riskUsers.size,
               generated: !!po,
               pastCutoff: isPastCutoffForDelivery(slot.time, slot.cutoffTime, dateStr, now),
+              // Um turno com SÓ Cestinha (0 pães, N itens) tem entrega a fazer e precisa aparecer.
               hasOrders: rows.length > 0,
+              items: rows.reduce((s, r) => s + r.marketItemCount, 0),
+              marketBreads: rows.reduce((s, r) => s + r.breadFromMarket, 0),
             }
           }),
         )
@@ -610,6 +849,7 @@ export class AdminSupplierOrdersService {
           slots: slotStates,
           // Total do dia = confirmados (o que será pedido). Previstos ficam por turno.
           totalBreads: slotStates.reduce((s, x) => s + x.breads, 0),
+          totalItems: slotStates.reduce((s, x) => s + x.items, 0),
           hasOrders: withOrders.length > 0,
           allGenerated: withOrders.length > 0 && withOrders.every((x) => x.generated),
           anyPending: withOrders.some((x) => !x.generated && !x.pastCutoff),
@@ -627,30 +867,99 @@ export class AdminSupplierOrdersService {
    * de segurança pede o total real. Retorna null quando não há nada confirmado a pedir.
    * Reusado pela rede de segurança no corte (autoGenerateAtCutoff).
    */
-  async createQuick(slotId: string, dateStr?: string): Promise<{ id: string } | null> {
+  /**
+   * getSplitPreview — o rateio PROPOSTO para um (turno, dia), sem criar nada.
+   *
+   * Alimenta o passo "Dividir" da tela: um card por produto, uma linha por fornecedor daquele
+   * produto, já com a quantidade sugerida e o custo. O front NÃO reimplementa o motor de rateio —
+   * duas implementações da mesma regra de arredondamento sempre divergem, e aí o que a tela mostra
+   * deixa de ser o que o "Gerar direto" faria.
+   */
+  async getSplitPreview(slotId: string, dateStr?: string): Promise<{
+    products: Array<{
+      productId: string
+      productName: string
+      isBread: boolean
+      demand: number
+      options: Array<{
+        supplierId: string
+        supplierName: string
+        unitCost: number
+        defaultSharePct: number
+        isPreferred: boolean
+        minOrderQty: number | null
+        /** Quantidade sugerida pelo rateio padrão. */
+        suggested: number
+      }>
+    }>
+    unsourced: UnsourcedProduct[]
+    totalQuantity: number
+    totalValue: number
+  }> {
+    const { deliveryDate } = await this._resolveSlot(slotId, dateStr)
+    const demand = await buildProductDemand(this.prisma, slotId, deliveryDate)
+    const options = await loadSourcingOptions(this.prisma, demand.map((d) => d.productId))
+    const split = splitDemandBySupplier(demand, options)
+
+    const suggestedBy = new Map<string, number>()
+    for (const l of split.lines) suggestedBy.set(`${l.productId}|${l.supplierId}`, l.quantity)
+
+    return {
+      products: demand.map((d) => ({
+        productId: d.productId,
+        productName: d.productName,
+        isBread: d.isBread,
+        demand: d.qty,
+        options: (options.get(d.productId) ?? []).map((o) => ({
+          supplierId: o.supplierId,
+          supplierName: o.supplierName,
+          unitCost: o.unitCost,
+          defaultSharePct: o.defaultSharePct,
+          isPreferred: o.isPreferred,
+          minOrderQty: o.minOrderQty ?? null,
+          suggested: suggestedBy.get(`${d.productId}|${o.supplierId}`) ?? 0,
+        })),
+      })),
+      unsourced: split.unsourced,
+      totalQuantity: split.totalQuantity,
+      totalValue: split.totalValue,
+    }
+  }
+
+  async createQuick(
+    slotId: string,
+    dateStr?: string,
+  ): Promise<{ id: string; unsourced?: UnsourcedProduct[] } | null> {
     const { deliveryDate } = await this._resolveSlot(slotId, dateStr)
 
-    const rows = await this._buildDeliveryRows(slotId, deliveryDate)
-    // Só confirmados (source 'order'): previstos não entram no pedido ao fornecedor.
-    const total = rows.filter((r) => r.source === 'order').reduce((s, r) => s + r.quantity, 0)
-    if (total <= 0) return null
+    // Demanda de COMPRA por produto (H3): pão (Order + MarketOrder.breadQty) + produtos do
+    // mercadinho. Só confirmada — previstos da agenda podem não materializar.
+    const demand = await buildProductDemand(this.prisma, slotId, deliveryDate)
+    if (demand.length === 0) return null
 
-    // Split padrão configurável: principal leva tudo; principalPct% quando há reserva.
-    // Só fornecedores ativos entram na geração automática.
-    const suppliers = await this.prisma.supplier.findMany({ where: { isActive: true } })
-    const principal = suppliers.find((s) => s.isPrincipal) ?? suppliers[0]
-    if (!principal) throw { statusCode: 400, message: 'Nenhum fornecedor ativo cadastrado' }
-    const reserva = suppliers.find((s) => !s.isPrincipal && s.id !== principal.id)
+    // Rateio pela matriz de fornecimento (H4): cada produto entre os SEUS fornecedores, com a
+    // fatia padrão de cada um. Substitui o percentual global aplicado ao único produto (D-7).
+    const options = await loadSourcingOptions(this.prisma, demand.map((d) => d.productId))
+    const split = splitDemandBySupplier(demand, options)
 
-    const pct = await this.getDefaultSplitPercent()
-    const p = reserva ? Math.round((total * pct) / 100) : total
-    const r = total - p
-    const items = [
-      { supplierId: principal.id, quantity: p },
-      ...(reserva && r > 0 ? [{ supplierId: reserva.id, quantity: r }] : []),
-    ].filter((it) => it.quantity > 0)
+    if (split.lines.length === 0) {
+      // Nada rateável: ou não há fornecedor cadastrado, ou a demanda toda ficou órfã.
+      if (split.unsourced.length > 0) {
+        throw {
+          statusCode: 409,
+          message: `Sem fornecedor cadastrado para: ${split.unsourced.map((u) => u.productName).join(', ')}.`,
+        }
+      }
+      throw { statusCode: 400, message: 'Nenhum fornecedor ativo cadastrado' }
+    }
 
-    return this.create({ items, slotId, date: dateStr })
+    const created = await this.create({
+      items: split.lines.map((l) => ({ supplierId: l.supplierId, productId: l.productId, quantity: l.quantity })),
+      slotId,
+      date: dateStr,
+    })
+    // Nunca omitir em silêncio o que ficou de fora (§3-B.4, regra 4) — o chamador avisa o admin.
+    return split.unsourced.length > 0 ? { ...created, unsourced: split.unsourced } : created
   }
 
   /**
@@ -693,10 +1002,15 @@ export class AdminSupplierOrdersService {
           )
           // Aviso ao admin — o pedido foi gerado AUTOMATICAMENTE (admin não gerou a tempo).
           if (res) {
+            // §3-B.4 regra 4: a rede de segurança gera o que dá E DIZ o que ficou de fora.
+            // Omitir seria pior que falhar — o admin acharia que comprou tudo.
+            const missing = res.unsourced?.length
+              ? ` ATENÇÃO: sem fornecedor cadastrado para ${res.unsourced.map((u) => `${u.qty}× ${u.productName}`).join(', ')} — não foi pedido.`
+              : ''
             await new NotificationsService(this.fastify).notifyAdmins({
               type: NotificationType.ADMIN_AUTOGEN_DONE,
               title: 'Pedido gerado automaticamente',
-              body: `O pedido ao fornecedor do turno ${slot.label} foi gerado automaticamente (split padrão).`,
+              body: `O pedido ao fornecedor do turno ${slot.label} foi gerado automaticamente (rateio padrão).${missing}`,
               actionRoute: '/admin',
             })
           }
@@ -875,22 +1189,38 @@ export class AdminSupplierOrdersService {
       const target = (sh * 60 + sm + bufferMin + 1440) % 1440
       if (cur !== target) continue
 
-      const pending = await this.prisma.order.findMany({
-        where: {
-          slotId: slot.slotId,
-          scheduledDate: { gte: start, lte: end },
-          status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
-        },
-        select: { quantity: true },
-      })
-      if (pending.length === 0) continue
+      // Pendências de pão E de Cestinha: uma parada só-Cestinha esquecida também precisa avisar.
+      const [pending, pendingMarket] = await Promise.all([
+        this.prisma.order.findMany({
+          where: {
+            slotId: slot.slotId,
+            scheduledDate: { gte: start, lte: end },
+            status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
+          },
+          select: { userId: true, quantity: true },
+        }),
+        this.prisma.marketOrder.findMany({
+          where: {
+            slotId: slot.slotId,
+            scheduledDate: { gte: start, lte: end },
+            status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
+          },
+          select: { userId: true, breadQty: true, items: { select: { qty: true } } },
+        }),
+      ])
+      if (pending.length === 0 && pendingMarket.length === 0) continue
 
-      const total = pending.reduce((s, o) => s + o.quantity, 0)
+      // D-5: conta PARADAS, não pedidos — pão + Cestinha do mesmo cliente é uma visita.
+      const stops = new Set<string>()
+      for (const o of pending) stops.add(o.userId)
+      for (const m of pendingMarket) stops.add(m.userId)
+      const total = pending.reduce((s, o) => s + o.quantity, 0) + pendingMarket.reduce((s, m) => s + m.breadQty, 0)
+      const items = pendingMarket.reduce((s, m) => s + m.items.reduce((n, i) => n + i.qty, 0), 0)
       try {
         await new NotificationsService(this.fastify).notifyAdmins({
           type: NotificationType.ADMIN_DELIVERY_PENDING,
           title: 'Entregas pendentes',
-          body: `${pending.length} entrega(s) do turno ${slot.label} ainda não concluídas (${total} pães) após o prazo.`,
+          body: `${stops.size} entrega(s) do turno ${slot.label} ainda não concluídas (${total} pães${items > 0 ? ` · ${items} itens` : ''}) após o prazo.`,
           actionRoute: '/admin',
         })
       } catch (err) {
@@ -935,50 +1265,114 @@ export class AdminSupplierOrdersService {
    *
    * @throws { statusCode: 404 } se PurchaseOrder não existe
    */
-  async getPdfBuffer(id: string): Promise<Buffer> {
-    const data = await this._buildSupplierOrderData(id)
+  async getPdfBuffer(id: string, supplierId?: string): Promise<Buffer> {
+    const data = await this._buildSupplierOrderData(id, supplierId)
     return generatePdf(data)
   }
 
   /**
    * getExcelBuffer — gera Buffer Excel do pedido ao fornecedor.
    *
+   * @param supplierId quando informado, gera o documento SÓ daquele fornecedor (ver getPdfBuffer)
    * @throws { statusCode: 404 } se PurchaseOrder não existe
    */
-  async getExcelBuffer(id: string): Promise<Buffer> {
-    const data = await this._buildSupplierOrderData(id)
+  async getExcelBuffer(id: string, supplierId?: string): Promise<Buffer> {
+    const data = await this._buildSupplierOrderData(id, supplierId)
     return generateExcel(data)
   }
 
+  /** Fornecedores presentes num pedido — alimenta um botão de download por fornecedor. */
+  async getOrderSuppliers(id: string): Promise<Array<{ supplierId: string; supplierName: string; quantity: number; total: number }>> {
+    const orderWithItems = await this.repository.findByIdWithItems(id)
+    if (!orderWithItems) throw { statusCode: 404, message: 'Pedido ao fornecedor não encontrado' }
+
+    const ids = [...new Set(orderWithItems.items.map((i) => i.supplierId))]
+    const suppliers = ids.length
+      ? await this.prisma.supplier.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+      : []
+    const nameById = new Map(suppliers.map((s) => [s.id, s.name]))
+
+    return ids
+      .map((sid) => {
+        const items = orderWithItems.items.filter((i) => i.supplierId === sid)
+        return {
+          supplierId: sid,
+          supplierName: nameById.get(sid) ?? sid,
+          quantity: items.reduce((s, i) => s + i.quantity, 0),
+          total: round2(items.reduce((s, i) => s + i.quantity * i.unitPrice, 0)),
+        }
+      })
+      .sort((a, b) => a.supplierName.localeCompare(b.supplierName, 'pt-BR'))
+  }
+
   /**
-   * _buildSupplierOrderData — helper privado que busca dados do pedido
-   * e formata para o SupplierOrderData usado pelos geradores.
+   * _buildSupplierOrderData — dados do pedido no formato dos geradores de PDF/Excel.
+   *
+   * Com `supplierId`, filtra as linhas daquele fornecedor e preenche o cabeçalho com o nome/CNPJ
+   * dele — é o documento ENVIÁVEL. Sem, devolve o consolidado (visão interna do admin).
+   *
+   * Isto conserta um problema que já existia antes da matriz: o documento único listava TODOS os
+   * fornecedores com seus preços, então mandá-lo para um fornecedor mostrava o preço do concorrente.
+   * Com N produtos ficaria pior.
    */
-  private async _buildSupplierOrderData(id: string): Promise<SupplierOrderData> {
+  private async _buildSupplierOrderData(id: string, supplierId?: string): Promise<SupplierOrderData> {
     const orderWithItems = await this.repository.findByIdWithItems(id)
 
     if (!orderWithItems) {
       throw { statusCode: 404, message: 'Pedido ao fornecedor não encontrado' }
     }
 
-    // Buscar nomes dos fornecedores para cada item
-    const items = await Promise.all(
-      orderWithItems.items.map(async (item) => {
-        const supplier = await this.prisma.supplier.findUnique({
-          where: { id: item.supplierId },
-          select: { name: true, pricePerUnit: true },
-        })
-        return {
-          supplier: supplier?.name ?? item.supplierId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          total: item.quantity * item.unitPrice,
-        }
-      }),
-    )
+    const rows = supplierId
+      ? orderWithItems.items.filter((i) => i.supplierId === supplierId)
+      : orderWithItems.items
+    if (supplierId && rows.length === 0) {
+      throw { statusCode: 404, message: 'Este fornecedor não tem itens neste pedido' }
+    }
+
+    const breadProductId = (await this.prisma.setting.findUnique({ where: { key: BREAD_PRODUCT_KEY } }))?.value ?? null
+
+    // Nomes de fornecedores e produtos em 2 queries (evita N+1 por item).
+    const supplierIds = [...new Set(rows.map((i) => i.supplierId))]
+    const productIds = [...new Set(rows.map((i) => i.productId).filter((p): p is string => !!p))]
+    const [suppliers, products] = await Promise.all([
+      supplierIds.length
+        ? this.prisma.supplier.findMany({ where: { id: { in: supplierIds } }, select: { id: true, name: true, cnpj: true } })
+        : Promise.resolve([]),
+      productIds.length
+        ? this.prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } })
+        : Promise.resolve([]),
+    ])
+    const supplierById = new Map(suppliers.map((s) => [s.id, s]))
+    const productNameById = new Map(products.map((p) => [p.id, p.name]))
+
+    const items = rows.map((item) => {
+      const s = supplierById.get(item.supplierId)
+      // Item legado (sem productId) é pão — mantém o rótulo legível no documento.
+      const product =
+        item.productName ??
+        (item.productId ? productNameById.get(item.productId) : undefined) ??
+        'Pão Francês'
+      return {
+        supplier: s?.name ?? item.supplierId,
+        product,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: round2(item.quantity * item.unitPrice),
+      }
+    })
+    // Pão primeiro (item principal da operação), depois por nome.
+    items.sort((a, b) => {
+      const aBread = a.product === 'Pão Francês'
+      const bBread = b.product === 'Pão Francês'
+      if (aBread !== bBread) return aBread ? -1 : 1
+      return a.product.localeCompare(b.product, 'pt-BR')
+    })
 
     const grandTotal = items.reduce((sum, item) => sum + item.quantity, 0)
     const grandTotalValue = items.reduce((sum, item) => sum + item.total, 0)
+    const breadTotal = rows
+      .filter((i) => (i.productId ?? breadProductId) === breadProductId)
+      .reduce((s, i) => s + i.quantity, 0)
 
     // Formatar data BRT
     const dateFormatted = new Intl.DateTimeFormat('pt-BR', {
@@ -988,10 +1382,17 @@ export class AdminSupplierOrdersService {
       year: 'numeric',
     }).format(orderWithItems.date)
 
+    const target = supplierId ? supplierById.get(supplierId) : undefined
+
     return {
       date: dateFormatted,
+      slotLabel: orderWithItems.slotLabel ?? undefined,
+      // Sem `kind` (pedidos antigos) = DELIVERY_BATCH, o único regime que existia.
+      kind: orderWithItems.kind ?? 'DELIVERY_BATCH',
+      supplier: target ? { name: target.name, cnpj: target.cnpj } : undefined,
       items,
       grandTotal,
+      breadTotal,
       grandTotalBrl: `R$ ${grandTotalValue.toFixed(2).replace('.', ',')}`,
     }
   }

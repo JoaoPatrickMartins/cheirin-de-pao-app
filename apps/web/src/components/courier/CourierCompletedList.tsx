@@ -11,6 +11,7 @@ export interface CompletedStop {
   slotLabel?: string
   completedAt: string | null
   marketOrderId?: string
+  marketOrderIds?: string[]
   marketItems?: { name: string; qty: number }[]
   marketItemCount?: number
 }

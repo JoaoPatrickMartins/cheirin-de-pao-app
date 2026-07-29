@@ -18,7 +18,8 @@ type Tone = 'good' | 'gold' | 'neutral'
 function getTone(type: string): Tone {
   if (['ADMIN_DELIVERY_DONE', 'ADMIN_CREDIT_PURCHASED', 'ADMIN_ORDER_PLACED', 'ADMIN_AUTOGEN_DONE'].includes(type))
     return 'good'
-  if (['ADMIN_DELIVERY_PENDING', 'ADMIN_AUTOGEN_WARNING', 'ADMIN_CUTOFF_REACHED'].includes(type)) return 'gold'
+  if (['ADMIN_DELIVERY_PENDING', 'ADMIN_AUTOGEN_WARNING', 'ADMIN_CUTOFF_REACHED', 'ADMIN_LOW_STOCK'].includes(type))
+    return 'gold'
   return 'neutral'
 }
 
@@ -34,6 +35,7 @@ function getIcon(type: string) {
     case 'ADMIN_DELIVERY_FAILED':
     case 'ADMIN_ORDER_CANCELLED':
     case 'ADMIN_AUTOGEN_WARNING':
+    case 'ADMIN_LOW_STOCK':
       return 'alert'
     case 'ADMIN_DELIVERY_PENDING':
       return 'truck'

@@ -402,6 +402,10 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
         </div>
       )}
 
+      {/* Fornecimento (leitura) — quem fornece este produto e por quanto. A edição fica no
+          fornecedor (D-8: o custo mora na relação, e é lá que ele é cadastrado). */}
+      {id && <ProductSuppliers productId={id} />}
+
       {error && (
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-accent)', margin: 0 }}>{error}</p>
       )}
@@ -538,5 +542,87 @@ function SegBtn({ active, onClick, title, sub }: { active: boolean; onClick: () 
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: active ? 'var(--color-accent)' : 'var(--color-text)', margin: 0 }}>{title}</p>
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '1px 0 0' }}>{sub}</p>
     </button>
+  )
+}
+
+/**
+ * ProductSuppliers — visão espelhada da matriz de fornecimento: quem fornece ESTE produto, por
+ * quanto e com que fatia da demanda. Somente leitura.
+ *
+ * A edição é no fornecedor (D-8: a linha `(fornecedor, produto)` é o que afirma "fornece", e o
+ * custo é dele). Aqui o valor é responder "meu bolo tem quem forneça?" sem sair da tela — porque um
+ * produto sem fornecedor é vendido e não é comprado.
+ */
+function ProductSuppliers({ productId }: { productId: string }) {
+  const [rows, setRows] = useState<
+    Array<{ supplierId: string; supplierName: string; supplierActive: boolean; unitCost: number; defaultSharePct: number; isPreferred: boolean; isActive: boolean }>
+  >([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const r = await apiFetch(`/admin/market/products/${productId}/suppliers`)
+        if (r.ok && active) setRows((await r.json()).suppliers)
+      } catch {
+        /* falha silenciosa */
+      } finally {
+        if (active) setLoading(false)
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [productId])
+
+  if (loading) return null
+
+  const eligible = rows.filter((r) => r.isActive && r.supplierActive)
+  const shareSum = eligible.reduce((s, r) => s + r.defaultSharePct, 0)
+  const shareOff = eligible.length > 0 && shareSum !== 0 && shareSum !== 100
+
+  return (
+    <div
+      style={{
+        background: eligible.length === 0 ? '#F8E7DA' : 'var(--color-surface-alt, #FBF6EC)',
+        border: `1.5px solid ${eligible.length === 0 ? '#E2B4A0' : 'var(--color-border)'}`,
+        borderRadius: 14,
+        padding: 13,
+      }}
+    >
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: eligible.length === 0 ? '#B4541F' : 'var(--color-text)', margin: 0 }}>
+        Fornecimento
+      </p>
+
+      {eligible.length === 0 ? (
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#8A3D14', margin: '4px 0 0', lineHeight: 1.45 }}>
+          Nenhum fornecedor ativo cadastrado para este produto — ele não entra no pedido ao
+          fornecedor. Cadastre em Gestão › Fornecedores, abrindo o fornecedor.
+        </p>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 8 }}>
+            {eligible.map((r) => (
+              <div key={r.supplierId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.supplierName}
+                  {r.isPreferred && <span style={{ marginLeft: 5, fontSize: 9.5, fontWeight: 800, color: 'var(--color-accent)' }}>PADRÃO</span>}
+                </span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-sec)', whiteSpace: 'nowrap' }}>
+                  R$ {r.unitCost.toFixed(2).replace('.', ',')}
+                  {r.defaultSharePct > 0 ? ` · ${r.defaultSharePct}%` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+          {shareOff && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#B4541F', margin: '8px 0 0' }}>
+              As fatias somam {shareSum}% — o pedido pode sair errado. Ajuste no fornecedor.
+            </p>
+          )}
+        </>
+      )}
+    </div>
   )
 }

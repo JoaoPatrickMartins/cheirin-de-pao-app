@@ -19,25 +19,76 @@ interface SlotBreakdown {
   label: string
   breads: number
   deliveries: number
+  /** Itens do mercadinho do turno — métrica paralela aos pães (D-1). */
+  items: number
 }
 
 interface CondoDraft {
   condominiumId: string
   name: string
+  /** Paradas confirmadas — pão + Cestinha do mesmo cliente/turno = 1 parada. */
   deliveryCount: number
+  /** Pães já pagos — INCLUI o pão vendido dentro da Cestinha. */
   totalBreads: number
   projectedBreads: number
   projectedDeliveries: number
   bySlot: SlotBreakdown[]
   riskCount: number
+  /** Itens do mercadinho do condomínio — nunca somados aos pães (D-1). */
+  marketItemCount: number
+  /** Recorte de `totalBreads` que vem da Cestinha. */
+  marketBreads: number
 }
 
-interface Supplier {
-  id: string
-  name: string
-  pricePerUnit: number
-  isPrincipal: boolean
-  isActive: boolean
+/**
+ * Rateio proposto (GET /admin/supplier-orders/split-preview): a demanda de compra agrupada por
+ * PRODUTO e, em cada um, os fornecedores que o fornecem com a quantidade sugerida.
+ *
+ * Isto substitui o modelo antigo da tela, que era hard-coded em "principal × reserva" e num único
+ * produto (o pão) — impossível dizer "o bolo vem 50% do X e 50% do Y".
+ */
+interface SplitOption {
+  supplierId: string
+  supplierName: string
+  unitCost: number
+  defaultSharePct: number
+  isPreferred: boolean
+  minOrderQty: number | null
+  suggested: number
+}
+interface SplitProduct {
+  productId: string
+  productName: string
+  isBread: boolean
+  demand: number
+  options: SplitOption[]
+}
+interface SplitPreview {
+  products: SplitProduct[]
+  /** Produtos com demanda e SEM fornecedor cadastrado — não podem ser pedidos. */
+  unsourced: Array<{ productId: string; productName: string; qty: number }>
+  totalQuantity: number
+  totalValue: number
+}
+
+/** Fornecedor presente num pedido gerado (GET /admin/supplier-orders/:id/suppliers). */
+interface OrderSupplier {
+  supplierId: string
+  supplierName: string
+  quantity: number
+  total: number
+}
+
+/** Chave de uma linha editável: produto + fornecedor. */
+const lineKey = (productId: string, supplierId: string) => `${productId}|${supplierId}`
+
+/** Quantidades iniciais = a sugestão do rateio padrão do backend. */
+function defaultQuantitiesOf(p: SplitPreview): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const prod of p.products) {
+    for (const o of prod.options) out[lineKey(prod.productId, o.supplierId)] = o.suggested
+  }
+  return out
 }
 
 interface SlotCutoff {
@@ -347,9 +398,13 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
   const [adjustedQts, setAdjustedQts] = useState<Record<string, number>>({})
 
   // Step 2 — fornecedores e divisão
-  const [suppliers, setSuppliers] = useState<Supplier[] | null>(null)
-  const [split, setSplit] = useState<{ p: number; r: number }>({ p: 0, r: 0 })
+  /** Rateio proposto do backend (demanda × matriz de fornecimento). */
+  const [preview, setPreview] = useState<SplitPreview | null>(null)
+  /** Quantidades editáveis por linha `productId|supplierId`. */
+  const [splitQts, setSplitQts] = useState<Record<string, number>>({})
   const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false)
+  /** Fornecedores do pedido gerado — um botão de download para cada. */
+  const [orderSuppliers, setOrderSuppliers] = useState<OrderSupplier[]>([])
 
   // Step 2 -> 3 — confirmar pedido
   const [isCreating, setIsCreating] = useState(false)
@@ -357,6 +412,24 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
 
   // Step 3 — download
   const [isDownloading, setIsDownloading] = useState<'pdf' | 'excel' | null>(null)
+
+  // Fornecedores do pedido gerado — habilita um download por fornecedor (documento enviável).
+  // Roda também quando a tela abre já com o pedido gerado (trava de "já gerado").
+  useEffect(() => {
+    const id = orderId ?? generated?.orderId
+    if (!id) {
+      setOrderSuppliers([])
+      return
+    }
+    void (async () => {
+      try {
+        const res = await apiFetch(`/admin/supplier-orders/${id}/suppliers`)
+        if (res.ok) setOrderSuppliers(((await res.json()) as { suppliers: OrderSupplier[] }).suppliers)
+      } catch {
+        /* silencioso — o download consolidado continua disponível */
+      }
+    })()
+  }, [orderId, generated?.orderId])
 
   // ---------------------------------------------------------------------------
   // Busca inicial: draft + cutoff
@@ -437,11 +510,15 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     const projected = condos.reduce((s, c) => s + c.projectedBreads, 0)
     const deliveries = condos.reduce((s, c) => s + c.deliveryCount + c.projectedDeliveries, 0)
     const risk = condos.reduce((s, c) => s + c.riskCount, 0)
-    const bySlot = new Map<string, { slotId: string; label: string; breads: number }>()
+    // Itens do mercadinho — métrica paralela aos pães (D-1), exibida ao lado, nunca somada.
+    const items = condos.reduce((s, c) => s + c.marketItemCount, 0)
+    const marketBreads = condos.reduce((s, c) => s + c.marketBreads, 0)
+    const bySlot = new Map<string, { slotId: string; label: string; breads: number; items: number }>()
     for (const c of condos) {
       for (const b of c.bySlot) {
-        const cur = bySlot.get(b.slotId) ?? { slotId: b.slotId, label: b.label, breads: 0 }
+        const cur = bySlot.get(b.slotId) ?? { slotId: b.slotId, label: b.label, breads: 0, items: 0 }
         cur.breads += b.breads
+        cur.items += b.items
         bySlot.set(b.slotId, cur)
       }
     }
@@ -451,6 +528,8 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
       projected,
       deliveries,
       risk,
+      items,
+      marketBreads,
       condoCount: condos.length,
       slotList,
       slotTotal: slotList.reduce((s, x) => s + x.breads, 0),
@@ -471,10 +550,6 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     ? draftData.reduce((sum, c) => sum + (adjustedQts[c.condominiumId] ?? c.totalBreads), 0)
     : 0
 
-  const principal = suppliers?.find((s) => s.isPrincipal) ?? null
-  const reserva = suppliers?.find((s) => !s.isPrincipal) ?? null
-
-  const splitTotal = split.p + split.r
 
   // ---------------------------------------------------------------------------
   // Handlers de navegação
@@ -490,19 +565,21 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     setStep(1)
   }
 
+  /**
+   * goToStep2 — carrega o rateio PROPOSTO do backend (demanda × matriz de fornecimento) e
+   * inicializa as quantidades editáveis com a sugestão. O front não calcula o rateio: se ele
+   * reimplementasse a regra de arredondamento, o que a tela mostra deixaria de ser o que o
+   * "Gerar direto" faz.
+   */
   async function goToStep2() {
     setIsLoadingSuppliers(true)
     try {
-      const res = await apiFetch('/admin/suppliers')
+      const qs = new URLSearchParams({ slotId, ...(deliveryDate ? { date: deliveryDate } : {}) })
+      const res = await apiFetch(`/admin/supplier-orders/split-preview?${qs.toString()}`)
       if (res.ok) {
-        // Só fornecedores ativos entram no pedido — inativos não podem ser usados.
-        const data = ((await res.json()) as Supplier[]).filter((s) => s.isActive)
-        setSuppliers(data)
-        // divisão inicial: 75/25 quando há fornecedor reserva; senão o principal leva tudo
-        const hasReserva = data.some((s) => !s.isPrincipal)
-        const p = hasReserva ? Math.round(adjustedTotal * 0.75) : adjustedTotal
-        const r = adjustedTotal - p
-        setSplit({ p, r })
+        const data = (await res.json()) as SplitPreview
+        setPreview(data)
+        setSplitQts(defaultQuantitiesOf(data))
       }
     } catch {
       // falha silenciosa — manter step 1
@@ -512,19 +589,22 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     setStep(2)
   }
 
+  /** Volta as quantidades para a sugestão do rateio padrão. */
+  function resetSplitToDefault() {
+    if (preview) setSplitQts(defaultQuantitiesOf(preview))
+  }
+
   async function finalizarPedido() {
-    // Reserva é opcional — basta ter o fornecedor principal (ex.: só 1 padaria cadastrada)
-    if (!principal) return
-    // Validar que pelo menos um tem quantidade > 0
-    if (split.p === 0 && split.r === 0) return
+    const items = Object.entries(splitQts)
+      .filter(([, qty]) => qty > 0)
+      .map(([key, qty]) => {
+        const [productId, supplierId] = key.split('|')
+        return { productId, supplierId, quantity: qty }
+      })
+    if (items.length === 0) return
 
     setIsCreating(true)
     try {
-      const items = [
-        { supplierId: principal.id, quantity: split.p },
-        ...(reserva ? [{ supplierId: reserva.id, quantity: split.r }] : []),
-      ].filter((item) => item.quantity > 0)
-
       const res = await apiFetch('/admin/supplier-orders', {
         method: 'POST',
         body: JSON.stringify({ items, slotId, ...(deliveryDate ? { date: deliveryDate } : {}) }),
@@ -532,7 +612,10 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
       if (res.ok) {
         const data = (await res.json()) as { id: string }
         setOrderId(data.id)
-        setGenerated({ generated: true, orderId: data.id, totalQuantity: splitTotal })
+        // `totalQuantity` da trava da tela = só pães (mesmo significado do backend).
+        const breadIds = new Set((preview?.products ?? []).filter((p) => p.isBread).map((p) => p.productId))
+        const breads = items.filter((i) => breadIds.has(i.productId)).reduce((s, i) => s + i.quantity, 0)
+        setGenerated({ generated: true, orderId: data.id, totalQuantity: breads })
         setStep(3)
       }
     } catch {
@@ -566,20 +649,26 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     }
   }
 
-  async function downloadFile(type: 'pdf' | 'excel') {
+  /**
+   * @param supplierId quando informado, baixa o documento SÓ daquele fornecedor — o enviável.
+   *   Sem ele, o consolidado interno, que mostra os preços de todos os fornecedores juntos.
+   */
+  async function downloadFile(type: 'pdf' | 'excel', supplierId?: string) {
     if (!orderId) return
     setIsDownloading(type)
     try {
+      const qs = supplierId ? `?supplierId=${supplierId}` : ''
       const endpoint = type === 'pdf'
-        ? `/admin/supplier-orders/${orderId}/pdf`
-        : `/admin/supplier-orders/${orderId}/excel`
+        ? `/admin/supplier-orders/${orderId}/pdf${qs}`
+        : `/admin/supplier-orders/${orderId}/excel${qs}`
       const res = await apiFetch(endpoint)
       if (res.ok) {
         const blob = await res.blob()
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = type === 'pdf' ? 'pedido.pdf' : 'pedido.xlsx'
+        const suffix = supplierId ? `-${supplierId}` : '-consolidado'
+        a.download = type === 'pdf' ? `pedido${suffix}.pdf` : `pedido${suffix}.xlsx`
         a.click()
         URL.revokeObjectURL(url)
       }
@@ -594,8 +683,9 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     setStep(0)
     setOrderId(null)
     setAdjustedQts({})
-    setSplit({ p: 0, r: 0 })
-    setSuppliers(null)
+    setPreview(null)
+    setSplitQts({})
+    setOrderSuppliers([])
   }
 
   // ---------------------------------------------------------------------------
@@ -892,6 +982,45 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                         <Stat label="Entregas" value={summary.deliveries} color="var(--color-text)" />
                       </div>
 
+                      {/* Cestinha ("Além do Pãozin") — itens são métrica PARALELA aos pães (D-1).
+                          Nunca somados ao número de pães; o pão da Cestinha já está em Confirmados. */}
+                      {(summary.items > 0 || summary.marketBreads > 0) && (
+                        <div
+                          style={{
+                            borderTop: '1px solid var(--color-border-2)',
+                            margin: '10px 6px 0',
+                            paddingTop: 9,
+                            display: 'flex',
+                            justifyContent: 'center',
+                            gap: 14,
+                            flexWrap: 'wrap',
+                            fontFamily: 'var(--font-body)',
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            color: 'var(--color-text-sec)',
+                          }}
+                        >
+                          {summary.items > 0 && (
+                            <span>
+                              🧺 Cestinha{' '}
+                              <strong style={{ color: 'var(--color-accent)', fontVariantNumeric: 'tabular-nums' }}>
+                                {summary.items}
+                              </strong>{' '}
+                              {summary.items === 1 ? 'item' : 'itens'}
+                            </span>
+                          )}
+                          {summary.marketBreads > 0 && (
+                            <span>
+                              inclui{' '}
+                              <strong style={{ color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums' }}>
+                                {summary.marketBreads}
+                              </strong>{' '}
+                              🥖 da Cestinha
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {summary.slotTotal > 0 && (
                         <div style={{ borderTop: '1px solid var(--color-border-2)', margin: '10px 6px 0', paddingTop: 11 }}>
                           {summary.slotList.length > 1 && (
@@ -1111,6 +1240,10 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                                   }}
                                 />
                                 {s.label} {s.breads}
+                                {/* Itens do mercadinho do turno — paralelos aos pães (D-1). */}
+                                {s.items > 0 && (
+                                  <span style={{ color: 'var(--color-accent)' }}> · {s.items} 🧺</span>
+                                )}
                               </span>
                             ))}
                             {condo.riskCount > 0 && (
@@ -1338,309 +1471,15 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
       {/* Step 2 — Dividir                                                      */}
       {/* -------------------------------------------------------------------- */}
       {step === 2 && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ flex: 1, padding: '0 20px', overflowY: 'auto' }}>
-            <p
-              style={{
-                fontFamily: 'var(--font-body)',
-                fontSize: 13.5,
-                color: 'var(--color-text-sec)',
-                lineHeight: 1.5,
-                marginBottom: 16,
-                marginTop: 0,
-              }}
-            >
-              Comece pelo fornecedor principal e divida o restante se quiser.
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {/* Card Fornecedor Principal */}
-              {principal && (
-                <div
-                  style={{
-                    background: 'var(--color-surface)',
-                    borderRadius: 18,
-                    border: '1px solid var(--color-border-2)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {/* Header */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '14px 14px 12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 11,
-                        background: 'var(--color-surface-2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon name="factory" size={20} color="var(--color-accent)" stroke={2} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p
-                        style={{
-                          fontFamily: 'var(--font-body)',
-                          fontSize: 14.5,
-                          fontWeight: 700,
-                          color: 'var(--color-text)',
-                          margin: '0 0 2px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {principal.name}
-                      </p>
-                      <p
-                        style={{
-                          fontFamily: 'var(--font-body)',
-                          fontSize: 12,
-                          color: 'var(--color-text-ter)',
-                          margin: 0,
-                        }}
-                      >
-                        {formatCurrency(principal.pricePerUnit)}/pão
-                      </p>
-                    </div>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '4px 10px',
-                        borderRadius: 99,
-                        background: 'var(--color-gold-soft)',
-                        color: '#8A6A00',
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0,
-                      }}
-                    >
-                      Principal
-                    </span>
-                  </div>
-                  {/* Body */}
-                  <div
-                    style={{
-                      borderTop: '1px solid var(--color-border-2)',
-                      padding: '12px 14px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                    }}
-                  >
-                    <StepperInline
-                      value={split.p}
-                      min={0}
-                      max={adjustedTotal}
-                      onChange={(v) => setSplit({ p: v, r: reserva ? adjustedTotal - v : 0 })}
-                    />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 16,
-                        fontWeight: 800,
-                        color: 'var(--color-text)',
-                      }}
-                    >
-                      {formatCurrency(split.p * principal.pricePerUnit)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Card Fornecedor Reserva */}
-              {reserva && (
-                <div
-                  style={{
-                    background: 'var(--color-surface)',
-                    borderRadius: 18,
-                    border: '1px solid var(--color-border-2)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {/* Header */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '14px 14px 12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 11,
-                        background: 'var(--color-surface-2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon name="factory" size={20} color="var(--color-text-sec)" stroke={2} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p
-                        style={{
-                          fontFamily: 'var(--font-body)',
-                          fontSize: 14.5,
-                          fontWeight: 700,
-                          color: 'var(--color-text)',
-                          margin: '0 0 2px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {reserva.name}
-                      </p>
-                      <p
-                        style={{
-                          fontFamily: 'var(--font-body)',
-                          fontSize: 12,
-                          color: 'var(--color-text-ter)',
-                          margin: 0,
-                        }}
-                      >
-                        {formatCurrency(reserva.pricePerUnit)}/pão
-                      </p>
-                    </div>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '4px 10px',
-                        borderRadius: 99,
-                        background: 'var(--color-surface-2)',
-                        color: 'var(--color-text-sec)',
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0,
-                      }}
-                    >
-                      Reserva
-                    </span>
-                  </div>
-                  {/* Body */}
-                  <div
-                    style={{
-                      borderTop: '1px solid var(--color-border-2)',
-                      padding: '12px 14px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                    }}
-                  >
-                    <StepperInline
-                      value={split.r}
-                      min={0}
-                      max={adjustedTotal}
-                      onChange={(v) => setSplit({ p: adjustedTotal - v, r: v })}
-                    />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-display)',
-                        fontSize: 16,
-                        fontWeight: 800,
-                        color: 'var(--color-text)',
-                      }}
-                    >
-                      {formatCurrency(split.r * reserva.pricePerUnit)}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            style={{
-              position: 'sticky',
-              bottom: 0,
-              background: 'var(--color-app-bg)',
-              borderTop: '1px solid var(--color-border-2)',
-              padding: '12px 20px 16px',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                justifyContent: 'space-between',
-                marginBottom: 12,
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 13.5,
-                  fontWeight: 700,
-                  color: 'var(--color-text-sec)',
-                }}
-              >
-                {splitTotal} pães
-              </span>
-              <span
-                style={{
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 22,
-                  fontWeight: 800,
-                  letterSpacing: '-0.02em',
-                  color: 'var(--color-text)',
-                }}
-              >
-                {formatCurrency(
-                  split.p * (principal?.pricePerUnit ?? 0) +
-                  split.r * (reserva?.pricePerUnit ?? 0)
-                )}
-              </span>
-            </div>
-            <button
-              onClick={() => void finalizarPedido()}
-              disabled={isCreating || (split.p === 0 && split.r === 0)}
-              style={{
-                width: '100%',
-                padding: '14px 20px',
-                borderRadius: 16,
-                border: 'none',
-                background: 'var(--color-espresso)',
-                color: '#FAF5EC',
-                fontFamily: 'var(--font-body)',
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: isCreating ? 'wait' : 'pointer',
-                opacity: isCreating || (split.p === 0 && split.r === 0) ? 0.6 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                minHeight: 44,
-              }}
-            >
-              <Icon name="check" size={18} color="#FAF5EC" stroke={2.1} />
-              Finalizar pedido
-            </button>
-          </div>
-        </div>
+        <SplitStep
+          preview={preview}
+          isLoading={isLoadingSuppliers}
+          quantities={splitQts}
+          onChange={setSplitQts}
+          onResetToDefault={resetSplitToDefault}
+          onFinalize={() => void finalizarPedido()}
+          isCreating={isCreating}
+        />
       )}
 
       {/* -------------------------------------------------------------------- */}
@@ -1691,7 +1530,10 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
           </p>
 
           {/* Card de resumo */}
-          {principal && reserva && (
+          {/* Resumo do que foi pedido — uma linha por (produto, fornecedor). Substitui o
+              antigo card fixo "principal × reserva", que só existia porque a tela sabia
+              comprar um produto de dois fornecedores. */}
+          {orderSuppliers.length > 0 && (
             <div
               style={{
                 background: 'var(--color-surface)',
@@ -1701,130 +1543,54 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                 marginBottom: 16,
               }}
             >
-              {/* Linha fornecedor principal */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingBottom: 12,
-                  borderBottom: '1px solid var(--color-border-2)',
-                }}
-              >
-                <div>
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 13.5,
-                      fontWeight: 700,
-                      color: 'var(--color-text)',
-                      margin: 0,
-                    }}
-                  >
-                    {principal.name}
-                  </p>
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 12,
-                      color: 'var(--color-text-ter)',
-                      margin: 0,
-                    }}
-                  >
-                    {split.p} pães × {formatCurrency(principal.pricePerUnit)}
-                  </p>
+              {orderSuppliers.map((s, i) => (
+                <div
+                  key={s.supplierId}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    paddingBottom: i === orderSuppliers.length - 1 ? 0 : 12,
+                    marginBottom: i === orderSuppliers.length - 1 ? 0 : 12,
+                    borderBottom: i === orderSuppliers.length - 1 ? 'none' : '1px solid var(--color-border-2)',
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {s.supplierName}
+                    </p>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                      {s.quantity} {s.quantity === 1 ? 'unidade' : 'unidades'}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)' }}>
+                      {formatCurrency(s.total)}
+                    </span>
+                    {/* Documento POR fornecedor: só as linhas e os custos dele. O consolidado
+                        mostra o preço dos concorrentes e não deve ser enviado. */}
+                    <button
+                      onClick={() => void downloadFile('pdf', s.supplierId)}
+                      title={`Baixar o pedido de ${s.supplierName}`}
+                      style={{
+                        border: '1.5px solid var(--color-border)',
+                        background: 'var(--color-surface)',
+                        borderRadius: 10,
+                        padding: '5px 9px',
+                        fontFamily: 'var(--font-body)',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        color: 'var(--color-text)',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      PDF
+                    </button>
+                  </div>
                 </div>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-body)',
-                    fontSize: 13.5,
-                    fontWeight: 700,
-                    color: 'var(--color-text)',
-                  }}
-                >
-                  {formatCurrency(split.p * principal.pricePerUnit)}
-                </span>
-              </div>
-
-              {/* Linha fornecedor reserva */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingTop: 12,
-                  paddingBottom: 12,
-                  borderBottom: '1px solid var(--color-border-2)',
-                }}
-              >
-                <div>
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 13.5,
-                      fontWeight: 700,
-                      color: 'var(--color-text)',
-                      margin: 0,
-                    }}
-                  >
-                    {reserva.name}
-                  </p>
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 12,
-                      color: 'var(--color-text-ter)',
-                      margin: 0,
-                    }}
-                  >
-                    {split.r} pães × {formatCurrency(reserva.pricePerUnit)}
-                  </p>
-                </div>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-body)',
-                    fontSize: 13.5,
-                    fontWeight: 700,
-                    color: 'var(--color-text)',
-                  }}
-                >
-                  {formatCurrency(split.r * reserva.pricePerUnit)}
-                </span>
-              </div>
-
-              {/* Total */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingTop: 12,
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: 'var(--font-body)',
-                    fontSize: 13.5,
-                    fontWeight: 700,
-                    color: 'var(--color-text-sec)',
-                  }}
-                >
-                  Total do pedido
-                </span>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 20,
-                    fontWeight: 800,
-                    color: 'var(--color-accent)',
-                  }}
-                >
-                  {formatCurrency(
-                    split.p * principal.pricePerUnit +
-                    split.r * reserva.pricePerUnit
-                  )}
-                </span>
-              </div>
+              ))}
             </div>
           )}
 
@@ -1906,6 +1672,260 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
 
       {/* CSS para spinner */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Step 2 — Dividir: um card por PRODUTO, uma linha por fornecedor daquele produto
+// ---------------------------------------------------------------------------
+
+/**
+ * SplitStep — o passo "Dividir" na sua forma nova (D-7).
+ *
+ * Antes era hard-coded em dois fornecedores ("principal" e "reserva") e um produto (o pão): não
+ * havia como dizer "o bolo de fubá vem 50% do X e 50% do Y". Agora cada produto com demanda vira um
+ * card, com uma linha por fornecedor que o fornece — vindas da matriz de fornecimento.
+ *
+ * As quantidades chegam já rateadas pelo backend (`split-preview`); aqui só se ajusta. O aviso de
+ * "não fecha a demanda" é por produto, porque é onde o erro dói: pedir 90 de 100 pães é falta.
+ */
+function SplitStep({
+  preview,
+  isLoading,
+  quantities,
+  onChange,
+  onResetToDefault,
+  onFinalize,
+  isCreating,
+}: {
+  preview: SplitPreview | null
+  isLoading: boolean
+  quantities: Record<string, number>
+  onChange: (next: Record<string, number>) => void
+  onResetToDefault: () => void
+  onFinalize: () => void
+  isCreating: boolean
+}) {
+  if (isLoading) {
+    return (
+      <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 40 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-ter)' }}>
+          Calculando o rateio...
+        </p>
+      </div>
+    )
+  }
+  if (!preview || preview.products.length === 0) {
+    return (
+      <div style={{ flex: 1, padding: '0 20px' }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }}>
+          Nada a pedir neste turno.
+        </p>
+      </div>
+    )
+  }
+
+  const setQty = (productId: string, supplierId: string, qty: number) =>
+    onChange({ ...quantities, [lineKey(productId, supplierId)]: Math.max(0, qty) })
+
+  const totalUnits = Object.values(quantities).reduce((s, q) => s + q, 0)
+  const totalValue = preview.products.reduce(
+    (sum, p) =>
+      sum +
+      p.options.reduce((s, o) => s + (quantities[lineKey(p.productId, o.supplierId)] ?? 0) * o.unitCost, 0),
+    0,
+  )
+  // Produto cuja soma não fecha a demanda: pedir menos é falta, pedir mais é desperdício.
+  const mismatched = preview.products.filter((p) => {
+    if (p.options.length === 0) return false
+    const sum = p.options.reduce((s, o) => s + (quantities[lineKey(p.productId, o.supplierId)] ?? 0), 0)
+    return sum !== p.demand
+  })
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, padding: '0 20px', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 14 }}>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: 0 }}>
+            Cada produto vai para os fornecedores dele. Ajuste se quiser.
+          </p>
+          <button
+            onClick={onResetToDefault}
+            style={{
+              flexShrink: 0,
+              border: '1.5px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              borderRadius: 10,
+              padding: '5px 10px',
+              fontFamily: 'var(--font-body)',
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: 'var(--color-text)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Tudo no padrão
+          </button>
+        </div>
+
+        {/* Produtos com demanda e SEM fornecedor: não podem ser pedidos. Avisar é obrigatório —
+            omitir faria o admin achar que comprou tudo (§3-B.4 regra 4). */}
+        {preview.unsourced.length > 0 && (
+          <div
+            style={{
+              background: '#F8E7DA',
+              border: '1px solid #E2B4A0',
+              borderRadius: 14,
+              padding: 12,
+              marginBottom: 12,
+            }}
+          >
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 800, color: '#B4541F', margin: 0 }}>
+              Sem fornecedor cadastrado
+            </p>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#8A3D14', margin: '4px 0 0' }}>
+              {preview.unsourced.map((u) => `${u.qty}× ${u.productName}`).join(', ')} — não entra no
+              pedido. Cadastre um fornecedor para esses produtos em Gestão › Fornecedores.
+            </p>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {preview.products.map((p) => {
+            const sum = p.options.reduce((s, o) => s + (quantities[lineKey(p.productId, o.supplierId)] ?? 0), 0)
+            const off = p.options.length > 0 && sum !== p.demand
+            return (
+              <div
+                key={p.productId}
+                style={{
+                  background: 'var(--color-surface)',
+                  borderRadius: 18,
+                  border: `1px solid ${off ? '#E2B4A0' : 'var(--color-border-2)'}`,
+                  padding: 14,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                    {p.isBread ? '🥖 ' : ''}
+                    {p.productName}
+                  </p>
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
+                    {p.demand}
+                  </span>
+                </div>
+
+                {p.options.length === 0 ? (
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#B4541F', margin: '8px 0 0' }}>
+                    Nenhum fornecedor cadastrado para este produto.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                    {p.options.map((o) => {
+                      const qty = quantities[lineKey(p.productId, o.supplierId)] ?? 0
+                      const below = o.minOrderQty != null && o.minOrderQty > 0 && qty > 0 && qty < o.minOrderQty
+                      return (
+                        <div key={o.supplierId} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {o.supplierName}
+                              {o.isPreferred && (
+                                <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 800, color: 'var(--color-accent)' }}>PADRÃO</span>
+                              )}
+                            </p>
+                            <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: below ? '#B4541F' : 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                              {formatCurrency(o.unitCost)}/un · {formatCurrency(qty * o.unitCost)}
+                              {below ? ` · mín. ${o.minOrderQty}` : ''}
+                            </p>
+                          </div>
+                          <input
+                            value={String(qty)}
+                            onChange={(e) => setQty(p.productId, o.supplierId, Number(e.target.value.replace(/\D/g, '') || 0))}
+                            inputMode="numeric"
+                            aria-label={`Quantidade de ${p.productName} em ${o.supplierName}`}
+                            style={{
+                              width: 72,
+                              minHeight: 40,
+                              flexShrink: 0,
+                              textAlign: 'center',
+                              borderRadius: 11,
+                              border: '1px solid var(--color-border-2)',
+                              background: 'var(--color-surface-2)',
+                              fontFamily: 'var(--font-display)',
+                              fontSize: 15,
+                              fontWeight: 800,
+                              color: 'var(--color-text)',
+                            }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {off && (
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#B4541F', margin: '9px 0 0' }}>
+                    Somando {sum} de {p.demand}. {sum < p.demand ? `Faltam ${p.demand - sum}.` : `Sobram ${sum - p.demand}.`}
+                  </p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Rodapé fixo — total e confirmação */}
+      <div
+        style={{
+          position: 'sticky',
+          bottom: 0,
+          background: 'var(--color-app-bg)',
+          borderTop: '1px solid var(--color-border-2)',
+          padding: '12px 20px 16px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+            {totalUnits} {totalUnits === 1 ? 'unidade' : 'unidades'}
+          </span>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-text)' }}>
+            {formatCurrency(totalValue)}
+          </span>
+        </div>
+        {mismatched.length > 0 && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#B4541F', margin: '0 0 9px' }}>
+            {mismatched.length === 1
+              ? `"${mismatched[0].productName}" não fecha a demanda.`
+              : `${mismatched.length} produtos não fecham a demanda.`}
+          </p>
+        )}
+        <button
+          onClick={onFinalize}
+          disabled={isCreating || totalUnits === 0}
+          style={{
+            width: '100%',
+            padding: '14px 20px',
+            borderRadius: 16,
+            border: 'none',
+            background: 'var(--color-espresso)',
+            color: '#FAF5EC',
+            fontFamily: 'var(--font-body)',
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: isCreating ? 'wait' : 'pointer',
+            opacity: isCreating || totalUnits === 0 ? 0.6 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            minHeight: 44,
+          }}
+        >
+          <Icon name="check" size={18} color="#FAF5EC" stroke={2.1} />
+          Finalizar pedido
+        </button>
+      </div>
     </div>
   )
 }

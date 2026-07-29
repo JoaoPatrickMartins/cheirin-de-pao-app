@@ -130,6 +130,29 @@ describe('AdminSeparationService', () => {
       expect(board.condominiums).toEqual([])
       expect(board.totalDeliveries).toBe(0)
     })
+
+    it('mescla várias Cestinhas do mesmo cliente numa parada só-market, guardando todos os ids', async () => {
+      // Duas compras do mesmo cliente para o mesmo turno viram UMA parada — e o toggle de
+      // separação precisa dos dois ids, senão a segunda cestinha fica presa em SCHEDULED.
+      const marketOrders = [
+        { id: 'm1', userId: 'u1', condominiumId: 'c1', slotId: 'manha', status: 'SCHEDULED', breadQty: 6, items: [{ productId: 'p1', name: 'Bolo', qty: 1 }] },
+        { id: 'm2', userId: 'u1', condominiumId: 'c1', slotId: 'manha', status: 'SCHEDULED', breadQty: 4, items: [{ productId: 'p1', name: 'Bolo', qty: 2 }] },
+      ]
+      const users = [{ id: 'u1', name: 'Ana', apartment: '101', block: 'A' }]
+      const condos = [{ id: 'c1', name: 'Cond 1', deliverySlots: SLOTS }]
+      // finalizedSlots vazio de propósito: turno 100% Cestinha não tem PO e entra pela 2ª porta.
+      const { fastify } = makeMock({ orders: [], marketOrders, users, condos, finalizedSlots: [] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const board = await new AdminSeparationService(fastify as any).getBoard('2026-07-29')
+
+      const slot = board.condominiums[0].slots[0]
+      expect(slot.totalDeliveries).toBe(1)
+      expect(slot.orders[0].orderId).toBe('')
+      expect(slot.orders[0].marketOrderIds).toEqual(['m1', 'm2'])
+      expect(slot.orders[0].quantity).toBe(10) // 6 + 4 pães da cestinha
+      expect(slot.orders[0].marketItemCount).toBe(3)
+      expect(slot.marketPicklist).toEqual([{ productId: 'p1', name: 'Bolo', qty: 3 }])
+    })
   })
 
   describe('setSeparated', () => {
@@ -163,6 +186,77 @@ describe('AdminSeparationService', () => {
       const { fastify } = makeMock({ order: { id: 'o1', userId: 'u1', quantity: 3, status: 'OUT_FOR_DELIVERY' } })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect(new AdminSeparationService(fastify as any).setSeparated('o1', true)).rejects.toMatchObject({
+        statusCode: 422,
+      })
+    })
+
+    it('separa também a Cestinha da mesma parada (via propagação do updateOrderStatus)', async () => {
+      const { fastify, prisma } = makeMock({
+        order: {
+          id: 'o1',
+          userId: 'u1',
+          status: 'SCHEDULED',
+          condominiumId: 'c1',
+          slotId: 'manha',
+          scheduledDate: new Date('2026-07-29T15:00:00.000Z'),
+        },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await new AdminSeparationService(fastify as any).setSeparated('o1', true)
+      expect(prisma.marketOrder.updateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          userId: 'u1',
+          condominiumId: 'c1',
+          slotId: 'manha',
+          status: 'SCHEDULED',
+        }),
+        data: { status: 'SEPARATED', separatedAt: expect.any(Date) },
+      })
+    })
+  })
+
+  describe('setMarketSeparated', () => {
+    it('marca as Cestinhas da parada SCHEDULED → SEPARATED', async () => {
+      const { fastify, prisma } = makeMock({
+        marketOrders: [
+          { id: 'm1', status: 'SCHEDULED' },
+          { id: 'm2', status: 'SCHEDULED' },
+        ],
+      })
+      prisma.marketOrder.updateMany.mockResolvedValue({ count: 2 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminSeparationService(fastify as any).setMarketSeparated(['m1', 'm2'], true)
+      expect(r).toEqual({ count: 2, status: 'SEPARATED' })
+      expect(prisma.marketOrder.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m1', 'm2'] }, status: 'SCHEDULED' },
+        data: { status: 'SEPARATED', separatedAt: expect.any(Date) },
+      })
+    })
+
+    it('desfaz a separação limpando separatedAt', async () => {
+      const { fastify, prisma } = makeMock({ marketOrders: [{ id: 'm1', status: 'SEPARATED' }] })
+      prisma.marketOrder.updateMany.mockResolvedValue({ count: 1 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminSeparationService(fastify as any).setMarketSeparated(['m1'], false)
+      expect(r.status).toBe('SCHEDULED')
+      expect(prisma.marketOrder.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['m1'] }, status: 'SEPARATED' },
+        data: { status: 'SCHEDULED', separatedAt: null },
+      })
+    })
+
+    it('lança 404 quando nenhuma Cestinha existe', async () => {
+      const { fastify } = makeMock({ marketOrders: [] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect(new AdminSeparationService(fastify as any).setMarketSeparated(['x'], true)).rejects.toMatchObject({
+        statusCode: 404,
+      })
+    })
+
+    it('lança 422 quando a Cestinha já saiu para entrega', async () => {
+      const { fastify } = makeMock({ marketOrders: [{ id: 'm1', status: 'OUT_FOR_DELIVERY' }] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect(new AdminSeparationService(fastify as any).setMarketSeparated(['m1'], true)).rejects.toMatchObject({
         statusCode: 422,
       })
     })

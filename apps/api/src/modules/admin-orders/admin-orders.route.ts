@@ -38,11 +38,16 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               breadsTodayCount: { type: 'integer', description: 'Pães a entregar hoje — pedidos já materializados (Order com scheduledDate=hoje).' },
               breadsTodayProjected: { type: 'integer', description: 'Pães previstos para hoje pela agenda semanal, ainda NÃO materializados como pedido.' },
-              breadsTomorrowCount: { type: 'integer', description: 'Pães a entregar amanhã — pedidos já materializados.' },
+              breadsTomorrowCount: { type: 'integer', description: 'Pães a entregar amanhã — pedidos já materializados + pão vendido dentro da Cestinha.' },
               breadsTomorrowProjected: { type: 'integer', description: 'Pães previstos para amanhã pela agenda, ainda não materializados.' },
               breadsByWeekday: {
                 type: 'array',
-                description: 'Pães materializados por dia da semana corrente (índices 0=Seg .. 6=Dom).',
+                description: 'Pães por dia da semana corrente (índices 0=Seg .. 6=Dom) — pedidos de pão + pão vendido dentro da Cestinha.',
+                items: { type: 'integer' },
+              },
+              itemsByWeekday: {
+                type: 'array',
+                description: 'Itens do mercadinho (não-pão) por dia da semana corrente — métrica PARALELA aos pães, nunca somada a eles.',
                 items: { type: 'integer' },
               },
               breadsTodayTrendPct: { type: 'integer', description: 'Variação % de pães a entregar hoje vs. ontem.' },
@@ -72,6 +77,20 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                   avulso: { type: 'number', description: 'Receita via compra avulsa/personalizada em reais.' },
                 },
               },
+              marketToday: {
+                type: 'object',
+                description:
+                  'Cestinha (Além do Pãozin) comprada hoje — D-2: `revenue` é dinheiro NOVO e entra no consolidado; `gmv` é valor movimentado e NUNCA é somado à receita. Uma Cestinha paga 100% em pãezinhos sobe o GMV e não a receita — está correto, o dinheiro foi faturado na compra do combo.',
+                properties: {
+                  revenue: { type: 'number', description: 'Dinheiro novo da Cestinha hoje (Payment PAID purpose=MARKET).' },
+                  gmv: { type: 'number', description: 'Valor movimentado em Cestinhas hoje.' },
+                  orders: { type: 'integer', description: 'Cestinhas confirmadas hoje.' },
+                },
+              },
+              revenueTodayConsolidated: {
+                type: 'number',
+                description: 'revenueToday + marketToday.revenue. O GMV não entra (D-2).',
+              },
               stuckCount: { type: 'integer', description: 'Pedidos "no limbo": data de entrega passada e ainda sem desfecho.' },
             },
           },
@@ -83,7 +102,9 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
 
   // Propriedades de uma linha do ledger (verificação geral / histórico / limbo)
   const ledgerRowProps = {
-    orderId: { type: 'string' },
+    kind: { type: 'string', description: "Discriminador: 'BREAD' (pedido de pão) | 'CESTINHA' (mini market)." },
+    orderId: { type: 'string', description: 'ID do pedido de pão. Vazio em linhas CESTINHA.' },
+    marketOrderId: { type: 'string', description: 'ID da Cestinha. Vazio em linhas BREAD.' },
     userId: { type: 'string' },
     clientName: { type: 'string' },
     condominiumId: { type: 'string' },
@@ -108,6 +129,15 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
     paymentId: { type: 'string', description: 'Pagamento vinculado ao avulso (vazio quando pago só com saldo).' },
     paymentAmount: { type: 'number', description: 'Valor do pagamento vinculado em reais (0 se não houver).' },
     paymentStatus: { type: 'string', description: 'Status do pagamento vinculado (PAID/REFUNDED/…).' },
+    marketItems: {
+      type: 'array',
+      description: 'Produtos do mercadinho da linha — métrica paralela aos pães. Vazio em BREAD.',
+      items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } } },
+    },
+    marketItemCount: { type: 'integer', description: 'Soma das quantidades de marketItems.' },
+    creditsApplied: { type: 'integer', description: 'Pãezinhos aplicados na Cestinha (0 em BREAD).' },
+    moneyAmount: { type: 'number', description: 'R$ cobrado no gateway pela Cestinha (0 em BREAD).' },
+    totalValue: { type: 'number', description: 'Valor total da Cestinha em R$ (0 em BREAD).' },
   }
 
   // GET /admin/orders — ledger de pedidos (verificação geral + histórico)
@@ -119,7 +149,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — dashboard'],
         summary: 'Ledger de pedidos (verificação geral / histórico)',
         description:
-          'Lista pedidos com filtros (intervalo de datas, status, condomínio, entregador, busca por cliente/apto) e paginação. Garante que nenhum pedido fique invisível: cobre futuros agendados e histórico (entregue/não entregue/cancelado).',
+          'Lista pedidos de pão E Cestinhas do mini market na MESMA lista, discriminados por `kind`, com filtros (intervalo de datas, status, condomínio, entregador, busca por cliente/apto, tipo) e paginação. Garante que nenhum pedido fique invisível: cobre futuros agendados e histórico (entregue/não entregue/cancelado).',
         security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
@@ -132,6 +162,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             q: { type: 'string', description: 'Busca por nome do cliente ou apartamento.' },
             limit: { type: 'integer', description: 'Máx. de itens (1–200, default 50).' },
             skip: { type: 'integer', description: 'Offset de paginação.' },
+            kind: { type: 'string', enum: ['BREAD', 'CESTINHA'], description: 'Restringe a pedidos de pão ou a Cestinhas. Omitido = os dois.' },
           },
         },
         response: {
@@ -235,9 +266,10 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
               properties: {
                 condominiumId: { type: 'string', description: 'ID do condomínio.' },
                 condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                scheduled: { type: 'integer', description: 'Total de pedidos agendados para hoje neste condomínio (status != CANCELLED).' },
-                delivered: { type: 'integer', description: 'Pedidos com status DELIVERED.' },
-                orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos do grupo (para atribuição em batch).' },
+                scheduled: { type: 'integer', description: 'PARADAS na esteira de entrega neste condomínio. Pão + Cestinha do mesmo cliente = 1 parada.' },
+                delivered: { type: 'integer', description: 'Paradas 100% entregues (numa parada combinada, pão E Cestinha).' },
+                orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos de pão do grupo (para atribuição em batch).' },
+                marketOrderIds: { type: 'array', items: { type: 'string' }, description: 'IDs das Cestinhas do grupo (atribuição da parada só-Cestinha).' },
                 blocks: {
                   type: 'array',
                   description: 'Detalhamento por bloco (via User.block) — para status/travamento por bloco quando o condomínio é dividido.',
@@ -245,9 +277,10 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                     type: 'object',
                     properties: {
                       block: { type: 'string', description: 'Bloco (vazio = sem bloco).' },
-                      scheduled: { type: 'integer', description: 'Pedidos agendados neste bloco.' },
-                      delivered: { type: 'integer', description: 'Pedidos entregues neste bloco.' },
-                      orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos deste bloco.' },
+                      scheduled: { type: 'integer', description: 'Paradas neste bloco.' },
+                      delivered: { type: 'integer', description: 'Paradas entregues neste bloco.' },
+                      orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos de pão deste bloco.' },
+                      marketOrderIds: { type: 'array', items: { type: 'string' }, description: 'IDs das Cestinhas deste bloco.' },
                     },
                   },
                 },
@@ -299,9 +332,11 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                         properties: {
                           condominiumId: { type: 'string', description: 'ID do condomínio.' },
                           condominiumName: { type: 'string', description: 'Nome do condomínio.' },
-                          quantity: { type: 'integer', description: 'Total de pãezinhos nesta unidade.' },
+                          quantity: { type: 'integer', description: 'Pãezinhos nesta unidade — inclui o pão vendido dentro da Cestinha.' },
+                          items: { type: 'integer', description: 'Itens do mercadinho nesta unidade — carga paralela aos pães.' },
                           block: { type: 'string', nullable: true, description: 'Bloco quando é uma unidade de bloco; null = condomínio inteiro.' },
-                          orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos desta unidade (usado no aprovar).' },
+                          orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos de pão desta unidade (usado no aprovar).' },
+                          marketOrderIds: { type: 'array', items: { type: 'string' }, description: 'IDs das Cestinhas desta unidade — o aprovar despacha a parada só-Cestinha por estes ids.' },
                           blocks: {
                             type: 'array',
                             description: 'Detalhamento por bloco (só em unidade de condomínio inteiro) — permite "dividir por blocos" na tela.',
@@ -309,15 +344,18 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                               type: 'object',
                               properties: {
                                 block: { type: 'string', description: 'Bloco (vazio = sem bloco).' },
-                                quantity: { type: 'integer', description: 'Total de pãezinhos neste bloco.' },
-                                orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos deste bloco.' },
+                                quantity: { type: 'integer', description: 'Pãezinhos neste bloco.' },
+                                items: { type: 'integer', description: 'Itens do mercadinho neste bloco.' },
+                                orderIds: { type: 'array', items: { type: 'string' }, description: 'IDs dos pedidos de pão deste bloco.' },
+                                marketOrderIds: { type: 'array', items: { type: 'string' }, description: 'IDs das Cestinhas deste bloco.' },
                               },
                             },
                           },
                         },
                       },
                     },
-                    total: { type: 'integer', description: 'Total de pãezinhos atribuídos a este entregador.' },
+                    total: { type: 'integer', description: 'Pãezinhos atribuídos a este entregador (inclui o pão da Cestinha).' },
+                    totalItems: { type: 'integer', description: 'Itens do mercadinho atribuídos a este entregador.' },
                   },
                 },
               },
@@ -354,7 +392,12 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                 required: ['courierId', 'orderIds'],
                 properties: {
                   courierId: { type: 'string', description: 'ID do entregador.' },
-                  orderIds: { type: 'array', items: { type: 'string' }, description: 'Pedidos a atribuir/despachar.' },
+                  orderIds: { type: 'array', items: { type: 'string' }, description: 'Pedidos de pão a atribuir/despachar.' },
+                  marketOrderIds: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Cestinhas a atribuir/despachar. Necessário para a parada SÓ-Cestinha, que não tem pedido de pão para pegar carona.',
+                  },
                 },
               },
             },
@@ -392,7 +435,8 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
           description: 'Informe orderIds[] OU (condominiumId + date) — não ambos.',
           properties: {
             courierId: { type: 'string', description: 'ID do entregador a atribuir (MongoDB ObjectId).' },
-            orderIds: { type: 'array', items: { type: 'string' }, description: 'Lista de IDs de pedidos para atribuir ao entregador. Mutuamente exclusivo com condominiumId+date.' },
+            orderIds: { type: 'array', items: { type: 'string' }, description: 'Lista de IDs de pedidos de pão para atribuir ao entregador. Mutuamente exclusivo com condominiumId+date.' },
+            marketOrderIds: { type: 'array', items: { type: 'string' }, description: 'Lista de IDs de Cestinhas para atribuir (parada só-Cestinha). Combina com orderIds.' },
             condominiumId: { type: 'string', description: 'ID do condomínio. Atribui todos os pedidos deste condomínio na data. Mutuamente exclusivo com orderIds.' },
             date: { type: 'string', format: 'date', description: 'Data dos pedidos (YYYY-MM-DD). Usar com condominiumId.' },
           },
@@ -420,14 +464,14 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       preHandler: [fastify.authenticate],
       schema: {
         tags: ['admin — dashboard'],
-        summary: 'Resolver pedido parado',
+        summary: 'Resolver pedido parado (pão ou Cestinha)',
         description:
-          'Dá o desfecho final a um pedido "parado" (data passada sem conclusão): marca como entregue (retroativo), não entregue ou cancelado — com motivo obrigatório nos dois últimos. Opcionalmente devolve os pães ao saldo no mesmo passo (só em não entregue/cancelado; idempotente). Estorno de dinheiro (Stripe) NÃO é feito aqui — usar o fluxo de Pagamentos. Não dispara push retroativo.',
+          'Dá o desfecho final a um pedido "parado" (data passada sem conclusão): marca como entregue (retroativo), não entregue ou cancelado — com motivo obrigatório nos dois últimos. Opcionalmente devolve os pães ao saldo no mesmo passo (só em não entregue/cancelado; idempotente). Use kind=CESTINHA para resolver uma Cestinha do mini market: o estorno é TODO em pãezinhos (inclusive a parte paga em dinheiro, convertida) e o estoque dos produtos pode voltar. Estorno de dinheiro no gateway NÃO é feito aqui. Não dispara push retroativo.',
         security: [{ bearerAuth: [] }],
         params: {
           type: 'object',
           required: ['id'],
-          properties: { id: { type: 'string', description: 'ID do pedido (MongoDB ObjectId).' } },
+          properties: { id: { type: 'string', description: 'ID do pedido de pão OU da Cestinha (MongoDB ObjectId).' } },
         },
         body: {
           type: 'object',
@@ -440,6 +484,15 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             },
             reason: { type: 'string', description: 'Motivo — obrigatório para NOT_DELIVERED e CANCELLED.' },
             refundCredits: { type: 'boolean', description: 'Devolve os pães ao saldo (só NOT_DELIVERED/CANCELLED).' },
+            kind: {
+              type: 'string',
+              enum: ['BREAD', 'CESTINHA'],
+              description: "Tipo do pedido. Default 'BREAD' (pedido de pão).",
+            },
+            returnStock: {
+              type: 'boolean',
+              description: 'Só CESTINHA: devolve o estoque dos produtos. Default = true em CANCELLED (nunca saiu da prateleira), false nos demais.',
+            },
           },
         },
         response: {

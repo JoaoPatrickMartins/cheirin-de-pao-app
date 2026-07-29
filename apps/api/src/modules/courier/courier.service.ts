@@ -5,7 +5,8 @@ import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { addressToQuery, geocodeAddress, type AddressLike } from '../../lib/geocode.js'
 import { nowHHMM, brtDayRange } from '../../lib/cutoff.js'
-import { notifyMarketDelivered } from '../market/market-notify.js'
+import { notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
+import { completeMarketStop } from '../../lib/market-pipeline.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import type { TodayOrdersResponse } from './courier.schema.js'
 
@@ -98,22 +99,53 @@ export class CourierService {
     // Cestinha (MarketOrder) que pega carona: em rota (ativa) e concluída hoje.
     const marketActive = await this.repository.findTodayMarketByCourierId(courierId, start, end)
     const marketCompleted = await this.repository.findTodayCompletedMarketByCourierId(courierId, start, end)
-    type MarketAgg = { items: { name: string; qty: number }[]; breadQty: number; marketOrderId: string; status: string; slotId: string | null; completedAt: Date | null }
-    const aggMarket = (rows: typeof marketCompleted): Map<string, MarketAgg> => {
+    type MarketAgg = {
+      userId: string
+      items: { name: string; qty: number }[]
+      breadQty: number
+      /** TODAS as Cestinhas da parada — o desfecho vale para o conjunto, não só para a primeira. */
+      marketOrderIds: string[]
+      status: string
+      slotId: string | null
+      completedAt: Date | null
+    }
+    /**
+     * Chave de uma parada: cliente + TURNO. Agrupar só por cliente misturava os turnos — a
+     * Cestinha da tarde entrava na parada da manhã (itens no lugar errado, pães contados duas
+     * vezes) e uma parada só-Cestinha da tarde desaparecia da rota quando o cliente tinha pão na
+     * manhã. Nas concluídas o desfecho também entra na chave: entregue e não entregue do mesmo
+     * cliente viram linhas distintas, em vez de uma linha só com o status da primeira.
+     */
+    const stopKeyOf = (userId: string, slotId: string | null | undefined) => `${userId}|${slotId ?? ''}`
+    const aggMarket = (rows: typeof marketCompleted, splitByStatus = false): Map<string, MarketAgg> => {
       const map = new Map<string, MarketAgg>()
       for (const m of rows) {
-        const cur = map.get(m.userId)
+        const key = splitByStatus ? `${stopKeyOf(m.userId, m.slotId)}|${m.status}` : stopKeyOf(m.userId, m.slotId)
+        const cur = map.get(key)
         const items = m.items.map((i) => ({ name: i.name, qty: i.qty }))
         const completedAt = ('deliveredAt' in m ? (m.deliveredAt as Date | null) : null) ?? ('failedAt' in m ? (m.failedAt as Date | null) : null) ?? null
-        if (cur) { cur.items.push(...items); cur.breadQty += m.breadQty }
-        else map.set(m.userId, { items, breadQty: m.breadQty, marketOrderId: m.id, status: m.status, slotId: m.slotId, completedAt })
+        if (cur) {
+          cur.items.push(...items)
+          cur.breadQty += m.breadQty
+          cur.marketOrderIds.push(m.id)
+          // Mais recente vence — é quando a parada de fato terminou.
+          if (completedAt && (!cur.completedAt || completedAt > cur.completedAt)) cur.completedAt = completedAt
+        } else {
+          map.set(key, { userId: m.userId, items, breadQty: m.breadQty, marketOrderIds: [m.id], status: m.status, slotId: m.slotId, completedAt })
+        }
       }
       return map
     }
-    const marketByUserActive = aggMarket(marketActive as unknown as typeof marketCompleted)
-    const marketByUserCompleted = aggMarket(marketCompleted)
-    const breadUserIdsActive = new Set(orders.map((o: Record<string, unknown>) => o.userId as string))
-    const breadUserIdsCompleted = new Set(completedOrders.map((o: Record<string, unknown>) => o.userId as string))
+    const marketActiveByStop = aggMarket(marketActive as unknown as typeof marketCompleted)
+    const marketCompletedByStop = aggMarket(marketCompleted, true)
+    const breadStopsActive = new Set(
+      orders.map((o: Record<string, unknown>) => stopKeyOf(o.userId as string, o.slotId as string | null)),
+    )
+    const breadStopsCompleted = new Set(
+      completedOrders.map(
+        (o: Record<string, unknown>) => `${stopKeyOf(o.userId as string, o.slotId as string | null)}|${o.status as string}`,
+      ),
+    )
 
     // Config de turnos (slot) — para rotular cada entrega como manhã/tarde + horário.
     const slotConfig = await getGlobalDeliverySlots(this.prisma)
@@ -140,8 +172,8 @@ export class CourierService {
 
         const addr = condominium?.address as AddressLike | undefined
         const sortKey = parseInt(user?.apartment ?? '9999', 10)
-        // Cestinha do mesmo cliente nesta rota: soma os pães da cestinha + anexa os itens.
-        const mk = marketByUserActive.get(order.userId as string)
+        // Cestinha do mesmo cliente NESTE turno: soma os pães da cestinha + anexa os itens.
+        const mk = marketActiveByStop.get(stopKeyOf(order.userId as string, order.slotId as string | null))
         const marketItems = mk?.items ?? []
         return {
           orderId: order.id as string,
@@ -161,17 +193,19 @@ export class CourierService {
           slotId: (order.slotId as string | null) ?? '',
           sortKey: isNaN(sortKey) ? 9999 : sortKey,
           marketOrderId: undefined as string | undefined, // parada combinada confirma pelo orderId do pão
+          marketOrderIds: mk?.marketOrderIds ?? [],
           marketItems,
           marketItemCount: marketItems.reduce((n, i) => n + i.qty, 0),
         }
       }),
     )
 
-    // Paradas SÓ-market ativas (cliente sem pedido de pão nesta rota).
+    // Paradas SÓ-market ativas (cliente sem pedido de pão NESTE turno).
     const marketOnlyActive = await Promise.all(
-      [...marketByUserActive.entries()]
-        .filter(([userId]) => !breadUserIdsActive.has(userId))
-        .map(async ([userId, mk]) => {
+      [...marketActiveByStop.entries()]
+        .filter(([key]) => !breadStopsActive.has(key))
+        .map(async ([, mk]) => {
+          const userId = mk.userId
           const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { id: true, name: true, condominiumId: true, apartment: true, block: true },
@@ -200,7 +234,9 @@ export class CourierService {
             status: mk.status,
             slotId: mk.slotId ?? '',
             sortKey: isNaN(sortKey) ? 9999 : sortKey,
-            marketOrderId: mk.marketOrderId as string | undefined,
+            // O id endereça a parada; o backend aplica o desfecho ao escopo todo (completeMarketStop).
+            marketOrderId: mk.marketOrderIds[0] as string | undefined,
+            marketOrderIds: mk.marketOrderIds,
             marketItems: mk.items,
             marketItemCount: mk.items.reduce((n, i) => n + i.qty, 0),
           }
@@ -271,6 +307,7 @@ export class CourierService {
             slotId: s.slotId,
             slotLabel: slotLabelOf(s.slotId),
             ...(s.marketOrderId ? { marketOrderId: s.marketOrderId } : {}),
+            marketOrderIds: s.marketOrderIds,
             marketItems: s.marketItems,
             marketItemCount: s.marketItemCount,
           })),
@@ -349,7 +386,9 @@ export class CourierService {
         const status = order.status as string
         const completedAt =
           (order.deliveredAt as Date | null) ?? (order.failedAt as Date | null) ?? null
-        const mk = marketByUserCompleted.get(order.userId as string)
+        // Casa a Cestinha do MESMO turno e do MESMO desfecho do pão. Uma Cestinha que teve
+        // desfecho diferente não é escondida aqui — vira a própria linha em marketOnlyCompleted.
+        const mk = marketCompletedByStop.get(`${stopKeyOf(order.userId as string, order.slotId as string | null)}|${status}`)
         const marketItems = mk?.items ?? []
         return {
           orderId: order.id as string,
@@ -364,17 +403,19 @@ export class CourierService {
           slotLabel: slotLabelOf(order.slotId as string | null),
           completedAt: completedAt ? completedAt.toISOString() : null,
           marketOrderId: undefined as string | undefined,
+          marketOrderIds: mk?.marketOrderIds ?? [],
           marketItems,
           marketItemCount: marketItems.reduce((n, i) => n + i.qty, 0),
         }
       }),
     )
 
-    // Paradas SÓ-market concluídas.
+    // Paradas SÓ-market concluídas (sem pão no mesmo turno com o mesmo desfecho).
     const marketOnlyCompleted = await Promise.all(
-      [...marketByUserCompleted.entries()]
-        .filter(([userId]) => !breadUserIdsCompleted.has(userId))
-        .map(async ([userId, mk]) => {
+      [...marketCompletedByStop.entries()]
+        .filter(([key]) => !breadStopsCompleted.has(key))
+        .map(async ([, mk]) => {
+          const userId = mk.userId
           const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { name: true, condominiumId: true, apartment: true, block: true },
@@ -394,7 +435,8 @@ export class CourierService {
             slotId: mk.slotId ?? '',
             slotLabel: slotLabelOf(mk.slotId),
             completedAt: mk.completedAt ? mk.completedAt.toISOString() : null,
-            marketOrderId: mk.marketOrderId as string | undefined,
+            marketOrderId: mk.marketOrderIds[0] as string | undefined,
+            marketOrderIds: mk.marketOrderIds,
             marketItems: mk.items,
             marketItemCount: mk.items.reduce((n, i) => n + i.qty, 0),
           }
@@ -434,6 +476,7 @@ export class CourierService {
             slotLabel: s.slotLabel,
             completedAt: s.completedAt,
             ...(s.marketOrderId ? { marketOrderId: s.marketOrderId } : {}),
+            marketOrderIds: s.marketOrderIds,
             marketItems: s.marketItems,
             marketItemCount: s.marketItemCount,
           })),
@@ -501,25 +544,34 @@ export class CourierService {
    * Confirma a entrega de uma parada SÓ-market (MarketOrder sem pedido de pão). Paradas
    * combinadas (pão + Cestinha) são confirmadas pelo orderId do pão, que já propaga ao
    * MarketOrder (ver market-pipeline). Aqui é só para o caso puro só-market.
+   *
+   * O id recebido ENDEREÇA a parada; o desfecho é aplicado ao escopo inteiro dela (todas as
+   * Cestinhas do cliente naquele condomínio/turno/dia com este entregador). O app mostra uma
+   * parada por cliente — confirmar só o id enviado deixava as outras Cestinhas em rota.
    */
   async confirmMarketDelivery(marketOrderId: string, courierId: string): Promise<void> {
-    const mo = await this.repository.findMarketById(marketOrderId)
-    if (!mo) throw { statusCode: 404, message: 'Pedido nao encontrado' }
-    if (mo.courierId !== courierId) throw { statusCode: 403, message: 'Acesso negado: esta entrega nao pertence a voce' }
-    if (mo.status !== 'OUT_FOR_DELIVERY') throw { statusCode: 422, message: `Transição inválida: ${mo.status} → DELIVERED` }
-    await this.prisma.marketOrder.update({ where: { id: marketOrderId }, data: { status: 'DELIVERED', deliveredAt: new Date() } })
-    await notifyMarketDelivered(this.fastify, mo.userId) // MKT-35
+    const mo = await this.loadOwnMarketStop(marketOrderId, courierId, 'DELIVERED')
+    const moved = await completeMarketStop(this.prisma, { ...mo, courierId }, 'DELIVERED')
+    if (moved > 0) await notifyMarketDelivered(this.fastify, mo.userId) // MKT-35
   }
 
   async markMarketNotDelivered(marketOrderId: string, courierId: string, reason?: string): Promise<void> {
+    const mo = await this.loadOwnMarketStop(marketOrderId, courierId, 'NOT_DELIVERED')
+    const moved = await completeMarketStop(this.prisma, { ...mo, courierId }, 'NOT_DELIVERED', reason)
+    if (moved > 0) await notifyMarketNotDelivered(this.fastify, mo, { reason }) // F3
+  }
+
+  /** Carrega a Cestinha validando existência (404), dono (403) e status em rota (422). */
+  private async loadOwnMarketStop(marketOrderId: string, courierId: string, target: string) {
     const mo = await this.repository.findMarketById(marketOrderId)
     if (!mo) throw { statusCode: 404, message: 'Pedido nao encontrado' }
-    if (mo.courierId !== courierId) throw { statusCode: 403, message: 'Acesso negado: esta entrega nao pertence a voce' }
-    if (mo.status !== 'OUT_FOR_DELIVERY') throw { statusCode: 422, message: `Transição inválida: ${mo.status} → NOT_DELIVERED` }
-    await this.prisma.marketOrder.update({
-      where: { id: marketOrderId },
-      data: { status: 'NOT_DELIVERED', failedAt: new Date(), failureReason: reason ?? null },
-    })
+    if (mo.courierId !== courierId) {
+      throw { statusCode: 403, message: 'Acesso negado: esta entrega nao pertence a voce' }
+    }
+    if (mo.status !== 'OUT_FOR_DELIVERY') {
+      throw { statusCode: 422, message: `Transição inválida: ${mo.status} → ${target}` }
+    }
+    return mo
   }
 
   /**
@@ -538,21 +590,33 @@ export class CourierService {
       const [sh, sm] = slot.time.split(':').map(Number)
       if (cur !== (sh * 60 + sm)) continue
 
-      // Pedidos do turno hoje que já têm entregador atribuído.
-      const orders = await this.prisma.order.findMany({
-        where: {
-          slotId: slot.slotId,
-          scheduledDate: { gte: start, lte: end },
-          courierId: { not: null },
-          status: { not: 'CANCELLED' },
-        },
-        select: { courierId: true, status: true },
-      })
-      if (orders.length === 0) continue
+      // Paradas do turno hoje que já têm entregador atribuído — pão E Cestinha. Sem a Cestinha,
+      // um entregador com rota 100% de paradas só-Cestinha nunca recebia o lembrete.
+      const [orders, marketOrders] = await Promise.all([
+        this.prisma.order.findMany({
+          where: {
+            slotId: slot.slotId,
+            scheduledDate: { gte: start, lte: end },
+            courierId: { not: null },
+            status: { not: 'CANCELLED' },
+          },
+          select: { courierId: true, status: true },
+        }),
+        this.prisma.marketOrder.findMany({
+          where: {
+            slotId: slot.slotId,
+            scheduledDate: { gte: start, lte: end },
+            courierId: { not: null },
+            status: { notIn: ['CANCELLED', 'PENDING_PAYMENT'] },
+          },
+          select: { courierId: true, status: true },
+        }),
+      ])
+      if (orders.length === 0 && marketOrders.length === 0) continue
 
       // Agrupa por entregador: acted = já concluiu/tentou alguma; pending = ainda por fazer.
       const byCourier = new Map<string, { acted: boolean; pending: number }>()
-      for (const o of orders) {
+      for (const o of [...orders, ...marketOrders]) {
         if (!o.courierId) continue
         const agg = byCourier.get(o.courierId) ?? { acted: false, pending: 0 }
         if (o.status === 'DELIVERED' || o.status === 'NOT_DELIVERED') agg.acted = true

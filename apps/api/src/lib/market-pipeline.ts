@@ -13,7 +13,13 @@ import { brtDayRange } from './cutoff.js'
  */
 
 type Prisma = PrismaClient
-const PRE_DELIVERY = ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] as const
+/**
+ * Status de uma Cestinha que **ainda vai ser entregue** — o complemento dos terminais
+ * (DELIVERED/NOT_DELIVERED/CANCELLED) e de `PENDING_PAYMENT`, que nem confirmado está.
+ * Exportado porque o lembrete de véspera (Onda F2) precisa exatamente deste conjunto: avisar
+ * "chega amanhã" sobre um pedido já entregue, cancelado ou esperando Pix seria falso.
+ */
+export const PRE_DELIVERY = ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] as const
 
 /** Separação concluída de um lote (condo, slot, dia): SCHEDULED → SEPARATED. */
 export async function separateMarketOrders(
@@ -104,6 +110,48 @@ export async function dispatchMarketForOrders(
   return count
 }
 
+/**
+ * Desfecho de uma parada SÓ-Cestinha pelo entregador (DELIVERED / NOT_DELIVERED).
+ *
+ * Recebe UMA Cestinha da parada e move TODAS as do mesmo escopo — cliente, condomínio, turno,
+ * dia — que ainda estão em rota com AQUELE entregador. O app funde as Cestinhas do cliente numa
+ * parada só (ele toca a campainha uma vez), então confirmar por id movia apenas a primeira e as
+ * demais voltavam para a rota ativa no refresh. Escopo em vez de lista de ids também cobre id
+ * desatualizado na tela e Cestinha despachada depois do carregamento.
+ *
+ * O guard `courierId` garante que um entregador nunca conclui a parada de outro.
+ */
+export async function completeMarketStop(
+  prisma: Prisma,
+  stop: {
+    userId: string
+    condominiumId: string
+    slotId: string
+    scheduledDate: Date
+    courierId: string
+  },
+  newStatus: 'DELIVERED' | 'NOT_DELIVERED',
+  reason?: string,
+): Promise<number> {
+  const { start, end } = brtDayRange(stop.scheduledDate)
+  const now = new Date()
+  const r = await prisma.marketOrder.updateMany({
+    where: {
+      userId: stop.userId,
+      condominiumId: stop.condominiumId,
+      slotId: stop.slotId,
+      scheduledDate: { gte: start, lte: end },
+      courierId: stop.courierId,
+      status: 'OUT_FOR_DELIVERY',
+    },
+    data:
+      newStatus === 'DELIVERED'
+        ? { status: 'DELIVERED', deliveredAt: now }
+        : { status: 'NOT_DELIVERED', failedAt: now, failureReason: reason ?? null },
+  })
+  return r.count
+}
+
 /** Escopo por condomínio + dia (usado no assignCourier por condominiumId+date). */
 export async function assignMarketByCondoDay(
   prisma: Prisma,
@@ -128,14 +176,19 @@ export async function assignMarketByCondoDay(
  * Chamado pelo `updateOrderStatus` (cobre toggle de separação + confirm/fail do entregador
  * numa parada combinada pão+Cestinha). Escopo por userId — o pedido de pão é de um cliente,
  * e a Cestinha dele no mesmo slot deve acompanhar.
+ *
+ * @returns quantas Cestinhas ESTA chamada moveu. É o gatilho dos avisos ao cliente (Onda F): o
+ *   `updateMany` é guardado pelo status atual, então `0` significa "nada mudou aqui" — o caso de
+ *   uma parada só-market já concluída pelo entregador ou de uma reexecução. Contar o estado depois
+ *   (`count` por status) avisaria de novo em cima de uma transição que outro caminho já fez.
  */
 export async function propagateMarketStatusForOrder(
   prisma: Prisma,
   order: { userId: string; condominiumId: string | null; slotId: string | null; scheduledDate: Date },
   newStatus: string,
   reason?: string,
-): Promise<void> {
-  if (!order.condominiumId || !order.slotId) return
+): Promise<number> {
+  if (!order.condominiumId || !order.slotId) return 0
   const { start, end } = brtDayRange(order.scheduledDate)
   const base = {
     userId: order.userId,
@@ -146,21 +199,28 @@ export async function propagateMarketStatusForOrder(
   const now = new Date()
 
   switch (newStatus) {
-    case 'SEPARATED':
-      await prisma.marketOrder.updateMany({ where: { ...base, status: 'SCHEDULED' }, data: { status: 'SEPARATED', separatedAt: now } })
-      break
-    case 'SCHEDULED': // desfazer separação
-      await prisma.marketOrder.updateMany({ where: { ...base, status: 'SEPARATED' }, data: { status: 'SCHEDULED', separatedAt: null } })
-      break
-    case 'OUT_FOR_DELIVERY':
-      await prisma.marketOrder.updateMany({ where: { ...base, status: { in: ['SCHEDULED', 'SEPARATED'] } }, data: { status: 'OUT_FOR_DELIVERY' } })
-      break
-    case 'DELIVERED':
-      await prisma.marketOrder.updateMany({ where: { ...base, status: { in: [...PRE_DELIVERY] } }, data: { status: 'DELIVERED', deliveredAt: now } })
-      break
-    case 'NOT_DELIVERED':
-      await prisma.marketOrder.updateMany({ where: { ...base, status: { in: [...PRE_DELIVERY] } }, data: { status: 'NOT_DELIVERED', failedAt: now, failureReason: reason ?? null } })
-      break
+    case 'SEPARATED': {
+      const r = await prisma.marketOrder.updateMany({ where: { ...base, status: 'SCHEDULED' }, data: { status: 'SEPARATED', separatedAt: now } })
+      return r.count
+    }
+    case 'SCHEDULED': { // desfazer separação
+      const r = await prisma.marketOrder.updateMany({ where: { ...base, status: 'SEPARATED' }, data: { status: 'SCHEDULED', separatedAt: null } })
+      return r.count
+    }
+    case 'OUT_FOR_DELIVERY': {
+      const r = await prisma.marketOrder.updateMany({ where: { ...base, status: { in: ['SCHEDULED', 'SEPARATED'] } }, data: { status: 'OUT_FOR_DELIVERY' } })
+      return r.count
+    }
+    case 'DELIVERED': {
+      const r = await prisma.marketOrder.updateMany({ where: { ...base, status: { in: [...PRE_DELIVERY] } }, data: { status: 'DELIVERED', deliveredAt: now } })
+      return r.count
+    }
+    case 'NOT_DELIVERED': {
+      const r = await prisma.marketOrder.updateMany({ where: { ...base, status: { in: [...PRE_DELIVERY] } }, data: { status: 'NOT_DELIVERED', failedAt: now, failureReason: reason ?? null } })
+      return r.count
+    }
     // CANCELLED: intencionalmente não propaga (cancelar pão ≠ cancelar Cestinha).
+    default:
+      return 0
   }
 }

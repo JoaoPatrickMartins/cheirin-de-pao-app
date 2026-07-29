@@ -180,8 +180,8 @@ export function AdminFornecedores({ onBack }: AdminFornecedoresProps) {
           Novo fornecedor
         </GoldBtn>
 
-        {/* Split padrão usado pelo "Gerar direto" e pela geração automática no corte */}
-        {!isLoading && <SplitDefaultCard hasReserva={fornecedores.some((f) => !f.isPrincipal)} />}
+        {/* O rateio agora é por produto, na matriz de cada fornecedor (D-7) */}
+        {!isLoading && <SourcingHintCard />}
 
         {/* Lista */}
         {isLoading ? (
@@ -430,93 +430,41 @@ function FornecedorCard({ fornecedor: f, formatBRL, busy, onToggle, onEdit }: Fo
   )
 }
 
-// ------------------------------------------------------------------ SplitDefaultCard
+// ------------------------------------------------------------------ SourcingHintCard
 /** Configura o percentual do fornecedor principal no split padrão do pedido. */
-function SplitDefaultCard({ hasReserva }: { hasReserva: boolean }) {
-  const [pct, setPct] = useState<number | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    apiFetch('/admin/supplier-orders/default-split')
-      .then(async (r) => {
-        if (r.ok && active) setPct((((await r.json()) as { principalPercent: number }).principalPercent))
-      })
-      .catch(() => {
-        /* falha silenciosa */
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
-  async function save(next: number) {
-    const v = Math.max(0, Math.min(100, next))
-    setPct(v)
-    setSaving(true)
-    try {
-      await apiFetch('/admin/supplier-orders/default-split', {
-        method: 'PATCH',
-        body: JSON.stringify({ principalPercent: v }),
-      })
-    } catch {
-      /* falha silenciosa */
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (pct === null) return null
-
+/**
+ * SourcingHintCard — o antigo "Split padrão de compra" (um percentual GLOBAL do fornecedor
+ * principal) virou LEGADO na Onda H: o rateio agora é POR PRODUTO, na matriz de fornecimento de
+ * cada fornecedor (`SupplierProduct.defaultSharePct`).
+ *
+ * O `Setting.supplierSplitPrincipalPct` continua no banco — é a semente do backfill (D-10) — mas
+ * editá-lo aqui não muda mais nada na geração do pedido. Em vez de remover o card e deixar quem o
+ * conhecia sem saber para onde foi, ele aponta o novo lugar.
+ */
+function SourcingHintCard() {
   return (
     <div
       style={{
         background: 'var(--color-surface)',
         border: '1px solid var(--color-border-2)',
         borderRadius: 16,
-        padding: 16,
+        padding: 14,
         marginTop: 12,
+        display: 'flex',
+        gap: 11,
+        alignItems: 'flex-start',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <Icon name="percent" size={16} color="var(--color-accent)" />
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-          Split padrão de compra
+      <Icon name="percent" size={16} color="var(--color-accent)" />
+      <div style={{ minWidth: 0 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+          Rateio por produto
+        </p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '4px 0 0', lineHeight: 1.45 }}>
+          Cada produto tem seus fornecedores, seu custo e sua fatia da demanda. Abra um fornecedor
+          para definir o que ele fornece — é isso que o “Gerar direto” e a geração automática usam.
         </p>
       </div>
-      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '0 0 12px', lineHeight: 1.4 }}>
-        {hasReserva
-          ? 'Divisão usada pelo “Gerar direto” e pela geração automática 1h após o corte.'
-          : 'Com só um fornecedor, ele recebe 100%. A divisão vale quando houver reserva.'}
-      </p>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--color-text)', margin: 0 }}>
-            {pct}% <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: 'var(--color-text-ter)' }}>principal</span>
-          </p>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-accent)', margin: '2px 0 0', fontWeight: 700 }}>
-            {100 - pct}% reserva
-          </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: saving ? 0.6 : 1 }}>
-          <SplitStep label="−5%" disabled={saving || pct <= 0} onClick={() => void save(pct - 5)} />
-          <SplitStep label="+5%" disabled={saving || pct >= 100} onClick={() => void save(pct + 5)} />
-        </div>
-      </div>
-
-      <input
-        type="range"
-        min={0}
-        max={100}
-        step={5}
-        value={pct}
-        onChange={(e) => setPct(Number(e.target.value))}
-        onPointerUp={(e) => void save(Number((e.target as HTMLInputElement).value))}
-        onKeyUp={(e) => void save(Number((e.target as HTMLInputElement).value))}
-        aria-label="Percentual do fornecedor principal"
-        style={{ width: '100%', marginTop: 14, accentColor: 'var(--color-accent)' }}
-      />
     </div>
   )
 }

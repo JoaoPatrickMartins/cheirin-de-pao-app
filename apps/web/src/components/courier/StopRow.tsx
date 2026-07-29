@@ -13,6 +13,8 @@ export interface Stop {
   // Mini market ("Além do Pãozin"): itens que acompanham a parada. `marketOrderId` só é
   // preenchido em parada SÓ-market (sem pedido de pão) — a confirmação usa rota própria.
   marketOrderId?: string
+  /** Todas as Cestinhas da parada — usado para casar o cupom escaneado com a parada certa. */
+  marketOrderIds?: string[]
   marketItems?: { name: string; qty: number }[]
   marketItemCount?: number
 }

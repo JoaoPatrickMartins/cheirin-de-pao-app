@@ -4,13 +4,8 @@ import { CreateOrderBody } from './orders.schema.js'
 import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr, dayKeyOf } from '../../lib/cutoff.js'
 import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
+import { clientLabel } from '../../lib/client-label.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
-
-/** Rótulo curto do cliente para avisos ao admin: "Nome · Apto 12B". */
-function clientLabel(u: { name?: string | null; apartment?: string | null; block?: string | null }): string {
-  const loc = [u.block, u.apartment].filter(Boolean).join(' ')
-  return [u.name ?? 'Cliente', loc ? `Apto ${loc}` : null].filter(Boolean).join(' · ')
-}
 
 /**
  * Fuso horário do Brasil (UTC-3) para cálculo do "amanhã".

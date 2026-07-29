@@ -488,9 +488,11 @@ docker run -d --name cheirin-api \
   --env-file apps/api/.env.production \
   cheirin-api
 
-# Antes do primeiro deploy, sincronize o schema com o Atlas (uma vez):
+# Sincronizar o schema com o Atlas (coleções + índices).
+# No deploy via Ansible isso é AUTOMÁTICO — o playbook roda o db push dentro do container.
+# Este comando serve para o build manual ou para antecipar a sincronização:
 docker run --rm --env-file apps/api/.env.production \
-  -w /app/apps/api cheirin-api npx prisma db push
+  -w /app/apps/api cheirin-api npx prisma db push --schema=prisma/schema.prisma
 ```
 
 > **Por que `tsx` e não `node dist/server.js`?** O pacote interno `@cheirin-de-pao/shared`
@@ -596,7 +598,13 @@ Ordem recomendada (banco → build → deploy):
 - [ ] `apps/web/.env.production` com `VITE_API_URL` apontando para o domínio da API + chaves **live**.
 - [ ] MongoDB Atlas: cluster de produção pronto e IP da VPS liberado.
 - [ ] `npx prisma generate` executado.
-- [ ] **Migrações no Atlas** (rodar antes de subir a nova API): `npm run migrate:slots` → `npx prisma generate` → `npx prisma db push`.
+- [x] **Sincronização do schema no Atlas — AUTOMÁTICA.** O playbook do Ansible roda
+  `prisma db push` dentro do container após subir a aplicação (ver `ansible/playbook.yml`), então
+  coleções e índices novos são criados a cada deploy. É idempotente. Rodar na mão só se precisar
+  antecipar: `docker compose exec <servico> npx prisma db push --schema=prisma/schema.prisma`.
+- [ ] **Migrações de DADOS** (essas continuam manuais, quando aplicável): `npm run migrate:slots`.
+  Os *backfills* (`migrate:hooks`, `migrate:supplier-products`) rodam sozinhos no boot, com guard de
+  execução única — o comando existe só para reprocessar ou controlar o momento.
 - [ ] `npm run typecheck` e `npm run test` verdes; `apps/web` builda (`npm run build`) e a imagem da API builda (`docker build -f apps/api/Dockerfile .`).
 - [ ] Webhooks (Stripe/MP) configurados com URLs públicas e *secrets* corretos.
 - [ ] `NODE_ENV=production` e `CORS_ORIGIN` corretos.

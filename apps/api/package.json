@@ -12,7 +12,8 @@
     "seed:slots": "tsx src/scripts/seed-delivery-slots.ts",
     "migrate:slotid": "tsx src/scripts/migrate-to-slotid.ts",
     "migrate:phone": "tsx src/scripts/backfill-phone-normalize.ts",
-    "migrate:hooks": "tsx src/scripts/backfill-hook-requests.ts"
+    "migrate:hooks": "tsx src/scripts/backfill-hook-requests.ts",
+    "migrate:supplier-products": "tsx src/scripts/backfill-supplier-products.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1093.0",

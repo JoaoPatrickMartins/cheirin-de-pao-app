@@ -7,7 +7,13 @@ import {
   CreateCategorySchema,
   UpdateCategorySchema,
 } from '@cheirin-de-pao/shared'
-import { SetStockSchema, SetMarketConfigSchema } from './admin-market.schema.js'
+import {
+  SetStockSchema,
+  SetMarketConfigSchema,
+  MarketOrderFiltersSchema,
+  CancelMarketOrderSchema,
+  ResolveNotDeliveredSchema,
+} from './admin-market.schema.js'
 import { AdminMarketService } from './admin-market.service.js'
 import { uploadProductImage, StorageError } from '../../lib/storage.js'
 
@@ -213,6 +219,91 @@ export class AdminMarketController {
     }
     try {
       return reply.status(200).send(await this.service.setConfig(body.minimo, body.cartaoMinimo))
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  // ── Cestinhas (MarketOrder) ──
+  async listOrders(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    let filters: ReturnType<typeof MarketOrderFiltersSchema.parse>
+    try {
+      filters = MarketOrderFiltersSchema.parse(request.query)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Filtros inválidos.' })
+    }
+    try {
+      return reply.status(200).send(await this.service.listOrders(filters))
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  async getOrder(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    const { id } = request.params as { id: string }
+    try {
+      return reply.status(200).send(await this.service.getOrder(id))
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  async cancelOrder(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    let body: ReturnType<typeof CancelMarketOrderSchema.parse>
+    try {
+      body = CancelMarketOrderSchema.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      return reply.status(200).send(await this.service.cancelOrderAsAdmin(id, request.user!.id, body))
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  /**
+   * GET /admin/market/stock-outlook
+   *
+   * Comprometido por produto e por dia (G1) — o que preparar/comprar nos próximos dias.
+   */
+  async stockOutlook(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    const { days } = request.query as { days?: string }
+    const parsed = days ? Number(days) : undefined
+    try {
+      return reply
+        .status(200)
+        .send(await this.service.getStockOutlook(Number.isFinite(parsed) ? parsed : undefined))
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  /**
+   * POST /admin/market/orders/:id/resolve-loss
+   *
+   * Desfecho físico de uma Cestinha não entregue (G2): o item voltou à prateleira? o cliente recebe
+   * os pãezinhos de volta? Sem isto, a perda ficava sem caminho nenhum depois do NOT_DELIVERED.
+   */
+  async resolveLoss(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    let body: ReturnType<typeof ResolveNotDeliveredSchema.parse>
+    try {
+      body = ResolveNotDeliveredSchema.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      return reply.status(200).send(await this.service.resolveNotDelivered(id, request.user!.id, body))
     } catch (err) {
       return this.handleError(reply, err)
     }

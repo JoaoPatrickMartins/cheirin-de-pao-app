@@ -9,6 +9,7 @@ import { FastifyInstance } from 'fastify'
 import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { separateMarketOrders } from '../../lib/market-pipeline.js'
+import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
 
 const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 
@@ -32,8 +33,24 @@ export interface SeparationOrder {
   separated: boolean
   // Mini market ("Além do Pãozin") que pega carona nesta parada.
   marketOrderId?: string // presente em parada SÓ-market (sem pedido de pão)
+  /**
+   * Ids de TODAS as Cestinhas desta parada — o cliente pode ter comprado mais de uma vez
+   * para o mesmo turno, e todas são mescladas numa linha só. O toggle de separação precisa
+   * da lista inteira: usar só `marketOrderId` (a primeira) deixaria as outras em SCHEDULED.
+   */
+  marketOrderIds: string[]
   marketItems: { name: string; qty: number }[]
   marketItemCount: number
+}
+
+/**
+ * Uma linha da lista consolidada de produtos do mercadinho a separar — "quanto pegar da prateleira".
+ * Sem isto o operador tinha que somar os chips de cada parada na mão para saber quantos bolos pegar.
+ */
+export interface MarketPickItem {
+  productId: string
+  name: string
+  qty: number
 }
 
 /** Um turno (lote físico) de um condomínio. */
@@ -48,6 +65,8 @@ export interface SeparationSlot {
   separatedItems: number
   concluded: boolean
   orders: SeparationOrder[]
+  /** Produtos a separar neste lote (condomínio + turno), agregados por produto. */
+  marketPicklist: MarketPickItem[]
 }
 
 export interface SeparationCondo {
@@ -71,6 +90,8 @@ export interface SeparationBoard {
   totalItems: number
   separatedItems: number
   condominiums: SeparationCondo[]
+  /** Produtos a separar no DIA inteiro, agregados por produto — o que tirar da prateleira. */
+  marketPicklist: MarketPickItem[]
 }
 
 export class AdminSeparationService {
@@ -93,16 +114,7 @@ export class AdminSeparationService {
    */
   async getBoard(dateStr?: string, slotId?: string): Promise<SeparationBoard> {
     const { date, start, end } = this.resolveDate(dateStr)
-    const empty: SeparationBoard = { date, totalDeliveries: 0, separatedDeliveries: 0, totalBreads: 0, separatedBreads: 0, totalItems: 0, separatedItems: 0, condominiums: [] }
-
-    // Gate progressivo: um turno só entra na Separação depois que sua COMPRA é finalizada.
-    // (O pedido pode já estar materializado pelo cron, mas só aparece aqui após o corte.)
-    const finalizedPOs = await this.prisma.purchaseOrder.findMany({
-      where: { status: 'FINALIZED', date: { gte: start, lte: end }, ...(slotId ? { slotId } : {}) },
-      select: { slotId: true },
-    })
-    const finalizedSlots = new Set(finalizedPOs.map((p) => p.slotId).filter((s): s is string => !!s))
-    if (finalizedSlots.size === 0) return empty
+    const empty: SeparationBoard = { date, totalDeliveries: 0, separatedDeliveries: 0, totalBreads: 0, separatedBreads: 0, totalItems: 0, separatedItems: 0, condominiums: [], marketPicklist: [] }
 
     const allOrders = await this.prisma.order.findMany({
       where: {
@@ -123,19 +135,45 @@ export class AdminSeparationService {
       },
     })
 
-    // Mantém só pedidos de turnos cuja compra foi finalizada
-    const orders = allOrders.filter((o) => o.slotId != null && finalizedSlots.has(o.slotId))
-
-    // MarketOrders (Cestinha) confirmados do dia — pegam carona nos mesmos turnos finalizados.
+    // MarketOrders (Cestinha) confirmados do dia — pegam carona nas mesmas paradas.
     const allMarket = await this.prisma.marketOrder.findMany({
       where: {
         scheduledDate: { gte: start, lte: end },
-        status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] },
+        status: { in: [...CONFIRMED_MARKET_STATUSES] },
         ...(slotId ? { slotId } : {}),
       },
-      select: { id: true, userId: true, condominiumId: true, slotId: true, status: true, breadQty: true, items: { select: { name: true, qty: true } } },
+      select: {
+        id: true,
+        userId: true,
+        condominiumId: true,
+        slotId: true,
+        status: true,
+        breadQty: true,
+        // productId entra para agregar a lista de separação por produto (não só por nome).
+        items: { select: { productId: true, name: true, qty: true } },
+      },
     })
-    const marketOrders = allMarket.filter((m) => m.slotId && finalizedSlots.has(m.slotId))
+
+    // Gate progressivo: um turno só entra na Separação depois que sua COMPRA é finalizada.
+    // (O pedido pode já estar materializado pelo cron, mas só aparece aqui após o corte.)
+    //
+    // D-3: o gate aceita `PurchaseOrder` FINALIZED **ou** Cestinha confirmada no turno. Sem essa
+    // segunda porta, um turno 100% Cestinha (só produtos, sem pão) nunca gera pedido ao fornecedor,
+    // logo nunca tem PO, logo nunca aparece aqui — e a Cestinha ficava presa em SCHEDULED para
+    // sempre, com crédito debitado e estoque reservado, sem ninguém ser avisado.
+    const finalizedPOs = await this.prisma.purchaseOrder.findMany({
+      where: { status: 'FINALIZED', date: { gte: start, lte: end }, ...(slotId ? { slotId } : {}) },
+      select: { slotId: true },
+    })
+    const openSlots = new Set(finalizedPOs.map((p) => p.slotId).filter((s): s is string => !!s))
+    for (const m of allMarket) {
+      if (m.slotId) openSlots.add(m.slotId)
+    }
+    if (openSlots.size === 0) return empty
+
+    // Mantém só pedidos de turnos abertos para separação
+    const orders = allOrders.filter((o) => o.slotId != null && openSlots.has(o.slotId))
+    const marketOrders = allMarket.filter((m) => m.slotId && openSlots.has(m.slotId))
 
     if (orders.length === 0 && marketOrders.length === 0) return empty
 
@@ -193,6 +231,7 @@ export class AdminSeparationService {
           separatedItems: 0,
           concluded: false,
           orders: [],
+          marketPicklist: [],
         })
       }
       const slot = condo.slots.get(slotId)!
@@ -209,6 +248,7 @@ export class AdminSeparationService {
         type: o.type,
         status: o.status,
         separated,
+        marketOrderIds: [],
         marketItems: [],
         marketItemCount: 0,
       })
@@ -244,13 +284,24 @@ export class AdminSeparationService {
           separatedItems: 0,
           concluded: false,
           orders: [],
+          marketPicklist: [],
         })
       }
       const slot = condo.slots.get(moSlotId)!
+
+      // Lista consolidada do lote: agrega por produto o que sair da prateleira para este
+      // (condomínio, turno) — independente de quantas paradas o pedido virou.
+      for (const it of mo.items) {
+        const line = slot.marketPicklist.find((p) => p.productId === it.productId)
+        if (line) line.qty += it.qty
+        else slot.marketPicklist.push({ productId: it.productId, name: it.name, qty: it.qty })
+      }
+
       const existing = slot.orders.find((r) => r.userId === mo.userId)
 
       if (existing) {
         // Parada combinada: anexa itens do market + soma os pães da cestinha aos pães.
+        existing.marketOrderIds.push(mo.id)
         existing.marketItems.push(...items)
         existing.marketItemCount += itemCount
         existing.quantity += mo.breadQty
@@ -266,6 +317,7 @@ export class AdminSeparationService {
         slot.orders.push({
           orderId: '',
           marketOrderId: mo.id,
+          marketOrderIds: [mo.id],
           userId: mo.userId,
           name: u?.name ?? 'Cliente',
           block: u?.block ?? '',
@@ -307,6 +359,7 @@ export class AdminSeparationService {
               return a.name.localeCompare(b.name, 'pt-BR')
             })
             s.concluded = s.totalDeliveries > 0 && s.separatedDeliveries === s.totalDeliveries
+            s.marketPicklist.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
             return s
           })
           .sort((a, b) => a.slotLabel.localeCompare(b.slotLabel, 'pt-BR'))
@@ -339,13 +392,30 @@ export class AdminSeparationService {
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 
-    return { date, totalDeliveries, separatedDeliveries, totalBreads, separatedBreads, totalItems, separatedItems, condominiums }
+    // Lista do DIA: soma as listas dos lotes por produto — é o que sai da prateleira no total.
+    const boardPicklist: MarketPickItem[] = []
+    for (const c of condominiums) {
+      for (const s of c.slots) {
+        for (const p of s.marketPicklist) {
+          const line = boardPicklist.find((x) => x.productId === p.productId)
+          if (line) line.qty += p.qty
+          else boardPicklist.push({ ...p })
+        }
+      }
+    }
+    boardPicklist.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+
+    return { date, totalDeliveries, separatedDeliveries, totalBreads, separatedBreads, totalItems, separatedItems, condominiums, marketPicklist: boardPicklist }
   }
 
   /**
    * setSeparated — marca/desmarca um pedido como separado (idempotente).
    * Só alterna entre SCHEDULED e SEPARATED; reusa o state machine de AdminOrdersService
    * para registrar/limpar o marco separatedAt.
+   *
+   * A Cestinha da MESMA parada (cliente, condomínio, turno, dia) acompanha o pedido — quem
+   * separa a sacola do cliente separa tudo o que vai nela. Isso sai de graça:
+   * `updateOrderStatus` chama `propagateMarketStatusForOrder` com esse mesmo escopo.
    */
   async setSeparated(orderId: string, separated: boolean): Promise<{ orderId: string; status: string }> {
     const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { status: true } })
@@ -366,6 +436,52 @@ export class AdminSeparationService {
 
     await new AdminOrdersService(this.fastify).updateOrderStatus(orderId, target)
     return { orderId, status: target }
+  }
+
+  /**
+   * setMarketSeparated — toggle da separação de uma parada SÓ-Cestinha (cliente sem pedido
+   * de pão no turno). Recebe todos os ids da parada porque um cliente pode ter mais de uma
+   * Cestinha no mesmo turno e a tela as mostra numa linha única.
+   */
+  async setMarketSeparated(
+    marketOrderIds: string[],
+    separated: boolean,
+  ): Promise<{ count: number; status: string }> {
+    const target = separated ? 'SEPARATED' : 'SCHEDULED'
+    const found = await this.prisma.marketOrder.findMany({
+      where: { id: { in: marketOrderIds } },
+      select: { id: true, status: true },
+    })
+    if (found.length === 0) {
+      throw { statusCode: 404, message: 'Cestinha não encontrada' }
+    }
+
+    // Só SCHEDULED ↔ SEPARATED. Em rota/entregue/cancelada a separação não se mexe mais.
+    const blocked = found.find((m) => m.status !== 'SCHEDULED' && m.status !== 'SEPARATED')
+    if (blocked) {
+      throw {
+        statusCode: 422,
+        message: `Não é possível alterar a separação de uma cestinha em ${blocked.status}`,
+      }
+    }
+
+    const count = await this.toggleMarketOrders(
+      found.map((m) => m.id),
+      separated,
+    )
+    return { count, status: target }
+  }
+
+  /** SCHEDULED ↔ SEPARATED em lote nos MarketOrder informados (guardado por status → idempotente). */
+  private async toggleMarketOrders(ids: string[], separated: boolean): Promise<number> {
+    if (ids.length === 0) return 0
+    const r = await this.prisma.marketOrder.updateMany({
+      where: { id: { in: ids }, status: separated ? 'SCHEDULED' : 'SEPARATED' },
+      data: separated
+        ? { status: 'SEPARATED', separatedAt: new Date() }
+        : { status: 'SCHEDULED', separatedAt: null },
+    })
+    return r.count
   }
 
   /**

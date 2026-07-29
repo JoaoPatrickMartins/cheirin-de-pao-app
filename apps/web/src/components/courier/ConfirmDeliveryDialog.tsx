@@ -26,6 +26,8 @@ export function ConfirmDeliveryDialog({
 
   const key = stopKey(stop)
   // Parada só-market (sem pedido de pão) confirma pelo MarketOrder; combinada, pelo Order do pão.
+  // Em ambos os casos o id endereça a parada e o backend aplica o desfecho a TODAS as Cestinhas
+  // dela (cliente + condomínio + turno + dia) — a parada pode ter mais de uma Cestinha.
   const basePath = stop.orderId
     ? `/courier/orders/${stop.orderId}`
     : `/courier/market-orders/${stop.marketOrderId}`

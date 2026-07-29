@@ -45,6 +45,8 @@ export type TodayOrdersResponse = {
       slotLabel: string
       // Mini market ("Além do Pãozin") que pega carona nesta parada.
       marketOrderId?: string // presente em parada SÓ-market (sem pedido de pão)
+      /** Todas as Cestinhas da parada (cliente + turno). Vazio em parada só de pão. */
+      marketOrderIds: string[]
       marketItems: Array<{ name: string; qty: number }>
       marketItemCount: number
     }>
@@ -73,6 +75,7 @@ export type TodayOrdersResponse = {
       // Instante da conclusão (deliveredAt ou failedAt) em ISO 8601; null se ausente.
       completedAt: string | null
       marketOrderId?: string
+      marketOrderIds: string[]
       marketItems: Array<{ name: string; qty: number }>
       marketItemCount: number
     }>

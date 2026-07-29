@@ -11,6 +11,7 @@ function makeFastifyMock(overrides: {
   supplier?: Record<string, unknown> | null
   condominium?: Record<string, unknown> | null
   order?: Record<string, unknown>[]
+  marketOrder?: Record<string, unknown>[]
   schedule?: Record<string, unknown>[]
   users?: Record<string, unknown>[]
 } = {}) {
@@ -31,6 +32,8 @@ function makeFastifyMock(overrides: {
       { id: 'ord-01', userId: 'user-01', quantity: 50, condominiumId: 'condo-01', scheduledDate: new Date(), type: 'SINGLE', slotId: 'manha' },
       { id: 'ord-02', userId: 'user-02', quantity: 30, condominiumId: 'condo-01', scheduledDate: new Date(), type: 'SCHEDULED', slotId: 'tarde' },
     ],
+    // Sem Cestinha por padrão: os números do fluxo de pão ficam idênticos ao histórico.
+    marketOrder = [],
     schedule = [],
     users = [
       { id: 'user-01', name: 'Ana Lima', apartment: '102', block: 'A', creditBalance: 100, isBlocked: false },
@@ -63,6 +66,14 @@ function makeFastifyMock(overrides: {
       findMany: vi.fn().mockImplementation(({ where }: { where?: { slotId?: string } } = {}) => {
         const slotId = where?.slotId
         return Promise.resolve(slotId ? order.filter((o) => o.slotId === slotId) : order)
+      }),
+    },
+    // buildBreadDemand une o pão da Cestinha (MarketOrder.breadQty) à demanda do turno.
+    // Honra o filtro por turno, igual ao order.findMany.
+    marketOrder: {
+      findMany: vi.fn().mockImplementation(({ where }: { where?: { slotId?: string } } = {}) => {
+        const slotId = where?.slotId
+        return Promise.resolve(slotId ? marketOrder.filter((m) => m.slotId === slotId) : marketOrder)
       }),
     },
     user: {

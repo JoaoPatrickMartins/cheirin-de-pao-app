@@ -81,12 +81,21 @@ export function CourierScreen() {
 
   async function handleScan(text: string) {
     setScannerOpen(false)
-    const orderId = text.trim()
-    const stop = data?.condos?.flatMap((c) => c.stops).find((s) => s.orderId === orderId)
+    const code = text.trim()
+    // O cupom de uma parada só-Cestinha carrega o id do MarketOrder, não de um pedido de pão —
+    // mandar tudo para /courier/orders dava 404. Resolve a parada pelo código e escolhe a rota.
+    const stops = data?.condos?.flatMap((c) => c.stops) ?? []
+    const stop =
+      stops.find((s) => s.orderId === code) ??
+      stops.find((s) => s.marketOrderId === code || (s.marketOrderIds ?? []).includes(code))
+    const breadPath = `/courier/orders/${code}/confirm`
+    const marketPath = `/courier/market-orders/${code}/confirm`
     try {
-      const res = await apiFetch(`/courier/orders/${orderId}/confirm`, { method: 'PATCH' })
+      let res = await apiFetch(stop && !stop.orderId ? marketPath : breadPath, { method: 'PATCH' })
+      // Parada fora da lista carregada (dados velhos): 404 no pão pode ser cupom de Cestinha.
+      if (res.status === 404 && !stop) res = await apiFetch(marketPath, { method: 'PATCH' })
       if (res.ok) {
-        setConfirmedIds((prev) => new Set([...prev, orderId]))
+        setConfirmedIds((prev) => new Set([...prev, stop ? stopKey(stop) : code]))
         setFeedback({ type: 'ok', text: stop ? `Entrega de ${stop.clientName} confirmada` : 'Entrega confirmada' })
       } else if (res.status === 403) {
         setFeedback({ type: 'err', text: 'Este cupom não pertence à sua rota.' })
@@ -205,6 +214,7 @@ export function CourierScreen() {
           slotLabel: stop.slotLabel,
           completedAt: null, // confirmado nesta sessão — sem timestamp do servidor ainda
           marketOrderId: stop.marketOrderId,
+          marketOrderIds: stop.marketOrderIds,
           marketItems: stop.marketItems,
           marketItemCount: stop.marketItemCount,
         })

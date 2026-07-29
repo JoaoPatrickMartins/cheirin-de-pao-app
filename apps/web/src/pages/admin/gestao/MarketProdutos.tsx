@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
+import { FilterChips } from '../../../components/admin/FilterChips'
 import { MarketProductForm } from './MarketProductForm'
 
 export interface MarketCategory {
@@ -27,6 +28,10 @@ export interface MarketProduct {
   lowStock?: boolean
   /** Produto fixo "Pão Francês" — preço/estoque travados, não excluível. */
   isBread?: boolean
+  // H9 — custo esperado pela matriz de fornecimento (D-8) e margem. null = sem custo cadastrado.
+  unitCost?: number | null
+  margin?: number | null
+  marginPct?: number | null
 }
 
 function formatBRL(v: number): string {
@@ -135,13 +140,18 @@ export function MarketProdutos() {
         </div>
       )}
 
-      {/* Filtro por categoria */}
+      {/* Filtro por categoria — nível 2, mesmo chip das outras seções do hub. */}
       {categories.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 14, overflowX: 'auto', paddingBottom: 2 }}>
-          <FilterChip label="Tudo" active={filter === null} onClick={() => setFilter(null)} />
-          {categories.map((c) => (
-            <FilterChip key={c.id} label={`${c.emoji ?? ''} ${c.name}`.trim()} active={filter === c.id} onClick={() => setFilter(c.id)} />
-          ))}
+        <div style={{ marginTop: 14 }}>
+          <FilterChips
+            chips={[
+              { key: 'all', label: 'Tudo' },
+              ...categories.map((c) => ({ key: c.id, label: `${c.emoji ?? ''} ${c.name}`.trim() })),
+            ]}
+            value={filter ?? 'all'}
+            onChange={(k) => setFilter(k === 'all' ? null : k)}
+            ariaLabel="Filtrar produtos por categoria"
+          />
         </div>
       )}
 
@@ -208,6 +218,16 @@ export function MarketProdutos() {
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
                     {catName(p.categoryId)} · {formatBRL(p.price)} · {estoqueTxt}
                   </p>
+                  {/* H9 — margem onde o preço é definido. "sem custo" é dito explicitamente: um
+                      produto sem fornecedor cadastrado não tem margem de 100%, tem margem
+                      desconhecida. O pão é ignorado (preço travado, não é venda de mercadinho). */}
+                  {!p.isBread && (
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, margin: '1px 0 0', color: p.margin == null ? 'var(--color-text-ter)' : p.margin < 0 ? 'var(--color-warn)' : 'var(--color-good)' }}>
+                      {p.margin == null
+                        ? 'custo não cadastrado'
+                        : `custo ${formatBRL(p.unitCost ?? 0)} · margem ${formatBRL(p.margin)} (${p.marginPct}%)`}
+                    </p>
+                  )}
                 </div>
                 <span
                   style={{
@@ -232,27 +252,3 @@ export function MarketProdutos() {
   )
 }
 
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        flexShrink: 0,
-        minHeight: 32,
-        padding: '0 13px',
-        borderRadius: 999,
-        border: active ? '1.5px solid var(--color-accent)' : '1.5px solid var(--color-border)',
-        background: active ? 'var(--color-surface)' : 'transparent',
-        color: active ? 'var(--color-accent)' : 'var(--color-text-sec)',
-        fontFamily: 'var(--font-body)',
-        fontWeight: 700,
-        fontSize: 12.5,
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {label}
-    </button>
-  )
-}

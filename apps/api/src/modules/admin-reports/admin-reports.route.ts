@@ -48,7 +48,7 @@ export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — reports'],
         summary: 'Saúde da recorrência (admin)',
         description:
-          'Adoção de recarga automática, churn por esgotamento de crédito, recompra & autonomia e funil de ativação. Restrito a ADMIN.',
+          'Adoção de recarga automática, churn por esgotamento de crédito, recompra & autonomia e funil de ativação. `creditsConsumed` inclui os pãezinhos gastos na Cestinha (`MARKET_PURCHASE`) e `withDelivery` conta quem recebeu pão OU Cestinha. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         querystring: periodQuerystring,
       },
@@ -79,7 +79,7 @@ export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — reports'],
         summary: 'Ranking de condomínios (admin)',
         description:
-          'Receita, clientes ativos e pães entregues por condomínio no período, ordenado por receita. Restrito a ADMIN.',
+          'Receita, clientes ativos e pães entregues por condomínio no período, ordenado por receita. `revenue` é a receita CONSOLIDADA (D-2: `creditRevenue` + `marketRevenue`, o dinheiro novo da Cestinha); `breadsDelivered` inclui o pão vendido dentro da Cestinha (D-1) e `cestinhaGmv` é o valor movimentado, que NUNCA é somado à receita. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         querystring: periodQuerystring,
       },
@@ -95,7 +95,7 @@ export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — reports'],
         summary: 'Entregas & falhas (admin)',
         description:
-          'Taxa de entrega, contagem por status e motivos de não-entrega/cancelamento no período. Restrito a ADMIN.',
+          'Taxa de entrega, contagem por status e motivos de não-entrega/cancelamento no período, medindo a operação inteira — pedidos de pão E Cestinhas —, com `byKind` separando as duas populações. Cestinha em `PENDING_PAYMENT` fica fora (nunca confirmou). Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         querystring: periodQuerystring,
       },
@@ -143,7 +143,7 @@ export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — reports'],
         summary: 'Pagamentos: aprovação, estorno e mix (admin)',
         description:
-          'Taxa de aprovação, estorno, mix Pix/cartão e recuperação de pagamento falho no período. Restrito a ADMIN.',
+          'Taxa de aprovação, estorno, mix Pix/cartão, quebra por finalidade (`byPurpose`: CREDITS | HOOK | MARKET — cada fluxo com a sua taxa de aprovação) e recuperação de pagamento falho no período. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         querystring: periodQuerystring,
       },

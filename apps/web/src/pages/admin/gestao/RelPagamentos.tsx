@@ -13,7 +13,23 @@ interface PaymentsReport {
   approvalRate: number
   refundRate: number
   byMethod: Array<{ method: string; count: number; amount: number }>
+  /** Por finalidade (D6): uma recusa de combo e uma de Cestinha não são o mesmo problema. */
+  byPurpose?: Array<{
+    purpose: 'CREDITS' | 'HOOK' | 'MARKET'
+    paid: number
+    failed: number
+    pending: number
+    refunded: number
+    amount: number
+    approvalRate: number
+  }>
   recovered: number
+}
+
+const PURPOSE_LABEL: Record<string, string> = {
+  CREDITS: 'Créditos / combos',
+  HOOK: 'Gancho de porta',
+  MARKET: '🧺 Cestinha',
 }
 
 const PERIOD_TABS = [
@@ -68,6 +84,13 @@ export function RelPagamentos({ onBack }: { onBack: () => void }) {
                 ...data.byMethod.map(
                   (m) => [`Método: ${METHOD_LABEL[m.method] ?? m.method}`, `${m.count} · R$ ${m.amount.toFixed(2)}`] as [string, string],
                 ),
+                ...(data.byPurpose ?? []).map(
+                  (p) =>
+                    [
+                      `Finalidade: ${PURPOSE_LABEL[p.purpose] ?? p.purpose}`,
+                      `${p.paid} ok / ${p.failed} falhos · ${fmtPct(p.approvalRate)}% · R$ ${p.amount.toFixed(2)}`,
+                    ] as [string, string],
+                ),
               ],
             ),
           )
@@ -103,6 +126,28 @@ export function RelPagamentos({ onBack }: { onBack: () => void }) {
                 <StatRow label="Estornados" value={fmtInt(s.refunded)} />
               </div>
             </ReportCard>
+
+            {/* Por finalidade — o fluxo novo (Cestinha) pode estar reprovando muito e a média
+                geral esconde isso. Só aparece quando há mais de uma finalidade no período. */}
+            {data.byPurpose && data.byPurpose.length > 1 && (
+              <>
+                <SectionTitle>Por finalidade</SectionTitle>
+                <ReportCard>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {data.byPurpose.map((p) => (
+                      <StatRow
+                        key={p.purpose}
+                        label={`${PURPOSE_LABEL[p.purpose] ?? p.purpose} · ${fmtInt(p.paid)} ok / ${fmtInt(p.failed)} falhos`}
+                        value={`${fmtPct(p.approvalRate)} · ${fmtBRL(p.amount)}`}
+                      />
+                    ))}
+                  </div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
+                    Taxa de aprovação e valor aprovado por fluxo de pagamento.
+                  </p>
+                </ReportCard>
+              </>
+            )}
 
             <SectionTitle>Mix por método (aprovados)</SectionTitle>
             <ReportCard>

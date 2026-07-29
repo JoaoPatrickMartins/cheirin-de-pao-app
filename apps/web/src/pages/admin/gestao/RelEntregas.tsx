@@ -7,10 +7,23 @@ import { buildCsv, downloadCsv } from '../../../lib/csv'
 
 type Period = 'day' | 'week' | 'month'
 
+interface DeliveryCounts {
+  total: number
+  delivered: number
+  notDelivered: number
+  cancelled: number
+  inProgress: number
+}
+
 interface DeliveryReport {
   period: Period
-  counts: { total: number; delivered: number; notDelivered: number; cancelled: number; inProgress: number }
+  counts: DeliveryCounts
   deliveryRate: number
+  /** Pão × Cestinha (D3) — a taxa consolidada esconde de onde vem a falha. */
+  byKind?: {
+    bread: DeliveryCounts & { deliveryRate: number }
+    cestinha: DeliveryCounts & { deliveryRate: number }
+  }
   failureReasons: Array<{ reason: string; count: number }>
   cancelReasons: Array<{ reason: string; count: number }>
 }
@@ -58,6 +71,16 @@ export function RelEntregas({ onBack }: { onBack: () => void }) {
                 ['Cancelados', c.cancelled],
                 ['Em andamento', c.inProgress],
                 ['Total', c.total],
+                ...(data.byKind
+                  ? ([
+                      ['Pão — entregues', data.byKind.bread.delivered],
+                      ['Pão — não entregues', data.byKind.bread.notDelivered],
+                      ['Pão — taxa de entrega (%)', fmtPct(data.byKind.bread.deliveryRate)],
+                      ['Cestinha — entregues', data.byKind.cestinha.delivered],
+                      ['Cestinha — não entregues', data.byKind.cestinha.notDelivered],
+                      ['Cestinha — taxa de entrega (%)', fmtPct(data.byKind.cestinha.deliveryRate)],
+                    ] as Array<[string, string | number]>)
+                  : []),
                 ...data.failureReasons.map((r) => [`Falha: ${r.reason}`, r.count] as [string, number]),
                 ...data.cancelReasons.map((r) => [`Cancelamento: ${r.reason}`, r.count] as [string, number]),
               ],
@@ -89,6 +112,26 @@ export function RelEntregas({ onBack }: { onBack: () => void }) {
                 <StatRow label="Em andamento" value={fmtInt(c.inProgress)} />
               </div>
             </ReportCard>
+
+            {/* Pão × Cestinha — só quando existe Cestinha no período, para a tela não ganhar um
+                card vazio em quem ainda não vende pelo mercadinho. */}
+            {data.byKind && data.byKind.cestinha.total > 0 && (
+              <ReportCard title="Por tipo de pedido">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <StatRow
+                    label="🥖 Pão"
+                    value={`${fmtPct(data.byKind.bread.deliveryRate)} · ${fmtInt(data.byKind.bread.delivered)}/${fmtInt(data.byKind.bread.delivered + data.byKind.bread.notDelivered)}`}
+                  />
+                  <StatRow
+                    label="🧺 Cestinha"
+                    value={`${fmtPct(data.byKind.cestinha.deliveryRate)} · ${fmtInt(data.byKind.cestinha.delivered)}/${fmtInt(data.byKind.cestinha.delivered + data.byKind.cestinha.notDelivered)}`}
+                  />
+                </div>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
+                  Taxa de entrega e finalizadas por tipo. Cestinha aguardando pagamento não entra.
+                </p>
+              </ReportCard>
+            )}
 
             {data.failureReasons.length > 0 && (
               <ReportCard title="Motivos de não-entrega">

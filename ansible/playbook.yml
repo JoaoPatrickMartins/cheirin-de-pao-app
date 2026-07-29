@@ -55,3 +55,59 @@
       command: docker compose up -d
       args:
         chdir: "{{ workdir }}"  # Define o diretório de execução
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Sincronização do schema com o MongoDB Atlas (coleções + índices)
+    #
+    # MongoDB não tem migrações do Prisma: `prisma generate` (que roda no build da imagem) só gera
+    # o client TypeScript, NÃO cria índice nenhum no banco. Quem cria é o `prisma db push`, que até
+    # aqui era um passo MANUAL do checklist de deploy — ou seja, dependia de alguém lembrar.
+    #
+    # Roda DE DENTRO do container, na VPS, porque:
+    #   - o IP da VPS já está liberado no Atlas (um runner do GitHub tem IP dinâmico e exigiria
+    #     abrir 0.0.0.0/0 no cluster, o que seria uma piora de segurança);
+    #   - a imagem já tem o CLI do Prisma (o `npm install` do stage installer traz devDependencies)
+    #     e o schema em `apps/api/prisma` — o WORKDIR da imagem já é `/app/apps/api`;
+    #   - o DATABASE_URL certo já está no ambiente do container.
+    #
+    # Roda DEPOIS do `up -d` de propósito: o app não depende dos índices para funcionar (eles dão a
+    # garantia de unicidade e a performance), então uma falha aqui aparece vermelha no Actions sem
+    # ter derrubado a aplicação. Se rodasse antes, uma falha deixaria o serviço fora do ar, porque o
+    # `docker compose down` já aconteceu.
+    #
+    # Idempotente: com o schema já sincronizado, é um no-op.
+    # ─────────────────────────────────────────────────────────────────────────
+    # O nome do serviço vem do docker-compose.yml que vive na VPS (fora do repo), então é
+    # descoberto em runtime. Se o compose tiver mais de um serviço, defina `api_service` no
+    # ansible/variables.yml para apontar o certo.
+    - name: Descobrir o serviço da API no compose
+      command: docker compose config --services
+      args:
+        chdir: "{{ workdir }}"
+      register: compose_services
+      changed_when: false
+
+    - name: Aguardar o container da API subir
+      command: docker compose ps -q {{ api_service | default(compose_services.stdout_lines[0], true) }}
+      args:
+        chdir: "{{ workdir }}"
+      register: api_container
+      until: api_container.stdout | trim | length > 0
+      retries: 12
+      delay: 5
+      changed_when: false
+
+    - name: Sincronizar schema e índices com o MongoDB Atlas (prisma db push)
+      command: >
+        docker compose exec -T {{ api_service | default(compose_services.stdout_lines[0], true) }}
+        npx prisma db push --schema=prisma/schema.prisma --skip-generate
+      args:
+        chdir: "{{ workdir }}"
+      register: db_push
+      # NÃO usar --accept-data-loss por padrão: ele autoriza o Prisma a DERRUBAR índices que existem
+      # no Atlas e não estão no schema. Se este passo falhar reclamando disso, confira o que seria
+      # removido antes de liberar — é sinal de índice criado à mão no cluster.
+
+    - name: Mostrar o resultado do db push
+      debug:
+        var: db_push.stdout_lines

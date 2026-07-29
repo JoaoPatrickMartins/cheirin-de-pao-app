@@ -49,6 +49,22 @@ export class AdminMarketRepository {
     return this.prisma.productCategory.delete({ where: { id } })
   }
 
+  // ── Cestinhas (MarketOrder) — visão do admin ──
+  listMarketOrders(where: Prisma.MarketOrderWhereInput, take: number, skip: number) {
+    return this.prisma.marketOrder.findMany({
+      where,
+      orderBy: [{ scheduledDate: 'desc' }, { createdAt: 'desc' }],
+      take,
+      skip,
+    })
+  }
+  countMarketOrders(where: Prisma.MarketOrderWhereInput) {
+    return this.prisma.marketOrder.count({ where })
+  }
+  findMarketOrder(id: string) {
+    return this.prisma.marketOrder.findUnique({ where: { id } })
+  }
+
   // ── Config (Setting chave/valor) ──
   getSetting(key: string) {
     return this.prisma.setting.findUnique({ where: { key } })

@@ -1,21 +1,31 @@
 import { useState } from 'react'
 import { Icon } from '../../../components/brand/Icon'
+import { SectionTabs } from '../../../components/admin/SectionTabs'
 import { MarketProdutos } from './MarketProdutos'
 import { MarketCategorias } from './MarketCategorias'
 import { MarketConfig } from './MarketConfig'
+import { MarketCestinhas } from './MarketCestinhas'
+import { MarketReposicao } from './MarketReposicao'
+import { MarketPreparo } from './MarketPreparo'
 
 // Hub do mini market "Além do Pãozin" (admin). Segue o padrão de sub-telas do AdminGestao:
 // AppBar + chips de seção; cada seção é autossuficiente (faz o próprio fetch).
-type Section = 'produtos' | 'categorias' | 'config'
+type Section = 'cestinhas' | 'preparo' | 'produtos' | 'reposicao' | 'categorias' | 'config'
 
 const SECTIONS: { key: Section; label: string }[] = [
+  // Pedidos primeiro: é o que o admin abre no dia a dia (produtos/config são cadastro).
+  { key: 'cestinhas', label: 'Cestinhas' },
+  // Preparo (G1) vem logo depois porque é a pergunta da manhã: o que separar/produzir por dia.
+  { key: 'preparo', label: 'Preparo' },
   { key: 'produtos', label: 'Produtos' },
+  // Reposição fica ao lado de Produtos porque é a ação que o alerta de estoque baixo pede (F5).
+  { key: 'reposicao', label: 'Reposição' },
   { key: 'categorias', label: 'Categorias' },
   { key: 'config', label: 'Config' },
 ]
 
 export function AdminMarket({ onBack }: { onBack: () => void }) {
-  const [section, setSection] = useState<Section>('produtos')
+  const [section, setSection] = useState<Section>('cestinhas')
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -54,38 +64,16 @@ export function AdminMarket({ onBack }: { onBack: () => void }) {
         </h2>
       </div>
 
-      {/* Chips de seção */}
-      <div style={{ display: 'flex', gap: 8, padding: '0 20px 12px', overflowX: 'auto' }}>
-        {SECTIONS.map((s) => {
-          const active = section === s.key
-          return (
-            <button
-              key={s.key}
-              type="button"
-              onClick={() => setSection(s.key)}
-              style={{
-                flexShrink: 0,
-                minHeight: 36,
-                padding: '0 16px',
-                borderRadius: 999,
-                border: active ? '1.5px solid var(--color-accent)' : '1.5px solid var(--color-border)',
-                background: active ? 'var(--color-surface)' : 'transparent',
-                color: active ? 'var(--color-accent)' : 'var(--color-text-sec)',
-                fontFamily: 'var(--font-body)',
-                fontWeight: 700,
-                fontSize: 13.5,
-                cursor: 'pointer',
-              }}
-            >
-              {s.label}
-            </button>
-          )
-        })}
-      </div>
+      {/* Navegação de seção — abas com sublinhado. Nível 1: outra espécie visual que os chips de
+          filtro de dentro de cada seção (ver SectionTabs). */}
+      <SectionTabs tabs={SECTIONS} value={section} onChange={setSection} ariaLabel="Seções do Além do Pãozin" />
 
       {/* Conteúdo da seção */}
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div style={{ flex: 1, overflow: 'auto', paddingTop: 12 }}>
+        {section === 'cestinhas' && <MarketCestinhas />}
+        {section === 'preparo' && <MarketPreparo />}
         {section === 'produtos' && <MarketProdutos />}
+        {section === 'reposicao' && <MarketReposicao />}
         {section === 'categorias' && <MarketCategorias />}
         {section === 'config' && <MarketConfig />}
       </div>

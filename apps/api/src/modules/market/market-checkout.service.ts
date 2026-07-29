@@ -5,8 +5,10 @@ import { brtNoonFromStr, brtDateStr, dayKeyOf, isPastCutoffForDelivery } from '.
 import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { MARKET_CARTAO_MIN_KEY, isCardBelowMinimum, parseCartaoMinimo } from '../../lib/market-card-policy.js'
+import { buildStockAlerts, type StockSnapshot } from '../../lib/market-stock-alerts.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import { MarketRepository } from './market.repository.js'
+import { notifyAdminLowStock, notifyAdminMarketOrderPlaced, notifyMarketCancelled } from './market-notify.js'
 
 const AVULSO_KEY = 'avulsoUnit'
 const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
@@ -230,8 +232,15 @@ export class MarketCheckoutService {
       throw err
     }
 
+    // F5 — a reserva já aconteceu: avalia se algum produto cruzou o limiar de estoque. Vale
+    // também para `PENDING_PAYMENT`, porque a reserva bloqueia o item para os próximos clientes
+    // (se o sweep devolver o estoque depois, o próximo pedido que cruzar o limiar avisa de novo).
+    await this.alertStockAfterReserve(lines, dateStr)
+
     // 12. 100% crédito → já confirmado; limpa a Cestinha.
     if (moneyAmount === 0) {
+      // F4: confirmado agora, sem passar pelo gateway → o admin já pode contar com este pedido.
+      await notifyAdminMarketOrderPlaced(this.fastify, order)
       await this.repo.upsertCart(userId, [], 0)
       return this.buildResult(order)
     }
@@ -257,6 +266,53 @@ export class MarketCheckoutService {
         this.fastify.log.error({ e, orderId: order.id }, '[market] falha ao compensar pedido após erro de pagamento'),
       )
       throw err
+    }
+  }
+
+  /**
+   * F5 — relê o estoque DEPOIS da reserva e avisa os admins se algum produto cruzou o limiar.
+   *
+   * O "consumido" é a quantidade desta reserva, então `buildStockAlerts` sabe distinguir "caiu
+   * para 4 agora" de "já estava em 4" — sem isso, toda venda seguinte repetiria o mesmo aviso.
+   * Best-effort: um erro aqui não pode derrubar um checkout já efetivado.
+   */
+  private async alertStockAfterReserve(
+    lines: { product: { id: string; name: string; stockType: string; dailyCapacity: number | null }; qty: number }[],
+    dateStr: string,
+  ): Promise<void> {
+    try {
+      const snapshots: StockSnapshot[] = []
+      for (const { product, qty } of lines) {
+        if (product.stockType === 'FIXED') {
+          const p = await this.prisma.product.findUnique({ where: { id: product.id }, select: { stock: true } })
+          if (!p) continue
+          snapshots.push({
+            productId: product.id,
+            name: product.name,
+            stockType: 'FIXED',
+            availableAfter: Math.max(0, p.stock ?? 0),
+            consumed: qty,
+          })
+        } else {
+          // Sem capacidade configurada não existe limiar a cruzar (produto ilimitado no dia).
+          const cap = product.dailyCapacity ?? 0
+          if (cap <= 0) continue
+          const ds = await this.prisma.productDailyStock.findUnique({
+            where: { productId_date: { productId: product.id, date: dateStr } },
+          })
+          snapshots.push({
+            productId: product.id,
+            name: product.name,
+            stockType: 'DAILY',
+            availableAfter: Math.max(0, cap - (ds?.reserved ?? 0)),
+            consumed: qty,
+            date: dateStr,
+          })
+        }
+      }
+      await notifyAdminLowStock(this.fastify, buildStockAlerts(snapshots))
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[market] falha ao avaliar alerta de estoque — ignorado')
     }
   }
 
@@ -348,15 +404,33 @@ export class MarketCheckoutService {
 
   /**
    * Compensação: libera estoque, devolve os créditos aplicados (MARKET_REFUND) e cancela o
-   * pedido. Usada quando o gateway falha ao iniciar o pagamento (a parte em dinheiro nunca foi
-   * cobrada). Idempotente por status CANCELLED. (Cancelamento pós-corte/estorno completo = Onda 6.)
+   * pedido. Usada quando o gateway falha ao iniciar o pagamento e pelo sweep do cron (a parte em
+   * dinheiro nunca foi cobrada nos dois casos). (Cancelamento pós-corte = Onda 6 / admin.)
+   *
+   * **A transição é um claim atômico e é ela que define quem "liberou" o pedido** (Onda F): o
+   * `updateMany` guardado por `status: { not: CANCELLED }` é a primeira operação da transação, e
+   * quem perde a corrida sai antes de tocar estoque ou crédito. O cron roda a cada minuto sem
+   * trava de execução, então duas passadas podem ver o mesmo pedido preso — sem o claim, as duas
+   * devolveriam estoque e crédito, e o cliente receberia dois avisos de cancelamento.
+   *
+   * @returns `released: false` quando outro caminho já havia cancelado (nada foi alterado aqui).
    */
-  private async releaseOrder(orderId: string): Promise<void> {
+  private async releaseOrder(
+    orderId: string,
+    reason = 'Falha ao iniciar o pagamento',
+  ): Promise<{ released: boolean; refundedCredits: number }> {
     const order = await this.prisma.marketOrder.findUnique({ where: { id: orderId } })
-    if (!order || order.status === 'CANCELLED') return
+    if (!order || order.status === 'CANCELLED') return { released: false, refundedCredits: 0 }
     const dateStr = brtDateStr(order.scheduledDate)
 
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.marketOrder.updateMany({
+        where: { id: orderId, status: { not: 'CANCELLED' } },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason },
+      })
+      // Perdeu a corrida — nada foi tocado ainda, então sair aqui não deixa efeito parcial.
+      if (claim.count === 0) return { released: false, refundedCredits: 0 }
+
       for (const it of order.items) {
         const p = await tx.product.findUnique({ where: { id: it.productId } })
         if (!p) continue
@@ -384,10 +458,7 @@ export class MarketCheckoutService {
           },
         })
       }
-      await tx.marketOrder.update({
-        where: { id: orderId },
-        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Falha ao iniciar o pagamento' },
-      })
+      return { released: true, refundedCredits: order.creditsApplied }
     })
   }
 
@@ -395,18 +466,31 @@ export class MarketCheckoutService {
    * Sweep de pagamentos presos: `MarketOrder` em `PENDING_PAYMENT` além do TTL (Pix
    * expirado/abandonado ou recusado — casos que os webhooks/pull não revertem) → `releaseOrder`
    * (libera estoque + devolve os créditos aplicados + cancela). Idempotente; roda no cron.
+   *
+   * **F1 — avisa o cliente.** Este cancelamento é automático e invisível: o pedido desaparece do
+   * app, o crédito volta ao saldo e até a Onda F ninguém dizia nada. O aviso sai **só** quando o
+   * claim de `releaseOrder` foi desta passada, então reprocessar não duplica o push.
+   *
+   * O admin NÃO é avisado aqui, de propósito: um pedido que morreu aguardando pagamento nunca
+   * entrou na operação (`CONFIRMED_MARKET_STATUSES` exclui `PENDING_PAYMENT`), logo não há fornada
+   * nem separação para corrigir. É a mesma paridade do pão, onde um Pix abandonado não cria Order.
    */
   async sweepStuckPayments(ttlMinutes = 30, now: Date = new Date()): Promise<{ released: number }> {
     const cutoff = new Date(now.getTime() - ttlMinutes * 60 * 1000)
     const stuck = await this.prisma.marketOrder.findMany({
       where: { status: 'PENDING_PAYMENT', createdAt: { lt: cutoff } },
-      select: { id: true },
+      select: { id: true, userId: true, scheduledDate: true },
     })
     let released = 0
     for (const o of stuck) {
       try {
-        await this.releaseOrder(o.id)
+        const r = await this.releaseOrder(o.id, 'Pagamento não concluído no prazo')
+        if (!r.released) continue
         released += 1
+        await notifyMarketCancelled(this.fastify, o, {
+          cause: 'PAYMENT',
+          refundedCredits: r.refundedCredits,
+        })
       } catch (err) {
         this.fastify.log.error({ err, orderId: o.id }, '[market] sweep: falha ao liberar pedido preso')
       }

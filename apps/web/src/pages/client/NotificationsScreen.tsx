@@ -18,7 +18,8 @@ type Tone = 'good' | 'gold' | 'neutral'
 
 function getTone(type: string): Tone {
   if (['DELIVERY_EVE', 'DELIVERY_DONE', 'OUT_FOR_DELIVERY', 'HOOK_DELIVERED'].includes(type)) return 'good'
-  if (['LOW_CREDIT', 'CREDIT_GRANTED'].includes(type)) return 'gold'
+  // Cestinha cancelada/não entregue vem com crédito de volta — dourado, não vermelho.
+  if (['LOW_CREDIT', 'CREDIT_GRANTED', 'MARKET_ORDER_CANCELLED', 'MARKET_NOT_DELIVERED'].includes(type)) return 'gold'
   return 'neutral'
 }
 
@@ -29,6 +30,7 @@ function getIcon(type: string) {
   if (type === 'LOW_CREDIT') return 'alert'
   if (type === 'CREDIT_GRANTED') return 'coin'
   if (type === 'HOOK_DELIVERED') return 'pin'
+  if (type === 'MARKET_ORDER_CANCELLED' || type === 'MARKET_NOT_DELIVERED') return 'alert'
   return 'repeat'
 }
 
@@ -46,6 +48,8 @@ const CTA_CONFIG: Record<string, { label: string; path: string }> = {
   RECONFIGURE:      { label: 'Ajustar agenda',    path: '/client/agenda'  },
   CREDIT_GRANTED:   { label: 'Ver saldo',         path: '/client/home'    },
   HOOK_DELIVERED:   { label: 'Ir para o início',  path: '/client/home'    },
+  MARKET_ORDER_CANCELLED: { label: 'Ver pedidos', path: '/client/pedidos' },
+  MARKET_NOT_DELIVERED:   { label: 'Ver pedidos', path: '/client/pedidos' },
 }
 
 function formatTimestamp(dateStr: string): string {

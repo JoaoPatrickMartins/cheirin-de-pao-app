@@ -22,6 +22,7 @@ const NOTIF_ITEMS: { key: string; titulo: string; descricao: string }[] = [
   { key: 'ADMIN_CUTOFF_REACHED', titulo: 'Horário de corte', descricao: 'Quando bate o corte para gerar o pedido ao fornecedor' },
   { key: 'ADMIN_AUTOGEN_WARNING', titulo: 'Aviso de geração automática', descricao: '15 min antes de o pedido ser gerado automaticamente' },
   { key: 'ADMIN_AUTOGEN_DONE', titulo: 'Pedido gerado automaticamente', descricao: 'Quando o pedido ao fornecedor é gerado automaticamente' },
+  { key: 'ADMIN_LOW_STOCK', titulo: 'Estoque do mercadinho', descricao: 'Quando um produto do Além do Pãozin fica com estoque baixo ou esgota' },
 ]
 
 export function AdminNotificacoes({ onBack }: AdminNotificacoesProps) {

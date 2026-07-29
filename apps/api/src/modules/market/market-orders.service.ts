@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { brtDateStr, brtDayRange, isPastCutoffForDelivery } from '../../lib/cutoff.js'
+import { reverseMarketOrder } from '../../lib/market-reversal.js'
+import { notifyAdminMarketOrderCancelled } from './market-notify.js'
 
 const AVULSO_KEY = 'avulsoUnit'
 // Estados considerados "em aberto" (aparecem no acompanhamento; canceláveis antes do corte).
@@ -172,47 +174,23 @@ export class MarketOrdersService {
       }
     }
 
-    // Dinheiro só foi cobrado quando o pedido já está confirmado (SCHEDULED) e tinha parte em R$.
-    const moneyPaid = order.status === 'SCHEDULED' && order.moneyAmount > 0
+    // Estoque + estorno tudo-em-crédito + status terminal, na lib compartilhada com o admin
+    // (`lib/market-reversal.ts`) — a matemática do estorno não pode viver em dois lugares.
     const avulsoUnit = await this.getAvulsoUnit()
-    const moneyAsCredits = moneyPaid && avulsoUnit > 0 ? Math.ceil(order.moneyAmount / avulsoUnit) : 0
-    const refundCredits = order.creditsApplied + moneyAsCredits
-    const dateStr = brtDateStr(order.scheduledDate)
-
-    // Estorno idempotente por referenceId — evita duplo crédito se a rota for chamada 2×.
-    const existingRefund = await this.prisma.creditTransaction.findFirst({
-      where: { type: 'MARKET_REFUND', referenceId: orderId },
+    const refundedCredits = await reverseMarketOrder(this.prisma, order, {
+      status: 'CANCELLED',
+      reason: 'Cancelado pelo cliente',
+      refundCredits: true,
+      returnStock: true,
+      avulsoUnit,
     })
 
-    await this.prisma.$transaction(async (tx) => {
-      // Devolve estoque.
-      for (const it of order.items) {
-        const p = await tx.product.findUnique({ where: { id: it.productId } })
-        if (!p) continue
-        if (p.stockType === 'FIXED') {
-          await tx.product.update({ where: { id: p.id }, data: { stock: { increment: it.qty } } })
-        } else {
-          await tx.productDailyStock.updateMany({ where: { productId: p.id, date: dateStr }, data: { reserved: { decrement: it.qty } } })
-        }
-      }
-      // Estorna tudo em crédito (idempotente).
-      if (!existingRefund && refundCredits > 0) {
-        await tx.user.update({ where: { id: userId }, data: { creditBalance: { increment: refundCredits } } })
-        await tx.creditTransaction.create({
-          data: {
-            userId,
-            type: 'MARKET_REFUND',
-            quantity: refundCredits,
-            referenceId: orderId,
-            description: `Cancelamento da Cestinha — ${refundCredits} pãezinho(s) devolvido(s)`,
-          },
-        })
-      }
-      await tx.marketOrder.update({
-        where: { id: orderId },
-        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Cancelado pelo cliente' },
-      })
-    })
+    // F4 — avisa os admins, paridade com o cancelamento do pedido único de pão. Só quando o
+    // pedido estava CONFIRMADO: um `PENDING_PAYMENT` desistido nunca entrou na operação (não foi
+    // à fornada nem à separação), então avisar seria ruído — mesma regra do sweep.
+    if (order.status !== 'PENDING_PAYMENT') {
+      await notifyAdminMarketOrderCancelled(this.fastify, order, { refundedCredits })
+    }
 
     const updated = await this.prisma.marketOrder.findUnique({ where: { id: orderId } })
     return (await this.view([updated!], userId))[0]
