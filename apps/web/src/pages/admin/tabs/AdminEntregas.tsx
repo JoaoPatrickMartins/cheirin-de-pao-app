@@ -18,14 +18,20 @@ interface DivisionSuggestionItem {
   courierId: string
   courierName: string
   condominiums: DeliveryUnit[]
+  /** Pães atribuídos (inclui o pão da Cestinha). */
   total: number
+  /** Itens do mercadinho atribuídos — carga paralela aos pães. */
+  totalItems: number
 }
 
+// Contagens são de PARADAS (D-5): pão + Cestinha do mesmo cliente = 1, e só entra em
+// `delivered` quando os dois foram entregues.
 interface DeliveryBlockStatus {
   block: string
   scheduled: number
   delivered: number
   orderIds: string[]
+  marketOrderIds: string[]
 }
 interface DeliveryStatus {
   condominiumId: string
@@ -33,6 +39,7 @@ interface DeliveryStatus {
   scheduled: number
   delivered: number
   orderIds: string[]
+  marketOrderIds: string[]
   blocks: DeliveryBlockStatus[]
 }
 
@@ -44,6 +51,14 @@ const HIST_FILTERS: Array<{ key: HistFilter; label: string }> = [
   { key: 'NOT_DELIVERED', label: 'Não entregue' },
   { key: 'CANCELLED', label: 'Cancelado' },
   { key: 'parados', label: 'Parados' },
+]
+
+// D-4: a lista é unificada (pão + Cestinha). Este filtro deixa isolar um tipo quando preciso.
+type KindFilter = '' | 'BREAD' | 'CESTINHA'
+const KIND_FILTERS: Array<{ key: KindFilter; label: string }> = [
+  { key: '', label: 'Tudo' },
+  { key: 'BREAD', label: '🥖 Pão' },
+  { key: 'CESTINHA', label: '🧺 Cestinha' },
 ]
 
 function matchSearch(r: LedgerRow, q: string) {
@@ -88,6 +103,7 @@ export function AdminEntregas({
   const [rows, setRows] = useState<LedgerRow[]>([])
   const [isLoadingLedger, setIsLoadingLedger] = useState(false)
   const [histFilter, setHistFilter] = useState<HistFilter>(initialFilter ?? 'todos')
+  const [kindFilter, setKindFilter] = useState<KindFilter>('')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<LedgerRow | null>(null)
 
@@ -140,7 +156,7 @@ export function AdminEntregas({
     const t = setTimeout(() => void fetchHistorico(), 250)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [histFilter, search])
+  }, [histFilter, kindFilter, search])
 
   // `silent` evita piscar o spinner em refreshes de fundo (polling/foco).
   async function fetchHojeData(opts?: { silent?: boolean }) {
@@ -172,13 +188,17 @@ export function AdminEntregas({
         if (res.ok) {
           const data = (await res.json()) as { rows: LedgerRow[] }
           const q = search.trim().toLowerCase()
-          setRows(q ? data.rows.filter((r) => matchSearch(r, q)) : data.rows)
+          let list = q ? data.rows.filter((r) => matchSearch(r, q)) : data.rows
+          // /stuck não recebe filtro de tipo (é um alerta, sempre completo) — filtra no cliente.
+          if (kindFilter) list = list.filter((r) => r.kind === kindFilter)
+          setRows(list)
         }
         return
       }
       const status = histFilter === 'todos' ? 'DELIVERED,NOT_DELIVERED,CANCELLED' : histFilter
       const params: Record<string, string> = { status, limit: '100' }
       if (search.trim()) params.q = search.trim()
+      if (kindFilter) params.kind = kindFilter
       const res = await apiFetch(`/admin/orders?${new URLSearchParams(params).toString()}`)
       if (res.ok) {
         const data = (await res.json()) as { rows: LedgerRow[] }
@@ -194,13 +214,18 @@ export function AdminEntregas({
   async function handleApprove() {
     setIsApproving(true)
     try {
-      // Monta os grupos entregador → pedidos a partir da divisão atual (já com eventuais
-      // ajustes manuais via drag-and-drop, incluindo blocos individuais). Cada unidade já
-      // carrega seus orderIds — o backend despacha SEPARATED → OUT_FOR_DELIVERY.
+      // Monta os grupos entregador → paradas a partir da divisão atual (já com eventuais
+      // ajustes manuais via drag-and-drop, incluindo blocos individuais). Cada unidade carrega
+      // seus orderIds E marketOrderIds — o backend despacha SEPARATED → OUT_FOR_DELIVERY.
+      // Um grupo pode ser 100% Cestinha (condomínio/turno sem pão), então o filtro olha os dois.
       const payload = assignments
         .filter((a) => a.condos.length > 0)
-        .map((a) => ({ courierId: a.courierId, orderIds: a.condos.flatMap((c) => c.orderIds) }))
-        .filter((g) => g.orderIds.length > 0)
+        .map((a) => ({
+          courierId: a.courierId,
+          orderIds: a.condos.flatMap((c) => c.orderIds),
+          marketOrderIds: a.condos.flatMap((c) => c.marketOrderIds ?? []),
+        }))
+        .filter((g) => g.orderIds.length > 0 || g.marketOrderIds.length > 0)
       if (payload.length === 0) return
       const res = await apiFetch('/admin/orders/approve-division', {
         method: 'POST',
@@ -219,7 +244,7 @@ export function AdminEntregas({
   const refreshCurrent = useCallback(() => {
     void fetchHistorico()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [histFilter, search])
+  }, [histFilter, kindFilter, search])
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
@@ -302,6 +327,7 @@ export function AdminEntregas({
           <>
             <SearchInput value={search} onChange={setSearch} />
             <FilterChips value={histFilter} onChange={setHistFilter} />
+            <KindChips value={kindFilter} onChange={setKindFilter} />
             <LedgerView
               rows={rows}
               loading={isLoadingLedger}
@@ -436,16 +462,49 @@ function LedgerRowButton({ r, showDate = true, onSelect }: { r: LedgerRow; showD
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {r.clientName}
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 5 }}>
+          {/* D-4: a lista é unificada, então o tipo tem de ser óbvio na linha. */}
+          {r.kind === 'CESTINHA' && <span style={{ fontSize: 12 }}>🧺</span>}
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.clientName}</span>
         </p>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
           {r.condominiumName} · {r.block ? `Bl ${r.block} ` : ''}Apto {r.apartment || '—'}{showDate ? ` · ${formatDateLong(r.scheduledDate)}` : ''}
         </p>
+        {r.kind === 'CESTINHA' && r.marketItems.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+            {r.marketItems.map((it, i) => (
+              <span
+                key={i}
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  padding: '2px 7px',
+                  borderRadius: 999,
+                  background: 'var(--color-gold-soft)',
+                  color: 'var(--color-accent)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {it.qty}× {it.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
-        {r.quantity}
-        <span style={{ fontSize: 13 }}>🥖</span>
+        {/* Cestinha só de produtos tem 0 pães — mostrar "0 🥖" pareceria erro. */}
+        {r.quantity > 0 || r.kind === 'BREAD' ? (
+          <>
+            {r.quantity}
+            <span style={{ fontSize: 13 }}>🥖</span>
+          </>
+        ) : (
+          <>
+            {r.marketItemCount}
+            <span style={{ fontSize: 13 }}>🧺</span>
+          </>
+        )}
       </span>
       <span style={{ padding: '3px 8px', borderRadius: 99, background: meta.soft, color: meta.color, fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
         {meta.label}
@@ -513,6 +572,37 @@ function FilterChips({ value, onChange }: { value: HistFilter; onChange: (v: His
               fontFamily: 'var(--font-body)',
               fontWeight: 700,
               fontSize: 12.5,
+              cursor: 'pointer',
+            }}
+          >
+            {f.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Chips de tipo (pão × Cestinha) — a lista é unificada (D-4), então isolar um tipo é opcional. */
+function KindChips({ value, onChange }: { value: KindFilter; onChange: (v: KindFilter) => void }) {
+  return (
+    <div style={{ display: 'flex', gap: 7, overflowX: 'auto', paddingBottom: 12 }}>
+      {KIND_FILTERS.map((f) => {
+        const active = value === f.key
+        return (
+          <button
+            key={f.key || 'tudo'}
+            onClick={() => onChange(f.key)}
+            style={{
+              flexShrink: 0,
+              padding: '4px 11px',
+              borderRadius: 999,
+              border: active ? '1.5px solid var(--color-accent)' : '1.5px solid var(--color-border)',
+              background: active ? 'var(--color-gold-soft)' : 'none',
+              color: active ? 'var(--color-accent)' : 'var(--color-text-sec)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 700,
+              fontSize: 11.5,
               cursor: 'pointer',
             }}
           >

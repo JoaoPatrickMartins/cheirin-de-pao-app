@@ -61,6 +61,17 @@ function makeFastifyMock(overrides: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       delete: vi.fn().mockResolvedValue(supplier),
     },
+    // Matriz de fornecimento (D-7/D-8). Remover um fornecedor apaga as linhas dele, senão
+    // sobrariam órfãs apontando para um fornecedor inexistente.
+    supplierProduct: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    product: { findMany: vi.fn().mockResolvedValue([]) },
+    marketOrder: { findFirst: vi.fn().mockResolvedValue(null) },
   }
 
   return {

@@ -108,13 +108,38 @@ export async function countCommittedDeliveries(
     ...(opts.excludeUserId ? { userId: { not: opts.excludeUserId } } : {}),
   }
   const matCount = await prisma.order.count({ where: matWhere })
+  const matStops = await prisma.order.findMany({ where: matWhere, select: { userId: true, slotId: true } })
 
   const projected = await projectScheduleDetailForDate(prisma, deliveryDate)
-  const projectedCount = opts.excludeUserId
-    ? projected.filter((r) => r.userId !== opts.excludeUserId).length
-    : projected.length
+  const projectedRows = opts.excludeUserId
+    ? projected.filter((r) => r.userId !== opts.excludeUserId)
+    : projected
+  const projectedCount = projectedRows.length
 
-  return matCount + projectedCount
+  // Cestinhas (MarketOrders não-cancelados) também ocupam ENTREGA, mas a unidade é a PARADA
+  // (userId, slotId): se o cliente já tem um pão (Order materializado ou previsto pela agenda)
+  // no mesmo slot/dia, a Cestinha chega junto — mesma parada, NÃO soma. Só conta quando é uma
+  // parada nova (apto/slot sem pão naquele dia). Sem Cestinhas no dia, o total é idêntico ao
+  // histórico (retrocompatível com pedido único, agenda e testes).
+  const accounted = new Set<string>()
+  for (const o of matStops) accounted.add(`${o.userId}|${o.slotId}`)
+  for (const r of projectedRows) accounted.add(`${r.userId}|${r.slotId}`)
+
+  const marketOrders = await prisma.marketOrder.findMany({
+    where: {
+      status: { not: 'CANCELLED' },
+      scheduledDate: { gte: start, lte: end },
+      ...(opts.excludeUserId ? { userId: { not: opts.excludeUserId } } : {}),
+    },
+    select: { userId: true, slotId: true },
+  })
+  const extraStops = new Set<string>()
+  for (const m of marketOrders) {
+    const key = `${m.userId}|${m.slotId}`
+    if (!accounted.has(key)) extraStops.add(key)
+  }
+
+  return matCount + projectedCount + extraStops.size
 }
 
 /** Uma linha de projeção pendente: o que a agenda de um usuário prevê para um slot, ainda não materializado. */

@@ -25,6 +25,9 @@ interface DashboardData {
     combos: number
     avulso: number
   }
+  /** Cestinha comprada hoje (D-2): receita nova entra no consolidado, GMV nunca. */
+  marketToday?: { revenue: number; gmv: number; orders: number }
+  revenueTodayConsolidated?: number
   stuckCount: number
 }
 
@@ -185,9 +188,16 @@ export function AdminPainel({
               />
               <KpiCard
                 icon="trend"
-                value={formatCurrency(data?.revenueToday ?? 0)}
+                value={formatCurrency(data?.revenueTodayConsolidated ?? data?.revenueToday ?? 0)}
                 label="Receita do dia"
                 pill={trendPill(data?.revenueTrendPct)}
+                // D-2: o GMV da Cestinha aparece como CONTEXTO, jamais somado à receita. Uma
+                // Cestinha paga 100% em pãezinhos movimenta sem gerar receita nova — e está certo.
+                sub={
+                  data?.marketToday && data.marketToday.gmv > 0
+                    ? `🧺 ${formatCurrency(data.marketToday.gmv)} movimentados`
+                    : undefined
+                }
               />
               <KpiCard
                 icon="users"
@@ -455,6 +465,42 @@ export function AdminPainel({
                   </span>
                 </div>
               </div>
+
+              {/* Cestinha — linha SEPARADA da barra proporcional acima, porque ali só há receita de
+                  crédito. D-2: dinheiro novo entra no consolidado; movimentado é contexto. */}
+              {data?.marketToday && (data.marketToday.gmv > 0 || data.marketToday.revenue > 0) && (
+                <div
+                  style={{
+                    borderTop: '1px solid var(--color-border-2)',
+                    marginTop: 12,
+                    paddingTop: 12,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }}>
+                      🧺 Cestinha · {data.marketToday.orders}
+                    </span>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '1px 0 0' }}>
+                      {formatCurrency(data.marketToday.gmv)} movimentados — o que foi pago em pãezinhos não é receita nova
+                    </p>
+                  </div>
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: 13.5,
+                      fontWeight: 700,
+                      color: 'var(--color-text)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatCurrency(data.marketToday.revenue)}
+                  </span>
+                </div>
+              )}
             </div>
           </>
         )}

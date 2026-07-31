@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { Prisma, TransactionType, NotificationType } from '@prisma/client'
+import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { excludeNonCreditPurpose } from '../../lib/revenue.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthService } from '../auth/auth.service.js'
 
@@ -176,6 +178,16 @@ export class AdminClientsService {
    * condomínio e métricas agregadas (total gasto, pães entregues, nº de pedidos,
    * pães/semana agendados). Somente leitura — para suporte e auditoria.
    *
+   * Onda E1 — a Cestinha ("Além do Pãozin") entra aqui em três frentes:
+   * - `recentCestinhas`: as Cestinhas dos últimos 30 dias, com itens e split de pagamento;
+   * - **`breadsDelivered` passa a somar `MarketOrder.breadQty` entregue (D-1)** — o pão vendido
+   *   dentro da Cestinha é pão francês, e o CRM mostrava "0 pães entregues" para quem só compra
+   *   pela Cestinha (o resto do admin já soma desde a Onda A);
+   * - `totalSpent` deixa de ser um número híbrido sem rótulo: continua sendo todo o dinheiro pago
+   *   (soma de `Payment` PAID), mas agora vem decomposto em `spentOnCredits` × `spentOnCestinha`
+   *   (D-2). O **GMV** da Cestinha (`cestinhaGmv`) é grandeza separada e **nunca** entra em gasto:
+   *   a parte paga em pãezinhos já foi faturada quando o combo foi comprado.
+   *
    * @throws { statusCode: 404 } se user não encontrado ou não é CLIENT
    */
   async getDetail(id: string) {
@@ -188,41 +200,101 @@ export class AdminClientsService {
     const since = new Date()
     since.setDate(since.getDate() - 30)
 
-    const [schedule, recentOrders, condominium, paymentAgg, deliveredAgg, ordersCount] =
-      await Promise.all([
-        // Busca a agenda do cliente independente de isActive — para que agendas
-        // pausadas continuem visíveis no detalhe (e o admin possa retomá-las).
-        this.prisma.schedule.findFirst({ where: { userId: id } }),
-        this.prisma.order.findMany({
-          where: { userId: id, scheduledDate: { gte: since } },
-          orderBy: { scheduledDate: 'desc' },
-        }),
-        user.condominiumId
-          ? this.prisma.condominium.findUnique({
-              where: { id: user.condominiumId },
-              select: { id: true, name: true },
-            })
-          : Promise.resolve(null),
-        this.prisma.payment.aggregate({
-          where: { userId: id, status: 'PAID' },
-          _sum: { amount: true },
-          _count: true,
-        }),
-        this.prisma.order.aggregate({
-          where: { userId: id, status: 'DELIVERED' },
-          _sum: { quantity: true },
-          _count: true,
-        }),
-        this.prisma.order.count({ where: { userId: id } }),
-      ])
+    // Confirmadas = tudo que o cliente realmente comprou. `PENDING_PAYMENT` fora (pode morrer no
+    // sweep) e `CANCELLED` fora (foi estornado) — o mesmo conjunto do GMV, para que "N Cestinhas" e
+    // "R$ X movimentados" nunca contem populações diferentes.
+    const confirmedMarket = { userId: id, status: { in: [...CONFIRMED_MARKET_STATUSES] } }
+
+    const [
+      schedule,
+      recentOrders,
+      recentCestinhas,
+      condominium,
+      paymentAgg,
+      creditPaymentAgg,
+      marketPaymentAgg,
+      deliveredAgg,
+      ordersCount,
+      marketConfirmed,
+      marketDelivered,
+    ] = await Promise.all([
+      // Busca a agenda do cliente independente de isActive — para que agendas
+      // pausadas continuem visíveis no detalhe (e o admin possa retomá-las).
+      this.prisma.schedule.findFirst({ where: { userId: id } }),
+      this.prisma.order.findMany({
+        where: { userId: id, scheduledDate: { gte: since } },
+        orderBy: { scheduledDate: 'desc' },
+      }),
+      this.prisma.marketOrder.findMany({
+        where: { userId: id, scheduledDate: { gte: since } },
+        orderBy: { scheduledDate: 'desc' },
+      }),
+      user.condominiumId
+        ? this.prisma.condominium.findUnique({
+            where: { id: user.condominiumId },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve(null),
+      this.prisma.payment.aggregate({
+        where: { userId: id, status: 'PAID' },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      // D-2 — os dois recortes de `totalSpent`, cada um com o seu filtro (nunca por subtração:
+      // um pagamento de gancho HOOK não é compra de crédito nem Cestinha).
+      this.prisma.payment.aggregate({
+        where: { userId: id, status: 'PAID', ...excludeNonCreditPurpose },
+        _sum: { amount: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { userId: id, status: 'PAID', purpose: 'MARKET' },
+        _sum: { amount: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { userId: id, status: 'DELIVERED' },
+        _sum: { quantity: true },
+        _count: true,
+      }),
+      this.prisma.order.count({ where: { userId: id } }),
+      this.prisma.marketOrder.findMany({
+        where: confirmedMarket,
+        select: { totalValue: true, creditsApplied: true },
+      }),
+      this.prisma.marketOrder.findMany({
+        where: { userId: id, status: 'DELIVERED' },
+        select: { breadQty: true, items: true },
+      }),
+    ])
+
+    const cestinhaGmv = marketConfirmed.reduce((acc, o) => acc + o.totalValue, 0)
+    const cestinhaCredits = marketConfirmed.reduce((acc, o) => acc + o.creditsApplied, 0)
+    const marketBreadsDelivered = marketDelivered.reduce((acc, o) => acc + o.breadQty, 0)
+    const itemsDelivered = marketDelivered.reduce(
+      (acc, o) => acc + o.items.reduce((s, i) => s + i.qty, 0),
+      0,
+    )
+    const spentOnCestinha = marketPaymentAgg._sum.amount ?? 0
 
     const metrics = {
       totalSpent: paymentAgg._sum.amount ?? 0,
+      /** Recorte de `totalSpent`: compra de crédito/combo/avulso (exclui HOOK e MARKET). */
+      spentOnCredits: creditPaymentAgg._sum.amount ?? 0,
+      /** Recorte de `totalSpent`: parte em DINHEIRO das Cestinhas. */
+      spentOnCestinha,
       paymentsCount: paymentAgg._count,
-      breadsDelivered: deliveredAgg._sum.quantity ?? 0,
+      // D-1: pão é pão, venha do `Order` ou de dentro da Cestinha.
+      breadsDelivered: (deliveredAgg._sum.quantity ?? 0) + marketBreadsDelivered,
       deliveredOrders: deliveredAgg._count,
       ordersCount,
       weeklyBreads: sumScheduleWeekly(schedule),
+      // ── Cestinha ──
+      cestinhasCount: marketConfirmed.length,
+      /** Valor movimentado (dinheiro + pãezinhos convertidos). **Nunca** somar à receita (D-2). */
+      cestinhaGmv: Math.round(cestinhaGmv * 100) / 100,
+      /** Pãezinhos que o cliente gastou em Cestinhas. */
+      cestinhaCredits,
+      /** Itens do mercadinho já entregues (métrica paralela aos pães — D-1). */
+      itemsDelivered,
     }
 
     // Nome do admin que bloqueou (contexto de auditoria do bloqueio atual)
@@ -239,6 +311,19 @@ export class AdminClientsService {
       client: user,
       schedule,
       recentOrders,
+      recentCestinhas: recentCestinhas.map((o) => ({
+        id: o.id,
+        status: o.status,
+        scheduledDate: o.scheduledDate,
+        slotId: o.slotId,
+        deliveryTime: o.deliveryTime,
+        breadQty: o.breadQty,
+        items: o.items.map((i) => ({ name: i.name, qty: i.qty })),
+        itemCount: o.items.reduce((acc, i) => acc + i.qty, 0),
+        totalValue: o.totalValue,
+        creditsApplied: o.creditsApplied,
+        moneyAmount: o.moneyAmount,
+      })),
       condominium,
       metrics,
       blockedByName,
@@ -454,20 +539,41 @@ export class AdminClientsService {
   /**
    * Pedidos do cliente com dados de entrega (entregador, deliveredAt, confirmedAt).
    * Inclui pedidos CANCELLED. Para auditoria de entregas e cancelamentos.
+   *
+   * Onda E2 — a lista é UNIFICADA (pão + Cestinha) com `kind: 'BREAD' | 'CESTINHA'`, o mesmo
+   * vocabulário do D-4 que o ledger de Entregas já usa. Uma aba separada obrigaria o suporte a
+   * olhar em dois lugares para responder "o que esse cliente comprou?" — e a Cestinha ficava
+   * invisível justamente na tela de auditoria.
+   *
+   * `limit` é aplicado às DUAS coleções e a janela é cortada depois de unir e ordenar: `take`
+   * separado por coleção daria um top-N errado (as N linhas mais recentes podem vir todas de um
+   * lado só). Mesma lição da paginação do `getLedger` (Onda C1).
    */
   async getOrders(id: string, limit = 50) {
     await this.assertClient(id)
 
-    const orders = await this.prisma.order.findMany({
-      where: { userId: id },
-      orderBy: { scheduledDate: 'desc' },
-      take: limit,
-    })
+    const [orders, marketOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { userId: id },
+        orderBy: { scheduledDate: 'desc' },
+        take: limit,
+      }),
+      this.prisma.marketOrder.findMany({
+        where: { userId: id },
+        orderBy: { scheduledDate: 'desc' },
+        take: limit,
+      }),
+    ])
 
     const orderIds = orders.map((o) => o.id)
-    const courierIds = [...new Set(orders.map((o) => o.courierId).filter((v): v is string => !!v))]
+    const courierIds = [
+      ...new Set(
+        [...orders, ...marketOrders].map((o) => o.courierId).filter((v): v is string => !!v),
+      ),
+    ]
+    const marketIds = marketOrders.map((o) => o.id)
 
-    const [deliveries, couriers] = await Promise.all([
+    const [deliveries, couriers, refunds] = await Promise.all([
       orderIds.length > 0
         ? this.prisma.delivery.findMany({
             where: { orderId: { in: orderIds } },
@@ -477,18 +583,32 @@ export class AdminClientsService {
       courierIds.length > 0
         ? this.prisma.user.findMany({ where: { id: { in: courierIds } }, select: { id: true, name: true } })
         : Promise.resolve([]),
+      // Pãezinhos já devolvidos por Cestinha — para a tela dizer "estornado em N 🥖" e não
+      // oferecer um cancelamento que não devolveria nada.
+      marketIds.length > 0
+        ? this.prisma.creditTransaction.findMany({
+            where: { type: TransactionType.MARKET_REFUND, referenceId: { in: marketIds } },
+            select: { referenceId: true, quantity: true },
+          })
+        : Promise.resolve([]),
     ])
 
     const delByOrder = new Map(deliveries.map((d) => [d.orderId, d]))
     const courierName = new Map(couriers.map((c) => [c.id, c.name]))
+    const refundedById = new Map<string, number>()
+    for (const t of refunds) {
+      if (!t.referenceId) continue
+      refundedById.set(t.referenceId, (refundedById.get(t.referenceId) ?? 0) + t.quantity)
+    }
 
-    return orders.map((o) => {
+    const breadRows = orders.map((o) => {
       const d = delByOrder.get(o.id)
       return {
+        kind: 'BREAD' as const,
         id: o.id,
-        type: o.type,
+        type: o.type as string,
         quantity: o.quantity,
-        status: o.status,
+        status: o.status as string,
         scheduledDate: o.scheduledDate,
         slotId: o.slotId ?? null,
         deliveryTime: o.deliveryTime ?? null,
@@ -496,8 +616,43 @@ export class AdminClientsService {
         deliveredAt: d?.deliveredAt ?? null,
         confirmedAt: d?.confirmedAt ?? null,
         deliveryStatus: d?.status ?? null,
+        items: [] as { name: string; qty: number }[],
+        itemCount: 0,
+        totalValue: null as number | null,
+        creditsApplied: null as number | null,
+        moneyAmount: null as number | null,
+        refundedCredits: null as number | null,
       }
     })
+
+    const marketRows = marketOrders.map((o) => ({
+      kind: 'CESTINHA' as const,
+      id: o.id,
+      // `type: 'MARKET'` explícito (Onda B, decisão 1): reusar 'SINGLE' faria a tela chamar uma
+      // Cestinha de "Avulso".
+      type: 'MARKET',
+      // D-1: o pão vendido dentro da Cestinha é pão — ocupa o mesmo campo do pedido de pão.
+      quantity: o.breadQty,
+      status: o.status as string,
+      scheduledDate: o.scheduledDate,
+      slotId: o.slotId ?? null,
+      deliveryTime: o.deliveryTime ?? null,
+      courierName: o.courierId ? courierName.get(o.courierId) ?? null : null,
+      deliveredAt: o.deliveredAt ?? null,
+      // A Cestinha não tem registro `Delivery` próprio (pega carona na parada do pão).
+      confirmedAt: null as Date | null,
+      deliveryStatus: null as string | null,
+      items: o.items.map((i) => ({ name: i.name, qty: i.qty })),
+      itemCount: o.items.reduce((acc, i) => acc + i.qty, 0),
+      totalValue: o.totalValue as number | null,
+      creditsApplied: o.creditsApplied as number | null,
+      moneyAmount: o.moneyAmount as number | null,
+      refundedCredits: refundedById.get(o.id) ?? 0,
+    }))
+
+    return [...breadRows, ...marketRows]
+      .sort((a, b) => b.scheduledDate.getTime() - a.scheduledDate.getTime())
+      .slice(0, limit)
   }
 
   /**

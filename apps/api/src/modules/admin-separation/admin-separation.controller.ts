@@ -1,6 +1,10 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { SetSeparatedSchema, ConcludeSeparationSchema } from './admin-separation.schema.js'
+import {
+  SetSeparatedSchema,
+  SetMarketSeparatedSchema,
+  ConcludeSeparationSchema,
+} from './admin-separation.schema.js'
 import { AdminSeparationService } from './admin-separation.service.js'
 
 type ZodIssue = { message: string }
@@ -52,6 +56,32 @@ export class AdminSeparationController {
     const { id: orderId } = request.params as { id: string }
     try {
       const result = await this.service.setSeparated(orderId, body.separated)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      if (e.statusCode === 422) return reply.status(422).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /** PATCH /admin/separation/market-orders — toggle de parada só-Cestinha */
+  async setMarketSeparated(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    let body: ReturnType<typeof SetMarketSeparatedSchema.parse>
+    try {
+      body = SetMarketSeparatedSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      const result = await this.service.setMarketSeparated(body.marketOrderIds, body.separated)
       return reply.status(200).send(result)
     } catch (err) {
       this.fastify.log.error(err)

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { lookupCep } from '../../../lib/viacep'
 import { Icon } from '../../../components/brand/Icon'
+import { SupplierProdutos } from './SupplierProdutos'
 
 // ------------------------------------------------------------------ tipos
 interface FornecedorFormProps {
@@ -448,6 +449,24 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
           </span>
           <SwitchToggle on={isPrincipal} onChange={() => setIsPrincipal((p) => !p)} />
         </div>
+
+        {/* Matriz de fornecimento (D-7/D-8) — só ao editar: a linha precisa de um fornecedor
+            existente para se apoiar. Salva em separado (PUT próprio), não no submit do cadastro. */}
+        {id ? (
+          <SupplierProdutos supplierId={id} />
+        ) : (
+          <p
+            style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 12,
+              color: 'var(--color-text-ter)',
+              margin: 0,
+              padding: '0 2px',
+            }}
+          >
+            Depois de salvar, você define aqui quais produtos este fornecedor fornece e o custo de cada um.
+          </p>
+        )}
 
         <div style={{ flex: 1 }} />
 

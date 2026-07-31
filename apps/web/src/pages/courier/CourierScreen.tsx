@@ -9,7 +9,7 @@ import { SegmentedControl, CourierTab } from '../../components/courier/Segmented
 import { CondoAccordion, CondoGroup } from '../../components/courier/CondoAccordion'
 import { ConfirmDeliveryDialog } from '../../components/courier/ConfirmDeliveryDialog'
 import { CourierCompletedList, CompletedCondo } from '../../components/courier/CourierCompletedList'
-import { Stop } from '../../components/courier/StopRow'
+import { Stop, stopKey } from '../../components/courier/StopRow'
 import { CourierRouteView } from './CourierRouteView'
 import { QrScanner } from '../../components/courier/QrScanner'
 import { PushNotificationToggle } from '../../components/PushNotificationToggle'
@@ -25,6 +25,7 @@ interface TodayOrdersResponse {
   condos: CondoGroup[]
   totalStops: number
   totalBreads: number
+  totalItems: number
   route: {
     distanceKm: string
     durationMin: number
@@ -80,12 +81,21 @@ export function CourierScreen() {
 
   async function handleScan(text: string) {
     setScannerOpen(false)
-    const orderId = text.trim()
-    const stop = data?.condos?.flatMap((c) => c.stops).find((s) => s.orderId === orderId)
+    const code = text.trim()
+    // O cupom de uma parada só-Cestinha carrega o id do MarketOrder, não de um pedido de pão —
+    // mandar tudo para /courier/orders dava 404. Resolve a parada pelo código e escolhe a rota.
+    const stops = data?.condos?.flatMap((c) => c.stops) ?? []
+    const stop =
+      stops.find((s) => s.orderId === code) ??
+      stops.find((s) => s.marketOrderId === code || (s.marketOrderIds ?? []).includes(code))
+    const breadPath = `/courier/orders/${code}/confirm`
+    const marketPath = `/courier/market-orders/${code}/confirm`
     try {
-      const res = await apiFetch(`/courier/orders/${orderId}/confirm`, { method: 'PATCH' })
+      let res = await apiFetch(stop && !stop.orderId ? marketPath : breadPath, { method: 'PATCH' })
+      // Parada fora da lista carregada (dados velhos): 404 no pão pode ser cupom de Cestinha.
+      if (res.status === 404 && !stop) res = await apiFetch(marketPath, { method: 'PATCH' })
       if (res.ok) {
-        setConfirmedIds((prev) => new Set([...prev, orderId]))
+        setConfirmedIds((prev) => new Set([...prev, stop ? stopKey(stop) : code]))
         setFeedback({ type: 'ok', text: stop ? `Entrega de ${stop.clientName} confirmada` : 'Entrega confirmada' })
       } else if (res.status === 403) {
         setFeedback({ type: 'err', text: 'Este cupom não pertence à sua rota.' })
@@ -119,7 +129,7 @@ export function CourierScreen() {
 
   const confirmedCount = confirmedIds.size
   const confirmedBreads = data
-    ? (data.condos ?? []).flatMap((c) => c.stops).filter((s) => confirmedIds.has(s.orderId)).reduce((sum, s) => sum + s.quantity, 0)
+    ? (data.condos ?? []).flatMap((c) => c.stops).filter((s) => confirmedIds.has(stopKey(s))).reduce((sum, s) => sum + s.quantity, 0)
     : 0
 
   // Quando o dia mistura turnos (manhã + tarde), a aba Lista é dividida em seções por
@@ -152,7 +162,7 @@ export function CourierScreen() {
         .map((condo) => ({ condo, index: index++ }))
       if (condos.length === 0) continue
       const stops = condos.flatMap((x) => x.condo.stops)
-      const confirmed = stops.filter((s) => confirmedIds.has(s.orderId))
+      const confirmed = stops.filter((s) => confirmedIds.has(stopKey(s)))
       const meta = data.slots.find((s) => s.slotId === slotId)
       const label = meta
         ? `${meta.emoji ? `${meta.emoji} ` : ''}${meta.label}${meta.time ? ` · ${meta.time}` : ''}`
@@ -179,14 +189,15 @@ export function CourierScreen() {
     const seen = new Set<string>()
     for (const c of data.completed ?? []) {
       map.set(c.condominiumId, { ...c, stops: [...c.stops] })
-      c.stops.forEach((s) => seen.add(s.orderId))
+      c.stops.forEach((s) => seen.add(s.orderId || s.marketOrderId || ''))
     }
     for (const condo of data.condos ?? []) {
       for (const stop of condo.stops) {
-        const isConf = confirmedIds.has(stop.orderId)
-        const isND = notDeliveredIds.has(stop.orderId)
-        if ((!isConf && !isND) || seen.has(stop.orderId)) continue
-        seen.add(stop.orderId)
+        const key = stopKey(stop)
+        const isConf = confirmedIds.has(key)
+        const isND = notDeliveredIds.has(key)
+        if ((!isConf && !isND) || seen.has(key)) continue
+        seen.add(key)
         let target = map.get(condo.condominiumId)
         if (!target) {
           target = { condominiumId: condo.condominiumId, condominiumName: condo.condominiumName, stops: [] }
@@ -202,6 +213,10 @@ export function CourierScreen() {
           slotId: stop.slotId,
           slotLabel: stop.slotLabel,
           completedAt: null, // confirmado nesta sessão — sem timestamp do servidor ainda
+          marketOrderId: stop.marketOrderId,
+          marketOrderIds: stop.marketOrderIds,
+          marketItems: stop.marketItems,
+          marketItemCount: stop.marketItemCount,
         })
       }
     }
@@ -359,6 +374,11 @@ export function CourierScreen() {
               </span>
             ))}
           </div>
+        )}
+        {data && (data.totalItems ?? 0) > 0 && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
+            🧺 {data.totalBreads} 🥖 + {data.totalItems} {data.totalItems === 1 ? 'item' : 'itens'} do Além do Pãozin
+          </p>
         )}
       </div>
 

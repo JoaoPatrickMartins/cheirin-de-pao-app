@@ -31,6 +31,9 @@ export type UpdateOrderStatusBody = z.infer<typeof UpdateOrderStatusSchema>
 export const AssignCourierSchema = z.object({
   courierId: z.string().min(1, 'courierId e obrigatorio'),
   orderIds: z.array(z.string().min(1)).min(1).optional(),
+  // Cestinhas atribuídas explicitamente — a parada SÓ-Cestinha não tem pedido de pão para
+  // pegar carona, então sem estes ids ela nunca receberia entregador.
+  marketOrderIds: z.array(z.string().min(1)).min(1).optional(),
   condominiumId: z.string().optional(),
   date: z.string().optional(),
 })
@@ -47,10 +50,18 @@ export const ApproveDivisionSchema = z.object({
   date: z.string().optional(),
   assignments: z
     .array(
-      z.object({
-        courierId: z.string().min(1, 'courierId e obrigatorio'),
-        orderIds: z.array(z.string().min(1)).min(1, 'orderIds nao pode ser vazio'),
-      }),
+      z
+        .object({
+          courierId: z.string().min(1, 'courierId e obrigatorio'),
+          // Um grupo pode ser 100% Cestinha (condomínio/turno sem pão nenhum), então `orderIds`
+          // pode vir vazio — mas ao menos uma das duas listas tem de ter conteúdo.
+          orderIds: z.array(z.string().min(1)).default([]),
+          marketOrderIds: z.array(z.string().min(1)).default([]),
+        })
+        .refine((a) => a.orderIds.length > 0 || a.marketOrderIds.length > 0, {
+          message: 'Informe orderIds ou marketOrderIds',
+          path: ['orderIds'],
+        }),
     )
     .min(1, 'Informe ao menos um entregador com pedidos'),
 })
@@ -73,6 +84,8 @@ export const LedgerQuerySchema = z.object({
   q: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   skip: z.coerce.number().int().min(0).optional(),
+  // D-4: o ledger é unificado; este filtro restringe a um tipo. Ausente = os dois.
+  kind: z.enum(['BREAD', 'CESTINHA']).optional(),
 })
 
 export type LedgerQuery = z.infer<typeof LedgerQuerySchema>
@@ -93,6 +106,8 @@ export type RefundOrderBody = z.infer<typeof RefundOrderSchema>
  *   CANCELLED     — pedido anulado (motivo obrigatório).
  * refundCredits: devolve os pães ao saldo no mesmo passo (só aplicável a
  *   NOT_DELIVERED/CANCELLED; ignorado em DELIVERED).
+ * kind: 'BREAD' (default) resolve um `Order`; 'CESTINHA' resolve um `MarketOrder` — o estorno é
+ *   todo em pãezinhos (inclusive a parte em dinheiro, convertida) e o estoque pode voltar.
  */
 export const ResolveOrderSchema = z
   .object({
@@ -101,6 +116,8 @@ export const ResolveOrderSchema = z
     }),
     reason: z.string().max(500).optional(),
     refundCredits: z.boolean().optional(),
+    kind: z.enum(['BREAD', 'CESTINHA']).default('BREAD'),
+    returnStock: z.boolean().optional(),
   })
   .refine((d) => d.outcome === 'DELIVERED' || !!d.reason?.trim(), {
     message: 'Motivo é obrigatório para não entregue ou cancelamento.',

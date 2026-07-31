@@ -126,6 +126,7 @@ export class AdminOrdersController {
     try {
       const result = await this.service.assignCourier(body.courierId, {
         orderIds: body.orderIds,
+        marketOrderIds: body.marketOrderIds,
         condominiumId: body.condominiumId,
         date: body.date,
       })
@@ -234,6 +235,7 @@ export class AdminOrdersController {
 
   /**
    * POST /admin/orders/:id/resolve — resolve um pedido parado (desfecho + estorno de pães).
+   * `kind: 'CESTINHA'` roteia para o fluxo do mini market (estorno todo em pãezinhos + estoque).
    */
   async resolveOrder(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
@@ -248,7 +250,10 @@ export class AdminOrdersController {
     }
     const { id: orderId } = request.params as { id: string }
     try {
-      const result = await this.service.resolveStuckOrder(orderId, request.user.id, body)
+      const result =
+        body.kind === 'CESTINHA'
+          ? await this.service.resolveStuckMarketOrder(orderId, request.user.id, body)
+          : await this.service.resolveStuckOrder(orderId, request.user.id, body)
       return reply.status(200).send(result)
     } catch (err) {
       this.fastify.log.error(err)

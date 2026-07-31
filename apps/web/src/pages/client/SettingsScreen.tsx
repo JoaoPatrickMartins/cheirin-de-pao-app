@@ -113,6 +113,25 @@ export function SettingsScreen() {
           </div>
         </div>
 
+        {/* Pedidos */}
+        <SectionLabel>Pedidos</SectionLabel>
+        <div
+          style={{
+            background: 'var(--color-surface)',
+            borderRadius: 'var(--radius-card)',
+            padding: '6px 16px',
+            boxShadow: 'var(--shadow-soft)',
+            marginBottom: 20,
+          }}
+        >
+          <ProfileMenuRow
+            icon="bag"
+            label="Meus pedidos"
+            description="Acompanhe e revise suas entregas"
+            onClick={() => navigate('/client/pedidos')}
+          />
+        </div>
+
         {/* Conta */}
         <SectionLabel>Conta</SectionLabel>
         <div

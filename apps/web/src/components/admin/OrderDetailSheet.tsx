@@ -3,7 +3,11 @@ import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
 
 export interface LedgerRow {
+  /** D-4: o ledger é unificado — 'BREAD' (pedido de pão) | 'CESTINHA' (mini market). */
+  kind: 'BREAD' | 'CESTINHA'
   orderId: string
+  /** Preenchido só em kind 'CESTINHA' (orderId fica vazio). */
+  marketOrderId: string
   userId: string
   clientName: string
   condominiumId: string
@@ -28,6 +32,13 @@ export interface LedgerRow {
   paymentId: string
   paymentAmount: number
   paymentStatus: string
+  /** Produtos do mercadinho — métrica paralela aos pães (D-1). Vazio em 'BREAD'. */
+  marketItems: { name: string; qty: number }[]
+  marketItemCount: number
+  /** Split da Cestinha (0 em 'BREAD'). */
+  creditsApplied: number
+  moneyAmount: number
+  totalValue: number
 }
 
 export const STATUS_META: Record<string, { label: string; color: string; soft: string }> = {
@@ -72,10 +83,17 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
   const [error, setError] = useState('')
 
   const meta = STATUS_META[row.status] ?? { label: row.status, color: 'var(--color-text-ter)', soft: 'var(--color-surface-2)' }
+  const isCestinha = row.kind === 'CESTINHA'
   const canResolve = ACTIVE.includes(row.status)
-  const canRefund = TERMINAL_REFUNDABLE.includes(row.status) && !row.refunded
+  // Estas duas ações são específicas do pedido de pão e NÃO existem para a Cestinha:
+  // - `/admin/orders/:id/refund` procura um `Order` (404 numa Cestinha);
+  // - o estorno genérico de `purpose=MARKET` está bloqueado em admin-payments de propósito
+  //   (estornaria o dinheiro deixando o pedido ativo e os créditos presos).
+  // Na Cestinha a devolução acontece dentro do "resolver": tudo em pãezinhos, inclusive a
+  // parte paga em dinheiro (DEC-36). Esconder evita oferecer um botão que só dá erro.
+  const canRefund = !isCestinha && TERMINAL_REFUNDABLE.includes(row.status) && !row.refunded
   const hasPayment = !!row.paymentId
-  const canRefundPayment = hasPayment && row.paymentStatus === 'PAID'
+  const canRefundPayment = !isCestinha && hasPayment && row.paymentStatus === 'PAID'
 
   function goto(next: Mode) {
     setError('')
@@ -89,14 +107,16 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
     setBusy(true)
     setError('')
     try {
-      const body: Record<string, unknown> = { outcome }
+      // D-4: a mesma rota resolve os dois tipos — `kind` roteia para o fluxo da Cestinha,
+      // onde o estorno é todo em pãezinhos (inclusive a parte paga em dinheiro).
+      const body: Record<string, unknown> = { outcome, kind: row.kind }
       if (outcome === 'DELIVERED') {
         if (reason.trim()) body.reason = reason.trim()
       } else {
         body.reason = reason.trim()
         body.refundCredits = refundCredits
       }
-      const res = await apiFetch(`/admin/orders/${row.orderId}/resolve`, {
+      const res = await apiFetch(`/admin/orders/${row.kind === 'CESTINHA' ? row.marketOrderId : row.orderId}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -194,6 +214,27 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
           {row.cancelReason && <DetailRow label="Motivo do cancelamento" value={row.cancelReason} />}
           {row.deliveryNote && <DetailRow label="Nota da entrega" value={row.deliveryNote} />}
           {row.refunded && <DetailRow label="Pães" value="Devolvidos ao saldo ✓" />}
+          {/* Cestinha: itens e split — é o que o admin precisa para decidir o desfecho. */}
+          {isCestinha && (
+            <>
+              <DetailRow
+                label="Itens"
+                value={row.marketItems.map((it) => `${it.qty}× ${it.name}`).join(', ') || '—'}
+              />
+              <DetailRow
+                label="Pago"
+                value={
+                  [
+                    row.creditsApplied > 0 ? `${row.creditsApplied} 🥖` : '',
+                    row.moneyAmount > 0 ? fmtMoney(row.moneyAmount) : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' + ') || '—'
+                }
+              />
+              {row.totalValue > 0 && <DetailRow label="Total" value={fmtMoney(row.totalValue)} />}
+            </>
+          )}
           {hasPayment && (
             <DetailRow
               label="Pagamento"
@@ -239,12 +280,16 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
           />
         )}
 
-        {/* Devolver pães — só nos desfechos de não-entrega/cancelamento */}
+        {/* Devolver pães — só nos desfechos de não-entrega/cancelamento.
+            Na Cestinha o que volta é o split inteiro (pãezinhos aplicados + a parte paga em
+            dinheiro convertida em pãezinhos), não a quantidade de pães do pedido. */}
         {(mode === 'fail' || mode === 'cancel') && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, cursor: 'pointer' }}>
             <input type="checkbox" checked={refundCredits} onChange={(e) => setRefundCredits(e.target.checked)} style={{ width: 18, height: 18, accentColor: 'var(--color-espresso)' }} />
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)' }}>
-              Devolver {row.quantity} {row.quantity === 1 ? 'pão' : 'pães'} ao saldo
+              {isCestinha
+                ? 'Devolver o valor da Cestinha em pãezinhos (inclui a parte paga em dinheiro)'
+                : `Devolver ${row.quantity} ${row.quantity === 1 ? 'pão' : 'pães'} ao saldo`}
             </span>
           </label>
         )}

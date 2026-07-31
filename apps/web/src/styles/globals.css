@@ -222,6 +222,19 @@
   display: none;
 }
 
+/* Barra de categorias (Cestinha) — sem scrollbar (UI limpa); rola no swipe (touch) e no
+   clicar-e-arrastar do mouse (drag-to-scroll, ver MarketCatalog). */
+.cdp-chips {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scroll-padding-left: 20px;
+}
+.cdp-chips::-webkit-scrollbar {
+  display: none;
+}
+
 /* ============================================================
    Mercado Pago — CardPayment Brick (campos seguros em iframes)
    Número, Validade e CVV são iframes cross-origin. No layout

@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { LoadingScreen } from '../auth/LoadingScreen'
 import { ClientTabBar } from '../../components/client/ClientTabBar'
+import { FloatingCart } from '../../components/client/FloatingCart'
+import { CartProvider } from '../../contexts/CartContext'
 import { useOneSignalRegister } from '../../hooks/useOneSignalRegister'
 import { useOneSignalDeepLink } from '../../hooks/useOneSignalDeepLink'
 import { NotifProvider } from '../../contexts/NotifContext'
@@ -125,15 +127,18 @@ export function ClientLayout() {
       }}
     >
       <NotifProvider>
-        <Outlet />
-        <ClientTabBar />
-        {phase === 'slides' && <OnboardingOverlay onFinish={finishSlides} />}
-        {phase === 'tour' && <AppTour onFinish={finishTour} />}
-        {/* Gancho: só depois do onboarding (fase 'done') e enquanto não confirmado. */}
-        <GanchoConsentModal
-          isOpen={phase === 'done' && needsHookConsent}
-          onConfirmed={() => setNeedsHookConsent(false)}
-        />
+        <CartProvider>
+          <Outlet />
+          <FloatingCart />
+          <ClientTabBar />
+          {phase === 'slides' && <OnboardingOverlay onFinish={finishSlides} />}
+          {phase === 'tour' && <AppTour onFinish={finishTour} />}
+          {/* Gancho: só depois do onboarding (fase 'done') e enquanto não confirmado. */}
+          <GanchoConsentModal
+            isOpen={phase === 'done' && needsHookConsent}
+            onConfirmed={() => setNeedsHookConsent(false)}
+          />
+        </CartProvider>
       </NotifProvider>
     </div>
   )

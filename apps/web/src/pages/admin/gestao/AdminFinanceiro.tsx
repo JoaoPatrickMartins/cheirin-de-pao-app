@@ -11,6 +11,8 @@ interface CondoRevenue {
   condominiumId: string
   condominiumName: string
   total: number
+  /** Valor movimentado em Cestinhas — não é receita (D-2). */
+  cestinhaGmv?: number
 }
 
 interface FinancialData {
@@ -19,6 +21,25 @@ interface FinancialData {
     combos: number
     avulso: number
   }
+  /** Cestinha (Além do Pãozin) — D-2: receita nova ≠ valor movimentado. */
+  market?: {
+    revenue: number
+    gmv: number
+    moneyPart: number
+    creditPart: number
+    credits: number
+    orders: number
+    /** H9 — custo do que foi vendido e margem sobre o GMV. */
+    cmv?: number
+    margin?: number
+    marginPct?: number
+    /** Unidades sem custo cadastrado: enquanto > 0, a margem é parcial. */
+    unitsWithoutCost?: number
+  }
+  /** Receita de crédito + receita da Cestinha. Sem GMV. */
+  totalConsolidated?: number
+  /** Dinheiro que saiu: compras ao fornecedor finalizadas no período (H9). */
+  purchases?: { total: number; breadCost: number; itemsCost: number; orders: number }
   byCondominium: CondoRevenue[]
 }
 
@@ -41,6 +62,40 @@ const PERIOD_LABELS: Record<Period, string> = {
 // ------------------------------------------------------------------ helpers
 function formatBRL(valor: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
+}
+
+/** Linha "rótulo · valor" com uma dica embaixo — usada no card da Cestinha (D-2). */
+function RevenueLine({
+  label, value, hint, strong,
+}: {
+  label: string
+  value: string
+  hint: string
+  strong?: boolean
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: strong ? 700 : 600, color: 'var(--color-text-sec)', margin: 0 }}>
+          {label}
+        </p>
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '1px 0 0' }}>
+          {hint}
+        </p>
+      </div>
+      <span
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: strong ? 15 : 14,
+          fontWeight: strong ? 800 : 700,
+          color: strong ? 'var(--color-text)' : 'var(--color-text-sec)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  )
 }
 
 // ------------------------------------------------------------------ componente
@@ -79,6 +134,11 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
   const combosTotal = data?.byType?.combos ?? 0
   const avulsoTotal = data?.byType?.avulso ?? 0
   const totalTipo = combosTotal + avulsoTotal
+  const market = data?.market
+  const purchases = data?.purchases
+  // O card grande mostra a receita CONSOLIDADA (crédito + dinheiro novo da Cestinha). O fallback
+  // para `total` cobre uma resposta antiga/sem o campo, em vez de exibir R$ 0.
+  const consolidado = data?.totalConsolidated ?? data?.total ?? 0
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -165,13 +225,118 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                   fontWeight: 800,
                   letterSpacing: '-0.02em',
                   color: 'var(--color-text)',
-                  margin: '0 0 16px',
+                  margin: market && market.revenue > 0 ? '0 0 2px' : '0 0 16px',
                 }}
               >
-                {formatBRL(data.total ?? 0)}
+                {formatBRL(consolidado)}
               </p>
+              {/* D-2 — a composição fica explícita: sem ela, ninguém sabe se a Cestinha está
+                  dentro do número, e o próximo a olhar somaria o GMV por cima. */}
+              {market && market.revenue > 0 && (
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '0 0 16px' }}>
+                  {formatBRL(data.total ?? 0)} em créditos + {formatBRL(market.revenue)} na Cestinha
+                </p>
+              )}
               <BarChart data={barData.length > 0 ? barData : [{ label: '—', value: 0 }]} height={80} />
             </div>
+
+            {/* Card da Cestinha — D-2: receita NOVA e valor movimentado são números diferentes, e o
+                GMV nunca entra na receita (a parte paga em pãezinhos foi faturada na compra do
+                combo). Só aparece quando houve movimento no período. */}
+            {market && (market.gmv > 0 || market.revenue > 0) && (
+              <div
+                style={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border-2)',
+                  borderRadius: 18,
+                  padding: 18,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+                  <span style={{ fontSize: 14 }}>🧺</span>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                    Além do Pãozin
+                  </p>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)', marginLeft: 'auto' }}>
+                    {market.orders} {market.orders === 1 ? 'Cestinha' : 'Cestinhas'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <RevenueLine
+                    label="Receita nova (dinheiro)"
+                    value={formatBRL(market.revenue)}
+                    hint="entra no total acima"
+                    strong
+                  />
+                  <RevenueLine
+                    label="Movimentado (GMV)"
+                    value={formatBRL(market.gmv)}
+                    hint="valor dos pedidos — não é receita"
+                  />
+                  <RevenueLine
+                    label="Pago em pãezinhos"
+                    value={`${formatBRL(market.creditPart)}${market.credits > 0 ? ` · ${market.credits} 🥖` : ''}`}
+                    hint="já faturado na compra dos créditos"
+                  />
+                  {/* H9 — margem sobre o MOVIMENTADO (não sobre a receita nova): o custo existe
+                      independentemente de como o cliente pagou. */}
+                  {market.cmv != null && (
+                    <RevenueLine
+                      label="Custo dos produtos (CMV)"
+                      value={formatBRL(market.cmv)}
+                      hint="custo esperado pela matriz de fornecimento"
+                    />
+                  )}
+                  {market.margin != null && (
+                    <RevenueLine
+                      label={`Margem${market.marginPct != null ? ` · ${market.marginPct}%` : ''}`}
+                      value={formatBRL(market.margin)}
+                      hint={
+                        (market.unitsWithoutCost ?? 0) > 0
+                          ? `PARCIAL — ${market.unitsWithoutCost} un. sem custo cadastrado`
+                          : 'movimentado − CMV'
+                      }
+                      strong
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Compras do período — o outro lado do caixa (H9). Fica em card próprio para não ser
+                lido como receita negativa dentro do bloco da Cestinha. */}
+            {purchases && purchases.total > 0 && (
+              <div
+                style={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border-2)',
+                  borderRadius: 18,
+                  padding: 18,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                    Compras ao fornecedor
+                  </p>
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-text)' }}>
+                    {formatBRL(purchases.total)}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <RevenueLine label="Pão" value={formatBRL(purchases.breadCost)} hint="pedidos do turno" />
+                  <RevenueLine
+                    label="Produtos do mercadinho"
+                    value={formatBRL(purchases.itemsCost)}
+                    hint="inclui reposição de estoque"
+                  />
+                </div>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
+                  {purchases.orders} pedido{purchases.orders === 1 ? '' : 's'} finalizado
+                  {purchases.orders === 1 ? '' : 's'} no período · custo pago, não estimado.
+                </p>
+              </div>
+            )}
 
             {/* Card por tipo */}
             <div
@@ -273,6 +438,9 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                 >
                   Por condomínio
                 </p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '-10px 0 12px' }}>
+                  Receita de créditos · 🧺 = movimentado em Cestinhas
+                </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {condominiums.map((c) => (
@@ -297,6 +465,13 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                           }}
                         >
                           {formatBRL(c.total)}
+                          {/* GMV ao lado, em cinza: o condomínio pode ter movimento de Cestinha
+                              sem nenhuma receita de crédito no período. */}
+                          {(c.cestinhaGmv ?? 0) > 0 && (
+                            <span style={{ fontWeight: 600, color: 'var(--color-text-ter)' }}>
+                              {' '}· 🧺 {formatBRL(c.cestinhaGmv ?? 0)}
+                            </span>
+                          )}
                         </span>
                       </div>
                       <div

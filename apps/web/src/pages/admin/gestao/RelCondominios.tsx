@@ -9,9 +9,15 @@ type Period = 'day' | 'week' | 'month'
 interface CondoItem {
   condominiumId: string
   condominiumName: string
+  /** Receita consolidada: créditos + dinheiro novo da Cestinha (D-2). */
   revenue: number
+  creditRevenue?: number
+  marketRevenue?: number
   activeClients: number
+  /** Inclui o pão vendido dentro da Cestinha (D-1). */
   breadsDelivered: number
+  /** Valor movimentado em Cestinhas — não é receita (D-2). */
+  cestinhaGmv?: number
 }
 
 interface CondominiumRankingReport {
@@ -54,8 +60,24 @@ export function RelCondominios({ onBack }: { onBack: () => void }) {
           downloadCsv(
             `condominios-${period}.csv`,
             buildCsv(
-              ['Condomínio', 'Receita (R$)', 'Clientes ativos', 'Pães entregues'],
-              items.map((c) => [c.condominiumName, c.revenue.toFixed(2), c.activeClients, c.breadsDelivered]),
+              [
+                'Condomínio',
+                'Receita total (R$)',
+                'Receita créditos (R$)',
+                'Receita Cestinha (R$)',
+                'Movimentado Cestinha (R$)',
+                'Clientes ativos',
+                'Pães entregues',
+              ],
+              items.map((c) => [
+                c.condominiumName,
+                c.revenue.toFixed(2),
+                (c.creditRevenue ?? c.revenue).toFixed(2),
+                (c.marketRevenue ?? 0).toFixed(2),
+                (c.cestinhaGmv ?? 0).toFixed(2),
+                c.activeClients,
+                c.breadsDelivered,
+              ]),
             ),
           )
       : undefined
@@ -87,6 +109,10 @@ export function RelCondominios({ onBack }: { onBack: () => void }) {
                     </div>
                     <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)' }}>
                       {fmtInt(c.activeClients)} clientes ativos · {fmtInt(c.breadsDelivered)} pães entregues
+                      {/* Composição da receita e o GMV ao lado: sem isso, um condomínio que subiu
+                          no ranking por causa da Cestinha parece ter vendido mais crédito. */}
+                      {(c.marketRevenue ?? 0) > 0 && ` · ${fmtBRL(c.marketRevenue ?? 0)} da Cestinha`}
+                      {(c.cestinhaGmv ?? 0) > 0 && ` · 🧺 ${fmtBRL(c.cestinhaGmv ?? 0)} movimentados`}
                     </span>
                   </div>
                 ))}

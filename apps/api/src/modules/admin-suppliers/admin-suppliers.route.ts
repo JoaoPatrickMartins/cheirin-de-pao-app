@@ -270,4 +270,139 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.remove.bind(ctrl),
   )
+
+  // ── Matriz de fornecimento (produto × fornecedor) ──
+  // Sem response-schema: o Fastify removeria campos silenciosamente e a tela viria vazia.
+  const supplierProductProps = {
+    productId: { type: 'string' },
+    productName: { type: 'string' },
+    productActive: { type: 'boolean' },
+    stockType: { type: 'string', description: 'DAILY (demanda diária) | FIXED (inventário).' },
+    unitCost: { type: 'number', description: 'Custo unitário deste produto NESTE fornecedor (R$).' },
+    defaultSharePct: { type: 'integer', description: 'Fatia padrão da demanda (0..100). Σ por produto ∈ {0,100}.' },
+    isPreferred: { type: 'boolean', description: 'Fornecedor padrão do produto; recebe o resto do arredondamento.' },
+    minOrderQty: { type: 'integer', nullable: true, description: 'Pedido mínimo (aviso, não bloqueio).' },
+    isActive: { type: 'boolean' },
+  }
+
+  fastify.get(
+    '/admin/suppliers/:id/products',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — suppliers'],
+        summary: 'Produtos que este fornecedor fornece',
+        description:
+          'Lista a matriz de fornecimento do fornecedor: cada produto que ele fornece, com o custo unitário, a fatia padrão da demanda e o pedido mínimo. A EXISTÊNCIA da linha é a afirmação "fornece este produto" — sem linha, não há custo e ele não aparece como opção para o produto. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do fornecedor.' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              products: { type: 'array', items: { type: 'object', properties: supplierProductProps } },
+            },
+          },
+        },
+      },
+    },
+    ctrl.listProducts.bind(ctrl),
+  )
+
+  fastify.put(
+    '/admin/suppliers/:id/products',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — suppliers'],
+        summary: 'Definir os produtos que este fornecedor fornece',
+        description:
+          'SUBSTITUI o conjunto de produtos do fornecedor — envie a lista COMPLETA. Produto ausente deixa de ser fornecido (a linha é apagada). Valida que a soma das fatias por produto fecha em 0% (o padrão leva tudo) ou 100%, e barra (409) remover o único fornecedor de um produto que tem pedido confirmado para os próximos dias. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do fornecedor.' } },
+        },
+        body: {
+          type: 'object',
+          required: ['products'],
+          properties: {
+            products: {
+              type: 'array',
+              description: 'Lista completa de produtos fornecidos. Lista vazia = não fornece nada.',
+              items: {
+                type: 'object',
+                required: ['productId', 'unitCost'],
+                properties: {
+                  productId: { type: 'string' },
+                  unitCost: { type: 'number', minimum: 0.01, description: 'Custo unitário em R$.' },
+                  defaultSharePct: { type: 'integer', minimum: 0, maximum: 100, description: 'Fatia padrão (default 0).' },
+                  isPreferred: { type: 'boolean', description: 'Fornecedor padrão deste produto.' },
+                  minOrderQty: { type: 'integer', minimum: 0, nullable: true },
+                  isActive: { type: 'boolean', description: 'Default true.' },
+                },
+              },
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              products: { type: 'array', items: { type: 'object', properties: supplierProductProps } },
+            },
+          },
+        },
+      },
+    },
+    ctrl.setProducts.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/market/products/:id/suppliers',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — suppliers'],
+        summary: 'Fornecedores de um produto (leitura)',
+        description:
+          'Visão espelhada da matriz: quem fornece este produto, por quanto e com que fatia. Somente leitura — a edição é feita no fornecedor (PUT /admin/suppliers/:id/products). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do produto.' } },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              suppliers: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    supplierId: { type: 'string' },
+                    supplierName: { type: 'string' },
+                    supplierActive: { type: 'boolean' },
+                    unitCost: { type: 'number' },
+                    defaultSharePct: { type: 'integer' },
+                    isPreferred: { type: 'boolean' },
+                    minOrderQty: { type: 'integer', nullable: true },
+                    isActive: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.listSuppliersOfProduct.bind(ctrl),
+  )
 }

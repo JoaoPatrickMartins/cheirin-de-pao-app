@@ -9,6 +9,7 @@ import { AdminSeparationController } from './admin-separation.controller.js'
  * Rotas:
  *   GET   /admin/separation/board            — pedidos do dia agrupados por condomínio → turno → cliente
  *   PATCH /admin/separation/orders/:id       — marca/desmarca um pedido como separado
+ *   PATCH /admin/separation/market-orders    — marca/desmarca uma parada só-Cestinha
  *   PATCH /admin/separation/conclude         — conclui um lote (condomínio + turno) → libera p/ entrega
  *
  * IMPORTANTE: a rota estática /conclude fica ANTES da dinâmica /orders/:id (não há
@@ -16,6 +17,26 @@ import { AdminSeparationController } from './admin-separation.controller.js'
  */
 export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
   const ctrl = new AdminSeparationController(fastify)
+
+  // Itens do mini market ("Além do Pãozin") que pegam carona na mesma parada.
+  const marketItemProps = {
+    type: 'array',
+    items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } } },
+  }
+
+  // Lista consolidada "quanto pegar da prateleira" — agregada por produto.
+  const marketPicklistProps = {
+    type: 'array',
+    description: 'Produtos do mercadinho a separar, agregados por produto.',
+    items: {
+      type: 'object',
+      properties: {
+        productId: { type: 'string' },
+        name: { type: 'string' },
+        qty: { type: 'integer' },
+      },
+    },
+  }
 
   const orderProps = {
     orderId: { type: 'string' },
@@ -29,6 +50,12 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     type: { type: 'string' },
     status: { type: 'string' },
     separated: { type: 'boolean' },
+    // Market: id do MarketOrder (em parada só-market), itens e contagem de itens de produto.
+    marketOrderId: { type: 'string' },
+    // Todas as Cestinhas da parada — o toggle de separação precisa da lista inteira.
+    marketOrderIds: { type: 'array', items: { type: 'string' } },
+    marketItems: marketItemProps,
+    marketItemCount: { type: 'integer' },
   }
 
   const slotProps = {
@@ -38,8 +65,11 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     separatedDeliveries: { type: 'integer' },
     totalBreads: { type: 'integer' },
     separatedBreads: { type: 'integer' },
+    totalItems: { type: 'integer' },
+    separatedItems: { type: 'integer' },
     concluded: { type: 'boolean' },
     orders: { type: 'array', items: { type: 'object', properties: orderProps } },
+    marketPicklist: marketPicklistProps,
   }
 
   const condoProps = {
@@ -49,6 +79,8 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     separatedDeliveries: { type: 'integer' },
     totalBreads: { type: 'integer' },
     separatedBreads: { type: 'integer' },
+    totalItems: { type: 'integer' },
+    separatedItems: { type: 'integer' },
     slots: { type: 'array', items: { type: 'object', properties: slotProps } },
   }
 
@@ -79,7 +111,10 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
               separatedDeliveries: { type: 'integer' },
               totalBreads: { type: 'integer' },
               separatedBreads: { type: 'integer' },
+              totalItems: { type: 'integer' },
+              separatedItems: { type: 'integer' },
               condominiums: { type: 'array', items: { type: 'object', properties: condoProps } },
+              marketPicklist: marketPicklistProps,
             },
           },
         },
@@ -120,6 +155,44 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.conclude.bind(ctrl),
+  )
+
+  // PATCH /admin/separation/market-orders (estática, antes da dinâmica /orders/:id)
+  fastify.patch(
+    '/admin/separation/market-orders',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — separation'],
+        summary: 'Marcar/desmarcar Cestinha como separada',
+        description:
+          'Alterna a separação de uma parada SÓ-Cestinha (cliente sem pedido de pão no turno): SCHEDULED ↔ SEPARATED. Recebe todos os MarketOrder da parada, já que um cliente pode ter mais de uma Cestinha no mesmo turno. Idempotente.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['marketOrderIds', 'separated'],
+          properties: {
+            marketOrderIds: {
+              type: 'array',
+              minItems: 1,
+              items: { type: 'string' },
+              description: 'IDs dos MarketOrder da parada.',
+            },
+            separated: { type: 'boolean', description: 'true = separada (SEPARATED); false = desfazer (SCHEDULED).' },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              count: { type: 'integer', description: 'Quantas cestinhas mudaram de status.' },
+              status: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.setMarketSeparated.bind(ctrl),
   )
 
   // PATCH /admin/separation/orders/:id

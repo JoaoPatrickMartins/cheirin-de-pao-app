@@ -34,4 +34,54 @@ export class AdminSuppliersRepository {
       data: { isPrincipal: false },
     })
   }
+
+  // ── Matriz de fornecimento (SupplierProduct) ──
+  findProductsOfSupplier(supplierId: string) {
+    return this.prisma.supplierProduct.findMany({ where: { supplierId } })
+  }
+
+  findSuppliersOfProduct(productId: string) {
+    return this.prisma.supplierProduct.findMany({ where: { productId } })
+  }
+
+  /** Linhas de OUTROS fornecedores para um produto — base da validação de Σ fatias. */
+  findOtherSharesForProduct(productId: string, exceptSupplierId: string) {
+    return this.prisma.supplierProduct.findMany({
+      where: { productId, supplierId: { not: exceptSupplierId }, isActive: true },
+      select: { supplierId: true, defaultSharePct: true },
+    })
+  }
+
+  upsertSupplierProduct(
+    supplierId: string,
+    productId: string,
+    data: { unitCost: number; defaultSharePct: number; isPreferred: boolean; minOrderQty?: number | null; isActive: boolean },
+  ) {
+    return this.prisma.supplierProduct.upsert({
+      where: { supplierId_productId: { supplierId, productId } },
+      create: { supplierId, productId, ...data },
+      update: data,
+    })
+  }
+
+  deleteSupplierProducts(supplierId: string, productIds: string[]) {
+    return this.prisma.supplierProduct.deleteMany({
+      where: { supplierId, productId: { in: productIds } },
+    })
+  }
+
+  /** Desmarca o preferido dos OUTROS fornecedores de um produto (só um por produto). */
+  clearPreferredForProduct(productId: string, exceptSupplierId: string) {
+    return this.prisma.supplierProduct.updateMany({
+      where: { productId, supplierId: { not: exceptSupplierId }, isPreferred: true },
+      data: { isPreferred: false },
+    })
+  }
+
+  findProductsByIds(ids: string[]) {
+    return this.prisma.product.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, isActive: true, stockType: true },
+    })
+  }
 }

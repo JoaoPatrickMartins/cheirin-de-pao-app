@@ -4,6 +4,7 @@ import { AdminHead } from '../../../components/admin/AdminHead'
 import { Icon } from '../../../components/brand/Icon'
 import { useAuth } from '../../../hooks/useAuth'
 import { AdminCombos } from '../gestao/AdminCombos'
+import { AdminMarket } from '../gestao/AdminMarket'
 import { AdminAvulso } from '../gestao/AdminAvulso'
 import { AdminPedidoMinimo } from '../gestao/AdminPedidoMinimo'
 import { AdminBloqueiosLimites } from '../gestao/AdminBloqueiosLimites'
@@ -22,6 +23,7 @@ import { AdminRelatorios } from '../gestao/AdminRelatorios'
 type AdminGestaoSub =
   | null
   | 'combos'
+  | 'market'
   | 'avulso'
   | 'pedido-minimo'
   | 'restricoes'
@@ -45,6 +47,7 @@ interface HubItem {
 
 const HUB_ITEMS: HubItem[] = [
   { key: 'combos', icon: 'bag', titulo: 'Combos e promoções', descricao: 'Criar, editar, descontos' },
+  { key: 'market', icon: 'bag', titulo: 'Além do Pãozin', descricao: 'Mini market: produtos, categorias, estoque' },
   { key: 'avulso', icon: 'coin', titulo: 'Compra personalizada', descricao: 'Limite e preço por pão' },
   { key: 'pedido-minimo', icon: 'bag', titulo: 'Pedido mínimo', descricao: 'Mínimo da agenda e do pedido único' },
   { key: 'restricoes', icon: 'calendar', titulo: 'Bloqueios e limites', descricao: 'Dias bloqueados e teto de pedidos por dia' },
@@ -70,6 +73,7 @@ export function AdminGestao() {
   const onBack = () => setSub(null)
 
   if (sub === 'combos') return <AdminCombos onBack={onBack} />
+  if (sub === 'market') return <AdminMarket onBack={onBack} />
   if (sub === 'avulso') return <AdminAvulso onBack={onBack} />
   if (sub === 'pedido-minimo') return <AdminPedidoMinimo onBack={onBack} />
   if (sub === 'restricoes') return <AdminBloqueiosLimites onBack={onBack} />

@@ -57,8 +57,14 @@ export const notificationsRoute: FastifyPluginAsync = async (fastify) => {
               type: 'object',
               properties: {
                 id: { type: 'string', description: 'ID da notificação (MongoDB ObjectId).' },
+                // `type` e `actionRoute` NÃO são decorativos: as telas de notificações (cliente e
+                // admin) derivam deles o ícone, a cor e o botão de ação. Estavam ausentes deste
+                // response-schema, então o serializador os removia em silêncio e toda notificação
+                // caía no visual genérico, sem CTA. Ao mexer aqui, mexer nos dois lugares.
+                type: { type: 'string', description: 'Tipo (NotificationType) — define ícone, tom e CTA na tela.' },
                 title: { type: 'string', description: 'Título da notificação.' },
                 body: { type: 'string', description: 'Corpo/mensagem da notificação.' },
+                actionRoute: { type: 'string', nullable: true, description: 'Rota interna do CTA/deep-link (ex.: /client/pedidos).' },
                 isRead: { type: 'boolean', description: 'true se a notificação foi lida pelo cliente.' },
                 createdAt: { type: 'string', description: 'Data/hora de criação (ISO 8601).' },
               },

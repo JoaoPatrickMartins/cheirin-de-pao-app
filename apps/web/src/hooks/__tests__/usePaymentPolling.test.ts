@@ -83,5 +83,22 @@ describe('usePaymentPolling', () => {
       })
       expect(mockApiFetch).not.toHaveBeenCalled()
     })
+
+    // Regressão: o serializador do Fastify já descartou creditBalance por não estar no response
+    // schema da rota. Se voltar a acontecer, o saldo não pode ser reportado como 0 — undefined
+    // significa "não sei", e quem consome mantém o último saldo conhecido.
+    it('propaga creditBalance undefined (nunca 0) quando a resposta nao traz o saldo', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'approved' }),
+      })
+      const onApproved = vi.fn()
+      renderHook(() => usePaymentPolling('payment-1', onApproved))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000)
+      })
+      expect(onApproved).toHaveBeenCalledWith(undefined)
+      expect(onApproved).not.toHaveBeenCalledWith(0)
+    })
   })
 })

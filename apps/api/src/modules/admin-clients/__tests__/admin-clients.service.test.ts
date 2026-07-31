@@ -43,6 +43,8 @@ function makeFastifyMock(overrides: {
     status: string
     quantity: number
   }>
+  /** Cestinhas do cliente (Onda E) — default: nenhuma. */
+  marketOrders?: Array<Record<string, unknown>>
   lastTransaction?: {
     id: string
     userId: string
@@ -68,6 +70,7 @@ function makeFastifyMock(overrides: {
     clientList = client ? [{ ...defaultClient, ...client }] : [],
     schedule = { id: 'schedule-01', userId: 'user-01', condominiumId: 'condo-01', weeklyQty: {}, isActive: true },
     orders = [],
+    marketOrders = [],
     lastTransaction = { id: 'tx-01', userId: 'user-01', type: 'PURCHASE', createdAt: new Date('2024-06-01') },
   } = overrides
 
@@ -91,6 +94,23 @@ function makeFastifyMock(overrides: {
     },
     delivery: {
       findMany: vi.fn().mockResolvedValue([]),
+    },
+    // Cestinhas do cliente (Onda E — CRM unificado). Default vazio → o fluxo do pão fica idêntico
+    // ao histórico, mesmo padrão dos stubs de marketOrder das Ondas A, B e F. Filtra por status
+    // como o Prisma faria, para que UMA fixture sirva às três consultas do getDetail (recentes,
+    // confirmadas e entregues) sem mock por chamada.
+    marketOrder: {
+      findMany: vi.fn().mockImplementation((args?: { where?: { status?: unknown } }) => {
+        const status = args?.where?.status
+        let rows = marketOrders
+        if (status && typeof status === 'object' && 'in' in status) {
+          const allowed = (status as { in: string[] }).in
+          rows = rows.filter((o) => allowed.includes(String(o.status)))
+        } else if (typeof status === 'string') {
+          rows = rows.filter((o) => o.status === status)
+        }
+        return Promise.resolve(rows)
+      }),
     },
     payment: {
       aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }),
@@ -828,6 +848,197 @@ describe('AdminClientsService', () => {
       await expect(service.generateAccessCode('user-01', 60, 'admin-01')).rejects.toMatchObject({
         statusCode: 422,
       })
+    })
+  })
+
+  // ── Onda E — a Cestinha no CRM ──────────────────────────────────────────────
+  // Antes disto o suporte não tinha NENHUMA forma de ver uma Cestinha do cliente: o detalhe e a
+  // lista de pedidos leem só `Order`.
+  describe('Cestinha no detalhe do cliente (E1)', () => {
+    const cestinha = (over: Record<string, unknown> = {}) => ({
+      id: 'mo-1',
+      status: 'DELIVERED',
+      scheduledDate: new Date('2026-07-28T15:00:00.000Z'),
+      slotId: 'manha',
+      deliveryTime: '08:00',
+      breadQty: 4,
+      items: [{ productId: 'p1', name: 'Bolo', qty: 2, unitPrice: 12 }],
+      totalValue: 30,
+      creditsApplied: 5,
+      moneyAmount: 6,
+      ...over,
+    })
+
+    it('devolve recentCestinhas com os itens e o itemCount somado', async () => {
+      const { fastify } = makeFastifyMock({ marketOrders: [cestinha({ items: [{ productId: 'p1', name: 'Bolo', qty: 2, unitPrice: 12 }, { productId: 'p2', name: 'Geleia', qty: 3, unitPrice: 8 }] })] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = await new AdminClientsService(fastify as any).getDetail('user-01')
+
+      expect(detail.recentCestinhas).toHaveLength(1)
+      expect(detail.recentCestinhas[0]).toMatchObject({ id: 'mo-1', breadQty: 4, itemCount: 5 })
+      expect(detail.recentCestinhas[0].items).toEqual([{ name: 'Bolo', qty: 2 }, { name: 'Geleia', qty: 3 }])
+    })
+
+    it('D-1: breadsDelivered SOMA o breadQty da Cestinha entregue', async () => {
+      const { fastify } = makeFastifyMock({ marketOrders: [cestinha({ breadQty: 4 })] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prisma = (fastify as any).prisma
+      prisma.order.aggregate = vi.fn().mockResolvedValue({ _sum: { quantity: 10 }, _count: 3 })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = await new AdminClientsService(fastify as any).getDetail('user-01')
+
+      expect(detail.metrics.breadsDelivered).toBe(14) // 10 do Order + 4 da Cestinha
+      // D-1: itens NUNCA entram no contador de pães.
+      expect(detail.metrics.itemsDelivered).toBe(2)
+    })
+
+    it('GMV e contagem usam a MESMA população — aguardando pagamento e cancelada ficam fora', async () => {
+      const { fastify } = makeFastifyMock({
+        marketOrders: [
+          cestinha({ id: 'ok-1', status: 'DELIVERED', totalValue: 30, creditsApplied: 5 }),
+          cestinha({ id: 'ok-2', status: 'SCHEDULED', totalValue: 20, creditsApplied: 2 }),
+          cestinha({ id: 'x-1', status: 'PENDING_PAYMENT', totalValue: 99, creditsApplied: 9 }),
+          cestinha({ id: 'x-2', status: 'CANCELLED', totalValue: 77, creditsApplied: 7 }),
+        ],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = await new AdminClientsService(fastify as any).getDetail('user-01')
+
+      expect(detail.metrics.cestinhasCount).toBe(2)
+      expect(detail.metrics.cestinhaGmv).toBe(50)
+      expect(detail.metrics.cestinhaCredits).toBe(7)
+      // recentCestinhas mostra TUDO (é auditoria — inclusive o que caiu).
+      expect(detail.recentCestinhas).toHaveLength(4)
+    })
+
+    it('D-2: totalSpent vem decomposto em crédito × Cestinha (dinheiro), sem GMV', async () => {
+      const { fastify } = makeFastifyMock({ marketOrders: [cestinha({ totalValue: 30, moneyAmount: 6 })] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prisma = (fastify as any).prisma
+      prisma.payment.aggregate = vi.fn().mockImplementation((args: { where: { purpose?: string } }) => {
+        if (args.where.purpose === 'MARKET') return Promise.resolve({ _sum: { amount: 6 }, _count: 1 })
+        if ('NOT' in args.where) return Promise.resolve({ _sum: { amount: 120 }, _count: 4 })
+        return Promise.resolve({ _sum: { amount: 126 }, _count: 5 })
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = await new AdminClientsService(fastify as any).getDetail('user-01')
+
+      expect(detail.metrics.totalSpent).toBe(126)
+      expect(detail.metrics.spentOnCredits).toBe(120)
+      expect(detail.metrics.spentOnCestinha).toBe(6)
+      // O GMV (30) é grandeza separada e não entra em nenhum "gasto".
+      expect(detail.metrics.cestinhaGmv).toBe(30)
+    })
+
+    it('cliente sem nenhuma Cestinha → métricas zeradas e lista vazia (sem regressão no pão)', async () => {
+      const { fastify } = makeFastifyMock({})
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = await new AdminClientsService(fastify as any).getDetail('user-01')
+
+      expect(detail.recentCestinhas).toEqual([])
+      expect(detail.metrics).toMatchObject({ cestinhasCount: 0, cestinhaGmv: 0, itemsDelivered: 0 })
+    })
+  })
+
+  describe('getOrders unificado (E2)', () => {
+    const order = (over: Record<string, unknown> = {}) => ({
+      id: 'ord-1',
+      userId: 'user-01',
+      type: 'SINGLE',
+      quantity: 6,
+      status: 'DELIVERED',
+      scheduledDate: new Date('2026-07-20T15:00:00.000Z'),
+      slotId: 'manha',
+      deliveryTime: '08:00',
+      courierId: null,
+      ...over,
+    })
+    const cestinha = (over: Record<string, unknown> = {}) => ({
+      id: 'mo-1',
+      userId: 'user-01',
+      status: 'SCHEDULED',
+      scheduledDate: new Date('2026-07-25T15:00:00.000Z'),
+      slotId: 'tarde',
+      deliveryTime: '15:00',
+      courierId: null,
+      breadQty: 4,
+      items: [{ productId: 'p1', name: 'Bolo', qty: 2, unitPrice: 12 }],
+      totalValue: 30,
+      creditsApplied: 5,
+      moneyAmount: 6,
+      deliveredAt: null,
+      ...over,
+    })
+
+    it('une pão e Cestinha ordenados por data desc, com kind', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { fastify } = makeFastifyMock({ orders: [order()] as any, marketOrders: [cestinha()] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getOrders('user-01')
+
+      expect(rows.map((r) => [r.kind, r.id])).toEqual([
+        ['CESTINHA', 'mo-1'], // 25/07 é mais recente
+        ['BREAD', 'ord-1'],
+      ])
+    })
+
+    it('linha da Cestinha: type MARKET, quantity = breadQty (D-1) e itens à parte', async () => {
+      const { fastify } = makeFastifyMock({ marketOrders: [cestinha()] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getOrders('user-01')
+
+      expect(rows[0]).toMatchObject({
+        kind: 'CESTINHA',
+        type: 'MARKET', // nunca 'SINGLE' — a tela chamaria a Cestinha de "Avulso"
+        quantity: 4,
+        itemCount: 2,
+        totalValue: 30,
+        creditsApplied: 5,
+        moneyAmount: 6,
+      })
+      expect(rows[0].items).toEqual([{ name: 'Bolo', qty: 2 }])
+    })
+
+    it('linha de pão continua sem campos de Cestinha (null/vazio), sem regressão', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { fastify } = makeFastifyMock({ orders: [order()] as any })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getOrders('user-01')
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ kind: 'BREAD', type: 'SINGLE', quantity: 6, itemCount: 0, totalValue: null })
+      expect(rows[0].items).toEqual([])
+    })
+
+    it('refundedCredits vem das MARKET_REFUND do pedido', async () => {
+      const { fastify } = makeFastifyMock({ marketOrders: [cestinha({ status: 'CANCELLED' })] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(fastify as any).prisma.creditTransaction.findMany = vi
+        .fn()
+        .mockResolvedValue([{ referenceId: 'mo-1', quantity: 6 }])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getOrders('user-01')
+
+      expect(rows[0].refundedCredits).toBe(6)
+    })
+
+    it('limit corta a janela DEPOIS de unir — não N de cada coleção', async () => {
+      const { fastify } = makeFastifyMock({
+        orders: [
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          order({ id: 'ord-antigo', scheduledDate: new Date('2026-07-01T15:00:00.000Z') }) as any,
+        ],
+        marketOrders: [
+          cestinha({ id: 'mo-novo', scheduledDate: new Date('2026-07-28T15:00:00.000Z') }),
+          cestinha({ id: 'mo-meio', scheduledDate: new Date('2026-07-27T15:00:00.000Z') }),
+        ],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getOrders('user-01', 2)
+
+      // As 2 linhas mais recentes do conjunto UNIDO são as duas Cestinhas — o pedido de pão
+      // antigo fica fora, mesmo sendo o único da sua coleção.
+      expect(rows.map((r) => r.id)).toEqual(['mo-novo', 'mo-meio'])
     })
   })
 })

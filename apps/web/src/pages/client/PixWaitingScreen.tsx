@@ -99,7 +99,7 @@ function PixWaitingContent({
     return false
   }
 
-  const handleApproved = async (creditBalance: number) => {
+  const handleApproved = async (creditBalance?: number) => {
     setIsApproved(true)
 
     // Gancho adicional: não credita pães nem agenda — segue para a tela de sucesso do gancho.
@@ -108,7 +108,9 @@ function PixWaitingContent({
       return
     }
 
-    onCreditUpdate(creditBalance)
+    // Mesma guarda do runFinalize: sem saldo na resposta, mantém o último conhecido em vez de
+    // gravar 0 (o que esconderia os créditos do cliente até a Home ressincronizar).
+    if (creditBalance !== undefined) onCreditUpdate(creditBalance)
 
     // Pedido único: cria a entrega agora que a diferença foi creditada.
     if (pendingOrder) {
