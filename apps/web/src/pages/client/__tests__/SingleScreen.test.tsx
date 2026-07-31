@@ -19,6 +19,16 @@ vi.mock('../../../hooks/useAuth', () => ({
   }),
 }))
 
+// A tela consome a Cestinha (useCart). Mockamos o contexto em vez de montar o CartProvider
+// real, que dispararia GET /market/cart contra o mock de apiFetch. Cestinha vazia →
+// hasMarket = false → o fluxo próprio do pedido único (agendamento + pagamento) fica ativo.
+const cartMock = vi.hoisted(() => ({ setBreadQty: vi.fn() }))
+vi.mock('../../../contexts/CartContext', async () => {
+  const { emptyCart } = await import('../../../lib/market')
+  const cart = emptyCart()
+  return { useCart: () => ({ cart, setBreadQty: cartMock.setBreadQty }) }
+})
+
 const mockNavigate = vi.fn()
 vi.mock('react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router')>()

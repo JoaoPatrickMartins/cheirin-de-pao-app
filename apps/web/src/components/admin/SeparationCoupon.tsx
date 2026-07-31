@@ -22,6 +22,8 @@ export interface CouponData {
   quantity: number
   slotLabel: string
   dateLabel: string
+  /** Itens do mini market ("Além do Pãozin") que acompanham esta parada. */
+  marketItems?: { name: string; qty: number }[]
 }
 
 function BreadMark() {
@@ -96,17 +98,33 @@ export function SeparationCouponSheet({ coupons }: { coupons: CouponData[] }) {
           <div style={{ fontSize: '9pt', fontWeight: 700, padding: '3mm 0 0' }}>
             Turno: {c.slotLabel} · {c.dateLabel}
           </div>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              padding: '1mm 0',
-            }}
-          >
-            <span style={{ fontWeight: 800, fontSize: '11pt' }}>Pãezinhos</span>
-            <span style={{ fontWeight: 800, fontSize: '17pt' }}>{c.quantity}</span>
-          </div>
+          {c.quantity > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                padding: '1mm 0',
+              }}
+            >
+              <span style={{ fontWeight: 800, fontSize: '11pt' }}>Pãezinhos</span>
+              <span style={{ fontWeight: 800, fontSize: '17pt' }}>{c.quantity}</span>
+            </div>
+          )}
+
+          {c.marketItems && c.marketItems.length > 0 && (
+            <div style={{ padding: '2mm 0 1mm', borderTop: c.quantity > 0 ? '1px dashed #000' : undefined, marginTop: c.quantity > 0 ? '1mm' : 0 }}>
+              <div style={{ fontSize: '8pt', letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 700, marginBottom: '1mm' }}>
+                Além do Pãozin
+              </div>
+              {c.marketItems.map((it, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5pt', fontWeight: 700, padding: '0.3mm 0' }}>
+                  <span>{it.name}</span>
+                  <span>{it.qty}×</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5mm', paddingTop: '4mm' }}>
             <QRCodeSVG value={c.orderId} size={256} level="M" style={{ width: '28mm', height: '28mm' }} />

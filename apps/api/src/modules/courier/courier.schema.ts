@@ -43,10 +43,17 @@ export type TodayOrdersResponse = {
       // ter ambos os turnos no mesmo dia).
       slotId: string
       slotLabel: string
+      // Mini market ("Além do Pãozin") que pega carona nesta parada.
+      marketOrderId?: string // presente em parada SÓ-market (sem pedido de pão)
+      /** Todas as Cestinhas da parada (cliente + turno). Vazio em parada só de pão. */
+      marketOrderIds: string[]
+      marketItems: Array<{ name: string; qty: number }>
+      marketItemCount: number
     }>
   }>
   totalStops: number
   totalBreads: number
+  totalItems: number
   route: { distanceKm: string; durationMin: number; geometry: Array<[number, number]> } | null
   // Turnos presentes na rota de hoje (distintos, ordenados por horário) — usado no
   // cabeçalho do app do entregador para informar turno + horário.
@@ -67,6 +74,10 @@ export type TodayOrdersResponse = {
       slotLabel: string
       // Instante da conclusão (deliveredAt ou failedAt) em ISO 8601; null se ausente.
       completedAt: string | null
+      marketOrderId?: string
+      marketOrderIds: string[]
+      marketItems: Array<{ name: string; qty: number }>
+      marketItemCount: number
     }>
   }>
   completedTotal: number

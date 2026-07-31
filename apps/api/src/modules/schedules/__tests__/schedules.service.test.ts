@@ -1,7 +1,7 @@
 // SchedulesService unit tests — Wave 1 (Fase 4 Plan 02) + Wave 2 (Fase 8 Plan 05) + Wave 0 (Fase 14 Plan 01)
 // Requirements: SCHED-02, SCHED-03, SCHED-04, CRED-08, CRED-10, MSCHED-02, MSCHED-04
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { SchedulesService, findAgendaMinimoError } from '../schedules.service.js'
+import { SchedulesService, findAgendaMinimoError, eveMessage } from '../schedules.service.js'
 import { FastifyInstance } from 'fastify'
 import * as OneSignalModule from '@onesignal/node-onesignal'
 
@@ -59,10 +59,12 @@ function createMockFastify(overrides?: {
   updateUserFn?: ReturnType<typeof vi.fn>
   createTransactionFn?: ReturnType<typeof vi.fn>
   orderFindManyFn?: ReturnType<typeof vi.fn>
+  /** Cestinhas do escopo (Onda F2 — véspera unifica pão + Cestinha). Default: nenhuma. */
+  marketOrderFindManyFn?: ReturnType<typeof vi.fn>
   userFindUniqueFn?: ReturnType<typeof vi.fn>
   agendaMinimoRow?: { key: string; value: string } | null
 }) {
-  const { schedules = [], users = {}, createOrderFn, updateUserFn, createTransactionFn, orderFindManyFn, userFindUniqueFn, agendaMinimoRow } = overrides ?? {}
+  const { schedules = [], users = {}, createOrderFn, updateUserFn, createTransactionFn, orderFindManyFn, marketOrderFindManyFn, userFindUniqueFn, agendaMinimoRow } = overrides ?? {}
 
   const transactionFn = vi.fn().mockImplementation(async (cb: (tx: object) => Promise<void>) => {
     const tx = {
@@ -101,6 +103,11 @@ function createMockFastify(overrides?: {
       order: {
         findMany: orderFindManyFn ?? vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(0),
+      },
+      // Default vazio → o fluxo do pão fica idêntico ao histórico (mesmo padrão dos stubs de
+      // marketOrder adicionados nas Ondas A e B).
+      marketOrder: {
+        findMany: marketOrderFindManyFn ?? vi.fn().mockResolvedValue([]),
       },
       user: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -297,6 +304,141 @@ describe('SchedulesService', () => {
       expect(createAndTrimMock).toHaveBeenCalledWith(
         expect.objectContaining({ userId: 'user-2', type: 'DELIVERY_EVE' }),
       )
+    })
+  })
+
+  // ── Onda F2 — véspera unificada (pão + Cestinha) ──────────────────────────────
+  // Antes a véspera iterava só `Order`: quem tinha Cestinha para amanhã não recebia nada. A
+  // unidade do aviso é a PARADA (D-5: userId + turno) — uma campainha amanhã, um aviso hoje.
+  describe('eveMessage (texto do lembrete)', () => {
+    it('só pão → mantém o texto histórico, com horário', () => {
+      const { title, body } = eveMessage({ breads: 4, items: 0, hasBread: true, hasCestinha: false, deliveryTime: '06:30' })
+      expect(title).toBe('Entrega amanhã 🥖')
+      expect(body).toBe('Lembrete: 4 pães às 06:30 amanhã.')
+    })
+
+    it('pão + Cestinha → UMA mensagem, com as duas grandezas separadas (D-1)', () => {
+      const { title, body } = eveMessage({ breads: 6, items: 2, hasBread: true, hasCestinha: true, deliveryTime: '07:00' })
+      expect(title).toBe('Entrega amanhã 🥖🧺')
+      expect(body).toBe('Lembrete: 6 pães e sua Cestinha (2 itens) às 07:00 amanhã.')
+      // Nunca soma pães com itens: o total "8" não existe em lugar nenhum do texto.
+      expect(body).not.toContain('8')
+    })
+
+    it('só Cestinha (sem pão) → título 🧺', () => {
+      const { title, body } = eveMessage({ breads: 0, items: 1, hasBread: false, hasCestinha: true, deliveryTime: null })
+      expect(title).toBe('Entrega amanhã 🧺')
+      expect(body).toBe('Lembrete: sua Cestinha (1 item) amanhã.')
+    })
+
+    it('Cestinha só de pão → é entrega de pão para o cliente (🥖, sem falar de itens)', () => {
+      const { title, body } = eveMessage({ breads: 4, items: 0, hasBread: false, hasCestinha: true, deliveryTime: '07:00' })
+      expect(title).toBe('Entrega amanhã 🥖')
+      expect(body).toBe('Lembrete: 4 pães às 07:00 amanhã.')
+    })
+
+    it('sem deliveryTime → nunca interpola null/undefined (T-14-03-03)', () => {
+      const { body } = eveMessage({ breads: 1, items: 0, hasBread: true, hasCestinha: false, deliveryTime: null })
+      expect(body).toBe('Lembrete: 1 pão amanhã.')
+      expect(body).not.toContain('null')
+      expect(body).not.toContain('undefined')
+    })
+  })
+
+  describe('sendEveReminders — Cestinha (F2)', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    type MarketShape = {
+      userId: string
+      slotId: string | null
+      deliveryTime: string | null
+      breadQty: number
+      items: { qty: number }[]
+    }
+
+    function runWith(orders: OrderShape[], marketOrders: MarketShape[]) {
+      const fastify = createMockFastify({
+        orderFindManyFn: vi.fn().mockResolvedValue(orders),
+        marketOrderFindManyFn: vi.fn().mockResolvedValue(marketOrders),
+        userFindUniqueFn: vi.fn().mockResolvedValue({ oneSignalPlayerId: null }),
+      })
+      const service = new SchedulesService(fastify)
+      const createAndTrimMock = vi.fn().mockResolvedValue(undefined)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: createAndTrimMock }
+      return { service, createAndTrimMock, fastify }
+    }
+
+    it('pão + Cestinha no MESMO turno → um único aviso (não dois pushes)', async () => {
+      const { service, createAndTrimMock } = runWith(
+        [{ id: 'o1', userId: 'u1', quantity: 4, scheduledDate: new Date(), status: 'SCHEDULED', deliveryTime: '08:00', slotId: 'manha' } as OrderShape],
+        [{ userId: 'u1', slotId: 'manha', deliveryTime: '08:00', breadQty: 0, items: [{ qty: 2 }] }],
+      )
+      await service.sendEveReminders()
+
+      expect(createAndTrimMock).toHaveBeenCalledTimes(1)
+      expect(createAndTrimMock.mock.calls[0][0].body).toBe('Lembrete: 4 pães e sua Cestinha (2 itens) às 08:00 amanhã.')
+    })
+
+    it('cliente SÓ com Cestinha amanhã → passa a receber aviso (antes: nenhum)', async () => {
+      const { service, createAndTrimMock } = runWith(
+        [],
+        [{ userId: 'u2', slotId: 'tarde', deliveryTime: '15:00', breadQty: 0, items: [{ qty: 3 }] }],
+      )
+      await service.sendEveReminders()
+
+      expect(createAndTrimMock).toHaveBeenCalledTimes(1)
+      expect(createAndTrimMock.mock.calls[0][0]).toMatchObject({ userId: 'u2', type: 'DELIVERY_EVE' })
+      expect(createAndTrimMock.mock.calls[0][0].body).toContain('sua Cestinha (3 itens)')
+    })
+
+    it('breadQty da Cestinha SOMA no contador de pães (D-1)', async () => {
+      const { service, createAndTrimMock } = runWith(
+        [{ id: 'o1', userId: 'u1', quantity: 2, scheduledDate: new Date(), status: 'SCHEDULED', deliveryTime: '08:00', slotId: 'manha' } as OrderShape],
+        [{ userId: 'u1', slotId: 'manha', deliveryTime: '08:00', breadQty: 4, items: [{ qty: 1 }] }],
+      )
+      await service.sendEveReminders()
+
+      expect(createAndTrimMock.mock.calls[0][0].body).toBe('Lembrete: 6 pães e sua Cestinha (1 item) às 08:00 amanhã.')
+    })
+
+    it('turnos diferentes do mesmo cliente → duas paradas, dois avisos', async () => {
+      const { service, createAndTrimMock } = runWith(
+        [{ id: 'o1', userId: 'u1', quantity: 2, scheduledDate: new Date(), status: 'SCHEDULED', deliveryTime: '08:00', slotId: 'manha' } as OrderShape],
+        [{ userId: 'u1', slotId: 'tarde', deliveryTime: '15:00', breadQty: 0, items: [{ qty: 1 }] }],
+      )
+      await service.sendEveReminders()
+
+      expect(createAndTrimMock).toHaveBeenCalledTimes(2)
+      expect(createAndTrimMock.mock.calls[0][0].body).toContain('às 08:00')
+      expect(createAndTrimMock.mock.calls[1][0].body).toContain('às 15:00')
+    })
+
+    it('dois pedidos de pão no mesmo turno → um aviso com o total (mescla por parada)', async () => {
+      const { service, createAndTrimMock } = runWith(
+        [
+          { id: 'o1', userId: 'u1', quantity: 2, scheduledDate: new Date(), status: 'SCHEDULED', deliveryTime: '08:00', slotId: 'manha' } as OrderShape,
+          { id: 'o2', userId: 'u1', quantity: 3, scheduledDate: new Date(), status: 'SCHEDULED', deliveryTime: '08:00', slotId: 'manha' } as OrderShape,
+        ],
+        [],
+      )
+      await service.sendEveReminders()
+
+      expect(createAndTrimMock).toHaveBeenCalledTimes(1)
+      expect(createAndTrimMock.mock.calls[0][0].body).toBe('Lembrete: 5 pães às 08:00 amanhã.')
+    })
+
+    it('só busca Cestinha que ainda vai ser entregue — PENDING_PAYMENT fica fora', async () => {
+      const marketFindMany = vi.fn().mockResolvedValue([])
+      const fastify = createMockFastify({ marketOrderFindManyFn: marketFindMany })
+      const service = new SchedulesService(fastify)
+      ;(service as unknown as Record<string, unknown>)['notificationsService'] = { createAndTrim: vi.fn() }
+      await service.sendEveReminders()
+
+      const where = marketFindMany.mock.calls[0][0].where as { status: { in: string[] } }
+      expect(where.status.in).toEqual(['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'])
+      expect(where.status.in).not.toContain('PENDING_PAYMENT')
     })
   })
 

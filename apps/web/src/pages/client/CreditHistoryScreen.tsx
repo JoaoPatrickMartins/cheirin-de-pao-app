@@ -16,8 +16,14 @@ interface CreditTransaction {
 const TYPE_LABEL: Record<string, string> = {
   PURCHASE: 'Compra de créditos',
   DELIVERY: 'Entrega',
+  REFUND: 'Estorno',
+  EXPIRY: 'Expiração',
   ADMIN_GRANT: 'Crédito concedido',
+  ADMIN_DEBIT: 'Ajuste de saldo',
   DELIVERY_DONE: 'Entrega realizada',
+  // Cestinha (Além do Pãozin): o débito ao pagar em pãezinhos e a devolução no cancelamento.
+  MARKET_PURCHASE: 'Cestinha — Além do Pãozin',
+  MARKET_REFUND: 'Cestinha cancelada — pãezinhos devolvidos',
 }
 
 export function CreditHistoryScreen() {

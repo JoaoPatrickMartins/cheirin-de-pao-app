@@ -8,17 +8,31 @@ import { Icon } from '../brand/Icon'
 
 type RiskFlag = '' | 'no-credit' | 'blocked'
 
+interface MarketItemLine {
+  name: string
+  qty: number
+}
+
+/** Uma PARADA de entrega (cliente + turno): pedido de pão, Cestinha, previsto ou a combinação. */
 interface DeliveryDetail {
   userId: string
   name: string
   apartment: string
   block: string
+  /** Total de pães da parada (pago + previsto). */
   quantity: number
   slotId: string
   slotLabel: string
   type: 'SINGLE' | 'SCHEDULED'
   source: 'order' | 'projected'
   risk: RiskFlag
+  /** Itens do mercadinho desta parada. */
+  marketItems: MarketItemLine[]
+  marketItemCount: number
+  /** Pães desta parada que vêm da Cestinha. */
+  breadFromMarket: number
+  /** bread | market (só-Cestinha) | both (parada combinada). */
+  origin: 'bread' | 'market' | 'both'
 }
 
 interface SlotBreakdown {
@@ -26,6 +40,7 @@ interface SlotBreakdown {
   label: string
   breads: number
   deliveries: number
+  items: number
 }
 
 interface CondoDetail {
@@ -38,7 +53,9 @@ interface CondoDetail {
   projectedDeliveries: number
   riskCount: number
   bySlot: SlotBreakdown[]
-  byType: { single: number; scheduled: number }
+  /** Quebra dos pães JÁ PAGOS por origem: single + scheduled + cestinha. */
+  byType: { single: number; scheduled: number; cestinha: number }
+  marketItemCount: number
   deliveries: DeliveryDetail[]
 }
 
@@ -143,16 +160,23 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
 
   function exportCsv() {
     if (!data) return
-    const header = ['Cliente', 'Bloco', 'Apartamento', 'Turno', 'Tipo', 'Origem', 'Risco', 'Quantidade']
+    // Colunas da Cestinha ao lado das do pão — quem separa precisa das duas (D-1).
+    const header = [
+      'Cliente', 'Bloco', 'Apartamento', 'Turno', 'Tipo', 'Origem', 'Risco', 'Quantidade',
+      'Pães da Cestinha', 'Itens da Cestinha', 'Itens (detalhe)',
+    ]
     const linhas = data.deliveries.map((d) => [
       d.name,
       d.block,
       d.apartment,
       d.slotLabel,
-      d.type === 'SINGLE' ? 'Avulso' : 'Agenda',
+      d.origin === 'market' ? 'Cestinha' : d.type === 'SINGLE' ? 'Avulso' : 'Agenda',
       d.source === 'projected' ? 'Previsto' : 'Confirmado',
       riskLabel(d.risk) ?? '',
       String(d.quantity),
+      String(d.breadFromMarket),
+      String(d.marketItemCount),
+      d.marketItems.map((it) => `${it.qty}x ${it.name}`).join(' | '),
     ])
     const csv = [header, ...linhas]
       .map((r) => r.map((f) => `"${String(f).replace(/"/g, '""')}"`).join(','))
@@ -424,8 +448,13 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {rows.reduce((s, r) => s + r.quantity, 0)} pães · {rows.length}{' '}
-                    {rows.length === 1 ? 'entrega' : 'entregas'}
+                    {rows.reduce((s, r) => s + r.quantity, 0)} pães
+                    {(() => {
+                      // Itens do mercadinho do grupo — paralelos aos pães (D-1), nunca somados.
+                      const it = rows.reduce((s, r) => s + r.marketItemCount, 0)
+                      return it > 0 ? ` · ${it} ${it === 1 ? 'item' : 'itens'}` : ''
+                    })()}{' '}
+                    · {rows.length} {rows.length === 1 ? 'entrega' : 'entregas'}
                   </span>
                 </div>
                 {rows.map((d, i) => {
@@ -507,16 +536,45 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                           }}
                         >
                           {d.apartment ? <span>Ap {d.apartment}</span> : null}
-                          {/* Badge tipo/origem */}
+                          {/* Badge tipo/origem. Parada só-Cestinha (origin 'market') não é
+                              "avulso" nem "agenda" — é uma compra do mercadinho. */}
                           {d.source === 'projected' ? (
                             <Badge text="Previsto" fg="var(--color-accent)" border="var(--color-gold-soft)" />
+                          ) : d.origin === 'market' ? (
+                            <Badge text="🧺 Cestinha" bg="var(--color-gold-soft)" fg="var(--color-accent)" />
                           ) : d.type === 'SINGLE' ? (
                             <Badge text="Avulso" bg="var(--color-surface-2)" fg="var(--color-text-sec)" />
                           ) : (
                             <Badge text="Agenda" bg="var(--color-good-soft)" fg="var(--color-good)" />
                           )}
+                          {/* Parada combinada: pão + Cestinha na MESMA visita (D-5). */}
+                          {d.origin === 'both' && (
+                            <Badge text="+ 🧺" bg="var(--color-gold-soft)" fg="var(--color-accent)" />
+                          )}
                           {rLabel && <Badge text={rLabel} bg={WARN_SOFT} fg={WARN} icon="alert" />}
                         </div>
+                        {/* Itens do mercadinho da parada — o que separar além do pão. */}
+                        {d.marketItems.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                            {d.marketItems.map((it, k) => (
+                              <span
+                                key={k}
+                                style={{
+                                  fontFamily: 'var(--font-body)',
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                  padding: '2px 7px',
+                                  borderRadius: 999,
+                                  background: 'var(--color-gold-soft)',
+                                  color: 'var(--color-accent)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {it.qty}× {it.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <span
@@ -530,7 +588,9 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                             display: 'block',
                           }}
                         >
-                          {d.quantity} 🥖
+                          {/* Parada só-Cestinha pode ter 0 pães (só produtos): mostra o cesto
+                              em vez de um "0 🥖" que parece erro. */}
+                          {d.quantity > 0 ? `${d.quantity} 🥖` : `${d.marketItemCount} 🧺`}
                         </span>
                         <span
                           style={{

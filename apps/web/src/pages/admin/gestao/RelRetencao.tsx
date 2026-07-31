@@ -129,6 +129,9 @@ export function RelRetencao({ onBack }: { onBack: () => void }) {
                 <StatRow label="Créditos vendidos (período)" value={fmtInt(data.repurchase.creditsSold)} />
                 <StatRow label="Créditos consumidos (período)" value={fmtInt(data.repurchase.creditsConsumed)} />
               </div>
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
+                Consumidos = entregas de pão + pãezinhos gastos na Cestinha.
+              </p>
             </ReportCard>
 
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)', margin: 0 }}>

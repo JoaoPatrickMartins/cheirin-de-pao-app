@@ -15,21 +15,29 @@ export interface DaySlot {
   cutoffTime: string
   cutoffAt: string
   deliveryDate: string
-  /** Confirmados (o que será pedido). */
+  /** Pães já pagos (o que será pedido) — inclui o pão vendido dentro da Cestinha. */
   breads: number
   /** Previstos pela agenda (ainda não materializados) — contexto. */
   projectedBreads: number
+  /** Paradas do turno (pão + Cestinha do mesmo cliente = 1). */
   deliveries: number
   riskCount: number
   generated: boolean
   pastCutoff: boolean
+  /** true também quando o turno tem só Cestinha (0 pães, N itens). */
   hasOrders: boolean
+  /** Itens do mercadinho do turno — métrica paralela aos pães, nunca somada a eles. */
+  items: number
+  /** Recorte de `breads` que vem da Cestinha. */
+  marketBreads: number
 }
 
 export interface UpcomingDay {
   date: string
   slots: DaySlot[]
   totalBreads: number
+  /** Itens do mercadinho do dia — métrica paralela aos pães. */
+  totalItems: number
   hasOrders: boolean
   allGenerated: boolean
   anyPending: boolean
@@ -548,6 +556,9 @@ function DayCard({ day, onOpen }: { day: UpcomingDay; onOpen: () => void }) {
   const riskEstimated = diff >= 2
   // Número grande = confirmados; se ainda não há confirmado, mostra os previstos.
   const bigNumber = day.totalBreads > 0 ? day.totalBreads : projectedTotal
+  // Itens do mercadinho — métrica PARALELA aos pães (D-1), nunca somada ao número de pães.
+  // Um dia pode ter 0 pães e N itens (Cestinha só de produtos): sem esta linha ele parecia vazio.
+  const items = day.totalItems
   const caption =
     day.totalBreads > 0 && projectedTotal > 0
       ? `+${projectedTotal} prev.`
@@ -626,6 +637,8 @@ function DayCard({ day, onOpen }: { day: UpcomingDay; onOpen: () => void }) {
             >
               <i style={{ width: 7, height: 7, borderRadius: 2, background: slotColor(s.slotId), display: 'inline-block' }} />
               {s.label} {s.breads || s.projectedBreads}
+              {/* Itens do mercadinho do turno, ao lado dos pães (nunca somados a eles — D-1). */}
+              {s.items > 0 && <span style={{ color: 'var(--color-accent)' }}>· {s.items} 🧺</span>}
               {s.generated && <span style={{ color: 'var(--color-good)', fontWeight: 900 }}>✓</span>}
             </span>
           ))}
@@ -662,6 +675,11 @@ function DayCard({ day, onOpen }: { day: UpcomingDay; onOpen: () => void }) {
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, color: st.tone === 'mut' ? 'var(--color-text-ter)' : 'var(--color-text)' }}>
           {bigNumber}{st.tone !== 'mut' ? ' 🥖' : ''}
         </span>
+        {items > 0 && (
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 800, color: 'var(--color-accent)', lineHeight: 1 }}>
+            {items} 🧺
+          </span>
+        )}
         {caption && (
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 700, color: 'var(--color-accent)', lineHeight: 1 }}>
             {caption}

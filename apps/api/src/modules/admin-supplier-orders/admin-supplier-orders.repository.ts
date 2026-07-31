@@ -50,11 +50,23 @@ export class AdminSupplierOrdersRepository {
    */
   async create(data: {
     date: Date
-    slotId: string
-    slotLabel: string
+    slotId: string | null
+    slotLabel: string | null
     cutoffTime: Date
+    /** SÓ PÃES — `getWasteReport` compara este campo com os pães entregues. */
     totalQuantity: number
-    items: Array<{ supplierId: string; quantity: number; unitPrice: number }>
+    /** Unidades de produtos não-pão. */
+    totalItems: number
+    /** Custo total do pedido (R$). */
+    totalValue: number
+    kind: 'DELIVERY_BATCH' | 'RESTOCK'
+    items: Array<{
+      supplierId: string
+      productId: string | null
+      productName: string | null
+      quantity: number
+      unitPrice: number
+    }>
   }) {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.purchaseOrder.create({
@@ -64,6 +76,9 @@ export class AdminSupplierOrdersRepository {
           slotLabel: data.slotLabel,
           cutoffTime: data.cutoffTime,
           totalQuantity: data.totalQuantity,
+          totalItems: data.totalItems,
+          totalValue: data.totalValue,
+          kind: data.kind,
           status: 'DRAFT',
         },
       })
@@ -72,6 +87,8 @@ export class AdminSupplierOrdersRepository {
         data: data.items.map((item) => ({
           purchaseOrderId: order.id,
           supplierId: item.supplierId,
+          productId: item.productId,
+          productName: item.productName,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
         })),

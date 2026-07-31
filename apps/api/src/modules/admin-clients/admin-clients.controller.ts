@@ -76,6 +76,7 @@ export class AdminClientsController {
         blockedByName: result.blockedByName,
         schedule: result.schedule,
         recentOrders: result.recentOrders,
+        recentCestinhas: result.recentCestinhas,
         metrics: result.metrics,
       })
     } catch (err) {

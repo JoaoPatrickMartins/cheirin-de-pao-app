@@ -98,4 +98,76 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     })
     console.log('[bootstrap] Combo padrão criado (Combo 10 Pãezinhos)')
   }
+
+  // ── Mini market "Além do Pãozin" ──────────────────────────────────────────
+  // Mínimo da Cestinha (R$) — pedido do mercadinho abaixo disso fica bloqueado no checkout.
+  // default R$ 15,00 — o admin ajusta em Gestão → Além do Pãozin.
+  await prisma.setting.upsert({
+    where: { key: 'marketMinimoCestinha' },
+    update: {},
+    create: { key: 'marketMinimoCestinha', value: '15.00' },
+  })
+
+  // Valor mínimo (R$) da parte EM DINHEIRO para liberar cartão de crédito na Cestinha; abaixo
+  // disso só Pix. default '0' = cartão sempre liberado (regra desligada). Admin ajusta em
+  // Gestão → Além do Pãozin.
+  await prisma.setting.upsert({
+    where: { key: 'marketCartaoMinimo' },
+    update: {},
+    create: { key: 'marketCartaoMinimo', value: '0' },
+  })
+
+  // Categorias padrão do mini market — criadas apenas quando NÃO há nenhuma categoria.
+  // O admin pode criar/editar/excluir depois (CRUD /admin/market/categories).
+  const categoriesCount = await prisma.productCategory.count()
+  if (categoriesCount === 0) {
+    await prisma.productCategory.createMany({
+      data: [
+        { name: 'Geleias & Mel', emoji: '🍯', sortOrder: 0 },
+        { name: 'Bolos & Doces', emoji: '🍰', sortOrder: 1 },
+        { name: 'Pão de Queijo & Salgados', emoji: '🧀', sortOrder: 2 },
+        { name: 'Bebidas', emoji: '🥤', sortOrder: 3 },
+        { name: 'Frios & Frescos', emoji: '🥓', sortOrder: 4 },
+        { name: 'Especiais', emoji: '🎁', sortOrder: 5 },
+      ],
+    })
+    console.log('[bootstrap] 6 categorias padrão do mini market criadas')
+  }
+
+  // Pão Francês — produto FIXO da Cestinha (o mesmo pão do pedido único, em outro fluxo).
+  // Categoria "Pães" + produto marcado pelo Setting `breadProductId`. O admin configura só a
+  // apresentação (foto/descrição/dias); o PREÇO vem sempre do `avulsoUnit` (o catálogo sobrescreve)
+  // e o MÍNIMO segue o `pedidoMinimoUnico`. A COMPRA continua pelo `breadQty` (vira MarketOrder).
+  const breadIdRow = await prisma.setting.findUnique({ where: { key: 'breadProductId' } })
+  const existingBread = breadIdRow
+    ? await prisma.product.findUnique({ where: { id: breadIdRow.value } })
+    : null
+  if (!existingBread) {
+    let paesCat = await prisma.productCategory.findFirst({ where: { name: 'Pães' } })
+    if (!paesCat) {
+      paesCat = await prisma.productCategory.create({ data: { name: 'Pães', emoji: '🥖', sortOrder: -1 } })
+      console.log('[bootstrap] categoria "Pães" criada')
+    }
+    const avulsoRow = await prisma.setting.findUnique({ where: { key: 'avulsoUnit' } })
+    const price = avulsoRow ? parseFloat(avulsoRow.value) : 1
+    const bread = await prisma.product.create({
+      data: {
+        name: 'Pão Francês',
+        description: 'Nosso pãozinho de todo dia, quentinho na sua porta.',
+        categoryId: paesCat.id,
+        price: Number.isFinite(price) && price > 0 ? price : 1,
+        stockType: 'DAILY',
+        dailyCapacity: 1_000_000, // sempre disponível; a compra não reserva estoque (usa breadQty)
+        availableDays: [] as unknown as object,
+        isActive: true,
+        sortOrder: -1,
+      },
+    })
+    await prisma.setting.upsert({
+      where: { key: 'breadProductId' },
+      update: { value: bread.id },
+      create: { key: 'breadProductId', value: bread.id },
+    })
+    console.log('[bootstrap] produto fixo "Pão Francês" criado')
+  }
 }

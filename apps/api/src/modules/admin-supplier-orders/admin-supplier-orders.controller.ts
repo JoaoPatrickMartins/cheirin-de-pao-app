@@ -6,7 +6,11 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { CreateSupplierOrderSchema } from './admin-supplier-orders.schema.js'
+import {
+  CreateSupplierOrderSchema,
+  CreateRestockSchema,
+  RestockSuggestionQuerySchema,
+} from './admin-supplier-orders.schema.js'
 import { AdminSupplierOrdersService } from './admin-supplier-orders.service.js'
 
 type ZodIssue = { message: string }
@@ -294,12 +298,109 @@ export class AdminSupplierOrdersController {
     const { id } = request.params as { id: string }
 
     try {
-      const buffer = await this.service.getPdfBuffer(id)
+      // ?supplierId= → documento ENVIÁVEL daquele fornecedor (só as linhas e preços dele).
+      // Sem o parâmetro, consolidado interno com todos — que NÃO deve ser enviado a fornecedor.
+      const { supplierId } = request.query as { supplierId?: string }
+      const buffer = await this.service.getPdfBuffer(id, supplierId)
+      const name = supplierId ? `pedido-${supplierId}.pdf` : 'pedido-consolidado.pdf'
       // Usar reply.header().send() — não reply.status(200).send()
       return reply
         .header('Content-Type', 'application/pdf')
-        .header('Content-Disposition', 'attachment; filename="pedido.pdf"')
+        .header('Content-Disposition', `attachment; filename="${name}"`)
         .send(buffer)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/supplier-orders/split-preview
+   *
+   * Rateio proposto (demanda × matriz de fornecimento) sem criar nada — base do passo "Dividir".
+   */
+  async getSplitPreview(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { slotId, date } = request.query as { slotId?: string; date?: string }
+    if (!slotId) return reply.status(400).send({ error: 'slotId é obrigatório' })
+    try {
+      return reply.status(200).send(await this.service.getSplitPreview(slotId, date))
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode && e.message) return reply.status(e.statusCode).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/supplier-orders/restock-suggestion
+   *
+   * O que repor de inventário (produtos FIXED) e de quem comprar — sem criar nada (H8 / D-9).
+   */
+  async getRestockSuggestion(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    let query: ReturnType<typeof RestockSuggestionQuerySchema.parse>
+    try {
+      query = RestockSuggestionQuerySchema.parse(request.query)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Parâmetros inválidos.' })
+    }
+    try {
+      return reply.status(200).send(await this.service.getRestockSuggestion(query.coverDays))
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode && e.message) return reply.status(e.statusCode).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * POST /admin/supplier-orders/restock
+   *
+   * Cria o pedido de reposição de inventário (kind RESTOCK, sem turno) e o finaliza.
+   */
+  async createRestock(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    let body: ReturnType<typeof CreateRestockSchema.parse>
+    try {
+      body = CreateRestockSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      return reply.status(201).send(await this.service.createRestock(body))
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode && e.message) return reply.status(e.statusCode).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/supplier-orders/:id/suppliers
+   *
+   * Fornecedores presentes no pedido — alimenta um botão de download POR fornecedor.
+   */
+  async getOrderSuppliers(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      return reply.status(200).send({ suppliers: await this.service.getOrderSuppliers(id) })
     } catch (err) {
       this.fastify.log.error(err)
       const e = err as { statusCode?: number; message?: string }
@@ -323,13 +424,15 @@ export class AdminSupplierOrdersController {
     const { id } = request.params as { id: string }
 
     try {
-      const buffer = await this.service.getExcelBuffer(id)
+      const { supplierId } = request.query as { supplierId?: string }
+      const buffer = await this.service.getExcelBuffer(id, supplierId)
+      const name = supplierId ? `pedido-${supplierId}.xlsx` : 'pedido-consolidado.xlsx'
       return reply
         .header(
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        .header('Content-Disposition', 'attachment; filename="pedido.xlsx"')
+        .header('Content-Disposition', `attachment; filename="${name}"`)
         .send(buffer)
     } catch (err) {
       this.fastify.log.error(err)

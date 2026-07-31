@@ -5,12 +5,20 @@ import { Icon } from '../brand/Icon'
 interface SupplierOrder {
   id: string
   date: string
-  slotLabel?: string
+  slotLabel?: string | null
+  /** Só PÃES (0 numa reposição de inventário). */
   totalQuantity: number
+  /** Unidades de produtos não-pão. */
+  totalItems?: number | null
+  totalValue?: number | null
+  /** Regime de compra (D-9). Ausente em pedidos antigos = DELIVERY_BATCH. */
+  kind?: 'DELIVERY_BATCH' | 'RESTOCK' | null
   status: string
   cutoffTime?: string
   createdAt?: string
 }
+
+const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
 function formatDateLong(dateStr: string) {
   try {
@@ -89,17 +97,29 @@ export function SupplierOrderHistory({ onBack }: { onBack: () => void }) {
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {orders.map((o) => (
+            {orders.map((o) => {
+              const restock = o.kind === 'RESTOCK'
+              // D-1: pães e itens são grandezas diferentes — cada um no seu rótulo, nunca somados.
+              const carga = [
+                restock ? null : `${o.totalQuantity} pães`,
+                (o.totalItems ?? 0) > 0 ? `${o.totalItems} itens` : null,
+                (o.totalValue ?? 0) > 0 ? fmtBRL(o.totalValue ?? 0) : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')
+              return (
               <div key={o.id} style={{ background: 'var(--color-surface)', borderRadius: 18, padding: 15, border: '1px solid var(--color-border-2)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 42, height: 42, borderRadius: 12, background: 'var(--color-surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon name="factory" size={20} color="var(--color-accent)" stroke={2} />
+                    <Icon name={restock ? 'basket' : 'factory'} size={20} color="var(--color-accent)" stroke={2} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                      {formatDateLong(o.date)}{o.slotLabel ? ` · ${o.slotLabel}` : ''}
+                      {formatDateLong(o.date)}
+                      {/* Reposição não tem turno: mostrar o regime evita ler "sem turno" como erro. */}
+                      {restock ? ' · Reposição' : o.slotLabel ? ` · ${o.slotLabel}` : ''}
                     </p>
-                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '3px 0 0' }}>{o.totalQuantity} pães</p>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '3px 0 0' }}>{carga || '—'}</p>
                   </div>
                   <span style={{ padding: '3px 8px', borderRadius: 99, background: 'var(--color-good-soft)', color: 'var(--color-good)', fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700 }}>
                     Finalizado
@@ -110,7 +130,8 @@ export function SupplierOrderHistory({ onBack }: { onBack: () => void }) {
                   <DownloadBtn label={downloading === `${o.id}:excel` ? '...' : 'Excel'} onClick={() => download(o.id, 'excel')} />
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

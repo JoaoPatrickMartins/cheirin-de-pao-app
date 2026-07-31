@@ -3,7 +3,7 @@ name: Run Cheirin de Pao BACKEND
 on:
   push:
     branches:
-      - '**'
+      - "**"
 
 jobs:
   tests:
@@ -36,11 +36,11 @@ jobs:
       #     up-flags: '--wait'
 
       - name: Executando os testes
-        run: npm run test --filter=@cheirin-de-pao/api 
+        run: npm run test --filter=@cheirin-de-pao/api
 
       - name: Executando o teste do build da aplicação
         run: npm run build --filter=@cheirin-de-pao/api
-  
+
   release:
     needs: tests
     if: github.ref == 'refs/heads/main'
@@ -64,7 +64,6 @@ jobs:
       - name: Instalar dependencia da release semantica https://www.npmjs.com/package/semantic-release
         run: npm install --save-dev semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github
 
-      
       - name: Obter o nome da versão anterior
         id: before_release_tag
         run: |
@@ -94,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: 'recursive'
+          submodules: "recursive"
 
       - name: criando arquivo .env de teste
         if: github.ref == 'refs/heads/development'
@@ -119,8 +118,12 @@ jobs:
           echo ONESIGNAL_APP_ID=${{ secrets.ONESIGNAL_APP_ID_DEV }} >> ./apps/api/.env.production
           echo ONESIGNAL_REST_API_KEY=${{ secrets.ONESIGNAL_REST_API_KEY_DEV }} >> ./apps/api/.env.production
           echo JWT_SECRET=${{ secrets.JWT_SECRET_DEV }} >> ./apps/api/.env.production
-          
-        
+          echo S3_REGION=${{ secrets.S3_REGION_DEV }} >> ./apps/api/.env.production
+          echo S3_BUCKET=${{ secrets.S3_BUCKET_DEV }} >> ./apps/api/.env.production
+          echo S3_ACCESS_KEY_ID=${{ secrets.S3_ACCESS_KEY_ID_DEV }} >> ./apps/api/.env.production
+          echo S3_SECRET_ACCESS_KEY=${{ secrets.S3_SECRET_ACCESS_KEY_DEV }} >> ./apps/api/.env.production
+          echo S3_PUBLIC_BASE_URL=${{ secrets.S3_PUBLIC_BASE_URL_DEV }} >> ./apps/api/.env.production
+
       - name: criando arquivo .env de producao
         if: github.ref == 'refs/heads/main'
         run: |
@@ -144,7 +147,12 @@ jobs:
           echo ONESIGNAL_APP_ID=${{ secrets.ONESIGNAL_APP_ID_PROD }} >> ./apps/api/.env.production
           echo ONESIGNAL_REST_API_KEY=${{ secrets.ONESIGNAL_REST_API_KEY_PROD }} >> ./apps/api/.env.production
           echo JWT_SECRET=${{ secrets.JWT_SECRET_PROD }} >> ./apps/api/.env.production
-        
+          echo S3_REGION=${{ secrets.S3_REGION_PROD }} >> ./apps/api/.env.production
+          echo S3_BUCKET=${{ secrets.S3_BUCKET_PROD }} >> ./apps/api/.env.production
+          echo S3_ACCESS_KEY_ID=${{ secrets.S3_ACCESS_KEY_ID_PROD }} >> ./apps/api/.env.production
+          echo S3_SECRET_ACCESS_KEY=${{ secrets.S3_SECRET_ACCESS_KEY_PROD }} >> ./apps/api/.env.production
+          echo S3_PUBLIC_BASE_URL=${{ secrets.S3_PUBLIC_BASE_URL_PROD }} >> ./apps/api/.env.production
+
       - name: logando no Docker Hub
         uses: docker/login-action@v3.6.0
         with:
@@ -172,19 +180,18 @@ jobs:
       - name: Instalar Ansible
         run: sudo apt update && sudo apt install -y ansible
 
-        
       - name: Configurando variaveis de ambiente da aplicação de desenvolvimento
         if: github.ref == 'refs/heads/development'
         run: |
           echo "APP_PORT=${{ secrets.APP_PORT_BACKEND_DEV }}" >> $GITHUB_ENV
           echo "SERVICE_TYPE=dev" >> $GITHUB_ENV
-        
+
       - name: Configurando variaveis de ambiente da aplicação de produção
         if: github.ref == 'refs/heads/main'
         run: |
           echo "APP_PORT=${{ secrets.APP_PORT_BACKEND_PROD }}" >> $GITHUB_ENV
           echo "SERVICE_TYPE=prod" >> $GITHUB_ENV
-        
+
       - name: Criar o .env
         env:
           IMAGE_VERSION: ${{ needs.release.outputs.created_pre_release_tag }}
@@ -195,7 +202,7 @@ jobs:
           echo APP_PORT=$APP_PORT >> .env
           echo SERVICE_TYPE=$SERVICE_TYPE >> .env
           more .env
-        
+
       - name: Adicionar chave SSH
         run: |
           mkdir -p ~/.ssh
@@ -208,14 +215,13 @@ jobs:
         run: |
           echo "workdir: ${{ secrets.WORKDIR_BACKEND_DEV }}" > ./ansible/variables.yml
           echo "localdir: ${{ secrets.LOCALDIR_BACKEND_DEV }}" >> ./ansible/variables.yml
-      
+
       - name: criar arquivo variables.yml diretorio de produção
         if: github.ref == 'refs/heads/main'
         run: |
           echo "workdir: ${{ secrets.WORKDIR_BACKEND_PROD }}" > ./ansible/variables.yml
           echo "localdir: ${{ secrets.LOCALDIR_BACKEND_PROD }}" >> ./ansible/variables.yml
-        
-          
+
       - name: Criar arquivo de inventário do Ansible
         run: |
           echo "[servidores]" > ./ansible/hosts.ini

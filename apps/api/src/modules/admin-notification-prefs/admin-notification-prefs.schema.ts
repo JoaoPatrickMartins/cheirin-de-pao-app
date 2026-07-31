@@ -16,6 +16,7 @@ export const ADMIN_NOTIFICATION_TYPES = [
   'ADMIN_CUTOFF_REACHED',
   'ADMIN_AUTOGEN_WARNING',
   'ADMIN_AUTOGEN_DONE',
+  'ADMIN_LOW_STOCK',
 ] as const
 
 export type AdminNotificationType = (typeof ADMIN_NOTIFICATION_TYPES)[number]

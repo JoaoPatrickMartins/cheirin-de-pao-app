@@ -15,6 +15,16 @@ function localDateStr(d: Date): string {
 }
 
 // ── Tipos (espelham GET /admin/separation/board) ──────────────────────────────
+interface MarketItem {
+  name: string
+  qty: number
+}
+/** Linha da lista consolidada "quanto pegar da prateleira" (agregada por produto). */
+interface MarketPickItem {
+  productId: string
+  name: string
+  qty: number
+}
 interface BoardOrder {
   orderId: string
   userId: string
@@ -27,6 +37,12 @@ interface BoardOrder {
   type: string
   status: string
   separated: boolean
+  // Mini market ("Além do Pãozin") — presente em parada combinada ou só-market.
+  marketOrderId?: string
+  /** Todas as Cestinhas da parada (o cliente pode ter comprado mais de uma no turno). */
+  marketOrderIds?: string[]
+  marketItems: MarketItem[]
+  marketItemCount: number
 }
 interface BoardSlot {
   slotId: string
@@ -35,8 +51,12 @@ interface BoardSlot {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   concluded: boolean
   orders: BoardOrder[]
+  /** Produtos a separar neste lote (condomínio + turno), agregados por produto. */
+  marketPicklist: MarketPickItem[]
 }
 interface BoardCondo {
   condominiumId: string
@@ -45,6 +65,8 @@ interface BoardCondo {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   slots: BoardSlot[]
 }
 interface Board {
@@ -53,7 +75,11 @@ interface Board {
   separatedDeliveries: number
   totalBreads: number
   separatedBreads: number
+  totalItems: number
+  separatedItems: number
   condominiums: BoardCondo[]
+  /** Produtos a separar no DIA inteiro, agregados por produto — o que tirar da prateleira. */
+  marketPicklist: MarketPickItem[]
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -158,33 +184,47 @@ export function AdminSeparacao() {
   const dayLabel = 'hoje'
 
   function toCoupons(orders: BoardOrder[], condoName: string): CouponData[] {
-    return orders.map((o) => ({
-      orderId: o.orderId,
-      code: shortCode(o.orderId),
-      clientName: o.name,
-      condominiumName: condoName,
-      block: o.block,
-      apartment: o.apartment,
-      quantity: o.quantity,
-      slotLabel: o.slotLabel,
-      dateLabel,
-    }))
+    return orders.map((o) => {
+      const ref = o.orderId || o.marketOrderId || ''
+      return {
+        orderId: ref,
+        code: shortCode(ref),
+        clientName: o.name,
+        condominiumName: condoName,
+        block: o.block,
+        apartment: o.apartment,
+        quantity: o.quantity,
+        slotLabel: o.slotLabel,
+        dateLabel,
+        marketItems: o.marketItems,
+      }
+    })
   }
 
-  // Toggle otimista de um pedido
+  // Toggle otimista de uma parada. Pedido de pão vai por orderId (a Cestinha da mesma parada
+  // acompanha no backend); parada SÓ-Cestinha vai pela lista de marketOrderIds.
   async function toggleOrder(condoId: string, slotId: string, order: BoardOrder) {
+    const marketIds = order.marketOrderIds ?? (order.marketOrderId ? [order.marketOrderId] : [])
+    if (!order.orderId && marketIds.length === 0) return
     const next = !order.separated
-    setBoard((prev) => patchOrder(prev, condoId, slotId, order.orderId, next))
+    const rowKey = order.orderId || order.marketOrderId || ''
+    setBoard((prev) => patchOrder(prev, condoId, slotId, rowKey, next))
     try {
-      const res = await apiFetch(`/admin/separation/orders/${order.orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ separated: next }),
-      })
+      const res = order.orderId
+        ? await apiFetch(`/admin/separation/orders/${order.orderId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ separated: next }),
+          })
+        : await apiFetch('/admin/separation/market-orders', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ marketOrderIds: marketIds, separated: next }),
+          })
       if (!res.ok) throw new Error('falha')
     } catch {
       // reverte em caso de erro
-      setBoard((prev) => patchOrder(prev, condoId, slotId, order.orderId, order.separated))
+      setBoard((prev) => patchOrder(prev, condoId, slotId, rowKey, order.separated))
     }
   }
 
@@ -303,6 +343,7 @@ export function AdminSeparacao() {
                       </p>
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
                         {condoSep}/{condoTotal} separados · {condo.totalBreads} pães
+                        {condo.totalItems > 0 ? ` + ${condo.totalItems} ${condo.totalItems === 1 ? 'item' : 'itens'}` : ''}
                       </p>
                     </div>
                     <PrintButton
@@ -344,13 +385,21 @@ export function AdminSeparacao() {
                             </div>
                           </div>
 
+                          {/* Lista do LOTE (condomínio + turno) — é a unidade física de separação:
+                              o que pegar da prateleira para este condomínio neste turno. */}
+                          {slot.marketPicklist?.length > 0 && (
+                            <MarketPicklist items={slot.marketPicklist} title="Itens deste lote" compact />
+                          )}
+
                           {(() => {
                             const groups = groupByBlock(slot.orders)
                             const hasBlocks = groups.some((g) => g.block !== '')
                             const renderRows = (orders: BoardOrder[], showBlock: boolean) =>
                               orders.map((order) => (
                                 <OrderRow
-                                  key={order.orderId}
+                                  // `orderId` é '' em parada só-Cestinha — duas delas no mesmo
+                                  // lote colidiriam na mesma key. Cai no marketOrderId.
+                                  key={order.orderId || order.marketOrderId}
                                   order={order}
                                   showBlock={showBlock}
                                   onToggle={() => toggleOrder(condo.condominiumId, slot.slotId, order)}
@@ -359,17 +408,17 @@ export function AdminSeparacao() {
                               ))
                             if (!hasBlocks) {
                               return (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                                   {renderRows(slot.orders, true)}
                                 </div>
                               )
                             }
                             // Subgrupos por bloco (crescente), cada um com "Imprimir bloco".
                             return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>
                                 {groups.map((g) => (
                                   <div key={g.block || 'sem-bloco'} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 30, padding: '2px 0' }}>
                                       <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 800, letterSpacing: '0.02em', color: 'var(--color-text-sec)', textTransform: 'uppercase' }}>
                                         {g.block ? blockLabel(g.block) : 'Sem bloco'}
                                       </span>
@@ -453,9 +502,68 @@ function SummaryCard({ board }: { board: Board }) {
       </div>
       <ProgressBar value={sep} max={total} color={done ? 'var(--color-good)' : 'var(--color-gold)'} />
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
-        {board.totalBreads} pães · {total} {total === 1 ? 'entrega' : 'entregas'} em {condoCount}{' '}
-        {condoCount === 1 ? 'condomínio' : 'condomínios'}
+        {board.totalBreads} pães{board.totalItems > 0 ? ` + ${board.totalItems} ${board.totalItems === 1 ? 'item' : 'itens'}` : ''} · {total}{' '}
+        {total === 1 ? 'entrega' : 'entregas'} em {condoCount} {condoCount === 1 ? 'condomínio' : 'condomínios'}
       </p>
+
+      {/* Lista consolidada do dia — "quanto pegar da prateleira". Antes disto o operador tinha
+          que somar os chips de cada parada na mão para saber quantos bolos separar. */}
+      {board.marketPicklist.length > 0 && <MarketPicklist items={board.marketPicklist} title="Separar do Além do Pãozin" />}
+    </div>
+  )
+}
+
+/** Lista agregada por produto — o que sai da prateleira. Usada no dia e por lote. */
+function MarketPicklist({ items, title, compact = false }: { items: MarketPickItem[]; title: string; compact?: boolean }) {
+  const total = items.reduce((s, i) => s + i.qty, 0)
+  return (
+    <div
+      style={{
+        marginTop: compact ? 8 : 12,
+        padding: compact ? '8px 10px' : '10px 12px',
+        borderRadius: 12,
+        background: 'var(--color-gold-soft)',
+        border: '1px solid rgba(0,0,0,0.04)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: compact ? 11 : 12, fontWeight: 800, color: 'var(--color-accent)' }}>
+          🧺 {title}
+        </span>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: compact ? 12 : 13, fontWeight: 800, color: 'var(--color-accent)', whiteSpace: 'nowrap' }}>
+          {total} {total === 1 ? 'item' : 'itens'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {items.map((it) => (
+          <div key={it.productId} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: compact ? 11.5 : 12.5,
+                color: 'var(--color-text)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {it.name}
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: compact ? 12 : 13,
+                fontWeight: 800,
+                color: 'var(--color-espresso)',
+                fontVariantNumeric: 'tabular-nums',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {it.qty}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -463,6 +571,10 @@ function SummaryCard({ board }: { board: Board }) {
 function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: BoardOrder; onToggle: () => void; onPrint: () => void; showBlock?: boolean }) {
   const blk = showBlock ? blockLabel(order.block) : ''
   const location = blk ? `${blk} · Apto ${order.apartment || '—'}` : `Apto ${order.apartment || '—'}`
+  const items = order.marketItems ?? []
+  // Parada só-Cestinha (sem pedido de pão) também alterna: o toggle vai nos MarketOrder dela.
+  const marketIds = order.marketOrderIds ?? (order.marketOrderId ? [order.marketOrderId] : [])
+  const canToggle = !!order.orderId || marketIds.length > 0
   return (
     <div
       style={{
@@ -475,8 +587,9 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
       }}
     >
       <button
-        onClick={onToggle}
-        aria-label={order.separated ? 'Desmarcar separado' : 'Marcar separado'}
+        onClick={canToggle ? onToggle : undefined}
+        disabled={!canToggle}
+        aria-label={order.separated ? 'Separado' : 'Marcar separado'}
         aria-pressed={order.separated}
         style={{
           width: 26,
@@ -488,7 +601,8 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          cursor: 'pointer',
+          cursor: canToggle ? 'pointer' : 'default',
+          opacity: !canToggle && !order.separated ? 0.5 : 1,
         }}
       >
         {order.separated && <Icon name="check" size={15} stroke={3} color="#fff" />}
@@ -501,23 +615,45 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
           {location}
         </p>
+        {items.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+            {items.map((it, i) => (
+              <span
+                key={i}
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'var(--color-accent)',
+                  background: 'var(--color-gold-soft)',
+                  borderRadius: 999,
+                  padding: '2px 8px',
+                }}
+              >
+                {it.qty}× {it.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'baseline',
-          gap: 4,
-          fontFamily: 'var(--font-display)',
-          fontSize: 15,
-          fontWeight: 800,
-          color: 'var(--color-text)',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {order.quantity}
-        <span style={{ fontSize: 13 }}>🥖</span>
-      </span>
+      {order.quantity > 0 && (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'baseline',
+            gap: 4,
+            fontFamily: 'var(--font-display)',
+            fontSize: 15,
+            fontWeight: 800,
+            color: 'var(--color-text)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {order.quantity}
+          <span style={{ fontSize: 13 }}>🥖</span>
+        </span>
+      )}
 
       <button
         onClick={onPrint}
@@ -601,7 +737,11 @@ function Spinner() {
 const spinKeyframes = `@keyframes spin { to { transform: rotate(360deg); } }`
 
 // ── Helpers de estado imutável ────────────────────────────────────────────────
-function patchOrder(board: Board | null, condoId: string, slotId: string, orderId: string, separated: boolean): Board | null {
+/**
+ * Atualiza uma linha do quadro. A chave é `orderId || marketOrderId`: em parada só-Cestinha o
+ * orderId é '' e casar por ele marcaria TODAS as paradas só-Cestinha do turno de uma vez.
+ */
+function patchOrder(board: Board | null, condoId: string, slotId: string, rowKey: string, separated: boolean): Board | null {
   if (!board) return board
   return {
     ...board,
@@ -616,7 +756,9 @@ function patchOrder(board: Board | null, condoId: string, slotId: string, orderI
                 : {
                     ...s,
                     orders: s.orders.map((o) =>
-                      o.orderId !== orderId ? o : { ...o, separated, status: separated ? 'SEPARATED' : 'SCHEDULED' },
+                      (o.orderId || o.marketOrderId || '') !== rowKey
+                        ? o
+                        : { ...o, separated, status: separated ? 'SEPARATED' : 'SCHEDULED' },
                     ),
                   },
             ),

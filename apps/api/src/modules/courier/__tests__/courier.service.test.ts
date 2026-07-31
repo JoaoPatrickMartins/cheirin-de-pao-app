@@ -69,6 +69,13 @@ function makeFastifyMock(overrides: {
       update: vi.fn().mockResolvedValue({ ...order, status: 'DELIVERED' }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    // Cestinha (Além do Pãozin) pega carona na rota — sem market nestes testes.
+    marketOrder: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     user: {
       findUnique: vi.fn().mockResolvedValue(user),
     },
@@ -365,6 +372,168 @@ describe('CourierService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new CourierService(fastify as any)
       await expect(service.markNotDelivered('x', 'courier-01')).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  // ── Cestinha (Além do Pãozin) — parada só-market ────────────────────────────
+  const marketStop = (over: Record<string, unknown> = {}) => ({
+    id: 'm1',
+    userId: 'user-01',
+    condominiumId: 'condo-01',
+    slotId: 'manha',
+    scheduledDate: new Date('2026-07-29T15:00:00.000Z'),
+    courierId: 'courier-01',
+    status: 'OUT_FOR_DELIVERY',
+    breadQty: 4,
+    ...over,
+  })
+
+  describe('confirmMarketDelivery', () => {
+    it('conclui TODAS as Cestinhas da parada (cliente + condomínio + turno + dia)', async () => {
+      // A tela funde as Cestinhas do cliente numa parada; concluir só o id recebido deixava as
+      // outras em OUT_FOR_DELIVERY e elas voltavam para a rota no refresh.
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.marketOrder.findUnique.mockResolvedValue(marketStop())
+      prisma.marketOrder.updateMany.mockResolvedValue({ count: 3 })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await new CourierService(fastify as any).confirmMarketDelivery('m1', 'courier-01')
+
+      expect(prisma.marketOrder.updateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          userId: 'user-01',
+          condominiumId: 'condo-01',
+          slotId: 'manha',
+          courierId: 'courier-01',
+          status: 'OUT_FOR_DELIVERY',
+        }),
+        data: { status: 'DELIVERED', deliveredAt: expect.any(Date) },
+      })
+      // Nunca por id único — era exatamente o que deixava a parada pela metade.
+      expect(prisma.marketOrder.update).not.toHaveBeenCalled()
+    })
+
+    it('lança 403 quando a Cestinha é de outro entregador', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.marketOrder.findUnique.mockResolvedValue(marketStop({ courierId: 'outro-courier' }))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new CourierService(fastify as any)
+      await expect(service.confirmMarketDelivery('m1', 'courier-01')).rejects.toMatchObject({ statusCode: 403 })
+      expect(prisma.marketOrder.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('lança 422 quando a Cestinha não está em rota', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.marketOrder.findUnique.mockResolvedValue(marketStop({ status: 'DELIVERED' }))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new CourierService(fastify as any)
+      await expect(service.confirmMarketDelivery('m1', 'courier-01')).rejects.toMatchObject({ statusCode: 422 })
+      expect(prisma.marketOrder.updateMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('markMarketNotDelivered', () => {
+    it('marca a parada inteira como NOT_DELIVERED com o motivo', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      prisma.marketOrder.findUnique.mockResolvedValue(marketStop())
+      prisma.marketOrder.updateMany.mockResolvedValue({ count: 2 })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await new CourierService(fastify as any).markMarketNotDelivered('m1', 'courier-01', 'Portão fechado')
+
+      expect(prisma.marketOrder.updateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({ userId: 'user-01', status: 'OUT_FOR_DELIVERY' }),
+        data: { status: 'NOT_DELIVERED', failedAt: expect.any(Date), failureReason: 'Portão fechado' },
+      })
+    })
+  })
+
+  describe('getTodayOrders — Cestinha na rota', () => {
+    const condo = { id: 'condo-01', name: 'Cond 1', address: { street: 'Rua A', number: '1' } }
+    const mkRow = (over: Record<string, unknown>) => ({
+      id: 'm1',
+      userId: 'user-01',
+      breadQty: 4,
+      status: 'OUT_FOR_DELIVERY',
+      slotId: 'manha',
+      items: [{ name: 'Bolo', qty: 1 }],
+      ...over,
+    })
+
+    it('uma parada só-Cestinha carrega TODOS os ids das cestinhas do turno', async () => {
+      const { fastify, prisma } = makeFastifyMock({ orders: [], condominium: condo as never })
+      prisma.marketOrder.findMany
+        .mockResolvedValueOnce([mkRow({ id: 'm1' }), mkRow({ id: 'm2', items: [{ name: 'Bolo', qty: 2 }] })])
+        .mockResolvedValueOnce([])
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await new CourierService(fastify as any).getTodayOrders('courier-01')
+
+      expect(result.totalStops).toBe(1)
+      const stop = result.condos[0].stops[0]
+      expect(stop.orderId).toBe('')
+      expect(stop.marketOrderIds).toEqual(['m1', 'm2'])
+      expect(stop.marketOrderId).toBe('m1') // endereça a parada; o backend expande o escopo
+      expect(stop.quantity).toBe(8) // 4 + 4 pães das cestinhas
+      expect(stop.marketItemCount).toBe(3)
+    })
+
+    it('não mistura turnos: Cestinha da manhã e da tarde são paradas distintas', async () => {
+      const { fastify, prisma } = makeFastifyMock({ orders: [], condominium: condo as never })
+      prisma.marketOrder.findMany
+        .mockResolvedValueOnce([mkRow({ id: 'm1', slotId: 'manha' }), mkRow({ id: 'm2', slotId: 'tarde' })])
+        .mockResolvedValueOnce([])
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await new CourierService(fastify as any).getTodayOrders('courier-01')
+
+      expect(result.totalStops).toBe(2)
+      expect(result.totalBreads).toBe(8) // sem contar os pães da cestinha duas vezes
+      expect(result.condos[0].stops.map((s) => s.slotId).sort()).toEqual(['manha', 'tarde'])
+    })
+
+    it('cliente com pão na manhã mantém a parada só-Cestinha da tarde', async () => {
+      // Antes o filtro era por cliente: a parada da tarde era descartada como "tem pão" e os
+      // itens dela apareciam na parada da manhã.
+      const { fastify, prisma } = makeFastifyMock({
+        orders: [
+          { id: 'order-01', userId: 'user-01', courierId: 'courier-01', quantity: 6, status: 'OUT_FOR_DELIVERY', slotId: 'manha' } as never,
+        ],
+        condominium: condo as never,
+      })
+      prisma.order.findMany.mockResolvedValueOnce([
+        { id: 'order-01', userId: 'user-01', courierId: 'courier-01', quantity: 6, status: 'OUT_FOR_DELIVERY', slotId: 'manha' },
+      ]).mockResolvedValueOnce([])
+      prisma.marketOrder.findMany.mockResolvedValueOnce([mkRow({ id: 'm2', slotId: 'tarde' })]).mockResolvedValueOnce([])
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await new CourierService(fastify as any).getTodayOrders('courier-01')
+
+      expect(result.totalStops).toBe(2)
+      const manha = result.condos[0].stops.find((s) => s.slotId === 'manha')!
+      const tarde = result.condos[0].stops.find((s) => s.slotId === 'tarde')!
+      expect(manha.marketItemCount).toBe(0) // itens da tarde não vazam para a manhã
+      expect(manha.quantity).toBe(6)
+      expect(tarde.marketOrderIds).toEqual(['m2'])
+      expect(tarde.quantity).toBe(4)
+    })
+
+    it('Realizadas: entregue e não entregue do mesmo cliente são linhas separadas', async () => {
+      const { fastify, prisma } = makeFastifyMock({ orders: [], condominium: condo as never })
+      prisma.order.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([])
+      prisma.marketOrder.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+        mkRow({ id: 'm1', status: 'DELIVERED', deliveredAt: new Date('2026-07-29T20:16:00.000Z') }),
+        mkRow({ id: 'm2', status: 'NOT_DELIVERED', failedAt: new Date('2026-07-29T20:20:00.000Z') }),
+      ])
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await new CourierService(fastify as any).getTodayOrders('courier-01')
+
+      expect(result.completedTotal).toBe(2)
+      const stops = result.completed[0].stops
+      expect(stops.map((s) => s.status).sort()).toEqual(['DELIVERED', 'NOT_DELIVERED'])
+      expect(stops.find((s) => s.status === 'DELIVERED')!.marketOrderIds).toEqual(['m1'])
+      expect(stops.find((s) => s.status === 'NOT_DELIVERED')!.marketOrderIds).toEqual(['m2'])
     })
   })
 })

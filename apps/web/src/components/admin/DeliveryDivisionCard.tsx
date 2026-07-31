@@ -17,6 +17,8 @@ export interface BlockBreakdown {
   block: string
   quantity: number
   orderIds: string[]
+  marketOrderIds: string[]
+  items: number
 }
 
 /**
@@ -27,8 +29,13 @@ export interface DeliveryUnit {
   condominiumId: string
   condominiumName: string
   block: string | null
+  /** Pães da unidade — inclui o pão vendido dentro da Cestinha (D-1). */
   quantity: number
   orderIds: string[]
+  /** Cestinhas da unidade — o aprovar despacha a parada só-Cestinha por estes ids. */
+  marketOrderIds: string[]
+  /** Itens do mercadinho da unidade — carga paralela aos pães (D-1). */
+  items: number
   blocks: BlockBreakdown[]
 }
 
@@ -216,6 +223,28 @@ function SortableUnit({ unit, courierId, disabled, locked, canExplode, canCollap
             {unit.quantity}
             <span style={{ fontSize: 10 }}>🥖</span>
           </span>
+          {/* Itens do mercadinho — carga real do entregador, ao lado dos pães (D-1).
+              Uma unidade com 0 pães e 20 potes de geleia não é "leve". */}
+          {unit.items > 0 && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'baseline',
+                gap: 3,
+                padding: '3px 9px',
+                borderRadius: 99,
+                background: 'var(--color-gold-soft)',
+                fontFamily: 'var(--font-display)',
+                fontSize: 12.5,
+                fontWeight: 800,
+                color: 'var(--color-accent)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {unit.items}
+              <span style={{ fontSize: 10 }}>🧺</span>
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -338,6 +367,8 @@ export function DeliveryDivisionCard({
         block: b.block,
         quantity: b.quantity,
         orderIds: b.orderIds,
+        marketOrderIds: b.marketOrderIds,
+        items: b.items,
         blocks: [],
       }))
       return { ...a, condos: [...others, ...blockUnits] }
@@ -354,7 +385,13 @@ export function DeliveryDivisionCard({
     const blockUnits = owner.condos.filter((u) => u.condominiumId === condominiumId && u.block !== null)
     if (blockUnits.length === 0) return
     const blocks: BlockBreakdown[] = blockUnits
-      .map((u) => ({ block: u.block as string, quantity: u.quantity, orderIds: u.orderIds }))
+      .map((u) => ({
+        block: u.block as string,
+        quantity: u.quantity,
+        orderIds: u.orderIds,
+        marketOrderIds: u.marketOrderIds,
+        items: u.items,
+      }))
       .sort((a, b) => a.block.localeCompare(b.block, 'pt-BR', { numeric: true }))
     const merged: DeliveryUnit = {
       condominiumId,
@@ -362,6 +399,8 @@ export function DeliveryDivisionCard({
       block: null,
       quantity: blockUnits.reduce((s, u) => s + u.quantity, 0),
       orderIds: blockUnits.flatMap((u) => u.orderIds),
+      marketOrderIds: blockUnits.flatMap((u) => u.marketOrderIds),
+      items: blockUnits.reduce((s, u) => s + u.items, 0),
       blocks,
     }
     const next = assignments.map((a) => {

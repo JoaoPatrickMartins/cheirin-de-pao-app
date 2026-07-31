@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
 import { PaymentsRepository } from './payments.repository.js'
 import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
+import { fulfillMarketOrder } from './fulfill-market-order.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 
 /** Registro mínimo de Payment necessário para creditar/fulfillar. */
@@ -34,6 +35,12 @@ export async function creditForPayment(
 
   if (payment.purpose === 'HOOK') {
     await fulfillHookPayment(fastify, payment)
+    return
+  }
+
+  // Cestinha (mini market): confirma o MarketOrder vinculado; NÃO credita pães.
+  if (payment.purpose === 'MARKET') {
+    await fulfillMarketOrder(fastify, payment)
     return
   }
 

@@ -13,6 +13,7 @@ import {
   type DiasBloqueados,
 } from '../../lib/agenda-restrictions.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
+import { PRE_DELIVERY } from '../../lib/market-pipeline.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import {
@@ -30,6 +31,37 @@ import {
 
 /** Teto de tentativas de cobrança auto-recarga por (user, slot, dia) — anti-spam de cartão. */
 const MAX_RECHARGE_ATTEMPTS = 3
+
+/**
+ * Texto do lembrete de véspera de UMA parada (Onda F2) — pão, Cestinha ou os dois no mesmo aviso.
+ *
+ * Puro e exportado para poder ser testado sem cron nem banco. Duas regras de negócio moram aqui:
+ * - **D-1**: pães e itens são grandezas distintas e aparecem separados ("4 pães e sua Cestinha
+ *   (2 itens)"); o `breadQty` da Cestinha já entra em `breads` porque é pão francês.
+ * - **Nunca interpolar `null`** (T-14-03-03): sem `deliveryTime`, o texto simplesmente não fala
+ *   de horário.
+ */
+export function eveMessage(stop: {
+  breads: number
+  items: number
+  hasBread: boolean
+  hasCestinha: boolean
+  deliveryTime: string | null
+}): { title: string; body: string } {
+  const timeStr = stop.deliveryTime ? ` às ${stop.deliveryTime}` : ''
+  const breadPart = stop.breads > 0 ? `${stop.breads} ${stop.breads === 1 ? 'pão' : 'pães'}` : null
+  const itemPart = stop.items > 0 ? `sua Cestinha (${stop.items} ${stop.items === 1 ? 'item' : 'itens'})` : null
+
+  const parts = [breadPart, itemPart].filter(Boolean)
+  const what = parts.length > 0 ? parts.join(' e ') : 'sua entrega'
+
+  // 🧺 só quando há itens do mercadinho a caminho: uma Cestinha só de pão é, para o cliente,
+  // uma entrega de pão.
+  const bread = breadPart !== null || (stop.hasBread && !stop.hasCestinha)
+  const emoji = `${bread ? '🥖' : ''}${itemPart ? '🧺' : ''}` || '🥖'
+
+  return { title: `Entrega amanhã ${emoji}`, body: `Lembrete: ${what}${timeStr} amanhã.` }
+}
 
 // D-09: Helper puro que calcula consumo semanal total independente de modo (multi-slot ou legado)
 function getConsumoSemanal(schedule: { days: unknown; weeklyQty: unknown }): number {
@@ -539,6 +571,18 @@ export class SchedulesService {
     }
   }
 
+  /**
+   * Lembrete de véspera (cron 21h) — pão **e** Cestinha, uma notificação por PARADA.
+   *
+   * Onda F2. Antes iterava só `Order`, então quem tinha Cestinha para amanhã não recebia nada — e
+   * quem tinha os dois receberia dois pushes se a Cestinha fosse tratada como uma lista à parte.
+   * A unidade aqui é a mesma do resto da integração (D-5: parada = `userId` + turno): uma
+   * campainha amanhã, um aviso hoje. Isso também mescla dois pedidos de pão do mesmo turno
+   * (avulso + agenda), que antes viravam dois pushes para a mesma entrega.
+   *
+   * D-1 no texto: o `breadQty` da Cestinha é pão francês e **soma no contador de pães**; os itens
+   * do mercadinho aparecem em grandeza separada. Nunca "6 itens" para 4 pães + 2 potes.
+   */
   async sendEveReminders() {
     const now = new Date()
     const year = now.getUTCFullYear()
@@ -549,17 +593,63 @@ export class SchedulesService {
     // Amanhã em BRT: começa às UTC+3h do dia seguinte, termina às UTC+3h-1ms do dia subsequente
     const tomorrowStart = new Date(Date.UTC(year, month, day + 1, BRAZIL_OFFSET_HOURS, 0, 0, 0))
     const tomorrowEnd = new Date(Date.UTC(year, month, day + 2, BRAZIL_OFFSET_HOURS - 1, 59, 59, 999))
+    const tomorrowRange = { gte: tomorrowStart, lte: tomorrowEnd }
 
     const orders = await this.prisma.order.findMany({
       where: {
-        scheduledDate: { gte: tomorrowStart, lte: tomorrowEnd },
+        scheduledDate: tomorrowRange,
         status: { not: 'CANCELLED' },
       },
     })
+    // Cestinhas que ainda vão ser entregues. `PENDING_PAYMENT` fica fora: o sweep pode cancelá-la
+    // durante a madrugada e o cliente teria sido avisado de uma entrega que não existe.
+    const marketOrders = await this.prisma.marketOrder.findMany({
+      where: {
+        scheduledDate: tomorrowRange,
+        status: { in: [...PRE_DELIVERY] },
+      },
+    })
+
+    /** Uma parada de amanhã: o que chega, para quem, a que hora. */
+    interface EveStop {
+      userId: string
+      deliveryTime: string | null
+      breads: number
+      items: number
+      hasBread: boolean
+      hasCestinha: boolean
+    }
+    const stops = new Map<string, EveStop>()
+    const stopFor = (userId: string, slotId: string | null, deliveryTime: string | null): EveStop => {
+      // Sem slotId (pedidos legados) o horário identifica o turno; sem os dois, é uma parada só.
+      const key = `${userId}|${slotId ?? deliveryTime ?? ''}`
+      let stop = stops.get(key)
+      if (!stop) {
+        stop = { userId, deliveryTime, breads: 0, items: 0, hasBread: false, hasCestinha: false }
+        stops.set(key, stop)
+      }
+      // Primeiro horário conhecido vence — nunca sobrescreve um horário real por null.
+      if (!stop.deliveryTime && deliveryTime) stop.deliveryTime = deliveryTime
+      return stop
+    }
 
     for (const order of orders) {
+      const stop = stopFor(order.userId, order.slotId, order.deliveryTime)
+      stop.breads += order.quantity
+      stop.hasBread = true
+    }
+    for (const mo of marketOrders) {
+      const stop = stopFor(mo.userId, mo.slotId, mo.deliveryTime)
+      stop.breads += mo.breadQty // D-1: pão da Cestinha é pão
+      stop.items += mo.items.reduce((acc, i) => acc + i.qty, 0)
+      stop.hasCestinha = true
+    }
+
+    for (const stop of stops.values()) {
+      const { title, body } = eveMessage(stop)
+
       const user = await this.prisma.user.findUnique({
-        where: { id: order.userId },
+        where: { id: stop.userId },
         select: { oneSignalPlayerId: true },
       })
 
@@ -569,27 +659,24 @@ export class SchedulesService {
           const notification = new OneSignal.Notification()
           notification.app_id = process.env.ONESIGNAL_APP_ID!
           notification.include_subscription_ids = [user.oneSignalPlayerId]
-          notification.headings = { pt: 'Entrega amanhã 🥖' }
-          // D-10: incluir horário no texto quando disponível; nunca interpolar null (T-14-03-03)
-          const timeStr = order.deliveryTime ? ` às ${order.deliveryTime}` : ''
-          notification.contents = { pt: `Lembrete: ${order.quantity} pães${timeStr} amanhã.` }
-          notification.data = { screen: 'pedidos' }
+          notification.headings = { pt: title }
+          notification.contents = { pt: body }
+          notification.data = { screen: '/client/pedidos' }
           await osClient.createNotification(notification)
         } catch (pushErr) {
           // D-06: falha de push é silenciosa — Notification ainda é persistida
           this.fastify.log.warn(
-            { userId: order.userId, err: pushErr },
+            { userId: stop.userId, err: pushErr },
             '[schedules] falha ao enviar push de véspera — silencioso (D-06)',
           )
         }
       }
 
-      const timeStr = order.deliveryTime ? ` às ${order.deliveryTime}` : ''
       await this.notificationsService.createAndTrim({
-        userId: order.userId,
+        userId: stop.userId,
         type: 'DELIVERY_EVE',
-        title: 'Entrega amanhã 🥖',
-        body: `Lembrete: ${order.quantity} pães${timeStr} amanhã.`,
+        title,
+        body,
         actionRoute: '/client/pedidos',
       })
     }

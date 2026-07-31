@@ -30,13 +30,36 @@ interface ClienteOrder {
   status: string
 }
 
+/** Uma Cestinha (Além do Pãozin) do cliente nos últimos 30 dias. */
+interface ClienteCestinha {
+  id: string
+  status: string
+  scheduledDate: string
+  deliveryTime?: string | null
+  breadQty: number
+  items: { name: string; qty: number }[]
+  itemCount: number
+  totalValue: number
+  creditsApplied: number
+  moneyAmount: number
+}
+
 interface ClienteMetrics {
   totalSpent: number
+  /** Recorte de totalSpent: crédito/combo/avulso. */
+  spentOnCredits?: number
+  /** Recorte de totalSpent: parte em dinheiro das Cestinhas. */
+  spentOnCestinha?: number
   paymentsCount: number
   breadsDelivered: number
   deliveredOrders: number
   ordersCount: number
   weeklyBreads: number
+  cestinhasCount?: number
+  /** Valor movimentado em Cestinhas — NUNCA somar a gasto/receita (D-2). */
+  cestinhaGmv?: number
+  cestinhaCredits?: number
+  itemsDelivered?: number
 }
 
 interface ClienteDetalhe {
@@ -58,6 +81,7 @@ interface ClienteDetalhe {
   createdAt?: string | null
   schedule?: ClienteSchedule | null
   recentOrders?: ClienteOrder[]
+  recentCestinhas?: ClienteCestinha[]
   metrics?: ClienteMetrics | null
 }
 
@@ -80,6 +104,15 @@ const DIA_ORDER = ['MON', 'seg', 'TUE', 'ter', 'WED', 'qua', 'THU', 'qui', 'FRI'
 
 function onlyDigits(v?: string | null): string {
   return (v ?? '').replace(/\D/g, '')
+}
+
+/** Data da compra mais recente do cliente, considerando pão E Cestinha (ambas vêm ordenadas desc). */
+function ultimaCompra(c: { recentOrders?: ClienteOrder[]; recentCestinhas?: ClienteCestinha[] }): string | null {
+  const datas = [c.recentOrders?.[0]?.scheduledDate, c.recentCestinhas?.[0]?.scheduledDate].filter(
+    (d): d is string => !!d,
+  )
+  if (datas.length === 0) return null
+  return datas.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0]
 }
 
 function formatOtpExpiry(iso: string): string {
@@ -151,6 +184,10 @@ const STATUS_LABEL: Record<string, string> = {
   OUT_FOR_DELIVERY: 'Em rota',
   DELIVERED: 'Entregue',
   CANCELLED: 'Cancelado',
+  // Estados que só a Cestinha tem (MarketOrderStatus) — sem eles a tela mostrava o enum cru.
+  PENDING_PAYMENT: 'Aguardando pagamento',
+  SEPARATED: 'Separado',
+  NOT_DELIVERED: 'Não entregue',
 }
 
 /** Entradas {dia,qtd} agregadas da agenda (suporta days multi-slot e weeklyQty). */
@@ -671,12 +708,38 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
           <>
           {/* Métricas */}
           {cliente.metrics && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <MetricCard icon="coin" label="Total gasto" value={formatCurrency(cliente.metrics.totalSpent)} />
-              <MetricCard icon="bag" label="Pães entregues" value={String(cliente.metrics.breadsDelivered)} />
-              <MetricCard icon="list" label="Pedidos" value={String(cliente.metrics.ordersCount)} />
-              <MetricCard icon="repeat" label="Pães/semana" value={String(cliente.metrics.weeklyBreads)} />
-            </div>
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <MetricCard icon="coin" label="Total gasto" value={formatCurrency(cliente.metrics.totalSpent)} />
+                <MetricCard icon="bag" label="Pães entregues" value={String(cliente.metrics.breadsDelivered)} />
+                <MetricCard icon="list" label="Pedidos" value={String(cliente.metrics.ordersCount)} />
+                <MetricCard icon="repeat" label="Pães/semana" value={String(cliente.metrics.weeklyBreads)} />
+              </div>
+              {/* Cestinha — D-2: "movimentado" (GMV) é grandeza PRÓPRIA e nunca é somada ao gasto,
+                  porque a parte paga em pãezinhos já foi faturada na compra do combo. */}
+              {(cliente.metrics.cestinhasCount ?? 0) > 0 && (
+                <div style={{ ...cardStyle, padding: '13px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+                    <span style={{ fontSize: 14 }}>🧺</span>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+                      Além do Pãozin
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                    <MiniStat label="Cestinhas" value={String(cliente.metrics.cestinhasCount)} />
+                    <MiniStat label="Movimentado" value={formatCurrency(cliente.metrics.cestinhaGmv ?? 0)} />
+                    <MiniStat label="Itens entregues" value={String(cliente.metrics.itemsDelivered ?? 0)} />
+                  </div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '10px 0 0', lineHeight: 1.4 }}>
+                    {formatCurrency(cliente.metrics.spentOnCestinha ?? 0)} em dinheiro
+                    {(cliente.metrics.cestinhaCredits ?? 0) > 0
+                      ? ` · ${cliente.metrics.cestinhaCredits} 🥖 usados`
+                      : ''}
+                    {' · movimentado ≠ receita (parte já foi paga na compra dos créditos)'}
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
           {/* Contato + editar */}
@@ -807,9 +870,9 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               <Icon name="clock" size={20} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
               <span style={rowLabelStyle}>Última compra</span>
               <span style={{ ...rowValueStyle, maxWidth: 140 }}>
-                {formatDataLonga(
-                  cliente.recentOrders && cliente.recentOrders.length > 0 ? cliente.recentOrders[0].scheduledDate : null,
-                )}
+                {/* A mais recente entre pão e Cestinha: quem só compra pela Cestinha mostrava
+                    "—" aqui, como se nunca tivesse comprado nada. */}
+                {formatDataLonga(ultimaCompra(cliente))}
               </span>
             </div>
           </div>
@@ -903,6 +966,46 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
                         {o.quantity}
                       </span>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cestinhas recentes (30 dias) — lista própria porque o card acima conta PÃES; misturar
+              as duas populações no mesmo contador quebraria o D-1. */}
+          {cliente.recentCestinhas && cliente.recentCestinhas.length > 0 && (
+            <div style={{ ...cardStyle, padding: '14px 16px' }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+                🧺 Cestinhas recentes
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
+                {cliente.recentCestinhas.slice(0, 8).map((c, i) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '10px 0', borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-sec)' }}>
+                        {formatDataCurta(c.scheduledDate)}
+                        {c.itemCount > 0 ? ` · ${c.itemCount} itens` : ''}
+                        {c.breadQty > 0 ? ` · ${c.breadQty} 🥖` : ''}
+                      </span>
+                      {c.items.length > 0 && (
+                        <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.items.map((it) => `${it.qty}× ${it.name}`).join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-ter)', whiteSpace: 'nowrap' }}>
+                      {STATUS_LABEL[c.status] ?? c.status}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 800, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
+                      {formatCurrency(c.totalValue)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -1459,6 +1562,18 @@ function MetricCard({ icon, label, value }: { icon: IconName; label: string; val
   )
 }
 
+/** Número + rótulo, sem card próprio — usado dentro do bloco da Cestinha. */
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 800, color: 'var(--color-text)', lineHeight: 1.1 }}>
+        {value}
+      </span>
+      <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)' }}>{label}</span>
+    </div>
+  )
+}
+
 function ContactRow({
   icon, label, value, children,
 }: {
@@ -1546,6 +1661,8 @@ interface MethodsInfo {
 const TX_LABEL: Record<string, string> = {
   PURCHASE: 'Compra', DELIVERY: 'Entrega', REFUND: 'Estorno', EXPIRY: 'Expiração', ADMIN_GRANT: 'Concessão',
   ADMIN_DEBIT: 'Remoção',
+  // Cestinha (Além do Pãozin) — sem estes dois o extrato mostrava o enum cru na tela.
+  MARKET_PURCHASE: 'Cestinha', MARKET_REFUND: 'Estorno da Cestinha',
 }
 const PAY_STATUS: Record<string, string> = {
   PENDING: 'Pendente', PAID: 'Pago', FAILED: 'Falhou', REFUNDED: 'Estornado',
@@ -1839,6 +1956,8 @@ function StatusBadge({ status }: { status: string }) {
 
 // ------------------------------------------------------------------ Pedidos
 interface OrderRow {
+  /** D-4 — discrimina pedido de pão × Cestinha na MESMA lista. */
+  kind?: 'BREAD' | 'CESTINHA'
   id: string
   type: string
   quantity: number
@@ -1850,7 +1969,17 @@ interface OrderRow {
   deliveredAt: string | null
   confirmedAt: string | null
   deliveryStatus: string | null
+  // Só em CESTINHA (null/vazio no pão).
+  items?: { name: string; qty: number }[]
+  itemCount?: number
+  totalValue?: number | null
+  creditsApplied?: number | null
+  moneyAmount?: number | null
+  refundedCredits?: number | null
 }
+
+/** Estados em que uma Cestinha ainda pode ser cancelada pelo admin (entregue não se cancela). */
+const CESTINHA_CANCELAVEL = ['PENDING_PAYMENT', 'SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY']
 
 function orderStatusColor(status: string): string {
   if (status === 'DELIVERED') return 'var(--color-accent)'
@@ -1897,10 +2026,18 @@ function PedidosPanel({
     if (!cancelTarget || cancelling) return
     setCancelling(true)
     try {
-      const res = await apiFetch(`/admin/clients/${clienteId}/orders/${cancelTarget.id}/cancel`, {
+      // A Cestinha tem caminho próprio (Onda C3): sem gate de corte, estorno tudo em pãezinhos e
+      // devolução de estoque. A rota do pão não sabe reverter estoque de produto.
+      const isCestinha = cancelTarget.kind === 'CESTINHA'
+      const url = isCestinha
+        ? `/admin/market/orders/${cancelTarget.id}/cancel`
+        : `/admin/clients/${clienteId}/orders/${cancelTarget.id}/cancel`
+      const res = await apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refundCredits: refundOnCancel }),
+        body: JSON.stringify(
+          isCestinha ? { refundCredits: refundOnCancel, returnStock: true } : { refundCredits: refundOnCancel },
+        ),
       })
       if (res.ok) {
         const data = (await res.json()) as { refundedCredits?: number }
@@ -1952,12 +2089,21 @@ function PedidosPanel({
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
           {orders.map((o, i) => {
+            const cestinha = o.kind === 'CESTINHA'
             const horario = o.deliveryTime || (o.slotId === 'manha' ? 'Manhã' : o.slotId === 'tarde' ? 'Tarde' : '')
             const entregue = o.deliveredAt ? `entregue ${formatDataCurta(o.deliveredAt)}` : ''
-            const sub = [horario, o.courierName, entregue].filter(Boolean).join(' · ')
+            const estorno = o.refundedCredits ? `estornado ${o.refundedCredits} 🥖` : ''
+            // D-1: pães e itens são grandezas diferentes — nunca somadas num total só.
+            const carga = [
+              o.quantity > 0 ? `${o.quantity} pães` : null,
+              cestinha && (o.itemCount ?? 0) > 0 ? `${o.itemCount} 🧺` : null,
+            ].filter(Boolean).join(' · ')
+            const itens = cestinha ? (o.items ?? []).map((it) => `${it.qty}× ${it.name}`).join(', ') : ''
+            const sub = [horario, o.courierName, entregue, estorno, itens].filter(Boolean).join(' · ')
+            const cancelavel = cestinha ? CESTINHA_CANCELAVEL.includes(o.status) : o.status === 'SCHEDULED'
             return (
               <div
-                key={o.id}
+                key={`${o.kind ?? 'BREAD'}-${o.id}`}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0',
                   borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)',
@@ -1965,7 +2111,9 @@ function PedidosPanel({
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                    {formatDataCurta(o.scheduledDate)} · {o.quantity} pães
+                    {cestinha && <span style={{ marginRight: 4 }} title="Cestinha — Além do Pãozin">🧺</span>}
+                    {formatDataCurta(o.scheduledDate)} · {carga || 'sem itens'}
+                    {cestinha && o.totalValue != null ? ` · ${formatCurrency(o.totalValue)}` : ''}
                   </p>
                   {sub && (
                     <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1984,7 +2132,7 @@ function PedidosPanel({
                 >
                   {STATUS_LABEL[o.status] ?? o.status}
                 </span>
-                {o.status === 'SCHEDULED' && (
+                {cancelavel && (
                   <button onClick={() => openCancel(o)} style={{ ...miniBtnStyle, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}>
                     Cancelar
                   </button>
@@ -2008,10 +2156,19 @@ function PedidosPanel({
         >
           <div style={{ background: 'var(--color-surface)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 480 }}>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: 'var(--color-text)', margin: '0 0 8px' }}>
-              Cancelar pedido?
+              {cancelTarget.kind === 'CESTINHA' ? 'Cancelar Cestinha?' : 'Cancelar pedido?'}
             </h2>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-sec)', margin: '0 0 16px', lineHeight: 1.5 }}>
-              Pedido de {formatDataCurta(cancelTarget.scheduledDate)} · {cancelTarget.quantity} pães será marcado como cancelado.
+              {cancelTarget.kind === 'CESTINHA' ? (
+                <>
+                  Cestinha de {formatDataCurta(cancelTarget.scheduledDate)}
+                  {(cancelTarget.itemCount ?? 0) > 0 ? ` · ${cancelTarget.itemCount} item(ns)` : ''}
+                  {cancelTarget.quantity > 0 ? ` · ${cancelTarget.quantity} pães` : ''} será cancelada e os
+                  produtos voltam ao estoque. O cliente é avisado.
+                </>
+              ) : (
+                <>Pedido de {formatDataCurta(cancelTarget.scheduledDate)} · {cancelTarget.quantity} pães será marcado como cancelado.</>
+              )}
             </p>
 
             {/* Toggle devolver créditos */}
@@ -2025,7 +2182,11 @@ function PedidosPanel({
               }}
             >
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
-                Devolver {cancelTarget.quantity} crédito(s) ao cliente
+                {cancelTarget.kind === 'CESTINHA'
+                  // O total é calculado no servidor: pãezinhos aplicados + a parte em dinheiro
+                  // convertida (ceil, a favor do cliente — DEC-36). Não dá para prever aqui.
+                  ? 'Devolver os pãezinhos ao cliente'
+                  : `Devolver ${cancelTarget.quantity} crédito(s) ao cliente`}
               </span>
               <span
                 style={{
@@ -2249,11 +2410,20 @@ function TimelinePanel({ clienteId }: { clienteId: string }) {
           }
         }
         if (o.ok) {
+          // A lista de pedidos agora vem unificada (E2) — a timeline discrimina pelo `kind` para
+          // não chamar uma Cestinha de "Pedido · 0 pães".
           for (const ord of (await o.json()) as OrderRow[]) {
+            const cestinha = ord.kind === 'CESTINHA'
+            const carga = [
+              ord.quantity > 0 ? `${ord.quantity} pães` : null,
+              cestinha && (ord.itemCount ?? 0) > 0 ? `${ord.itemCount} itens` : null,
+            ].filter(Boolean).join(' · ')
             evs.push({
               date: ord.scheduledDate, kind: 'order', icon: 'bag',
-              title: `Pedido · ${ord.quantity} pães`, sub: STATUS_LABEL[ord.status] ?? ord.status,
-              value: null, valueColor: 'var(--color-text)',
+              title: `${cestinha ? '🧺 Cestinha' : 'Pedido'}${carga ? ` · ${carga}` : ''}`,
+              sub: STATUS_LABEL[ord.status] ?? ord.status,
+              value: cestinha && ord.totalValue != null ? formatCurrency(ord.totalValue) : null,
+              valueColor: 'var(--color-text)',
             })
           }
         }

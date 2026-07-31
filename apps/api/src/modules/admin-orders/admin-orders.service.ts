@@ -1,10 +1,18 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
-import { NotificationType, OrderStatus, PaymentStatus, Prisma } from '@prisma/client'
+import { NotificationType, OrderStatus, MarketOrderStatus, PaymentStatus, Prisma } from '@prisma/client'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
+import { excludeNonCreditPurpose } from '../../lib/revenue.js'
+import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { reverseMarketOrder } from '../../lib/market-reversal.js'
+import { propagateMarketStatusForOrder, dispatchMarketForOrders, assignMarketByCondoDay } from '../../lib/market-pipeline.js'
+import { notifyMarketCancelled, notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
+
+/** Centavos, sem lixo de ponto flutuante em somas de R$. */
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 /**
  * Mapa de transições de estado válidas para pedidos.
@@ -27,6 +35,10 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   OUT_FOR_DELIVERY: ['DELIVERED', 'NOT_DELIVERED', 'CANCELLED'],
 }
 
+/** Status válidos por coleção — o ledger unificado filtra cada lado com o que ele conhece. */
+const BREAD_STATUSES = ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED', 'CANCELLED'] as const
+const MARKET_STATUSES = ['PENDING_PAYMENT', ...BREAD_STATUSES] as const
+
 const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 function fallbackSlotLabel(slotId: string): string {
   if (!slotId) return 'Sem horário'
@@ -36,8 +48,13 @@ function fallbackSlotLabel(slotId: string): string {
 /** Detalhamento de um bloco dentro de um condomínio na divisão de entregas. */
 export interface DivisionBlock {
   block: string
+  /** Pães do bloco — inclui o pão vendido dentro da Cestinha (D-1). */
   quantity: number
   orderIds: string[]
+  /** IDs das Cestinhas do bloco — necessários para despachar a parada só-market. */
+  marketOrderIds: string[]
+  /** Itens do mercadinho do bloco — métrica paralela aos pães (D-1). */
+  items: number
 }
 
 /**
@@ -51,6 +68,8 @@ export interface DivisionUnit {
   block: string | null
   quantity: number
   orderIds: string[]
+  marketOrderIds: string[]
+  items: number
   blocks: DivisionBlock[]
 }
 
@@ -58,15 +77,23 @@ export interface DivisionAssignment {
   courierId: string
   courierName: string
   condominiums: DivisionUnit[]
+  /** Pães atribuídos (inclui o pão da Cestinha). */
   total: number
+  /** Itens do mercadinho atribuídos — carga real do entregador, ao lado dos pães. */
+  totalItems: number
 }
 
-/** Detalhamento por bloco no status de entregas (contagens, não pães). */
+/**
+ * Detalhamento por bloco no status de entregas. Contagens são de PARADAS (D-5), não de pães:
+ * pão + Cestinha do mesmo cliente contam 1 e só entram em `delivered` quando os dois foram entregues.
+ */
 export interface DeliveryBlockStatus {
   block: string
   scheduled: number
   delivered: number
   orderIds: string[]
+  /** IDs das Cestinhas do bloco — o aprovar/atribuir precisa delas para a parada só-market. */
+  marketOrderIds: string[]
 }
 
 export interface DeliveryStatusRow {
@@ -75,23 +102,49 @@ export interface DeliveryStatusRow {
   scheduled: number
   delivered: number
   orderIds: string[]
+  marketOrderIds: string[]
   blocks: DeliveryBlockStatus[]
 }
 
-/** Pedido SEPARATED usado na sugestão de divisão (Modo B). */
-type SeparatedOrder = { id: string; userId: string; condominiumId: string | null; quantity: number }
-/** Pedido já despachado usado na reconstrução da divisão (Modo A). */
-type DispatchedOrder = {
-  id: string
+/**
+ * Uma PARADA na divisão de entregas (D-5): tudo o que um cliente recebe num turno — pedido(s) de
+ * pão e/ou Cestinha(s) — numa unidade só, porque é uma visita só.
+ *
+ * `marketOrderIds` existe para a parada SÓ-Cestinha poder ser despachada: sem `orderIds` não havia
+ * o que atribuir, então ela só pegava carona pelo guard `courierId: null` de
+ * `dispatchMarketForOrders` — o primeiro entregador processado levava, sem o admin ver nem poder
+ * mudar. E um condomínio/turno só com Cestinha nunca recebia entregador nenhum.
+ */
+type DivisionStop = {
   userId: string
-  courierId: string | null
   condominiumId: string | null
+  /** Pães da parada (Order.quantity + MarketOrder.breadQty). */
   quantity: number
+  /** Itens do mercadinho da parada. */
+  items: number
+  orderIds: string[]
+  marketOrderIds: string[]
+  /** Entregador já gravado (Modo A — divisão aprovada). */
+  courierId: string | null
 }
 
-/** Linha do ledger de pedidos (verificação geral + histórico + limbo). */
+/**
+ * Linha do ledger de pedidos (verificação geral + histórico + limbo).
+ *
+ * D-4: o ledger é UNIFICADO — pedidos de pão e Cestinhas na mesma lista, discriminados por `kind`.
+ * O propósito declarado da tela é "garantir que nenhum pedido fique invisível"; uma aba separada
+ * obrigaria a olhar em dois lugares para saber se algo ficou para trás.
+ *
+ * Em linhas `CESTINHA`: `orderId` fica vazio e `marketOrderId` preenchido; `quantity` é o
+ * `breadQty` (pães da Cestinha — pode ser 0 numa Cestinha só de produtos) e os produtos vivem em
+ * `marketItems` (D-1). `type` vale `'MARKET'`.
+ */
 export interface LedgerRow {
+  /** Discriminador (D-4). */
+  kind: 'BREAD' | 'CESTINHA'
   orderId: string
+  /** Preenchido só em `kind: 'CESTINHA'`. */
+  marketOrderId: string
   userId: string
   clientName: string
   condominiumId: string
@@ -117,6 +170,14 @@ export interface LedgerRow {
   paymentId: string
   paymentAmount: number
   paymentStatus: string
+  /** Produtos do mercadinho da linha — métrica paralela aos pães (D-1). Vazio em `BREAD`. */
+  marketItems: { name: string; qty: number }[]
+  marketItemCount: number
+  /** Split da Cestinha (0 em `BREAD`): pãezinhos aplicados × R$ cobrado no gateway. */
+  creditsApplied: number
+  moneyAmount: number
+  /** Valor total da Cestinha em R$ (0 em `BREAD`). */
+  totalValue: number
 }
 
 /** Filtros do ledger de pedidos. */
@@ -129,6 +190,8 @@ export interface LedgerFilters {
   q?: string
   limit?: number
   skip?: number
+  /** Restringe a um tipo (D-4). Ausente = os dois. */
+  kind?: 'BREAD' | 'CESTINHA'
 }
 
 function createOsClient() {
@@ -207,8 +270,22 @@ export class AdminOrdersService {
 
     await this.prisma.order.update({ where: { id: orderId }, data })
 
+    // A Cestinha do mesmo cliente/dia/slot acompanha a transição (parada combinada pão+market).
+    // O retorno é quantas Cestinhas ESTA transição moveu — é o que autoriza avisar o cliente.
+    const marketMoved = await propagateMarketStatusForOrder(this.prisma, order, newStatus, reason)
+
     if (newStatus === 'DELIVERED') {
       await this.notifyAndPersist(order)
+      // MKT-35: se o cliente tinha Cestinha nesta parada, avisa a entrega dela também. O gatilho é
+      // a transição desta chamada, não o estado atual: uma Cestinha já entregue pelo fluxo
+      // só-market receberia um segundo aviso quando o pedido de pão fosse concluído depois.
+      if (marketMoved > 0) await notifyMarketDelivered(this.fastify, order.userId)
+    }
+
+    // F3 — Cestinha da parada combinada não entregue. O pão não tem aviso equivalente ao cliente,
+    // mas aqui ficaram produtos pagos com a operação: sem aviso ele espera uma entrega que não vem.
+    if (newStatus === 'NOT_DELIVERED' && marketMoved > 0) {
+      await notifyMarketNotDelivered(this.fastify, order, { reason })
     }
 
     // Avisos ao admin — entrega realizada / não realizada (best-effort).
@@ -333,18 +410,41 @@ export class AdminOrdersService {
     courierId: string,
     opts: {
       orderIds?: string[]
+      marketOrderIds?: string[]
       condominiumId?: string
       date?: string
     },
   ): Promise<{ count: number }> {
-    if (opts.orderIds && opts.orderIds.length > 0) {
-      // Atribuicao direta por lista de IDs — gate: só pedidos separados ou já em rota
-      const result = await this.prisma.order.updateMany({
-        where: { id: { in: opts.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
-        data: { courierId },
-      })
-      await this.notifyCourierNewOrders(courierId, result.count)
-      return { count: result.count }
+    const hasIds = (opts.orderIds?.length ?? 0) > 0 || (opts.marketOrderIds?.length ?? 0) > 0
+    if (hasIds) {
+      let count = 0
+      if (opts.orderIds && opts.orderIds.length > 0) {
+        // Atribuicao direta por lista de IDs — gate: só pedidos separados ou já em rota
+        const result = await this.prisma.order.updateMany({
+          where: { id: { in: opts.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
+          data: { courierId },
+        })
+        count += result.count
+        // Cestinha pega carona: mesmo courier nos MarketOrder do escopo dos pedidos atribuídos.
+        const scopeOrders = await this.prisma.order.findMany({
+          where: { id: { in: opts.orderIds } },
+          select: { userId: true, condominiumId: true, slotId: true, scheduledDate: true },
+        })
+        await dispatchMarketForOrders(this.prisma, scopeOrders, courierId, false)
+      }
+      // Paradas só-Cestinha atribuídas explicitamente (mesmo motivo do approveDivision).
+      if (opts.marketOrderIds && opts.marketOrderIds.length > 0) {
+        const r = await this.prisma.marketOrder.updateMany({
+          where: {
+            id: { in: opts.marketOrderIds },
+            status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] },
+          },
+          data: { courierId },
+        })
+        count += r.count
+      }
+      await this.notifyCourierNewOrders(courierId, count)
+      return { count }
     }
 
     if (opts.condominiumId && opts.date) {
@@ -370,6 +470,8 @@ export class AdminOrdersService {
         where: { id: { in: orders.map((o: { id: string }) => o.id) } },
         data: { courierId },
       })
+      // Cestinha pega carona: mesmo courier nos MarketOrder do condomínio no dia.
+      await assignMarketByCondoDay(this.prisma, opts.condominiumId, startOfDay, endOfDay, courierId)
       await this.notifyCourierNewOrders(courierId, result.count)
       return { count: result.count }
     }
@@ -389,18 +491,48 @@ export class AdminOrdersService {
    * OUT_FOR_DELIVERY+ com courierId no dia/turno), sem precisar de flag extra no schema.
    */
   async approveDivision(
-    assignments: { courierId: string; orderIds: string[] }[],
+    assignments: { courierId: string; orderIds: string[]; marketOrderIds?: string[] }[],
   ): Promise<{ count: number }> {
     let count = 0
     for (const a of assignments) {
-      if (!a.orderIds || a.orderIds.length === 0) continue
-      const result = await this.prisma.order.updateMany({
-        where: { id: { in: a.orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
-        data: { courierId: a.courierId, status: 'OUT_FOR_DELIVERY' },
-      })
-      count += result.count
+      const orderIds = a.orderIds ?? []
+      const marketOrderIds = a.marketOrderIds ?? []
+      if (orderIds.length === 0 && marketOrderIds.length === 0) continue
+
+      let dispatched = 0
+      if (orderIds.length > 0) {
+        const result = await this.prisma.order.updateMany({
+          where: { id: { in: orderIds }, status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY'] } },
+          data: { courierId: a.courierId, status: 'OUT_FOR_DELIVERY' },
+        })
+        dispatched += result.count
+        // Cestinha pega carona: despacha os MarketOrder do escopo dos pedidos deste entregador
+        // (paradas combinadas — casa por userId).
+        const scopeOrders = await this.prisma.order.findMany({
+          where: { id: { in: orderIds } },
+          select: { userId: true, condominiumId: true, slotId: true, scheduledDate: true },
+        })
+        await dispatchMarketForOrders(this.prisma, scopeOrders, a.courierId, true)
+      }
+
+      // Paradas SÓ-Cestinha: despacho EXPLÍCITO pelos ids que a divisão devolveu. Sem isto elas
+      // dependiam do guard `courierId: null` de `dispatchMarketForOrders` (o 1º entregador
+      // processado levava, sem o admin poder escolher) — e um condomínio/turno só com Cestinha
+      // não tinha `orderIds`, logo nunca era despachado.
+      if (marketOrderIds.length > 0) {
+        const r = await this.prisma.marketOrder.updateMany({
+          where: {
+            id: { in: marketOrderIds },
+            status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
+          },
+          data: { courierId: a.courierId, status: 'OUT_FOR_DELIVERY' },
+        })
+        dispatched += r.count
+      }
+
+      count += dispatched
       // Avisa o entregador que foi despachado (best-effort, por entregador).
-      await this.notifyCourierNewOrders(a.courierId, result.count)
+      await this.notifyCourierNewOrders(a.courierId, dispatched)
     }
     return { count }
   }
@@ -417,6 +549,8 @@ export class AdminOrdersService {
     breadsTomorrowCount: number
     breadsTomorrowProjected: number
     breadsByWeekday: number[]
+    /** Itens do mercadinho por dia da semana — métrica paralela aos pães (D-1). */
+    itemsByWeekday: number[]
     revenueToday: number
     breadsTodayTrendPct: number
     revenueTrendPct: number
@@ -425,6 +559,15 @@ export class AdminOrdersService {
     condominiumsCount: number
     deliverySlots: Array<{ slotId: string; label: string; time: string; cutoffTime: string }>
     revenueByType: { combos: number; avulso: number }
+    /**
+     * Cestinha de hoje (D-2) — `revenue` é dinheiro NOVO (Payment purpose=MARKET) e entra no
+     * consolidado; `gmv` é valor movimentado e **nunca** é somado à receita. Card "Receita do dia"
+     * não subir numa Cestinha 100% crédito é o comportamento CORRETO: aquele dinheiro foi faturado
+     * quando o combo foi comprado. Quem sobe é o GMV.
+     */
+    marketToday: { revenue: number; gmv: number; orders: number }
+    /** `revenueToday` + `marketToday.revenue`. Sem GMV. */
+    revenueTodayConsolidated: number
     stuckCount: number
   }> {
     // Calcular início e fim do dia em BRT (UTC-3)
@@ -455,6 +598,10 @@ export class AdminOrdersService {
       orderAgg,
       orderTomorrowAgg,
       orderYesterdayAgg,
+      marketTodayAgg,
+      marketTomorrowAgg,
+      marketYesterdayAgg,
+      weekMarket,
       paymentAgg,
       paymentYesterdayAgg,
       clientsCount,
@@ -467,6 +614,9 @@ export class AdminOrdersService {
       projToday,
       projTomorrow,
       stuckCount,
+      marketStuckCount,
+      marketRevenueTodayAgg,
+      marketGmvTodayAgg,
     ] = await Promise.all([
       // breadsTodayCount
       this.prisma.order.aggregate({
@@ -483,15 +633,34 @@ export class AdminOrdersService {
         _sum: { quantity: true },
         where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { not: 'CANCELLED' } },
       }),
-      // revenueToday
+      // Pães vendidos DENTRO da Cestinha (D-1: breadQty é pão e conta em todo contador de pães).
+      // Três janelas espelhando as agregações de Order acima.
+      this.prisma.marketOrder.aggregate({
+        _sum: { breadQty: true },
+        where: { scheduledDate: { gte: startOfDayBrt, lte: endOfDayBrt }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
+      }),
+      this.prisma.marketOrder.aggregate({
+        _sum: { breadQty: true },
+        where: { scheduledDate: { gte: startOfTomorrowBrt, lte: endOfTomorrowBrt }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
+      }),
+      this.prisma.marketOrder.aggregate({
+        _sum: { breadQty: true },
+        where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
+      }),
+      // Cestinhas da semana — alimenta o gráfico "Fornadas por dia" com o pão da Cestinha.
+      this.prisma.marketOrder.findMany({
+        where: { scheduledDate: { gte: weekStart, lte: weekEnd }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
+        select: { scheduledDate: true, breadQty: true, items: { select: { qty: true } } },
+      }),
+      // revenueToday (§4.7: exclui HOOK/MARKET — receita de crédito apenas)
       this.prisma.payment.aggregate({
         _sum: { amount: true },
-        where: { status: 'PAID', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt } },
+        where: { status: 'PAID', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt }, ...excludeNonCreditPurpose },
       }),
       // revenue de ontem (delta do card "Receita do dia")
       this.prisma.payment.aggregate({
         _sum: { amount: true },
-        where: { status: 'PAID', createdAt: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt } },
+        where: { status: 'PAID', createdAt: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, ...excludeNonCreditPurpose },
       }),
       // clientsCount
       this.prisma.user.count({ where: { role: 'CLIENT', isBlocked: false } }),
@@ -529,20 +698,54 @@ export class AdminOrdersService {
           status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
         },
       }),
+      // Cestinhas no limbo — mesma regra. Sem isto uma Cestinha esquecida sumia em silêncio,
+      // com o crédito do cliente já debitado e o estoque do produto reservado.
+      this.prisma.marketOrder.count({
+        where: {
+          scheduledDate: { lt: startOfDayBrt },
+          status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
+        },
+      }),
+      // D2 — a Cestinha no painel (D-2): dinheiro NOVO × valor movimentado, na janela da COMPRA
+      // (`createdAt`), a mesma do `revenueToday`.
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: { status: 'PAID', purpose: 'MARKET', createdAt: { gte: startOfDayBrt, lte: endOfDayBrt } },
+      }),
+      this.prisma.marketOrder.aggregate({
+        _sum: { totalValue: true },
+        _count: true,
+        where: {
+          createdAt: { gte: startOfDayBrt, lte: endOfDayBrt },
+          status: { in: [...CONFIRMED_MARKET_STATUSES] },
+        },
+      }),
     ])
 
     const combosRevenue = (comboPaidPayments as { amount: number }[]).reduce((s, p) => s + p.amount, 0)
     const avulsoRevenue = (avulsoPaidPayments as { amount: number }[]).reduce((s, p) => s + p.amount, 0)
 
-    // Série por dia da semana (seg..dom) a partir dos pedidos materializados da semana
+    // Série por dia da semana (seg..dom) a partir dos pedidos materializados da semana + o pão
+    // vendido na Cestinha. `itemsByWeekday` é a métrica PARALELA dos produtos do mercadinho —
+    // nunca somada aos pães (D-1): "18 pães" não pode ser 12 pães + 6 potes de geleia.
     const WEEKDAY_INDEX: Record<DayKey, number> = { seg: 0, ter: 1, qua: 2, qui: 3, sex: 4, sab: 5, dom: 6 }
     const breadsByWeekday = [0, 0, 0, 0, 0, 0, 0]
+    const itemsByWeekday = [0, 0, 0, 0, 0, 0, 0]
     for (const o of weekOrders as { scheduledDate: Date; quantity: number }[]) {
       breadsByWeekday[WEEKDAY_INDEX[dayKeyOf(o.scheduledDate)]] += o.quantity
     }
+    for (const m of weekMarket as { scheduledDate: Date; breadQty: number; items: { qty: number }[] }[]) {
+      const idx = WEEKDAY_INDEX[dayKeyOf(m.scheduledDate)]
+      breadsByWeekday[idx] += m.breadQty
+      itemsByWeekday[idx] += m.items.reduce((n, i) => n + i.qty, 0)
+    }
 
-    const breadsToday = (orderAgg._sum?.quantity as number | null) ?? 0
-    const breadsYesterday = (orderYesterdayAgg._sum?.quantity as number | null) ?? 0
+    // Pães do dia = pedidos de pão + pão da Cestinha (D-1).
+    const marketBreadsToday = (marketTodayAgg._sum?.breadQty as number | null) ?? 0
+    const marketBreadsTomorrow = (marketTomorrowAgg._sum?.breadQty as number | null) ?? 0
+    const marketBreadsYesterday = (marketYesterdayAgg._sum?.breadQty as number | null) ?? 0
+    const breadsToday = ((orderAgg._sum?.quantity as number | null) ?? 0) + marketBreadsToday
+    const breadsYesterday = ((orderYesterdayAgg._sum?.quantity as number | null) ?? 0) + marketBreadsYesterday
     const revenueToday = (paymentAgg._sum?.amount as number | null) ?? 0
     const revenueYesterday = (paymentYesterdayAgg._sum?.amount as number | null) ?? 0
     const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0)
@@ -550,9 +753,10 @@ export class AdminOrdersService {
     return {
       breadsTodayCount: breadsToday,
       breadsTodayProjected: projToday.total,
-      breadsTomorrowCount: (orderTomorrowAgg._sum?.quantity as number | null) ?? 0,
+      breadsTomorrowCount: ((orderTomorrowAgg._sum?.quantity as number | null) ?? 0) + marketBreadsTomorrow,
       breadsTomorrowProjected: projTomorrow.total,
       breadsByWeekday,
+      itemsByWeekday,
       revenueToday,
       breadsTodayTrendPct: pct(breadsToday, breadsYesterday),
       revenueTrendPct: pct(revenueToday, revenueYesterday),
@@ -563,7 +767,15 @@ export class AdminOrdersService {
         .filter((s) => s.isActive)
         .map((s) => ({ slotId: s.slotId, label: s.label, time: s.time, cutoffTime: s.cutoffTime })),
       revenueByType: { combos: combosRevenue, avulso: avulsoRevenue },
-      stuckCount: stuckCount as number,
+      marketToday: {
+        revenue: round2((marketRevenueTodayAgg._sum?.amount as number | null) ?? 0),
+        gmv: round2((marketGmvTodayAgg._sum?.totalValue as number | null) ?? 0),
+        orders: marketGmvTodayAgg._count as number,
+      },
+      revenueTodayConsolidated: round2(
+        revenueToday + ((marketRevenueTodayAgg._sum?.amount as number | null) ?? 0),
+      ),
+      stuckCount: (stuckCount as number) + (marketStuckCount as number),
     }
   }
 
@@ -583,61 +795,104 @@ export class AdminOrdersService {
 
   async getDeliveryStatus(slotId?: string, dateStr?: string): Promise<DeliveryStatusRow[]> {
     const { start, end } = this.resolveDayRange(dateStr)
+    // Gate da separação: a operação de entrega só enxerga pedidos já SEPARADOS (e além).
+    // SCHEDULED (não separado) e CANCELLED ficam de fora.
+    const IN_DELIVERY = ['SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] as const
 
-    const orders = (await this.prisma.order.findMany({
-      where: {
-        scheduledDate: { gte: start, lte: end },
-        // Gate da separação: a operação de entrega só enxerga pedidos já SEPARADOS (e além).
-        // Pedidos SCHEDULED (ainda não separados) e CANCELLED ficam de fora.
-        status: { in: ['SEPARATED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] },
-        // Pipeline por turno: quando informado, filtra só o slot.
-        ...(slotId ? { slotId } : {}),
-      },
-      select: { id: true, userId: true, condominiumId: true, status: true },
-    })) as { id: string; userId: string; condominiumId: string | null; status: string }[]
+    const [breadOrders, marketOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          scheduledDate: { gte: start, lte: end },
+          status: { in: [...IN_DELIVERY] },
+          // Pipeline por turno: quando informado, filtra só o slot.
+          ...(slotId ? { slotId } : {}),
+        },
+        select: { id: true, userId: true, condominiumId: true, status: true },
+      }) as Promise<{ id: string; userId: string; condominiumId: string | null; status: string }[]>,
+      // Cestinhas na esteira de entrega. Sem isto, uma parada só-Cestinha não existia para o
+      // acompanhamento: o admin não via que havia entrega a fazer nem que ela tinha sido feita.
+      this.prisma.marketOrder.findMany({
+        where: {
+          scheduledDate: { gte: start, lte: end },
+          status: { in: [...IN_DELIVERY] },
+          ...(slotId ? { slotId } : {}),
+        },
+        select: { id: true, userId: true, condominiumId: true, status: true },
+      }) as Promise<{ id: string; userId: string; condominiumId: string; status: string }[]>,
+    ])
 
-    if (orders.length === 0) return []
+    if (breadOrders.length === 0 && marketOrders.length === 0) return []
 
-    // Agrupar por condominiumId (mantém os pedidos crus p/ o breakdown por bloco)
-    type Row = { scheduled: number; delivered: number; orderIds: string[]; items: typeof orders }
-    const grouped = new Map<string, Row>()
-    for (const order of orders) {
-      const condoId = order.condominiumId ?? 'unknown'
-      if (!grouped.has(condoId)) {
-        grouped.set(condoId, { scheduled: 0, delivered: 0, orderIds: [], items: [] })
+    // D-5: a unidade é a PARADA (cliente + condomínio). Pão + Cestinha do mesmo cliente = 1 parada,
+    // "entregue" só quando ambos foram entregues — o entregador toca a campainha uma vez.
+    type Stop = {
+      userId: string
+      condominiumId: string
+      orderIds: string[]
+      marketOrderIds: string[]
+      total: number
+      done: number
+    }
+    const stops = new Map<string, Stop>()
+    const ensure = (userId: string, condoId: string): Stop => {
+      const key = `${userId}|${condoId}`
+      let s = stops.get(key)
+      if (!s) {
+        s = { userId, condominiumId: condoId, orderIds: [], marketOrderIds: [], total: 0, done: 0 }
+        stops.set(key, s)
       }
-      const group = grouped.get(condoId)!
-      group.scheduled += 1
-      if (order.status === 'DELIVERED') group.delivered += 1
-      group.orderIds.push(order.id)
-      group.items.push(order)
+      return s
     }
 
-    // Blocos (via User.block) + nomes dos condomínios
-    const blockMap = await this.resolveUserBlocks(orders.map((o) => o.userId))
-    const condominiumIds = Array.from(grouped.keys()).filter((id) => id !== 'unknown')
-    const condominiumNameMap = await this.resolveCondoNames(condominiumIds)
+    for (const o of breadOrders) {
+      const s = ensure(o.userId, o.condominiumId ?? 'unknown')
+      s.orderIds.push(o.id)
+      s.total += 1
+      if (o.status === 'DELIVERED') s.done += 1
+    }
+    for (const m of marketOrders) {
+      const s = ensure(m.userId, m.condominiumId)
+      s.marketOrderIds.push(m.id)
+      s.total += 1
+      if (m.status === 'DELIVERED') s.done += 1
+    }
 
-    return Array.from(grouped.entries()).map(([condominiumId, data]) => {
-      // Breakdown por bloco (contagens), ordenado por bloco numérico.
+    const stopList = [...stops.values()]
+    const blockMap = await this.resolveUserBlocks(stopList.map((s) => s.userId))
+    const condoIds = [...new Set(stopList.map((s) => s.condominiumId))].filter((id) => id !== 'unknown')
+    const condominiumNameMap = await this.resolveCondoNames(condoIds)
+
+    // Agrupa paradas por condomínio
+    const byCondo = new Map<string, Stop[]>()
+    for (const s of stopList) {
+      const list = byCondo.get(s.condominiumId) ?? []
+      list.push(s)
+      byCondo.set(s.condominiumId, list)
+    }
+
+    return [...byCondo.entries()].map(([condominiumId, condoStops]) => {
       const byBlock = new Map<string, DeliveryBlockStatus>()
-      for (const o of data.items) {
-        const b = blockMap.get(o.userId) ?? ''
-        if (!byBlock.has(b)) byBlock.set(b, { block: b, scheduled: 0, delivered: 0, orderIds: [] })
+      for (const s of condoStops) {
+        const b = blockMap.get(s.userId) ?? ''
+        if (!byBlock.has(b)) {
+          byBlock.set(b, { block: b, scheduled: 0, delivered: 0, orderIds: [], marketOrderIds: [] })
+        }
         const bg = byBlock.get(b)!
         bg.scheduled += 1
-        if (o.status === 'DELIVERED') bg.delivered += 1
-        bg.orderIds.push(o.id)
+        if (s.done === s.total) bg.delivered += 1
+        bg.orderIds.push(...s.orderIds)
+        bg.marketOrderIds.push(...s.marketOrderIds)
       }
-      const blocks = Array.from(byBlock.values()).sort((a, b) =>
+      const blocks = [...byBlock.values()].sort((a, b) =>
         a.block.localeCompare(b.block, 'pt-BR', { numeric: true }),
       )
       return {
         condominiumId,
         condominiumName: condominiumNameMap.get(condominiumId) ?? condominiumId,
-        scheduled: data.scheduled,
-        delivered: data.delivered,
-        orderIds: data.orderIds,
+        scheduled: condoStops.length,
+        delivered: condoStops.filter((s) => s.done === s.total).length,
+        orderIds: condoStops.flatMap((s) => s.orderIds),
+        marketOrderIds: condoStops.flatMap((s) => s.marketOrderIds),
         blocks,
       }
     })
@@ -672,60 +927,46 @@ export class AdminOrdersService {
 
     const { start, end } = this.resolveDayRange(dateStr)
 
-    // 1) Estado pós-aprovação: se já há pedidos despachados (com entregador) no dia/turno,
+    // 1) Estado pós-aprovação: se já há paradas despachadas (com entregador) no dia/turno,
     // a divisão foi aprovada — devolvemos a divisão REAL persistida (não a sugestão greedy).
-    const dispatched = (await this.prisma.order.findMany({
-      where: {
-        scheduledDate: { gte: start, lte: end },
-        status: { in: ['OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] },
-        courierId: { not: null },
-        ...(slotId ? { slotId } : {}),
-      },
-      select: { id: true, userId: true, courierId: true, condominiumId: true, quantity: true },
-    })) as DispatchedOrder[]
-
+    const dispatched = await this.collectDivisionStops(start, end, slotId, 'dispatched')
     if (dispatched.length > 0) {
       return { approved: true, assignments: await this.groupByCourier(couriers, dispatched) }
     }
 
-    // 2) Ainda não aprovado: sugestão greedy sobre os pedidos SEPARATED do dia/turno.
-    const orders = (await this.prisma.order.findMany({
-      where: {
-        scheduledDate: { gte: start, lte: end },
-        // Gate da separação — só pedidos separados entram na divisão entre entregadores
-        status: 'SEPARATED',
-        ...(slotId ? { slotId } : {}),
-      },
-      select: { id: true, userId: true, condominiumId: true, quantity: true },
-    })) as SeparatedOrder[]
+    // 2) Ainda não aprovado: sugestão greedy sobre as paradas SEPARATED do dia/turno.
+    const stops = await this.collectDivisionStops(start, end, slotId, 'separated')
+    if (stops.length === 0) return { approved: false, assignments: [] }
 
-    if (orders.length === 0) return { approved: false, assignments: [] }
-
-    // Agrupar por condominiumId (mantém os pedidos crus p/ orderIds + breakdown de blocos)
-    const condoMap = new Map<string, SeparatedOrder[]>()
-    for (const order of orders) {
-      const condoId = order.condominiumId ?? 'unknown'
+    // Agrupar por condominiumId (mantém as paradas cruas p/ ids + breakdown de blocos)
+    const condoMap = new Map<string, DivisionStop[]>()
+    for (const s of stops) {
+      const condoId = s.condominiumId ?? 'unknown'
       if (!condoMap.has(condoId)) condoMap.set(condoId, [])
-      condoMap.get(condoId)!.push(order)
+      condoMap.get(condoId)!.push(s)
     }
 
-    const blockMap = await this.resolveUserBlocks(orders.map((o) => o.userId))
+    const blockMap = await this.resolveUserBlocks(stops.map((s) => s.userId))
     const condominiumNameMap = await this.resolveCondoNames(
       Array.from(condoMap.keys()).filter((id) => id !== 'unknown'),
     )
 
     // Cada condomínio vira uma unidade "inteira" (block: null) que já carrega o
-    // detalhamento por bloco para o admin "explodir" na tela. Ordena por quantity desc.
+    // detalhamento por bloco para o admin "explodir" na tela.
     const sortedUnits: DivisionUnit[] = Array.from(condoMap.entries())
       .map(([condominiumId, items]) => ({
         condominiumId,
         condominiumName: condominiumNameMap.get(condominiumId) ?? condominiumId,
         block: null,
         quantity: items.reduce((s, o) => s + o.quantity, 0),
-        orderIds: items.map((o) => o.id),
+        items: items.reduce((s, o) => s + o.items, 0),
+        orderIds: items.flatMap((o) => o.orderIds),
+        marketOrderIds: items.flatMap((o) => o.marketOrderIds),
         blocks: this.buildDivisionBlocks(items, blockMap),
       }))
-      .sort((a, b) => b.quantity - a.quantity)
+      // Peso da unidade = pães + itens: o entregador carrega os dois. Um condomínio com 0 pães e
+      // 20 potes de geleia não é "leve"; ordenar só por pães o jogaria pro fim da fila.
+      .sort((a, b) => b.quantity + b.items - (a.quantity + a.items))
 
     // Algoritmo greedy: inicializar contadores por entregador
     const courierList: DivisionAssignment[] = couriers.map((c) => ({
@@ -733,22 +974,115 @@ export class AdminOrdersService {
       courierName: c.name,
       condominiums: [],
       total: 0,
+      totalItems: 0,
     }))
 
     for (const unit of sortedUnits) {
-      // Encontrar entregador com menor total
+      // Encontrar entregador com menor carga (pães + itens)
       let minIdx = 0
       for (let i = 1; i < courierList.length; i++) {
-        if (courierList[i].total < courierList[minIdx].total) minIdx = i
+        const cur = courierList[i].total + courierList[i].totalItems
+        const min = courierList[minIdx].total + courierList[minIdx].totalItems
+        if (cur < min) minIdx = i
       }
       courierList[minIdx].condominiums.push(unit)
       courierList[minIdx].total += unit.quantity
+      courierList[minIdx].totalItems += unit.items
     }
 
     // Retornar todos os entregadores ativos — inclusive os sem condomínio sugerido.
     // A sugestão greedy acima já balanceia a carga; manter os entregadores vazios
     // permite que o admin reatribua condomínios manualmente (drag-and-drop no front).
     return { approved: false, assignments: courierList }
+  }
+
+  /**
+   * collectDivisionStops — paradas do dia/turno para a divisão de entregas, unindo pedidos de pão
+   * e Cestinhas por `(userId, condominiumId)` (D-5).
+   *
+   * @param mode 'separated'  → gate da separação: o que ainda vai ser dividido (sugestão greedy)
+   *             'dispatched' → o que já foi despachado com entregador (divisão real aprovada)
+   */
+  private async collectDivisionStops(
+    start: Date,
+    end: Date,
+    slotId: string | undefined,
+    mode: 'separated' | 'dispatched',
+  ): Promise<DivisionStop[]> {
+    // `OrderStatus` e `MarketOrderStatus` compartilham estes valores de string de propósito
+    // (a Cestinha pega carona na esteira do pão), então o mesmo filtro serve para os dois.
+    const DISPATCHED = ['OUT_FOR_DELIVERY', 'DELIVERED', 'NOT_DELIVERED'] as const
+    const statusFilter =
+      mode === 'separated'
+        ? { status: 'SEPARATED' as const }
+        : { status: { in: [...DISPATCHED] }, courierId: { not: null } }
+
+    const [orders, marketOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          scheduledDate: { gte: start, lte: end },
+          ...statusFilter,
+          ...(slotId ? { slotId } : {}),
+        },
+        select: { id: true, userId: true, condominiumId: true, quantity: true, courierId: true },
+      }) as Promise<
+        { id: string; userId: string; condominiumId: string | null; quantity: number; courierId: string | null }[]
+      >,
+      this.prisma.marketOrder.findMany({
+        where: {
+          scheduledDate: { gte: start, lte: end },
+          ...statusFilter,
+          ...(slotId ? { slotId } : {}),
+        },
+        select: {
+          id: true,
+          userId: true,
+          condominiumId: true,
+          breadQty: true,
+          courierId: true,
+          items: { select: { qty: true } },
+        },
+      }) as Promise<
+        {
+          id: string
+          userId: string
+          condominiumId: string
+          breadQty: number
+          courierId: string | null
+          items: { qty: number }[]
+        }[]
+      >,
+    ])
+
+    const stops = new Map<string, DivisionStop>()
+    const ensure = (userId: string, condoId: string | null): DivisionStop => {
+      const key = `${userId}|${condoId ?? 'unknown'}`
+      let s = stops.get(key)
+      if (!s) {
+        s = { userId, condominiumId: condoId, quantity: 0, items: 0, orderIds: [], marketOrderIds: [], courierId: null }
+        stops.set(key, s)
+      }
+      return s
+    }
+
+    for (const o of orders) {
+      const s = ensure(o.userId, o.condominiumId)
+      s.quantity += o.quantity
+      s.orderIds.push(o.id)
+      // O pedido de pão manda no entregador da parada: numa parada combinada a Cestinha
+      // acompanha o pão (foi a regra fiada na Onda 5 em `dispatchMarketForOrders`).
+      if (o.courierId) s.courierId = o.courierId
+    }
+    for (const m of marketOrders) {
+      const s = ensure(m.userId, m.condominiumId)
+      s.quantity += m.breadQty
+      s.items += m.items.reduce((n, i) => n + i.qty, 0)
+      s.marketOrderIds.push(m.id)
+      // Só assume o courier da Cestinha se a parada não tem pão (parada só-market).
+      if (!s.courierId && m.courierId) s.courierId = m.courierId
+    }
+
+    return [...stops.values()]
   }
 
   /** Resolve nomes de condomínios para um conjunto de IDs (mapa id→nome). */
@@ -776,17 +1110,18 @@ export class AdminOrdersService {
    * Detalha os pedidos de um condomínio por bloco (pães + orderIds), ordenado por bloco
    * numérico. Alimenta a "explosão" de um condomínio em blocos na divisão de entregas.
    */
-  private buildDivisionBlocks(
-    items: { id: string; userId: string; quantity: number }[],
-    blockMap: Map<string, string>,
-  ): DivisionBlock[] {
+  private buildDivisionBlocks(stops: DivisionStop[], blockMap: Map<string, string>): DivisionBlock[] {
     const byBlock = new Map<string, DivisionBlock>()
-    for (const o of items) {
-      const b = blockMap.get(o.userId) ?? ''
-      if (!byBlock.has(b)) byBlock.set(b, { block: b, quantity: 0, orderIds: [] })
+    for (const s of stops) {
+      const b = blockMap.get(s.userId) ?? ''
+      if (!byBlock.has(b)) {
+        byBlock.set(b, { block: b, quantity: 0, orderIds: [], marketOrderIds: [], items: 0 })
+      }
       const g = byBlock.get(b)!
-      g.quantity += o.quantity
-      g.orderIds.push(o.id)
+      g.quantity += s.quantity
+      g.items += s.items
+      g.orderIds.push(...s.orderIds)
+      g.marketOrderIds.push(...s.marketOrderIds)
     }
     return Array.from(byBlock.values()).sort((a, b) =>
       a.block.localeCompare(b.block, 'pt-BR', { numeric: true }),
@@ -800,40 +1135,40 @@ export class AdminOrdersService {
    */
   private async groupByCourier(
     couriers: { id: string; name: string }[],
-    orders: DispatchedOrder[],
+    stops: DivisionStop[],
   ): Promise<DivisionAssignment[]> {
-    // Detecta condomínios "split" (pedidos em >1 entregador) — esses viram unidades por
+    // Detecta condomínios "split" (paradas em >1 entregador) — esses viram unidades por
     // bloco; os demais permanecem como unidade de condomínio inteiro.
     const couriersByCondo = new Map<string, Set<string>>()
-    for (const o of orders) {
-      if (!o.courierId || !o.condominiumId) continue
-      if (!couriersByCondo.has(o.condominiumId)) couriersByCondo.set(o.condominiumId, new Set())
-      couriersByCondo.get(o.condominiumId)!.add(o.courierId)
+    for (const s of stops) {
+      if (!s.courierId || !s.condominiumId) continue
+      if (!couriersByCondo.has(s.condominiumId)) couriersByCondo.set(s.condominiumId, new Set())
+      couriersByCondo.get(s.condominiumId)!.add(s.courierId)
     }
     const isSplit = (condoId: string) => (couriersByCondo.get(condoId)?.size ?? 0) > 1
 
-    // Agrupa pedidos por entregador
-    const byCourier = new Map<string, DispatchedOrder[]>()
-    for (const o of orders) {
-      if (!o.courierId) continue
-      if (!byCourier.has(o.courierId)) byCourier.set(o.courierId, [])
-      byCourier.get(o.courierId)!.push(o)
+    // Agrupa paradas por entregador
+    const byCourier = new Map<string, DivisionStop[]>()
+    for (const s of stops) {
+      if (!s.courierId) continue
+      if (!byCourier.has(s.courierId)) byCourier.set(s.courierId, [])
+      byCourier.get(s.courierId)!.push(s)
     }
 
-    const blockMap = await this.resolveUserBlocks(orders.map((o) => o.userId))
+    const blockMap = await this.resolveUserBlocks(stops.map((s) => s.userId))
     const condoIds = Array.from(
-      new Set(orders.map((o) => o.condominiumId).filter((id): id is string => !!id)),
+      new Set(stops.map((s) => s.condominiumId).filter((id): id is string => !!id)),
     )
     const condoNameMap = await this.resolveCondoNames(condoIds)
 
     return couriers.map((c) => {
-      const cOrders = byCourier.get(c.id) ?? []
-      // Agrupa os pedidos deste entregador por condomínio
-      const byCondo = new Map<string, DispatchedOrder[]>()
-      for (const o of cOrders) {
-        const condoId = o.condominiumId ?? 'unknown'
+      const cStops = byCourier.get(c.id) ?? []
+      // Agrupa as paradas deste entregador por condomínio
+      const byCondo = new Map<string, DivisionStop[]>()
+      for (const s of cStops) {
+        const condoId = s.condominiumId ?? 'unknown'
         if (!byCondo.has(condoId)) byCondo.set(condoId, [])
-        byCondo.get(condoId)!.push(o)
+        byCondo.get(condoId)!.push(s)
       }
 
       const units: DivisionUnit[] = []
@@ -848,7 +1183,9 @@ export class AdminOrdersService {
               condominiumName,
               block: b.block,
               quantity: b.quantity,
+              items: b.items,
               orderIds: b.orderIds,
+              marketOrderIds: b.marketOrderIds,
               blocks: [],
             })
           }
@@ -858,17 +1195,20 @@ export class AdminOrdersService {
             condominiumName,
             block: null,
             quantity: items.reduce((s, o) => s + o.quantity, 0),
-            orderIds: items.map((o) => o.id),
+            items: items.reduce((s, o) => s + o.items, 0),
+            orderIds: items.flatMap((o) => o.orderIds),
+            marketOrderIds: items.flatMap((o) => o.marketOrderIds),
             blocks,
           })
         }
       }
-      units.sort((a, b) => b.quantity - a.quantity)
+      units.sort((a, b) => b.quantity + b.items - (a.quantity + a.items))
       return {
         courierId: c.id,
         courierName: c.name,
         condominiums: units,
         total: units.reduce((s, x) => s + x.quantity, 0),
+        totalItems: units.reduce((s, x) => s + x.items, 0),
       }
     })
   }
@@ -945,7 +1285,9 @@ export class AdminOrdersService {
       const u = userById.get(o.userId)
       const slotId = o.slotId ?? ''
       return {
+        kind: 'BREAD' as const,
         orderId: o.id,
+        marketOrderId: '',
         userId: o.userId,
         clientName: u?.name ?? 'Cliente',
         condominiumId: o.condominiumId ?? '',
@@ -970,8 +1312,149 @@ export class AdminOrdersService {
         paymentId: o.paymentId ?? '',
         paymentAmount: (o.paymentId && paymentById.get(o.paymentId)?.amount) || 0,
         paymentStatus: (o.paymentId && paymentById.get(o.paymentId)?.status) || '',
+        marketItems: [],
+        marketItemCount: 0,
+        creditsApplied: 0,
+        moneyAmount: 0,
+        totalValue: 0,
       }
     })
+  }
+
+  /**
+   * _enrichMarketOrders — mesma coisa para Cestinhas (D-4): transforma `MarketOrder` em `LedgerRow`
+   * com `kind: 'CESTINHA'`, para que apareçam na MESMA lista dos pedidos de pão.
+   *
+   * `quantity` é o `breadQty` (pães da Cestinha — pode ser 0 quando o pedido é só de produtos) e os
+   * produtos ficam em `marketItems`, nunca somados aos pães (D-1). `refunded` olha `MARKET_REFUND`
+   * (não `REFUND`), que é o tipo usado pelo estorno da Cestinha.
+   */
+  private async _enrichMarketOrders(
+    orders: Array<{
+      id: string
+      userId: string
+      condominiumId: string
+      slotId: string
+      status: string
+      breadQty: number
+      scheduledDate: Date
+      separatedAt: Date | null
+      deliveredAt: Date | null
+      failedAt: Date | null
+      failureReason: string | null
+      cancelReason: string | null
+      paymentId: string | null
+      creditsApplied: number
+      moneyAmount: number
+      totalValue: number
+      items: { name: string; qty: number }[]
+    }>,
+  ): Promise<LedgerRow[]> {
+    if (orders.length === 0) return []
+
+    const userIds = [...new Set(orders.map((o) => o.userId))]
+    const condoIds = [...new Set(orders.map((o) => o.condominiumId))]
+    const paymentIds = [...new Set(orders.map((o) => o.paymentId).filter((p): p is string => !!p))]
+    const orderIds = orders.map((o) => o.id)
+
+    const [users, condos, refunds, payments] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, apartment: true, block: true },
+      }),
+      this.prisma.condominium.findMany({
+        where: { id: { in: condoIds } },
+        select: { id: true, name: true, deliverySlots: true },
+      }),
+      this.prisma.creditTransaction.findMany({
+        where: { type: 'MARKET_REFUND', referenceId: { in: orderIds } },
+        select: { referenceId: true },
+      }),
+      paymentIds.length
+        ? this.prisma.payment.findMany({
+            where: { id: { in: paymentIds } },
+            select: { id: true, amount: true, status: true },
+          })
+        : Promise.resolve([] as { id: string; amount: number; status: PaymentStatus }[]),
+    ])
+
+    const userById = new Map(users.map((u) => [u.id, u]))
+    const condoById = new Map(condos.map((c) => [c.id, c]))
+    const refundedSet = new Set(refunds.map((r) => r.referenceId).filter((id): id is string => !!id))
+    const paymentById = new Map(payments.map((p) => [p.id, p]))
+
+    // Cestinha não tem entregador nomeado no ledger hoje (courierId existe mas o nome só é
+    // resolvido no fluxo do pão) — resolvemos igual, para a linha ficar completa.
+    const courierIds = [...new Set(orders.map((o) => (o as { courierId?: string | null }).courierId).filter((c): c is string => !!c))]
+    const couriers = courierIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: courierIds } }, select: { id: true, name: true } })
+      : []
+    const courierById = new Map(couriers.map((c) => [c.id, c]))
+
+    return orders.map((o) => {
+      const u = userById.get(o.userId)
+      const condo = condoById.get(o.condominiumId)
+      const slot = condo?.deliverySlots?.find((s) => s.slotId === o.slotId || s.name === o.slotId)
+      const courierId = (o as { courierId?: string | null }).courierId ?? ''
+      return {
+        kind: 'CESTINHA' as const,
+        orderId: '',
+        marketOrderId: o.id,
+        userId: o.userId,
+        clientName: u?.name ?? 'Cliente',
+        condominiumId: o.condominiumId,
+        condominiumName: condo?.name ?? '—',
+        block: u?.block ?? '',
+        apartment: u?.apartment ?? '',
+        quantity: o.breadQty,
+        slotId: o.slotId,
+        slotLabel: slot?.label ?? fallbackSlotLabel(o.slotId),
+        type: 'MARKET',
+        status: o.status,
+        scheduledDate: o.scheduledDate.toISOString(),
+        courierId,
+        courierName: (courierId && courierById.get(courierId)?.name) || '',
+        separatedAt: o.separatedAt ? o.separatedAt.toISOString() : '',
+        deliveredAt: o.deliveredAt ? o.deliveredAt.toISOString() : '',
+        failedAt: o.failedAt ? o.failedAt.toISOString() : '',
+        failureReason: o.failureReason ?? '',
+        cancelReason: o.cancelReason ?? '',
+        deliveryNote: '',
+        refunded: refundedSet.has(o.id),
+        paymentId: o.paymentId ?? '',
+        paymentAmount: (o.paymentId && paymentById.get(o.paymentId)?.amount) || 0,
+        paymentStatus: (o.paymentId && paymentById.get(o.paymentId)?.status) || '',
+        marketItems: o.items.map((i) => ({ name: i.name, qty: i.qty })),
+        marketItemCount: o.items.reduce((n, i) => n + i.qty, 0),
+        creditsApplied: o.creditsApplied,
+        moneyAmount: o.moneyAmount,
+        totalValue: o.totalValue,
+      }
+    })
+  }
+
+  /** Colunas selecionadas para montar uma LedgerRow de Cestinha. */
+  private get _marketLedgerSelect() {
+    return {
+      id: true,
+      userId: true,
+      condominiumId: true,
+      slotId: true,
+      status: true,
+      breadQty: true,
+      scheduledDate: true,
+      separatedAt: true,
+      deliveredAt: true,
+      failedAt: true,
+      failureReason: true,
+      cancelReason: true,
+      paymentId: true,
+      courierId: true,
+      creditsApplied: true,
+      moneyAmount: true,
+      totalValue: true,
+      items: { select: { name: true, qty: true } },
+    } as const
   }
 
   /** Colunas selecionadas para montar uma LedgerRow. */
@@ -1010,7 +1493,6 @@ export class AdminOrdersService {
       if (filters.from) where.scheduledDate.gte = new Date(filters.from)
       if (filters.to) where.scheduledDate.lte = new Date(filters.to)
     }
-    if (filters.status && filters.status.length > 0) where.status = { in: filters.status }
     if (filters.condominiumId) where.condominiumId = filters.condominiumId
     if (filters.courierId) where.courierId = filters.courierId
 
@@ -1027,22 +1509,58 @@ export class AdminOrdersService {
       where.userId = { in: ids }
     }
 
+    // O filtro de status é por coleção: `MarketOrderStatus` tem `PENDING_PAYMENT`, que não existe
+    // em `OrderStatus`. Passar um valor inválido no `in` faria o Prisma estourar, então cada
+    // coleção só recebe os status que ela conhece.
+    const requested = filters.status ?? []
+    const breadStatuses = requested.filter((s) => (BREAD_STATUSES as readonly string[]).includes(s))
+    const marketStatuses = requested.filter((s) => (MARKET_STATUSES as readonly string[]).includes(s))
+    const breadWhere = { ...where, ...(breadStatuses.length ? { status: { in: breadStatuses as OrderStatus[] } } : {}) }
+    const marketWhere = { ...where, ...(marketStatuses.length ? { status: { in: marketStatuses as MarketOrderStatus[] } } : {}) }
+
+    // Um filtro de status que não casa com NENHUM status da coleção significa "nada desta coleção"
+    // (ex.: status=PENDING_PAYMENT não deve trazer pedido de pão nenhum).
+    const wantBread = filters.kind !== 'CESTINHA' && (requested.length === 0 || breadStatuses.length > 0)
+    const wantMarket = filters.kind !== 'BREAD' && (requested.length === 0 || marketStatuses.length > 0)
+
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200)
     const skip = Math.max(filters.skip ?? 0, 0)
 
-    const [orders, total] = await Promise.all([
-      this.prisma.order.findMany({
-        where,
-        orderBy: { scheduledDate: 'desc' },
-        take: limit,
-        skip,
-        select: this._ledgerSelect,
-      }),
-      this.prisma.order.count({ where }),
+    // PAGINAÇÃO ENTRE DUAS COLEÇÕES (D-4). `take: limit, skip` por coleção daria uma página
+    // errada: as `limit` linhas mais recentes do conjunto unido podem vir todas de uma coleção só.
+    // Buscamos `skip + limit` de CADA lado (o teto do que a página pode consumir de uma coleção),
+    // unimos, ordenamos e cortamos a janela. O `total` vem dos dois `count`, então é exato.
+    const window = skip + limit
+    const [orders, breadTotal, marketOrders, marketTotal] = await Promise.all([
+      wantBread
+        ? this.prisma.order.findMany({
+            where: breadWhere,
+            orderBy: { scheduledDate: 'desc' },
+            take: window,
+            select: this._ledgerSelect,
+          })
+        : Promise.resolve([]),
+      wantBread ? this.prisma.order.count({ where: breadWhere }) : Promise.resolve(0),
+      wantMarket
+        ? this.prisma.marketOrder.findMany({
+            where: marketWhere,
+            orderBy: { scheduledDate: 'desc' },
+            take: window,
+            select: this._marketLedgerSelect,
+          })
+        : Promise.resolve([]),
+      wantMarket ? this.prisma.marketOrder.count({ where: marketWhere }) : Promise.resolve(0),
     ])
 
-    const rows = await this._enrichOrders(orders)
-    return { rows, total, hasMore: skip + orders.length < total }
+    const [breadRows, marketRows] = await Promise.all([
+      this._enrichOrders(orders),
+      this._enrichMarketOrders(marketOrders),
+    ])
+
+    const merged = [...breadRows, ...marketRows].sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate))
+    const total = breadTotal + marketTotal
+    const rows = merged.slice(skip, skip + limit)
+    return { rows, total, hasMore: skip + rows.length < total }
   }
 
   /**
@@ -1059,8 +1577,15 @@ export class AdminOrdersService {
       scheduledDate: { lt: startOfTodayBrt },
       status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] as OrderStatus[] },
     }
+    // Cestinha parada: mesma regra (data passada, sem desfecho). `PENDING_PAYMENT` fica de FORA —
+    // esse caso já tem dono (o sweep do cron libera estoque e crédito) e apareceria como falso
+    // positivo aqui. O que a tela precisa pegar é a Cestinha que ninguém entregou nem fechou.
+    const marketWhere = {
+      scheduledDate: { lt: startOfTodayBrt },
+      status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] as MarketOrderStatus[] },
+    }
 
-    const [orders, count] = await Promise.all([
+    const [orders, count, marketOrders, marketCount] = await Promise.all([
       this.prisma.order.findMany({
         where,
         orderBy: { scheduledDate: 'asc' },
@@ -1068,10 +1593,22 @@ export class AdminOrdersService {
         select: this._ledgerSelect,
       }),
       this.prisma.order.count({ where }),
+      this.prisma.marketOrder.findMany({
+        where: marketWhere,
+        orderBy: { scheduledDate: 'asc' },
+        take: 200,
+        select: this._marketLedgerSelect,
+      }),
+      this.prisma.marketOrder.count({ where: marketWhere }),
     ])
 
-    const rows = await this._enrichOrders(orders)
-    return { rows, count }
+    const [breadRows, marketRows] = await Promise.all([
+      this._enrichOrders(orders),
+      this._enrichMarketOrders(marketOrders),
+    ])
+    // Mais antigo primeiro — o pedido esquecido há mais tempo é o mais urgente.
+    const rows = [...breadRows, ...marketRows].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
+    return { rows, count: count + marketCount }
   }
 
   /**
@@ -1211,6 +1748,84 @@ export class AdminOrdersService {
       id: orderId,
       status: outcome,
       refundedCredits: doRefund ? order.quantity : 0,
+      creditBalance: user?.creditBalance ?? 0,
+    }
+  }
+
+  /**
+   * resolveStuckMarketOrder — dá o desfecho a uma CESTINHA "parada" (data passada sem conclusão).
+   * Espelha `resolveStuckOrder` do pão, reusando `lib/market-reversal.ts`.
+   *
+   * Antes disto não havia NENHUM caminho para reverter uma Cestinha depois do corte: o cliente é
+   * barrado por `CUTOFF_PASSED` e o estorno genérico de `purpose=MARKET` está bloqueado em
+   * admin-payments ("use o cancelamento da Cestinha"). Era um beco sem saída.
+   *
+   * `returnStock` default: `true` só em CANCELLED — o pedido nunca saiu da prateleira. Em
+   * NOT_DELIVERED o produto já foi retirado e pode ter se perdido no caminho, então devolver
+   * estoque automaticamente inflaria o inventário; o admin decide explicitamente.
+   *
+   * Estorno em DINHEIRO no gateway NÃO acontece aqui (DEC-36) — a devolução é toda em pãezinhos.
+   *
+   * @throws { statusCode: 404 } Cestinha não encontrada
+   * @throws { statusCode: 422 } pedido já em estado terminal
+   */
+  async resolveStuckMarketOrder(
+    marketOrderId: string,
+    adminId: string,
+    opts: {
+      outcome: 'DELIVERED' | 'NOT_DELIVERED' | 'CANCELLED'
+      reason?: string
+      refundCredits?: boolean
+      returnStock?: boolean
+    },
+  ): Promise<{ id: string; status: string; refundedCredits: number; creditBalance: number }> {
+    const order = await this.prisma.marketOrder.findUnique({ where: { id: marketOrderId } })
+    if (!order) {
+      throw { statusCode: 404, message: 'Cestinha não encontrada' }
+    }
+    if (['DELIVERED', 'NOT_DELIVERED', 'CANCELLED'].includes(order.status)) {
+      throw { statusCode: 422, message: `Esta Cestinha já está em ${order.status}` }
+    }
+
+    // Entrega consumiu os produtos e o crédito corretamente — não devolve nada.
+    const wantsRefund = !!opts.refundCredits && opts.outcome !== 'DELIVERED'
+    const returnStock = opts.returnStock ?? (opts.outcome === 'CANCELLED')
+
+    const avulsoRow = await this.prisma.setting.findUnique({ where: { key: 'avulsoUnit' } })
+    const avulsoUnit = avulsoRow ? Number(avulsoRow.value) : 0
+
+    const refundedCredits = await reverseMarketOrder(this.prisma, order, {
+      status: opts.outcome,
+      reason: opts.reason,
+      refundCredits: wantsRefund,
+      returnStock: opts.outcome === 'DELIVERED' ? false : returnStock,
+      avulsoUnit: Number.isFinite(avulsoUnit) ? avulsoUnit : 0,
+      adminId,
+      description: `Resolução de Cestinha parada (${opts.outcome})`,
+    })
+
+    // Onda F — o desfecho de um pedido parado é sempre notícia para quem pagou, e este método é a
+    // única saída de uma Cestinha travada. O guard de estado terminal acima garante um aviso só.
+    if (opts.outcome === 'DELIVERED') {
+      // Mesma regra do pão (`resolveStuckOrder`): "sua Cestinha chegou" só no dia da entrega.
+      // Fechar a papelada de um pedido de três dias atrás não é aviso, é confusão.
+      if (brtDateStr(order.scheduledDate) === brtDateStr(new Date())) {
+        await notifyMarketDelivered(this.fastify, order.userId)
+      }
+    } else if (opts.outcome === 'NOT_DELIVERED') {
+      await notifyMarketNotDelivered(this.fastify, order, { reason: opts.reason, refundedCredits })
+    } else {
+      await notifyMarketCancelled(this.fastify, order, { cause: 'ADMIN', reason: opts.reason, refundedCredits })
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: order.userId },
+      select: { creditBalance: true },
+    })
+    return {
+      id: marketOrderId,
+      status: opts.outcome,
+      refundedCredits,
       creditBalance: user?.creditBalance ?? 0,
     }
   }

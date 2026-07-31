@@ -14,12 +14,23 @@ function makeDashboardFastifyMock(overrides: Record<string, any> = {}) {
     deliverySlotsSetting = null,
     comboPaidPayments = [],
     avulsoPaidPayments = [],
+    // Pão vendido dentro da Cestinha — soma nos contadores de pão do painel (D-1).
+    // `{ _sum: { breadQty: 0 } }` por padrão: os números do fluxo de pão ficam idênticos
+    // ao histórico quando não há Cestinha no dia.
+    marketAggregate = { _sum: { breadQty: 0 } },
+    marketOrders = [],
   } = overrides
 
   const prisma = {
     order: {
       aggregate: vi.fn().mockResolvedValue(orderAggregate),
       findMany: vi.fn().mockResolvedValue([]),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      count: vi.fn().mockResolvedValue(0),
+    },
+    marketOrder: {
+      aggregate: vi.fn().mockResolvedValue(marketAggregate),
+      findMany: vi.fn().mockResolvedValue(marketOrders),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       count: vi.fn().mockResolvedValue(0),
     },
@@ -205,10 +216,11 @@ describe('AdminOrdersService.getDeliveryStatus', () => {
 
   it('agrupa orders de hoje por condominiumId com contagem scheduled e delivered', async () => {
     const condominiumId = 'condo-01'
+    // D-5: a contagem é de PARADAS (userId + condomínio) — três clientes, três paradas.
     const orders = [
-      { id: 'order-1', condominiumId, status: 'SEPARATED' },
-      { id: 'order-2', condominiumId, status: 'DELIVERED' },
-      { id: 'order-3', condominiumId, status: 'SEPARATED' },
+      { id: 'order-1', userId: 'u1', condominiumId, status: 'SEPARATED' },
+      { id: 'order-2', userId: 'u2', condominiumId, status: 'DELIVERED' },
+      { id: 'order-3', userId: 'u3', condominiumId, status: 'SEPARATED' },
     ]
 
     const { fastify, prisma } = makeDashboardFastifyMock({})
@@ -232,6 +244,49 @@ describe('AdminOrdersService.getDeliveryStatus', () => {
         orderIds: expect.arrayContaining(['order-1', 'order-2', 'order-3']),
       }),
     )
+  })
+
+  it('D-5: pão + Cestinha do mesmo cliente contam UMA parada, entregue só quando os dois foram', async () => {
+    const condominiumId = 'condo-01'
+    const { fastify, prisma } = makeDashboardFastifyMock({})
+    prisma.order.findMany.mockResolvedValue([
+      { id: 'order-1', userId: 'u1', condominiumId, status: 'DELIVERED' },
+    ])
+    prisma.marketOrder.findMany.mockResolvedValue([
+      { id: 'mo-1', userId: 'u1', condominiumId, status: 'OUT_FOR_DELIVERY' },
+    ])
+    prisma.condominium.findMany.mockResolvedValue([{ id: condominiumId, name: 'Residencial X' }])
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AdminOrdersService(fastify as any)
+    const result = await service.getDeliveryStatus()
+
+    expect(result).toHaveLength(1)
+    // Uma campainha = uma parada, e ela não está concluída enquanto a Cestinha não chegou.
+    expect(result[0].scheduled).toBe(1)
+    expect(result[0].delivered).toBe(0)
+    expect(result[0].orderIds).toEqual(['order-1'])
+    expect(result[0].marketOrderIds).toEqual(['mo-1'])
+  })
+
+  it('parada SÓ-Cestinha aparece no status de entregas (antes era invisível)', async () => {
+    const condominiumId = 'condo-01'
+    const { fastify, prisma } = makeDashboardFastifyMock({})
+    prisma.order.findMany.mockResolvedValue([])
+    prisma.marketOrder.findMany.mockResolvedValue([
+      { id: 'mo-1', userId: 'u9', condominiumId, status: 'DELIVERED' },
+    ])
+    prisma.condominium.findMany.mockResolvedValue([{ id: condominiumId, name: 'Residencial X' }])
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new AdminOrdersService(fastify as any)
+    const result = await service.getDeliveryStatus()
+
+    expect(result).toHaveLength(1)
+    expect(result[0].scheduled).toBe(1)
+    expect(result[0].delivered).toBe(1)
+    expect(result[0].orderIds).toEqual([])
+    expect(result[0].marketOrderIds).toEqual(['mo-1'])
   })
 
   it('retorna array vazio quando nao ha orders hoje', async () => {

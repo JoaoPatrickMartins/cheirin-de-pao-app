@@ -16,6 +16,18 @@ export const SetSeparatedSchema = z.object({
 
 export type SetSeparatedBody = z.infer<typeof SetSeparatedSchema>
 
+/**
+ * Marca/desmarca a separação de uma parada SÓ-Cestinha (cliente sem pedido de pão no turno).
+ * É uma lista porque um cliente pode ter mais de uma Cestinha no mesmo turno e a tela de
+ * separação as mostra como uma única linha/parada.
+ */
+export const SetMarketSeparatedSchema = z.object({
+  marketOrderIds: z.array(z.string().min(1)).min(1, 'marketOrderIds é obrigatório'),
+  separated: z.boolean(),
+})
+
+export type SetMarketSeparatedBody = z.infer<typeof SetMarketSeparatedSchema>
+
 /** Conclui a separação de um lote físico (condomínio + turno) de uma data. */
 export const ConcludeSeparationSchema = z.object({
   condominiumId: z.string().min(1, 'condominiumId é obrigatório'),

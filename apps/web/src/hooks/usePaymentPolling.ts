@@ -10,7 +10,8 @@ interface PollingOptions {
 
 export function usePaymentPolling(
   paymentId: string | null,
-  onApproved: (creditBalance: number) => void,
+  /** `creditBalance` vem undefined quando a resposta não traz o saldo — nunca trate como 0. */
+  onApproved: (creditBalance?: number) => void,
   onRejected?: () => void,
   options?: PollingOptions,
 ): { isTimeout: boolean; attempts: number } {
@@ -27,7 +28,7 @@ export function usePaymentPolling(
         const data = (await res.json()) as { status: string; creditBalance?: number }
         if (data.status === 'approved') {
           clearInterval(id)
-          onApproved(data.creditBalance ?? 0)
+          onApproved(data.creditBalance)
         } else if (data.status === 'rejected') {
           clearInterval(id)
           onRejected?.()

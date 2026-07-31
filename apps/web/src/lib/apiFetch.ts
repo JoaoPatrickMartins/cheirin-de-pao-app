@@ -78,7 +78,7 @@ function buildFetch(path: string, options: RequestInit): Promise<Response> {
     // Só declara JSON quando há corpo. Requisições sem body (ex.: DELETE) com
     // Content-Type: application/json fazem o Fastify rejeitar com 400
     // FST_ERR_CTP_EMPTY_JSON_BODY antes mesmo de chegar à rota.
-    ...(options.body != null ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.body != null && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
     'X-Device-Id': deviceId,
     ...(options.headers as Record<string, string> | undefined),
   }

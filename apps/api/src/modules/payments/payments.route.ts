@@ -99,6 +99,9 @@ export const paymentsRoute: FastifyPluginAsync = async (fastify) => {
               status: { type: 'string', description: 'Status atual: "pending", "approved", "rejected", "cancelled", "refunded".' },
               amount: { type: 'number', description: 'Valor total do pagamento em reais.' },
               createdAt: { type: 'string', description: 'Data/hora de criação do pagamento (ISO 8601).' },
+              // Precisa estar declarado: o serializador do Fastify descarta todo campo fora do
+              // schema, e o front depende deste valor para atualizar o saldo após o Pix.
+              creditBalance: { type: 'number', description: 'Saldo de pãezinhos do cliente após a confirmação. Só presente quando status = "approved".' },
             },
           },
         },
