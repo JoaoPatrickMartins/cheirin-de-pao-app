@@ -440,7 +440,7 @@ export function HomeScreen() {
                     lineHeight: 1.45,
                   }}
                 >
-                  Sua agenda está ativa, mas você está <strong>sem pães</strong>. Compre mais para não perder as próximas entregas. 🥖
+                  Sua agenda está ativa, mas você está <strong>sem pãezins</strong>. Compre mais para não perder as próximas entregas. 🥖
                 </p>
               </div>
               <motion.button

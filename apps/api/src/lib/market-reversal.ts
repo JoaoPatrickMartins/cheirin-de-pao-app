@@ -135,7 +135,7 @@ export async function reverseMarketOrder(
           referenceId: order.id,
           description:
             opts.description ??
-            `Cancelamento da Cestinha — ${formatCredits(refundMilli)} pãezinho(s) devolvido(s)`,
+            `Cancelamento da Cestinha — ${formatCredits(refundMilli)} pãezins devolvidos`,
           adminId: opts.adminId,
           reason: opts.reason,
         },

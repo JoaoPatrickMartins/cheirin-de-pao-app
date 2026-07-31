@@ -47,7 +47,7 @@ export class PaymentsRepository {
           type: 'PURCHASE',
           quantityMilli: toMilli(quantity),
           referenceId: paymentId,
-          description: `Compra de ${quantity} crédito(s)`,
+          description: `Compra de ${quantity} ${quantity === 1 ? 'pãozin' : 'pãezins'}`,
         },
       }),
       this.prisma.user.update({

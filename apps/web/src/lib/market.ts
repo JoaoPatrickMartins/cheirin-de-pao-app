@@ -109,13 +109,15 @@ export function formatBRL(value: number): string {
 }
 
 /**
- * Rótulo do preço em pãezinhos, a partir de MILÉSIMOS: "2 pães", "1,5 pães", "1 pão".
+ * Rótulo do preço na MOEDA do app, a partir de MILÉSIMOS: "2 pãezins", "1,5 pãezins",
+ * "1 pãozin".
  *
- * O crédito é fracionado, então qualquer preço é pago 100% em pãezinhos — não existe mais
- * "resto em dinheiro" na vitrine. Singular só no 1 exato ("1,5 pães" está correto em pt-BR).
+ * "pãozin/pãezins" é a moeda; "pão/pães" é o produto que chega na porta. A distinção é
+ * proposital em todo texto visível ao cliente — ver `.projeto/status-creditos-fracionados.md`.
+ * O crédito é fracionado, então qualquer preço é pago 100% em pãezins, sem resto em dinheiro.
  */
 export function labelPaezinhos(milli: number): string {
-  return `${formatCredits(milli)} ${milli === CREDIT_SCALE ? 'pão' : 'pães'}`
+  return `${formatCredits(milli)} ${milli === CREDIT_SCALE ? 'pãozin' : 'pãezins'}`
 }
 
 // Rótulos curtos dos dias, na ordem da semana (para o aviso de disponibilidade).

@@ -173,7 +173,7 @@ export class AdminPaymentsService {
             type: 'REFUND',
             quantityMilli: -toMilli(creditsToDebit),
             referenceId: id,
-            description: `Estorno de ${creditsToDebit} crédito(s) — pagamento ${id}`,
+            description: `Estorno de ${creditsToDebit} ${creditsToDebit === 1 ? 'pãozin' : 'pãezins'} — pagamento ${id}`,
           },
         }),
         this.prisma.user.update({

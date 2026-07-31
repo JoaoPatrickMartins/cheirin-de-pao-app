@@ -240,8 +240,8 @@ export function SingleScreen() {
           )
           .join(' ')}${
           anyAvailableForDate
-            ? ' Dá pra escolher outro horário aqui em cima pra receber seus pãezinhos. 🥖'
-            : ' Escolha outra data pra receber seus pãezinhos fresquinhos. 🥖'
+            ? ' Dá pra escolher outro horário aqui em cima pra receber seus pães. 🥖'
+            : ' Escolha outra data pra receber seus pães fresquinhos. 🥖'
         }`
       : ''
 
@@ -550,7 +550,7 @@ export function SingleScreen() {
             marginTop: 0,
           }}
         >
-          Agende uma entrega avulsa para uma data. Use seus créditos ou pague só a
+          Agende uma entrega avulsa para uma data. Use seus pãezins ou pague só a
           diferença na hora.
         </p>
 
@@ -865,7 +865,7 @@ export function SingleScreen() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
                 <Icon name="plus" size={20} color="var(--color-accent)" />
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)', margin: 0 }}>
-                  Comprar {deficit} {deficit === 1 ? 'pão' : 'pães'}
+                  Comprar {deficit} {deficit === 1 ? 'pãozin' : 'pãezins'}
                 </p>
               </div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: 'var(--color-text)', margin: 0 }}>
@@ -935,7 +935,7 @@ export function SingleScreen() {
                     margin: '2px 0 0 0',
                   }}
                 >
-                  Sobram {paesDisponiveis - qtd} de {paesDisponiveis} pães
+                  Sobram {paesDisponiveis - qtd} de {paesDisponiveis} pãezins
                 </p>
               </div>
             </div>

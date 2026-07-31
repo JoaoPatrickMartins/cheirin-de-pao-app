@@ -79,7 +79,7 @@ export function PushNudge() {
             lineHeight: 1.4,
           }}
         >
-          Acompanhe suas entregas e avisos de crédito direto no seu celular.
+          Acompanhe suas entregas e avisos de pãezins direto no seu celular.
         </span>
         <button
           onClick={enable}

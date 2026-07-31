@@ -606,7 +606,7 @@ export class AdminMarketService {
             type: 'MARKET_REFUND',
             quantityMilli: wantedMilli,
             referenceId: order.id,
-            description: `Cestinha não entregue — ${formatCredits(wantedMilli)} pãezinho(s) devolvido(s)`,
+            description: `Cestinha não entregue — ${formatCredits(wantedMilli)} pãezins devolvidos`,
             adminId,
             reason: opts.reason,
           },

@@ -152,7 +152,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
                   lineHeight: 1,
                 }}
               >
-                pães
+                pãezins
               </span>
             </div>
           )}
@@ -167,7 +167,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
                 margin: '8px 0 0',
               }}
             >
-              Rende ~{days} dias no seu ritmo atual
+              Rende ~{days} dias de pão no seu ritmo atual
             </p>
           )}
 
@@ -180,7 +180,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
                 margin: '8px 0 0',
               }}
             >
-              Compre pães para começar
+              Compre pãezins para começar
             </p>
           )}
         </div>
@@ -223,7 +223,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
           }}
         >
           <Icon name="plus" size={18} stroke={2.4} color="var(--color-espresso)" />
-          Comprar pães
+          Comprar pãezins
         </motion.button>
 
         {/* Extrato — soft button, flexShrink: 0 */}

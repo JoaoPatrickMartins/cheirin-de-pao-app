@@ -168,7 +168,7 @@ export function MarketOrderCard({
       )}
       {confirming && (
         <InlineCancelConfirm
-          message="Cancelar esta Cestinha? Seus pãezinhos voltam para o saldo — inclusive a parte paga em dinheiro, convertida em pãezinhos."
+          message="Cancelar esta Cestinha? Seus pãezins voltam para o saldo — inclusive a parte paga em dinheiro, convertida em pãezins."
           error={error}
           busy={busy}
           onConfirm={onConfirmCancel}

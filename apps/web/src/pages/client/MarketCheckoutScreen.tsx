@@ -387,7 +387,7 @@ export function MarketCheckoutScreen() {
         {/* Usar do saldo — consome o saldo por padrão e paga a diferença em dinheiro.
             O cliente só liga/desliga (não escolhe quanto). */}
         {avulso > 0 && maxApplicableMilli > 0 && (
-          <Section title="Pãezinhos">
+          <Section title="Pãezins">
             <div
               style={{
                 display: 'flex',
@@ -412,7 +412,7 @@ export function MarketCheckoutScreen() {
                     : `Você tem ${formatCredits(saldoMilli)} 🥖 disponíveis`}
                 </p>
               </div>
-              <SwitchToggle on={useCredits} onChange={() => setUseCredits((v) => !v)} aria-label="Usar pãezinhos do saldo" />
+              <SwitchToggle on={useCredits} onChange={() => setUseCredits((v) => !v)} aria-label="Usar pãezins do saldo" />
             </div>
           </Section>
         )}
@@ -420,7 +420,7 @@ export function MarketCheckoutScreen() {
         {/* Balanço */}
         <Card>
           <RowBetween>
-            <span style={muted}>Com pãezinhos</span>
+            <span style={muted}>Com pãezins</span>
             <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, color: 'var(--color-accent)' }}>
               {formatCredits(creditsMilli)} 🥖 <span style={{ color: 'var(--color-text-ter)', fontWeight: 600 }}>({formatBRL(creditValue)})</span>
             </span>
@@ -493,7 +493,7 @@ export function MarketCheckoutScreen() {
       {/* CTA fixa — sempre visível (o cartão é escolhido/adicionado num sheet, não inline) */}
       <div style={footerBar}>
         <button onClick={() => canConfirm && setSheetOpen(true)} disabled={!canConfirm} style={primaryCta(canConfirm)}>
-          {moneyAmount > 0 ? `Confirmar · ${formatBRL(subtotal)}` : `Confirmar com pãezinhos`}
+          {moneyAmount > 0 ? `Confirmar · ${formatBRL(subtotal)}` : `Confirmar com pãezins`}
         </button>
       </div>
 
@@ -839,7 +839,7 @@ function ConfirmSheet({
           {credits > 0 && (
             <>
               {divider}
-              <DetailRow icon="wallet" label="Com pãezinhos" value={`${formatCredits(creditsMilli)} 🥖 (${formatBRL(creditValue)})`} />
+              <DetailRow icon="wallet" label="Com pãezins" value={`${formatCredits(creditsMilli)} 🥖 (${formatBRL(creditValue)})`} />
             </>
           )}
           {precisaPagar && (

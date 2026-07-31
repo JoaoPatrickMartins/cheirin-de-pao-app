@@ -85,7 +85,7 @@ const stuck = (over: Partial<StuckOrder> = {}): StuckOrder => ({
 describe('MarketCheckoutService.sweepStuckPayments — aviso ao cliente (F1)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('libera o pedido e avisa o cliente, dizendo quantos pãezinhos voltaram', async () => {
+  it('libera o pedido e avisa o cliente, dizendo quantos pãezins voltaram', async () => {
     const { fastify } = mockFastify([stuck()])
     const res = await new MarketCheckoutService(fastify).sweepStuckPayments()
 
@@ -94,7 +94,7 @@ describe('MarketCheckoutService.sweepStuckPayments — aviso ao cliente (F1)', (
     const [userId, payload] = notifyUser.mock.calls[0]
     expect(userId).toBe('user-1')
     expect(payload.type).toBe('MARKET_ORDER_CANCELLED')
-    expect(payload.body).toContain('3 pãezinhos')
+    expect(payload.body).toContain('3 pãezins')
     expect(payload.body).toContain('30/07') // dia da entrega que caiu
     expect(payload.actionRoute).toBe('/client/pedidos')
   })
@@ -141,7 +141,7 @@ describe('MarketCheckoutService.sweepStuckPayments — aviso ao cliente (F1)', (
 
     expect(res.released).toBe(2)
     expect(notifyUser.mock.calls.map((c) => c[0])).toEqual(['user-1', 'user-2'])
-    expect(notifyUser.mock.calls[1][1].body).toContain('1 pãozinho')
+    expect(notifyUser.mock.calls[1][1].body).toContain('1 pãozin')
   })
 
   it('falha ao notificar não desfaz a liberação (best-effort)', async () => {
@@ -173,7 +173,7 @@ describe('MarketCheckoutService.sweepStuckPayments — crédito fracionado', () 
       expect.objectContaining({ data: expect.objectContaining({ quantityMilli: 1500 }) }),
     )
     // Texto do aviso em pt-BR, nunca "1.5".
-    expect(notifyUser.mock.calls[0][1].body).toContain('1,5 pãezinhos')
+    expect(notifyUser.mock.calls[0][1].body).toContain('1,5 pãezins')
   })
 
   it('devolve fração menor que um pãozinho', async () => {

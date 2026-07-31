@@ -53,7 +53,7 @@ export function MarketDoneScreen() {
       {/* Resumo do pagamento */}
       <div style={{ width: '100%', maxWidth: 340, background: 'var(--color-surface)', border: '1px solid var(--color-border-2)', borderRadius: 16, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
         {(s.creditsApplied ?? 0) > 0 && (
-          <Row label="Pago com pãezinhos" value={`${formatCredits(toMilli(s.creditsApplied ?? 0))} 🥖`} accent />
+          <Row label="Pago com pãezins" value={`${formatCredits(toMilli(s.creditsApplied ?? 0))} 🥖`} accent />
         )}
         {(s.moneyAmount ?? 0) > 0 && (
           <Row label="Pago em dinheiro" value={formatBRL(s.moneyAmount ?? 0)} />

@@ -352,7 +352,7 @@ export class MarketCheckoutService {
       // Saldo suficiente (re-checado dentro da transação), em milésimos.
       const u = await tx.user.findUnique({ where: { id: args.userId } })
       if (!u || (u.creditMilli ?? 0) < args.creditsMilli) {
-        throw { statusCode: 400, message: 'Créditos insuficientes.' }
+        throw { statusCode: 400, message: 'Pãezins insuficientes.' }
       }
 
       // Reserva atômica de estoque (decremento condicional — evita vender o último item 2×).
@@ -472,7 +472,7 @@ export class MarketCheckoutService {
             type: 'MARKET_REFUND',
             quantityMilli: milli,
             referenceId: order.id,
-            description: 'Cestinha não concluída — créditos devolvidos',
+            description: 'Cestinha não concluída — pãezins devolvidos',
           },
         })
       }

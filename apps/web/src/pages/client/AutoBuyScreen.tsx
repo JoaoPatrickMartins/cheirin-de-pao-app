@@ -211,7 +211,7 @@ export function AutoBuyScreen() {
                 }}
               >
                 Quando o saldo não cobrir uma entrega agendada, recarregamos sozinho no seu
-                cartão padrão — sem CVV. Você nunca fica sem pãezinhos.
+                cartão padrão — sem CVV. Você nunca fica sem pãezins.
               </p>
             </div>
             <Toggle on={isOn} onToggle={() => setIsOn((v) => !v)} disabled={isLoading} />

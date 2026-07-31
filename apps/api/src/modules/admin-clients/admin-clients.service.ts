@@ -702,7 +702,7 @@ export class AdminClientsService {
             type: TransactionType.REFUND,
             quantityMilli: toMilli(order.quantity),
             referenceId: orderId,
-            description: `Cancelamento de pedido — ${order.quantity} crédito(s) devolvido(s)`,
+            description: `Cancelamento de pedido — ${order.quantity} pãezins devolvidos`,
             adminId,
           },
         }),
@@ -905,8 +905,8 @@ export class AdminClientsService {
         const notification = new OneSignal.Notification()
         notification.app_id = process.env.ONESIGNAL_APP_ID!
         notification.include_subscription_ids = [user.oneSignalPlayerId]
-        notification.headings = { pt: 'Pãezinhos chegando!' }
-        notification.contents = { pt: `Você ganhou ${quantity} pão(es) de crédito. Novo saldo: ${total} pão(es).` }
+        notification.headings = { pt: 'Pãezins chegando!' }
+        notification.contents = { pt: `Você ganhou ${quantity} ${quantity === 1 ? 'pãozin' : 'pãezins'}. Novo saldo: ${total}.` }
         notification.data = { screen: 'home' }
         await osClient.createNotification(notification)
       } catch (pushErr) {
@@ -919,8 +919,8 @@ export class AdminClientsService {
     await notificationsService.createAndTrim({
       userId: clientId,
       type: NotificationType.CREDIT_GRANTED,
-      title: 'Pãezinhos chegando!',
-      body: `Você ganhou ${quantity} pão(es) de crédito. Novo saldo: ${total} pão(es).`,
+      title: 'Pãezins chegando!',
+      body: `Você ganhou ${quantity} ${quantity === 1 ? 'pãozin' : 'pãezins'}. Novo saldo: ${total}.`,
       actionRoute: '/client/home',
     })
 

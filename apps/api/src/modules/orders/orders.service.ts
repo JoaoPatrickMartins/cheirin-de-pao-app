@@ -163,7 +163,7 @@ export class OrdersService {
       // Pães inteiros disponíveis (a fração do saldo não entrega pão), lendo o canônico com
       // fallback para o legado em quem ainda não foi migrado.
       if (!user || wholeBreads((user.creditMilli ?? 0)) < data.quantity) {
-        throw { statusCode: 400, message: 'Créditos insuficientes' }
+        throw { statusCode: 400, message: 'Pãezins insuficientes' }
       }
 
       // Debitar créditos (escrita dupla: legado inteiro + canônico em milésimos)
@@ -317,7 +317,7 @@ export class OrdersService {
             type: 'REFUND',
             quantityMilli: toMilli(order.quantity),
             referenceId: orderId,
-            description: `Cancelamento de pedido — ${paesLabel} devolvido(s)`,
+            description: `Cancelamento de pedido — ${order.quantity} ${order.quantity === 1 ? 'pãozin' : 'pãezins'} devolvidos`,
           },
         })
         await tx.user.update({

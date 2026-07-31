@@ -185,7 +185,7 @@ describe('resolveNotDelivered', () => {
     const comEstorno = makeService(order())
     await comEstorno.service.resolveNotDelivered('mo-1', 'admin-1', { returnStock: false, refundCredits: true })
     expect(notifyUser).toHaveBeenCalledTimes(1)
-    expect(notifyUser.mock.calls[0][1].body).toContain('9 pãezinhos')
+    expect(notifyUser.mock.calls[0][1].body).toContain('9 pãezins')
 
     vi.clearAllMocks()
     const semEstorno = makeService(order())

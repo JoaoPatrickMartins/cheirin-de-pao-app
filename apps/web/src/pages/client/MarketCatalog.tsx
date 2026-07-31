@@ -140,7 +140,7 @@ export function MarketCatalog() {
               Duas formas de pagar
             </p>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#C9B79A', margin: '2px 0 0', lineHeight: 1.35 }}>
-              Em dinheiro ou com seus pãezinhos
+              Em dinheiro ou com seus pãezins
               {maxEconomyPercent > 0 ? ` — economize até ${Math.round(maxEconomyPercent)}%` : ''}.
             </p>
           </div>

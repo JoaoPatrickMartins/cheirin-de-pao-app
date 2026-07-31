@@ -731,9 +731,9 @@ export class SchedulesService {
             const notification = new OneSignal.Notification()
             notification.app_id = process.env.ONESIGNAL_APP_ID!
             notification.include_subscription_ids = [user.oneSignalPlayerId]
-            notification.headings = { pt: 'Seus créditos estão acabando' }
+            notification.headings = { pt: 'Seus pãezins estão acabando' }
             notification.contents = {
-              pt: `Você tem ${paesDisponiveis} crédito(s) e sua semana precisa de ${consumoSemanal}. Recarregue agora antes que faltem pães!`,
+              pt: `Você tem ${paesDisponiveis} pãezins e sua semana precisa de ${consumoSemanal}. Recarregue agora antes que faltem pães!`,
             }
             notification.url = '/client/creditos'
             await osClient.createNotification(notification)
@@ -749,8 +749,8 @@ export class SchedulesService {
         await this.notificationsService.createAndTrim({
           userId: schedule.userId,
           type: 'LOW_CREDIT',
-          title: 'Créditos insuficientes',
-          body: `Você tem ${paesDisponiveis} crédito(s) e sua semana precisa de ${consumoSemanal}.`,
+          title: 'Pãezins insuficientes',
+          body: `Você tem ${paesDisponiveis} pãezins e sua semana precisa de ${consumoSemanal}.`,
         })
       } catch (err) {
         this.fastify.log.error(
@@ -820,7 +820,7 @@ export class SchedulesService {
           userId: schedule.userId,
           type: 'SCHEDULE_PAUSED',
           title: 'Sua agenda está pausada',
-          body: 'Retome quando quiser voltar a receber seus pãezinhos todo dia.',
+          body: 'Retome quando quiser voltar a receber seus pães todo dia.',
           actionRoute: '/client/agenda',
         })
 

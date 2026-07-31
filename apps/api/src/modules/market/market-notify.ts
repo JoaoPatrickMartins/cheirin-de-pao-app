@@ -20,7 +20,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
  *   `count` de um `updateMany` guardado por status). Deduzir "mudou" relendo o estado avisaria
  *   duas vezes quando dois caminhos (sweep + webhook, cliente + admin) tocam o mesmo pedido.
  * - **Texto sem jargão de status.** O cliente lê "pagamento não concluído", nunca
- *   "PENDING_PAYMENT"; e sempre sabe onde foram os pãezinhos.
+ *   "PENDING_PAYMENT"; e sempre sabe onde foram os pãezins.
  */
 
 /** O mínimo que um aviso precisa saber do pedido. */
@@ -35,10 +35,10 @@ function dayLabel(date: Date): string {
   return `${d}/${m}`
 }
 
-// O crédito é fracionado, então o número pode vir decimal (1,5). `formatCredits` já entrega no
-// padrão pt-BR ("1,5") e some com o ",0" de valor inteiro — nunca montar o texto com `${n}` cru,
-// que imprimiria "1.5 pãezinhos".
-const paesLabel = (n: number) => (n === 1 ? '1 pãozinho' : `${formatCredits(toMilli(n))} pãezinhos`)
+// Rótulo da MOEDA do app ("pãozin/pãezins"), não do pão que chega na porta. O valor é fracionado,
+// então pode vir decimal (1,5): `formatCredits` entrega no padrão pt-BR e some com o ",0" de valor
+// inteiro — nunca montar o texto com `${n}` cru, que imprimiria "1.5".
+const paesLabel = (n: number) => (n === 1 ? '1 pãozin' : `${formatCredits(toMilli(n))} pãezins`)
 const itemsLabel = (n: number) => (n === 1 ? '1 item' : `${n} itens`)
 
 /**
@@ -151,7 +151,7 @@ export async function notifyMarketLossResolved(
   try {
     await new NotificationsService(fastify).notifyUser(order.userId, {
       type: NotificationType.MARKET_NOT_DELIVERED,
-      title: 'Seus pãezinhos voltaram 🥖',
+      title: 'Seus pãezins voltaram 🥖',
       body: `Resolvemos a Cestinha de ${dayLabel(order.scheduledDate)} que não pôde ser entregue: ${paesLabel(opts.refundedCredits)} voltaram para o seu saldo.`,
       actionRoute: '/client/pedidos',
     })

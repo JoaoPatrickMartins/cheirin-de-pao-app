@@ -15,16 +15,16 @@ interface CreditTransaction {
 
 // Rótulo amigável por tipo, usado quando a transação não tem `description`
 const TYPE_LABEL: Record<string, string> = {
-  PURCHASE: 'Compra de créditos',
+  PURCHASE: 'Compra de pãezins',
   DELIVERY: 'Entrega',
   REFUND: 'Estorno',
   EXPIRY: 'Expiração',
-  ADMIN_GRANT: 'Crédito concedido',
+  ADMIN_GRANT: 'Pãezins concedidos',
   ADMIN_DEBIT: 'Ajuste de saldo',
   DELIVERY_DONE: 'Entrega realizada',
-  // Cestinha (Além do Pãozin): o débito ao pagar em pãezinhos e a devolução no cancelamento.
+  // Cestinha (Além do Pãozin): o débito ao pagar em pãezins e a devolução no cancelamento.
   MARKET_PURCHASE: 'Cestinha — Além do Pãozin',
-  MARKET_REFUND: 'Cestinha cancelada — pãezinhos devolvidos',
+  MARKET_REFUND: 'Cestinha cancelada — pãezins devolvidos',
 }
 
 export function CreditHistoryScreen() {
@@ -100,7 +100,7 @@ export function CreditHistoryScreen() {
             margin: 0,
           }}
         >
-          Extrato de créditos
+          Extrato de pãezins
         </h1>
       </div>
 
@@ -179,7 +179,7 @@ export function CreditHistoryScreen() {
                 lineHeight: 1.45,
               }}
             >
-              Suas compras e entregas de créditos vão aparecer aqui assim que rolar a primeira. 🥖
+              Suas compras e entregas de pãezins vão aparecer aqui assim que rolar a primeira. 🥖
             </p>
           </div>
         )}
