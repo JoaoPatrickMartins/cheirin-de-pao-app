@@ -76,38 +76,48 @@
     # `docker compose down` já aconteceu.
     #
     # Idempotente: com o schema já sincronizado, é um no-op.
+    #
+    # ⚠️ SÓ NO DEPLOY DO BACKEND. Este playbook é compartilhado com o deploy do FRONTEND
+    # (`mainFrontend.yml` roda o mesmo arquivo), e lá o primeiro serviço do compose é o nginx que
+    # serve o build estático — sem Node. Sem este gate, o `exec npx` no container do front falhava
+    # com `rc: 127 · exec: "npx": executable file not found in $PATH` e derrubava o deploy do front
+    # inteiro, num passo que não é dele. O backend liga o bloco com `run_db_push: true` no
+    # `ansible/variables.yml` (gerado pelo workflow); qualquer outro deploy simplesmente pula.
     # ─────────────────────────────────────────────────────────────────────────
-    # O nome do serviço vem do docker-compose.yml que vive na VPS (fora do repo), então é
-    # descoberto em runtime. Se o compose tiver mais de um serviço, defina `api_service` no
-    # ansible/variables.yml para apontar o certo.
-    - name: Descobrir o serviço da API no compose
-      command: docker compose config --services
-      args:
-        chdir: "{{ workdir }}"
-      register: compose_services
-      changed_when: false
+    - name: Sincronizar schema do Prisma (somente deploy do backend)
+      when: run_db_push | default(false) | bool
+      block:
+        # O nome do serviço vem do docker-compose.yml que vive na VPS (fora do repo), então é
+        # descoberto em runtime. Se o compose tiver mais de um serviço, defina `api_service` no
+        # ansible/variables.yml para apontar o certo.
+        - name: Descobrir o serviço da API no compose
+          command: docker compose config --services
+          args:
+            chdir: "{{ workdir }}"
+          register: compose_services
+          changed_when: false
 
-    - name: Aguardar o container da API subir
-      command: docker compose ps -q {{ api_service | default(compose_services.stdout_lines[0], true) }}
-      args:
-        chdir: "{{ workdir }}"
-      register: api_container
-      until: api_container.stdout | trim | length > 0
-      retries: 12
-      delay: 5
-      changed_when: false
+        - name: Aguardar o container da API subir
+          command: docker compose ps -q {{ api_service | default(compose_services.stdout_lines[0], true) }}
+          args:
+            chdir: "{{ workdir }}"
+          register: api_container
+          until: api_container.stdout | trim | length > 0
+          retries: 12
+          delay: 5
+          changed_when: false
 
-    - name: Sincronizar schema e índices com o MongoDB Atlas (prisma db push)
-      command: >
-        docker compose exec -T {{ api_service | default(compose_services.stdout_lines[0], true) }}
-        npx prisma db push --schema=prisma/schema.prisma --skip-generate
-      args:
-        chdir: "{{ workdir }}"
-      register: db_push
-      # NÃO usar --accept-data-loss por padrão: ele autoriza o Prisma a DERRUBAR índices que existem
-      # no Atlas e não estão no schema. Se este passo falhar reclamando disso, confira o que seria
-      # removido antes de liberar — é sinal de índice criado à mão no cluster.
+        - name: Sincronizar schema e índices com o MongoDB Atlas (prisma db push)
+          command: >
+            docker compose exec -T {{ api_service | default(compose_services.stdout_lines[0], true) }}
+            npx prisma db push --schema=prisma/schema.prisma --skip-generate
+          args:
+            chdir: "{{ workdir }}"
+          register: db_push
+          # NÃO usar --accept-data-loss por padrão: ele autoriza o Prisma a DERRUBAR índices que
+          # existem no Atlas e não estão no schema. Se este passo falhar reclamando disso, confira o
+          # que seria removido antes de liberar — é sinal de índice criado à mão no cluster.
 
-    - name: Mostrar o resultado do db push
-      debug:
-        var: db_push.stdout_lines
+        - name: Mostrar o resultado do db push
+          debug:
+            var: db_push.stdout_lines

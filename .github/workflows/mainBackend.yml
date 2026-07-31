@@ -215,12 +215,18 @@ jobs:
         run: |
           echo "workdir: ${{ secrets.WORKDIR_BACKEND_DEV }}" > ./ansible/variables.yml
           echo "localdir: ${{ secrets.LOCALDIR_BACKEND_DEV }}" >> ./ansible/variables.yml
+          # Liga o `prisma db push` do playbook — que é compartilhado com o deploy do frontend,
+          # onde o container não tem Node e o passo falharia com "npx: not found".
+          echo "run_db_push: true" >> ./ansible/variables.yml
 
       - name: criar arquivo variables.yml diretorio de produção
         if: github.ref == 'refs/heads/main'
         run: |
           echo "workdir: ${{ secrets.WORKDIR_BACKEND_PROD }}" > ./ansible/variables.yml
           echo "localdir: ${{ secrets.LOCALDIR_BACKEND_PROD }}" >> ./ansible/variables.yml
+          # Liga o `prisma db push` do playbook — que é compartilhado com o deploy do frontend,
+          # onde o container não tem Node e o passo falharia com "npx: not found".
+          echo "run_db_push: true" >> ./ansible/variables.yml
 
       - name: Criar arquivo de inventário do Ansible
         run: |
