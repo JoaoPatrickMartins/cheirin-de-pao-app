@@ -69,8 +69,10 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               id: { type: 'string', description: 'ID do pedido cancelado.' },
               status: { type: 'string', description: 'Novo status: "CANCELLED".' },
+              // `integer` de propósito: pedido de PÃO devolve pão inteiro (Order.quantity). O
+              // decimal só existe na Cestinha, que tem rota própria.
               refundedCredits: { type: 'integer', description: 'Quantidade de pães devolvidos ao saldo (0 se já havia sido estornado).' },
-              creditBalance: { type: 'integer', description: 'Saldo de pães do cliente após o estorno.' },
+              creditBalance: { type: 'number', description: 'Saldo de pãezinhos do cliente após o estorno (decimal — o crédito é fracionado).' },
             },
           },
         },

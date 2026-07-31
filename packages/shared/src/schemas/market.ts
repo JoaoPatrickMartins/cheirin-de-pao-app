@@ -84,10 +84,14 @@ export const UpdateCartSchema = z.object({
 // ── Checkout ──────────────────────────────────────────────────────────────
 // O servidor lê os itens da Cestinha persistida e recalcula o total — o cliente só envia
 // a intenção de entrega + split + método. creditsApplied = pãezinhos escolhidos (0..saldo).
+//
+// DECIMAL de propósito (não `.int()`): o crédito é fracionado (1 pão = 1000 milésimos), então
+// um item de R$ 1,80 com avulso R$ 1,20 é pago com 1,5 🥖. O servidor converte para milésimos e
+// clampa por saldo e custo — este número é só a sugestão do cliente.
 export const MarketCheckoutSchema = z.object({
   scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   slotId: z.string().min(1),
-  creditsApplied: z.number().int().min(0),
+  creditsApplied: z.number().min(0),
   paymentMethod: z.enum(['pix', 'card']).optional(), // ausente quando 100% crédito
   savedCardId: ObjectIdSchema.optional(),
   idempotencyKey: z.string().uuid(),

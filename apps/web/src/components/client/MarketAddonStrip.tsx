@@ -44,7 +44,7 @@ export function MarketAddonStrip() {
             </div>
             <div style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)' }}>
               {maxEconomyPercent > 0
-                ? `Pague com pãezinhos e economize até ${Math.round(maxEconomyPercent)}%`
+                ? `Pague com pãezins e economize até ${Math.round(maxEconomyPercent)}%`
                 : 'Café da manhã completo, entregue com o pão'}
             </div>
           </div>

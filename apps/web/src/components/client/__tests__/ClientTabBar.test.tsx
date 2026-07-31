@@ -37,13 +37,13 @@ describe('ClientTabBar [UI-08]', () => {
       expect(screen.getByText('Agenda')).toBeDefined()
     })
 
-    it('aba "Pães" esta presente com label correto', () => {
+    it('aba "Pãezins" (a moeda do app) esta presente com label correto', () => {
       render(
         <MemoryRouter initialEntries={['/client/home']}>
           <ClientTabBar />
         </MemoryRouter>
       )
-      expect(screen.getByText('Pães')).toBeDefined()
+      expect(screen.getByText('Pãezins')).toBeDefined()
     })
 
     // "Pedidos" saiu da barra (deu lugar à Cestinha) e virou "Meus Pedidos" dentro do Perfil.

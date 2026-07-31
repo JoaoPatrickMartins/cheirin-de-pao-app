@@ -6,7 +6,8 @@ import { ProdPhoto } from '../../components/client/ProdPhoto'
 import { CartButton } from '../../components/client/CartButton'
 import StepperInline from '../../components/client/StepperInline'
 import { Icon } from '../../components/brand/Icon'
-import { formatBRL, paezinhosDe, formatAvailableDays, type MarketProduct } from '../../lib/market'
+import { CREDIT_SCALE, creditsForPrice, formatCredits } from '@cheirin-de-pao/shared'
+import { formatBRL, formatAvailableDays, type MarketProduct } from '../../lib/market'
 
 /**
  * ProductDetail — detalhe de um produto do mini market. Read-only na Onda 2:
@@ -211,8 +212,11 @@ function ProductBody({
   avulsoUnit,
   maxEconomyPercent,
 }: ProductBodyProps) {
-  const paes = paezinhosDe(price, avulsoUnit)
-  const showEconomy = maxEconomyPercent > 0
+  // Preço em pãezinhos (milésimos) — o crédito é fracionado e cobre 100% do valor, então a
+  // economia exibida é a do combo, sem diluição (ver shared/credits.ts).
+  const milli = creditsForPrice(price, avulsoUnit)
+  const pct = Math.round(maxEconomyPercent)
+  const showEconomy = pct > 0
   const restricted = availableDays.length > 0
 
   return (
@@ -318,24 +322,27 @@ function ProductBody({
                 padding: '3px 8px',
               }}
             >
-              −{Math.round(maxEconomyPercent)}%
+              −{pct}%
             </span>
           )}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span aria-hidden="true" style={{ fontSize: 15, lineHeight: 1 }}>🥖</span>
-            <span style={{ ...priceLabel, color: 'var(--color-accent)' }}>Com pãezinhos</span>
+            <span style={{ ...priceLabel, color: 'var(--color-accent)' }}>Com pãezins</span>
           </span>
           <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--color-accent)', letterSpacing: '-0.02em', margin: '2px 0 0' }}>
-            {paes > 0 ? (
+            {milli > 0 ? (
               <>
-                {paes} <span style={{ fontSize: 15, fontWeight: 700 }}>{paes === 1 ? 'pãozinho' : 'pãezinhos'}</span>
+                {formatCredits(milli)}{' '}
+                <span style={{ fontSize: 15, fontWeight: 700 }}>
+                  {milli === CREDIT_SCALE ? 'pãozin' : 'pãezins'}
+                </span>
               </>
             ) : (
               '—'
             )}
           </p>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-accent)', margin: 0 }}>
-            {showEconomy ? `economize até ${Math.round(maxEconomyPercent)}%` : 'pague com créditos'}
+            {showEconomy ? `economize até ${pct}%` : 'pague com pãezins'}
           </p>
         </div>
       </div>
@@ -376,7 +383,7 @@ function ProductBody({
 
       {/* Nota: paga em dinheiro e/ou pãezinhos; chega junto com o pão. */}
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: 0, lineHeight: 1.4 }}>
-        Você escolhe quanto pagar em dinheiro ou com pãezinhos na hora de fechar a Cestinha. Chega junto com a entrega do seu pão.
+        Você escolhe quanto pagar em dinheiro ou com pãezins na hora de fechar a Cestinha. Chega junto com a entrega do seu pão.
       </p>
     </div>
   )

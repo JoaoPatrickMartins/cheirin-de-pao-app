@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
-import { ReportAppBar, ReportScroll, ReportCard, StatRow, LoadingText, ErrorText, fmtInt, fmtBRL } from './RelShared'
+import { ReportAppBar, ReportScroll, ReportCard, StatRow, LoadingText, ErrorText, fmtInt, fmtCredits, fmtBRL } from './RelShared'
 import { buildCsv, downloadCsv } from '../../../lib/csv'
 
 interface CreditLiabilityReport {
@@ -62,13 +62,13 @@ export function RelPassivo({ onBack }: { onBack: () => void }) {
                 {fmtBRL(data.estLiabilityBRL)}
               </p>
               <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: 'var(--color-text-ter)' }}>
-                {fmtInt(data.creditsOutstanding)} créditos (pães) em circulação
+                {fmtCredits(data.creditsOutstanding)} créditos (pães) em circulação
               </span>
             </div>
 
             <ReportCard>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <StatRow label="Créditos em circulação" value={fmtInt(data.creditsOutstanding)} />
+                <StatRow label="Créditos em circulação" value={fmtCredits(data.creditsOutstanding)} />
                 <StatRow label="Clientes com saldo" value={fmtInt(data.clientsWithCredit)} />
                 <StatRow label="Preço médio por crédito" value={fmtBRL(data.estPricePerCredit)} />
               </div>

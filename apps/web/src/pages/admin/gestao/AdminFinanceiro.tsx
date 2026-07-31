@@ -1,3 +1,4 @@
+import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
@@ -276,7 +277,7 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                   />
                   <RevenueLine
                     label="Pago em pãezinhos"
-                    value={`${formatBRL(market.creditPart)}${market.credits > 0 ? ` · ${market.credits} 🥖` : ''}`}
+                    value={`${formatBRL(market.creditPart)}${market.credits > 0 ? ` · ${formatCredits(toMilli(market.credits))} 🥖` : ''}`}
                     hint="já faturado na compra dos créditos"
                   />
                   {/* H9 — margem sobre o MOVIMENTADO (não sobre a receita nova): o custo existe

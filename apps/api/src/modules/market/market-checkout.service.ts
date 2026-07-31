@@ -1,6 +1,12 @@
 import { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
-import type { MarketCheckoutInput } from '@cheirin-de-pao/shared'
+import {
+  creditsForPrice,
+  fromMilli,
+  moneyForCredits,
+  toMilli,
+  type MarketCheckoutInput,
+} from '@cheirin-de-pao/shared'
 import { brtNoonFromStr, brtDateStr, dayKeyOf, isPastCutoffForDelivery } from '../../lib/cutoff.js'
 import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
@@ -181,9 +187,17 @@ export class MarketCheckoutService {
     }
 
     // 10. Split crédito × dinheiro (servidor é autoridade; cliente só sugere).
-    const maxCredits = Math.floor(total / avulsoUnit)
-    const creditsApplied = Math.max(0, Math.min(input.creditsApplied, user.creditBalance ?? 0, maxCredits))
-    const moneyAmount = round2(total - creditsApplied * avulsoUnit)
+    //
+    // Tudo em MILÉSIMOS de pãozinho: `creditsForPrice` cobre 100% do valor, inclusive quando o
+    // preço não fecha em pãezinhos inteiros (R$ 1,80 com avulso R$ 1,20 = 1500 mili = 1,5 🥖).
+    // É isso que faz a economia do combo valer sempre — a parte que ia sobrar em dinheiro não
+    // tinha desconto nenhum e diluía o % anunciado (a R$ 1,80, 17% viravam 11%).
+    //
+    // `input.creditsApplied` vem em pãezinhos DECIMAIS (o front sugere; o servidor decide).
+    const maxCreditsMilli = creditsForPrice(total, avulsoUnit)
+    const saldoMilli = (user.creditMilli ?? 0)
+    const creditsMilli = Math.max(0, Math.min(toMilli(input.creditsApplied), saldoMilli, maxCreditsMilli))
+    const moneyAmount = round2(total - moneyForCredits(creditsMilli, avulsoUnit))
     if (moneyAmount > 0 && !input.paymentMethod) {
       throw { statusCode: 400, message: 'Escolha a forma de pagamento da parte em dinheiro.' }
     }
@@ -219,7 +233,7 @@ export class MarketCheckoutService {
         lines,
         itemsSnapshot,
         total,
-        creditsApplied,
+        creditsMilli,
         moneyAmount,
         idempotencyKey: input.idempotencyKey,
       })
@@ -329,15 +343,16 @@ export class MarketCheckoutService {
     lines: { product: { id: string; name: string; stockType: string; stock: number | null; dailyCapacity: number | null }; qty: number }[]
     itemsSnapshot: { productId: string; name: string; qty: number; unitPrice: number }[]
     total: number
-    creditsApplied: number
+    /** Pãezinhos debitados, em MILÉSIMOS — o único valor de crédito gravado. */
+    creditsMilli: number
     moneyAmount: number
     idempotencyKey: string
   }) {
     return this.prisma.$transaction(async (tx) => {
-      // Saldo suficiente (re-checado dentro da transação).
+      // Saldo suficiente (re-checado dentro da transação), em milésimos.
       const u = await tx.user.findUnique({ where: { id: args.userId } })
-      if (!u || (u.creditBalance ?? 0) < args.creditsApplied) {
-        throw { statusCode: 400, message: 'Créditos insuficientes.' }
+      if (!u || (u.creditMilli ?? 0) < args.creditsMilli) {
+        throw { statusCode: 400, message: 'Pãezins insuficientes.' }
       }
 
       // Reserva atômica de estoque (decremento condicional — evita vender o último item 2×).
@@ -375,23 +390,23 @@ export class MarketCheckoutService {
           breadQty: args.breadQty,
           items: { set: args.itemsSnapshot },
           totalValue: args.total,
-          creditsApplied: args.creditsApplied,
+          creditsAppliedMilli: args.creditsMilli,
           moneyAmount: args.moneyAmount,
           idempotencyKey: args.idempotencyKey,
         },
       })
 
       // Debita crédito (ledger com referenceId = pedido, para estorno idempotente futuro).
-      if (args.creditsApplied > 0) {
+      if (args.creditsMilli > 0) {
         await tx.user.update({
           where: { id: args.userId },
-          data: { creditBalance: { decrement: args.creditsApplied } },
+          data: { creditMilli: { decrement: args.creditsMilli } },
         })
         await tx.creditTransaction.create({
           data: {
             userId: args.userId,
             type: 'MARKET_PURCHASE',
-            quantity: -args.creditsApplied,
+            quantityMilli: -args.creditsMilli,
             referenceId: created.id,
             description: 'Cestinha — Além do Pãozin',
           },
@@ -443,22 +458,25 @@ export class MarketCheckoutService {
           })
         }
       }
-      if (order.creditsApplied > 0) {
+      // Gate no MILÉSIMO: um pedido de 0,4 🥖 tem de devolver 0,4 — arredondar engoliria a
+      // devolução. Pedido sem o canônico gravado não devolve nada (não inventa saldo).
+      const milli = (order.creditsAppliedMilli ?? 0)
+      if (milli > 0) {
         await tx.user.update({
           where: { id: order.userId },
-          data: { creditBalance: { increment: order.creditsApplied } },
+          data: { creditMilli: { increment: milli } },
         })
         await tx.creditTransaction.create({
           data: {
             userId: order.userId,
             type: 'MARKET_REFUND',
-            quantity: order.creditsApplied,
+            quantityMilli: milli,
             referenceId: order.id,
-            description: 'Cestinha não concluída — créditos devolvidos',
+            description: 'Cestinha não concluída — pãezins devolvidos',
           },
         })
       }
-      return { released: true, refundedCredits: order.creditsApplied }
+      return { released: true, refundedCredits: fromMilli(milli) }
     })
   }
 
@@ -509,7 +527,7 @@ export class MarketCheckoutService {
     id: string
     status: string
     totalValue: number
-    creditsApplied: number
+    creditsAppliedMilli: number | null
     moneyAmount: number
     scheduledDate: Date
     slotId: string
@@ -520,7 +538,9 @@ export class MarketCheckoutService {
       marketOrderId: order.id,
       status: order.status,
       totalValue: order.totalValue,
-      creditsApplied: order.creditsApplied,
+      // API fala em pãezinhos DECIMAIS (1,5), o banco guarda milésimos. O response-schema da
+      // rota precisa declarar `type: 'number'` — com `integer` o Fastify trunca em silêncio.
+      creditsApplied: fromMilli((order.creditsAppliedMilli ?? 0)),
       moneyAmount: order.moneyAmount,
       scheduledDate: brtDateStr(order.scheduledDate),
       slotId: order.slotId,

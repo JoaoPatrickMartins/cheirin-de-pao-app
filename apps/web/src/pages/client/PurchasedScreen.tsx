@@ -38,10 +38,10 @@ export function PurchasedScreen() {
     if (!isHook) window.dispatchEvent(new Event('cdp:refresh-hook'))
   }, [isHook])
 
-  const qtyLabel = quantity === 1 ? '1 pãozinho' : `${quantity} pãezinhos`
+  const qtyLabel = quantity === 1 ? '1 pãozin' : `${quantity} pãezins`
 
-  let title = 'Pães na conta!'
-  let subtitle = `+${quantity} pães adicionados. Agora é só deixar a agenda no jeito.`
+  let title = 'Pãezins na conta!'
+  let subtitle = `+${quantity} pãezins adicionados — cada um vale um pão fresquinho. Agora é só deixar a agenda no jeito.`
   if (isOrder) {
     const verb = quantity === 1 ? 'chega' : 'chegam'
     const when = state.scheduledDate ? formatWhen(state.scheduledDate) : ''

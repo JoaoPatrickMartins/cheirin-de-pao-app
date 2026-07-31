@@ -16,6 +16,7 @@ export function SettingsScreen() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const { status: autoRecharge } = useAutoRecharge()
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false)
 
   // Re-dispara o fluxo de primeiro acesso (telas + tour).
   function replayOnboarding() {
@@ -213,9 +214,82 @@ export function SettingsScreen() {
             boxShadow: 'var(--shadow-soft)',
           }}
         >
-          <ProfileMenuRow icon="logout" label="Sair" onClick={() => logout()} danger />
+          <ProfileMenuRow
+            icon="logout"
+            label="Sair da conta"
+            description="Encerrar a sessão deste dispositivo"
+            onClick={() => setShowLogoutDialog(true)}
+            danger
+          />
         </div>
       </div>
+
+      {/* Confirmação de logout — mesmo padrão do admin */}
+      {showLogoutDialog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="dialog-logout-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            zIndex: 200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 24px',
+          }}
+        >
+          <div style={{ background: 'var(--color-surface)', borderRadius: 20, padding: '28px 24px', width: '100%', maxWidth: 360 }}>
+            <h2
+              id="dialog-logout-title"
+              style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--color-text)', margin: '0 0 8px' }}
+            >
+              Sair da conta?
+            </h2>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-sec)', margin: '0 0 24px' }}>
+              Você será redirecionado para a tela de login.
+            </p>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button
+                onClick={() => setShowLogoutDialog(false)}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  borderRadius: 999,
+                  border: '1.5px solid var(--color-border)',
+                  background: 'none',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 700,
+                  fontSize: 15,
+                  color: 'var(--color-text)',
+                  cursor: 'pointer',
+                }}
+              >
+                Continuar na conta
+              </button>
+              <button
+                onClick={() => logout()}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  borderRadius: 999,
+                  border: 'none',
+                  background: 'var(--color-espresso)',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 700,
+                  fontSize: 15,
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                Sair
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -254,7 +328,7 @@ function NotificationsSetting() {
       onClick = () => {}
       break
     default: // 'default' — suportado e ainda não decidido
-      description = 'Receba avisos de entrega e créditos'
+      description = 'Receba avisos de entrega e de pãezins'
       onClick = () => void enable()
   }
 

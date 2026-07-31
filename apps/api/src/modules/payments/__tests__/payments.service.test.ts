@@ -151,7 +151,7 @@ describe('PaymentsService (Stripe)', () => {
     it('approved + creditBalance quando PAID', async () => {
       const fastify = createMockFastify()
       ;(fastify.prisma.payment.findUnique as Mock).mockResolvedValueOnce({ id: 'pay-2', userId: 'user-2', status: 'PAID' })
-      ;(fastify.prisma.user.findUnique as Mock).mockResolvedValueOnce({ id: 'user-2', creditBalance: 30 })
+      ;(fastify.prisma.user.findUnique as Mock).mockResolvedValueOnce({ id: 'user-2', creditMilli: 30000 })
       const service = new PaymentsService(fastify)
       const result = await service.getStatus('pay-2', 'user-2')
       expect(result.status).toBe('approved')

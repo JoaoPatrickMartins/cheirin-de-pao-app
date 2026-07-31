@@ -28,7 +28,7 @@ export class ClientProfileRepository {
         phone: true,
         email: true,
         cpf: true,
-        creditBalance: true,
+        creditMilli: true,
       },
     })
   }

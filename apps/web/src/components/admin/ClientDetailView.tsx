@@ -1,3 +1,4 @@
+import { formatCredits, toMilli, wholeBreadsOf } from '@cheirin-de-pao/shared'
 import { useState, useEffect } from 'react'
 import type { CSSProperties, ReactNode, ComponentProps } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
@@ -826,7 +827,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px' }}>
               <Icon name="wallet" size={20} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
               <span style={rowLabelStyle}>Saldo de créditos</span>
-              <span style={rowValueStyle}>{cliente.creditBalance} pães</span>
+              <span style={rowValueStyle}>{formatCredits(toMilli(cliente.creditBalance))} pães</span>
             </div>
             <div style={{ padding: '0 16px 14px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button
@@ -1235,22 +1236,22 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               Remover Créditos
             </h2>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: '0 0 20px' }}>
-              Saldo atual: <strong>{cliente.creditBalance} pães</strong>. A remoção é registrada no extrato para auditoria.
+              Saldo atual: <strong>{formatCredits(toMilli(cliente.creditBalance))} pães</strong>. A remoção é registrada no extrato para auditoria.
             </p>
             <label style={editLabelStyle}>Quantidade</label>
             <input
               type="number"
               min="1"
-              max={cliente.creditBalance}
+              max={wholeBreadsOf(cliente.creditBalance)}
               // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               value={removeQty}
               onChange={(e) => setRemoveQty(Number(e.target.value))}
-              style={{ ...editInputStyle, marginBottom: removeQty > cliente.creditBalance ? 6 : 20 }}
+              style={{ ...editInputStyle, marginBottom: removeQty > wholeBreadsOf(cliente.creditBalance) ? 6 : 20 }}
             />
-            {removeQty > cliente.creditBalance && (
+            {removeQty > wholeBreadsOf(cliente.creditBalance) && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--color-warn)', margin: '0 0 20px' }}>
-                Máximo disponível: {cliente.creditBalance} pães.
+                Máximo disponível: {formatCredits(toMilli(cliente.creditBalance))} pães.
               </p>
             )}
             <label style={editLabelStyle}>Motivo</label>
@@ -1276,11 +1277,11 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               <button onClick={() => setShowRemoveModal(false)} style={sheetCancelBtn}>Descartar</button>
               <button
                 onClick={() => setShowRemoveConfirm(true)}
-                disabled={!removeMotivo || removeQty < 1 || removeQty > cliente.creditBalance}
+                disabled={!removeMotivo || removeQty < 1 || removeQty > wholeBreadsOf(cliente.creditBalance)}
                 style={{
                   ...sheetConfirmBtn,
-                  cursor: !removeMotivo || removeQty < 1 || removeQty > cliente.creditBalance ? 'not-allowed' : 'pointer',
-                  opacity: !removeMotivo || removeQty < 1 || removeQty > cliente.creditBalance ? 0.45 : 1,
+                  cursor: !removeMotivo || removeQty < 1 || removeQty > wholeBreadsOf(cliente.creditBalance) ? 'not-allowed' : 'pointer',
+                  opacity: !removeMotivo || removeQty < 1 || removeQty > wholeBreadsOf(cliente.creditBalance) ? 0.45 : 1,
                 }}
               >
                 Remover créditos
@@ -1297,7 +1298,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
         title="Confirmar remoção"
         description={
           cliente
-            ? `Remover ${removeQty} crédito(s) de ${cliente.name} — motivo: ${removeMotivo}. Novo saldo: ${cliente.creditBalance - removeQty} pães. Esta ação não pode ser desfeita.`
+            ? `Remover ${removeQty} crédito(s) de ${cliente.name} — motivo: ${removeMotivo}. Novo saldo: ${formatCredits(toMilli(cliente.creditBalance - removeQty))} pães. Esta ação não pode ser desfeita.`
             : undefined
         }
         confirmLabel="Remover"
@@ -1838,7 +1839,7 @@ function FinanceiroPanel({
                       color: positivo ? 'var(--color-text)' : 'var(--color-warn)',
                     }}
                   >
-                    {positivo ? '+' : ''}{t.quantity}
+                    {positivo ? '+' : ''}{formatCredits(toMilli(t.quantity))}
                   </span>
                 </div>
               )
@@ -2044,7 +2045,11 @@ function PedidosPanel({
         const alvo = cancelTarget.id
         setOrders((prev) => prev.map((o) => (o.id === alvo ? { ...o, status: 'CANCELLED' } : o)))
         if (data.refundedCredits) onCreditChange(data.refundedCredits)
-        showToast(data.refundedCredits ? `Pedido cancelado · ${data.refundedCredits} crédito(s) devolvido(s)` : 'Pedido cancelado')
+        showToast(
+          data.refundedCredits
+            ? `Pedido cancelado · ${formatCredits(toMilli(data.refundedCredits))} crédito(s) devolvido(s)`
+            : 'Pedido cancelado',
+        )
         setCancelTarget(null)
       } else {
         const err = (await res.json().catch(() => null)) as { error?: string } | null
@@ -2092,7 +2097,7 @@ function PedidosPanel({
             const cestinha = o.kind === 'CESTINHA'
             const horario = o.deliveryTime || (o.slotId === 'manha' ? 'Manhã' : o.slotId === 'tarde' ? 'Tarde' : '')
             const entregue = o.deliveredAt ? `entregue ${formatDataCurta(o.deliveredAt)}` : ''
-            const estorno = o.refundedCredits ? `estornado ${o.refundedCredits} 🥖` : ''
+            const estorno = o.refundedCredits ? `estornado ${formatCredits(toMilli(o.refundedCredits))} 🥖` : ''
             // D-1: pães e itens são grandezas diferentes — nunca somadas num total só.
             const carga = [
               o.quantity > 0 ? `${o.quantity} pães` : null,
@@ -2396,7 +2401,7 @@ function TimelinePanel({ clienteId }: { clienteId: string }) {
               date: t.createdAt, kind: 'credit', icon: 'wallet',
               title: TX_LABEL[t.type] ?? t.type,
               sub: [t.reason || t.description, t.adminName].filter(Boolean).join(' · '),
-              value: `${pos ? '+' : ''}${t.quantity}`, valueColor: pos ? 'var(--color-text)' : 'var(--color-warn)',
+              value: `${pos ? '+' : ''}${formatCredits(toMilli(t.quantity))}`, valueColor: pos ? 'var(--color-text)' : 'var(--color-warn)',
             })
           }
         }

@@ -12,7 +12,7 @@ function makeFastifyMock(overrides: {
   runCommandRaw?: unknown
   /** Cestinha (Onda D1) — receita nova (Payment purpose=MARKET) e o pedido agregado. */
   marketRevenue?: number
-  marketOrderAgg?: { _sum: { totalValue: number; moneyAmount: number; creditsApplied: number }; _count: number }
+  marketOrderAgg?: { _sum: { totalValue: number; moneyAmount: number; creditsAppliedMilli: number }; _count: number }
   marketByCondo?: Array<{ condominiumId: string | null; _sum: { totalValue: number | null } }>
   /** Linhas vendidas — insumo do CMV (H9). */
   soldOrders?: Array<{ breadQty: number; items: Array<{ productId: string; qty: number }> }>
@@ -36,7 +36,7 @@ function makeFastifyMock(overrides: {
     aggregateAvulso = 500.0,
     runCommandRaw = { cursor: { firstBatch: [{ _id: 'condo-01', total: 1500 }] } },
     marketRevenue = 0,
-    marketOrderAgg = { _sum: { totalValue: 0, moneyAmount: 0, creditsApplied: 0 }, _count: 0 },
+    marketOrderAgg = { _sum: { totalValue: 0, moneyAmount: 0, creditsAppliedMilli: 0 }, _count: 0 },
     marketByCondo = [],
     soldOrders = [],
     supplierProducts = [],
@@ -176,7 +176,7 @@ describe('AdminFinancialService', () => {
     // Cestinha de R$ 30, sendo R$ 6 em dinheiro e R$ 24 em pãezinhos (4 créditos).
     const comCestinha = {
       marketRevenue: 6,
-      marketOrderAgg: { _sum: { totalValue: 30, moneyAmount: 6, creditsApplied: 4 }, _count: 1 },
+      marketOrderAgg: { _sum: { totalValue: 30, moneyAmount: 6, creditsAppliedMilli: 4000 }, _count: 1 },
     }
 
     it('separa receita NOVA de valor movimentado e decompõe o GMV', async () => {
@@ -207,7 +207,7 @@ describe('AdminFinancialService', () => {
     it('Cestinha 100% crédito: GMV sobe, receita NÃO — e isso é o correto (D-2)', async () => {
       const { fastify } = makeFastifyMock({
         marketRevenue: 0, // nenhum Payment: o cliente pagou só com pãezinhos
-        marketOrderAgg: { _sum: { totalValue: 24, moneyAmount: 0, creditsApplied: 4 }, _count: 1 },
+        marketOrderAgg: { _sum: { totalValue: 24, moneyAmount: 0, creditsAppliedMilli: 4000 }, _count: 1 },
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = await new AdminFinancialService(fastify as any).getRevenue('day')
@@ -270,7 +270,7 @@ describe('AdminFinancialService', () => {
     it('CMV soma itens E o pão da Cestinha (D-1: o pão dela tem custo)', async () => {
       const { fastify } = makeFastifyMock({
         ...matriz,
-        marketOrderAgg: { _sum: { totalValue: 40, moneyAmount: 40, creditsApplied: 0 }, _count: 1 },
+        marketOrderAgg: { _sum: { totalValue: 40, moneyAmount: 40, creditsAppliedMilli: 0 }, _count: 1 },
         soldOrders: [{ breadQty: 10, items: [{ productId: 'bolo', qty: 2 }] }],
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -286,7 +286,7 @@ describe('AdminFinancialService', () => {
     it('produto SEM custo cadastrado não vira custo zero — conta como margem parcial', async () => {
       const { fastify } = makeFastifyMock({
         ...matriz,
-        marketOrderAgg: { _sum: { totalValue: 40, moneyAmount: 40, creditsApplied: 0 }, _count: 1 },
+        marketOrderAgg: { _sum: { totalValue: 40, moneyAmount: 40, creditsAppliedMilli: 0 }, _count: 1 },
         soldOrders: [{ breadQty: 0, items: [{ productId: 'bolo', qty: 1 }, { productId: 'geleia-sem-fornecedor', qty: 3 }] }],
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

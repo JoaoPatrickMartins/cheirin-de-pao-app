@@ -41,7 +41,7 @@ const TONE_ICON_STYLES: Record<Tone, { icon: string; bg: string }> = {
 }
 
 const CTA_CONFIG: Record<string, { label: string; path: string }> = {
-  LOW_CREDIT:       { label: 'Comprar créditos', path: '/client/creditos' },
+  LOW_CREDIT:       { label: 'Comprar pãezins',  path: '/client/creditos' },
   DELIVERY_DONE:    { label: 'Ver pedido',        path: '/client/pedidos' },
   DELIVERY_EVE:     { label: 'Ver pedido',        path: '/client/pedidos' },
   OUT_FOR_DELIVERY: { label: 'Acompanhar',        path: '/client/pedidos' },
@@ -181,7 +181,7 @@ export function NotificationsScreen() {
                 margin: 0,
               }}
             >
-              As notificações sobre suas entregas e créditos aparecem aqui.
+              As notificações sobre suas entregas e pãezins aparecem aqui.
             </p>
           </div>
         )}

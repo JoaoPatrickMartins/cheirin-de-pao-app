@@ -7,6 +7,7 @@ import { useSchedule } from '../../hooks/useSchedule'
 import { usePaymentPolling } from '../../hooks/usePaymentPolling'
 import { apiFetch } from '../../lib/apiFetch'
 import { brtDateStr, isPastCutoffForDelivery } from '../../lib/cutoff'
+import { creditsForPrice, formatCredits, fromMilli, moneyForCredits, toMilli } from '@cheirin-de-pao/shared'
 import { formatBRL, PAO_FRANCES, type CartLine } from '../../lib/market'
 import { Icon } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
@@ -60,18 +61,24 @@ export function MarketCheckoutScreen() {
   const { cart, isLoading: cartLoading, reload: reloadCart } = useCart()
   const { avulsoUnit: catalogAvulso, categories } = useMarketCatalog()
   const emojiOf = (categoryId: string) => categories.find((c) => c.id === categoryId)?.emoji ?? null
+  // Saldo em pãezinhos decimais (a API já responde 43,5); as contas rodam em MILÉSIMOS.
   const creditBalance = user?.creditBalance ?? 0
+  const saldoMilli = toMilli(creditBalance)
   const { dailyQty } = useSchedule(creditBalance)
 
   const avulso = cart.avulsoUnit || catalogAvulso
   const subtotal = cart.subtotal
-  const maxApplicable = avulso > 0 ? Math.min(creditBalance, Math.floor(subtotal / avulso)) : 0
+  // Mesma conta do backend (`creditsForPrice`, em centavos inteiros → milésimos de pãozinho): o
+  // crédito é fracionado, então cobre 100% do carrinho em qualquer preço. É isto que faz o
+  // "pagar tudo com pãezinhos" funcionar num item de R$ 1,80 — antes sobrava R$ 0,60 de Pix.
+  const maxApplicableMilli = Math.min(saldoMilli, creditsForPrice(subtotal, avulso))
 
   // Consumo de saldo como antes: por padrão usa o saldo (o máximo que cobre) e paga a diferença
   // em dinheiro. O cliente só decide SE usa o saldo (toggle), não QUANTO.
   const [useCredits, setUseCredits] = useState(true)
-  const credits = useCredits ? maxApplicable : 0
-  const creditValue = round2(credits * avulso)
+  const creditsMilli = useCredits ? maxApplicableMilli : 0
+  const credits = fromMilli(creditsMilli)
+  const creditValue = moneyForCredits(creditsMilli, avulso)
   const moneyAmount = round2(subtotal - creditValue)
 
   // Política de cartão do admin: abaixo do mínimo (parte EM DINHEIRO), só Pix é permitido.
@@ -172,7 +179,7 @@ export function MarketCheckoutScreen() {
 
   // ── Aviso suave saldo × agenda ──
   const weeklyNeed = Object.values(dailyQty ?? {}).reduce((a, v) => a + (v || 0), 0)
-  const leftover = creditBalance - credits
+  const leftover = fromMilli(saldoMilli - creditsMilli)
   const scheduleWarn = weeklyNeed > 0 && leftover < weeklyNeed
 
   // ── Estado do fluxo ──
@@ -379,8 +386,8 @@ export function MarketCheckoutScreen() {
 
         {/* Usar do saldo — consome o saldo por padrão e paga a diferença em dinheiro.
             O cliente só liga/desliga (não escolhe quanto). */}
-        {avulso > 0 && maxApplicable > 0 && (
-          <Section title="Pãezinhos">
+        {avulso > 0 && maxApplicableMilli > 0 && (
+          <Section title="Pãezins">
             <div
               style={{
                 display: 'flex',
@@ -401,11 +408,11 @@ export function MarketCheckoutScreen() {
                 </p>
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
                   {useCredits
-                    ? `Usa ${credits} 🥖 · sobram ${creditBalance - credits} de ${creditBalance}`
-                    : `Você tem ${creditBalance} 🥖 disponíveis`}
+                    ? `Usa ${formatCredits(creditsMilli)} 🥖 · sobram ${formatCredits(saldoMilli - creditsMilli)} de ${formatCredits(saldoMilli)}`
+                    : `Você tem ${formatCredits(saldoMilli)} 🥖 disponíveis`}
                 </p>
               </div>
-              <SwitchToggle on={useCredits} onChange={() => setUseCredits((v) => !v)} aria-label="Usar pãezinhos do saldo" />
+              <SwitchToggle on={useCredits} onChange={() => setUseCredits((v) => !v)} aria-label="Usar pãezins do saldo" />
             </div>
           </Section>
         )}
@@ -413,9 +420,9 @@ export function MarketCheckoutScreen() {
         {/* Balanço */}
         <Card>
           <RowBetween>
-            <span style={muted}>Com pãezinhos</span>
+            <span style={muted}>Com pãezins</span>
             <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, color: 'var(--color-accent)' }}>
-              {credits} 🥖 <span style={{ color: 'var(--color-text-ter)', fontWeight: 600 }}>({formatBRL(creditValue)})</span>
+              {formatCredits(creditsMilli)} 🥖 <span style={{ color: 'var(--color-text-ter)', fontWeight: 600 }}>({formatBRL(creditValue)})</span>
             </span>
           </RowBetween>
           <div style={{ height: 1, background: 'var(--color-border-2)', margin: '10px 0' }} />
@@ -486,7 +493,7 @@ export function MarketCheckoutScreen() {
       {/* CTA fixa — sempre visível (o cartão é escolhido/adicionado num sheet, não inline) */}
       <div style={footerBar}>
         <button onClick={() => canConfirm && setSheetOpen(true)} disabled={!canConfirm} style={primaryCta(canConfirm)}>
-          {moneyAmount > 0 ? `Confirmar · ${formatBRL(subtotal)}` : `Confirmar com pãezinhos`}
+          {moneyAmount > 0 ? `Confirmar · ${formatBRL(subtotal)}` : `Confirmar com pãezins`}
         </button>
       </div>
 
@@ -772,7 +779,9 @@ function ConfirmSheet({
   onReview: () => void
 }) {
   const precisaPagar = moneyAmount > 0
-  const saldoApos = Math.max(0, creditBalance - credits)
+  // Contas em milésimos e formatação em pt-BR: `${credits}` cru imprimiria "1.5".
+  const creditsMilli = toMilli(credits)
+  const saldoApos = Math.max(0, toMilli(creditBalance) - creditsMilli)
   const divider = <div style={{ height: 1, background: 'var(--color-border-2)', margin: '2px 0' }} />
 
   return (
@@ -830,7 +839,7 @@ function ConfirmSheet({
           {credits > 0 && (
             <>
               {divider}
-              <DetailRow icon="wallet" label="Com pãezinhos" value={`${credits} 🥖 (${formatBRL(creditValue)})`} />
+              <DetailRow icon="wallet" label="Com pãezins" value={`${formatCredits(creditsMilli)} 🥖 (${formatBRL(creditValue)})`} />
             </>
           )}
           {precisaPagar && (
@@ -841,7 +850,7 @@ function ConfirmSheet({
           <DetailRow icon="bag" label="Total" value={precisaPagar ? formatBRL(total) : 'Usa seu saldo'} emphasis />
           {credits > 0 && (
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '-4px 0 0', textAlign: 'right' }}>
-              Saldo após: {saldoApos} 🥖
+              Saldo após: {formatCredits(saldoApos)} 🥖
             </p>
           )}
         </div>

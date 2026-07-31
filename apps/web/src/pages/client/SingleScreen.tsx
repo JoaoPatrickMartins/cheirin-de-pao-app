@@ -9,6 +9,7 @@
  * Requirements: SCHED-01
  * Source: screens-order.jsx linhas 255–324, 04-UI-SPEC.md seções 7–12
  */
+import { wholeBreadsOf } from '@cheirin-de-pao/shared'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
@@ -239,8 +240,8 @@ export function SingleScreen() {
           )
           .join(' ')}${
           anyAvailableForDate
-            ? ' Dá pra escolher outro horário aqui em cima pra receber seus pãezinhos. 🥖'
-            : ' Escolha outra data pra receber seus pãezinhos fresquinhos. 🥖'
+            ? ' Dá pra escolher outro horário aqui em cima pra receber seus pães. 🥖'
+            : ' Escolha outra data pra receber seus pães fresquinhos. 🥖'
         }`
       : ''
 
@@ -316,8 +317,11 @@ export function SingleScreen() {
     el.click()
   }
 
-  const usaSaldo = Math.min(qtd, creditBalance)
-  const deficit = Math.max(0, qtd - creditBalance)
+  // Pedido único compra PÃO INTEIRO: a fração do saldo (poeira da Cestinha) não paga pão, então
+  // toda a conta de saldo/déficit aqui é em pães inteiros.
+  const paesDisponiveis = wholeBreadsOf(creditBalance)
+  const usaSaldo = Math.min(qtd, paesDisponiveis)
+  const deficit = Math.max(0, qtd - paesDisponiveis)
   const precisaPagar = deficit > 0
   const totalPagar = (avulsoUnit ?? 0) * deficit
 
@@ -332,7 +336,7 @@ export function SingleScreen() {
   const abaixoDoLimite = ganchoAlcancavel && qtd < freeThreshold
   const faltamParaGancho = Math.max(0, freeThreshold - qtd)
   // Custo extra (em Pix) de completar até o mínimo do gancho, quando o saldo não cobre.
-  const extraParaCompletar = Math.max(0, (avulsoUnit ?? 0) * (Math.max(0, completeTarget - creditBalance) - deficit))
+  const extraParaCompletar = Math.max(0, (avulsoUnit ?? 0) * (Math.max(0, completeTarget - paesDisponiveis) - deficit))
 
   // Exige data + (slot, quando o condomínio tem slots). Aguarda o fetch de slots para
   // não habilitar prematuramente. Para pagar a diferença, precisa do preço avulso.
@@ -391,7 +395,7 @@ export function SingleScreen() {
   // Falta crédito → cobra a diferença via Pix; o pedido é criado após a aprovação do
   // pagamento (a tela de Pix chama finalizePendingOrder com este pendingOrder).
   const handlePagarEAgendar = async (quantity: number) => {
-    const localDeficit = Math.max(0, quantity - creditBalance)
+    const localDeficit = Math.max(0, quantity - wholeBreadsOf(creditBalance))
     const pendingOrder = {
       quantity,
       scheduledDate: quando ?? '',
@@ -430,7 +434,7 @@ export function SingleScreen() {
 
   // Executa o pedido para uma quantidade específica: reserva (saldo cobre) ou paga a diferença.
   const doSubmit = (quantity: number) => {
-    if (quantity - creditBalance > 0) void handlePagarEAgendar(quantity)
+    if (quantity - wholeBreadsOf(creditBalance) > 0) void handlePagarEAgendar(quantity)
     else void handleReservar(quantity)
   }
 
@@ -546,7 +550,7 @@ export function SingleScreen() {
             marginTop: 0,
           }}
         >
-          Agende uma entrega avulsa para uma data. Use seus créditos ou pague só a
+          Agende uma entrega avulsa para uma data. Use seus pãezins ou pague só a
           diferença na hora.
         </p>
 
@@ -861,7 +865,7 @@ export function SingleScreen() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
                 <Icon name="plus" size={20} color="var(--color-accent)" />
                 <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text)', margin: 0 }}>
-                  Comprar {deficit} {deficit === 1 ? 'pão' : 'pães'}
+                  Comprar {deficit} {deficit === 1 ? 'pãozin' : 'pãezins'}
                 </p>
               </div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16, color: 'var(--color-text)', margin: 0 }}>
@@ -931,7 +935,7 @@ export function SingleScreen() {
                     margin: '2px 0 0 0',
                   }}
                 >
-                  Sobram {creditBalance - qtd} de {creditBalance} pães
+                  Sobram {paesDisponiveis - qtd} de {paesDisponiveis} pãezins
                 </p>
               </div>
             </div>
@@ -1171,7 +1175,7 @@ export function SingleScreen() {
         slotLabel={selectedSlot ? selectedSlot.label ?? SLOT_LABEL[selectedSlot.name] ?? selectedSlot.name : undefined}
         slotEmoji={selectedSlot ? selectedSlot.emoji ?? SLOT_EMOJI[selectedSlot.name] : undefined}
         slotTime={selectedSlot?.time}
-        creditBalance={creditBalance}
+        creditBalance={paesDisponiveis}
         usaSaldo={usaSaldo}
         deficit={deficit}
         totalPagar={totalPagar}

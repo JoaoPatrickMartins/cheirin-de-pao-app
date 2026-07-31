@@ -86,7 +86,7 @@ function makeFastify(over: {
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
       groupBy: vi.fn().mockResolvedValue(over.clientGroups ?? []),
-      aggregate: vi.fn().mockResolvedValue({ _sum: { creditBalance: 0 } }),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { creditMilli: 0 } }),
     },
     schedule: { findMany: vi.fn().mockResolvedValue([]) },
     creditTransaction: {
@@ -94,9 +94,9 @@ function makeFastify(over: {
         const type = args.where?.type
         if (type && typeof type === 'object' && 'in' in type) {
           calls.creditConsumedWhere = type
-          return Promise.resolve({ _sum: { quantity: -(over.creditConsumed ?? 0) } })
+          return Promise.resolve({ _sum: { quantityMilli: -(over.creditConsumed ?? 0) * 1000 } })
         }
-        return Promise.resolve({ _sum: { quantity: over.creditSold ?? 0 } })
+        return Promise.resolve({ _sum: { quantityMilli: (over.creditSold ?? 0) * 1000 } })
       }),
     },
     condominium: {

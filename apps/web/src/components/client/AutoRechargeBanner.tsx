@@ -55,7 +55,7 @@ export function AutoRechargeBanner() {
           </>
         ) : (
           <>
-            Ative a <strong>compra automática</strong> pra nunca ficar sem pãezinhos
+            Ative a <strong>compra automática</strong> pra nunca ficar sem pãezins
           </>
         )}
       </p>
