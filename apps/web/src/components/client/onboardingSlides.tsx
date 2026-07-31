@@ -20,7 +20,7 @@ export const SLIDES: Slide[] = [
   {
     kind: 'compra',
     title: 'Peça do seu jeito',
-    body: 'Compre seus pães e escolha: um pedido único ou uma agenda semanal que se repete sozinha.',
+    body: 'Compre pãezins — a moeda do app, onde cada um vale um pão fresquinho — e escolha: um pedido único ou uma agenda semanal que se repete sozinha.',
   },
   {
     kind: 'gancho',

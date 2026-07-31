@@ -49,14 +49,14 @@ describe('HomeScreen [UI-04, CRED-11]', () => {
       expect(screen.getByText(/Joao/i)).toBeDefined()
     })
 
-    it('HomeScreen exibe o card de saldo com label "VOCÊ TEM" e sufixo "pães"', () => {
+    it('HomeScreen exibe o card de saldo com label "VOCÊ TEM" e sufixo "pãezins"', () => {
       render(
         <MemoryRouter>
           <HomeScreen />
         </MemoryRouter>
       )
       expect(screen.getByText('VOCÊ TEM')).toBeDefined()
-      expect(screen.getByText('pães')).toBeDefined()
+      expect(screen.getByText('pãezins')).toBeDefined()
     })
   })
 

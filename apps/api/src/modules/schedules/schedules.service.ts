@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
+import { toMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
 import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
@@ -321,7 +322,9 @@ export class SchedulesService {
           if (!ar?.active) continue
         }
 
-        let balance = user.creditBalance
+        // Pães inteiros disponíveis: a entrega consome pão fechado, então a fração do saldo
+        // (poeira da Cestinha) não entra na conta da agenda.
+        let balance = wholeBreads((user.creditMilli ?? 0))
 
         // Saldo insuficiente: tenta a recarga automática (sem CVV).
         // chargeAutoRecharge é self-validating (só cobra se ativa + consentida + cartão padrão).
@@ -336,7 +339,9 @@ export class SchedulesService {
             const result = await this.payments.chargeAutoRecharge(schedule.userId)
             if (result.ok) {
               const refreshed = await this.repo.findUserById(schedule.userId)
-              balance = refreshed?.creditBalance ?? balance
+              balance = refreshed
+                ? wholeBreads((refreshed.creditMilli ?? 0))
+                : balance
             }
           }
         }
@@ -380,13 +385,13 @@ export class SchedulesService {
           })
           await tx.user.update({
             where: { id: schedule.userId },
-            data: { creditBalance: { decrement: qty } },
+            data: { creditMilli: { decrement: toMilli(qty) } },
           })
           await tx.creditTransaction.create({
             data: {
               userId: schedule.userId,
               type: 'DELIVERY',
-              quantity: -qty,
+              quantityMilli: -toMilli(qty),
               description: `Entrega agendada para ${dateLabel} às ${slot.time}`,
             },
           })
@@ -715,7 +720,9 @@ export class SchedulesService {
         // D-09: usar getConsumoSemanal para suportar multi-slot e legado
         const consumoSemanal = getConsumoSemanal(schedule)
         if (consumoSemanal === 0) continue
-        if (user.creditBalance >= consumoSemanal) continue
+        // Pães inteiros: a fração do saldo não entrega pão, então não conta no aviso.
+        const paesDisponiveis = wholeBreads((user.creditMilli ?? 0))
+        if (paesDisponiveis >= consumoSemanal) continue
 
         // Enviar push de crédito insuficiente (D-11 — deep link via url)
         if (user.oneSignalPlayerId) {
@@ -724,9 +731,9 @@ export class SchedulesService {
             const notification = new OneSignal.Notification()
             notification.app_id = process.env.ONESIGNAL_APP_ID!
             notification.include_subscription_ids = [user.oneSignalPlayerId]
-            notification.headings = { pt: 'Seus créditos estão acabando' }
+            notification.headings = { pt: 'Seus pãezins estão acabando' }
             notification.contents = {
-              pt: `Você tem ${user.creditBalance} crédito(s) e sua semana precisa de ${consumoSemanal}. Recarregue agora antes que faltem pães!`,
+              pt: `Você tem ${paesDisponiveis} pãezins e sua semana precisa de ${consumoSemanal}. Recarregue agora antes que faltem pães!`,
             }
             notification.url = '/client/creditos'
             await osClient.createNotification(notification)
@@ -742,8 +749,8 @@ export class SchedulesService {
         await this.notificationsService.createAndTrim({
           userId: schedule.userId,
           type: 'LOW_CREDIT',
-          title: 'Créditos insuficientes',
-          body: `Você tem ${user.creditBalance} crédito(s) e sua semana precisa de ${consumoSemanal}.`,
+          title: 'Pãezins insuficientes',
+          body: `Você tem ${paesDisponiveis} pãezins e sua semana precisa de ${consumoSemanal}.`,
         })
       } catch (err) {
         this.fastify.log.error(
@@ -813,7 +820,7 @@ export class SchedulesService {
           userId: schedule.userId,
           type: 'SCHEDULE_PAUSED',
           title: 'Sua agenda está pausada',
-          body: 'Retome quando quiser voltar a receber seus pãezinhos todo dia.',
+          body: 'Retome quando quiser voltar a receber seus pães todo dia.',
           actionRoute: '/client/agenda',
         })
 

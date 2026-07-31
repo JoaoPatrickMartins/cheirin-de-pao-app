@@ -286,10 +286,10 @@ export function OrderSummarySheet({
               {precisaPagar && (
                 <>
                   {divider}
-                  <Row icon="wallet" label="Do seu saldo" value={`${usaSaldo} pães`} />
+                  <Row icon="wallet" label="Do seu saldo" value={`${usaSaldo} pãezins`} />
                   <Row
                     icon="coin"
-                    label={`A comprar (${deficit} ${deficit === 1 ? 'pão' : 'pães'})`}
+                    label={`A comprar (${deficit} ${deficit === 1 ? 'pãozin' : 'pãezins'})`}
                     value={formatBRL(totalPagar)}
                   />
                 </>
@@ -311,7 +311,7 @@ export function OrderSummarySheet({
                   textAlign: 'right',
                 }}
               >
-                Saldo após: {saldoApos} pães
+                Saldo após: {saldoApos} pãezins
               </p>
             </div>
 

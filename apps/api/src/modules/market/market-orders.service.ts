@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { fromMilli } from '@cheirin-de-pao/shared'
 import { brtDateStr, brtDayRange, isPastCutoffForDelivery } from '../../lib/cutoff.js'
 import { reverseMarketOrder } from '../../lib/market-reversal.js'
 import { notifyAdminMarketOrderCancelled } from './market-notify.js'
@@ -28,7 +29,7 @@ interface MarketOrderView {
 /**
  * MarketOrdersService — acompanhamento/histórico (C7) e cancelamento da Cestinha pelo cliente.
  * Cancelamento só antes do corte; estorno é **tudo em crédito** (inclusive a parte em dinheiro,
- * `ceil` a favor do cliente — DEC-36), idempotente por `referenceId`. Sem estorno no gateway.
+ * convertida PROPORCIONALMENTE — ver `market-reversal.ts`), idempotente por `referenceId`.
  */
 export class MarketOrdersService {
   constructor(private fastify: FastifyInstance) {}
@@ -75,6 +76,7 @@ export class MarketOrdersService {
       items: { productId: string; name: string; qty: number; unitPrice: number }[]
       totalValue: number
       creditsApplied: number
+      creditsAppliedMilli?: number | null
       moneyAmount: number
       createdAt: Date
       cancelReason: string | null
@@ -93,7 +95,8 @@ export class MarketOrdersService {
       breadQty: order.breadQty,
       items: order.items.map((i) => ({ productId: i.productId, name: i.name, qty: i.qty, unitPrice: i.unitPrice })),
       totalValue: order.totalValue,
-      creditsApplied: order.creditsApplied,
+      // Pãezinhos DECIMAIS (o crédito é fracionado): 1,5 🥖 num item de R$ 1,80.
+      creditsApplied: fromMilli((order.creditsAppliedMilli ?? 0)),
       moneyAmount: order.moneyAmount,
       createdAt: order.createdAt.toISOString(),
       cancelable,
@@ -107,14 +110,16 @@ export class MarketOrdersService {
     if (orderIds.length === 0) return new Map()
     const txs = await this.prisma.creditTransaction.findMany({
       where: { type: 'MARKET_REFUND', referenceId: { in: orderIds } },
-      select: { referenceId: true, quantity: true },
+      select: { referenceId: true, quantityMilli: true },
     })
-    const map = new Map<string, number>()
+    // Soma em MILÉSIMOS e converte no fim: somar decimais acumularia erro de float.
+    const milliByOrder = new Map<string, number>()
     for (const t of txs) {
       if (!t.referenceId) continue
-      map.set(t.referenceId, (map.get(t.referenceId) ?? 0) + t.quantity)
+      const milli = (t.quantityMilli ?? 0)
+      milliByOrder.set(t.referenceId, (milliByOrder.get(t.referenceId) ?? 0) + milli)
     }
-    return map
+    return new Map([...milliByOrder].map(([id, milli]) => [id, fromMilli(milli)]))
   }
 
   private async view(orders: Parameters<MarketOrdersService['serialize']>[0][], userId: string): Promise<MarketOrderView[]> {

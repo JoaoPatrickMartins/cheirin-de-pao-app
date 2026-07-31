@@ -1,3 +1,4 @@
+import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
@@ -273,10 +274,10 @@ function OrderCard({ order: o, onOpen }: { order: MarketOrderRow; onOpen: () => 
           )}
         </div>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '5px 0 0' }}>
-          {[o.creditsApplied > 0 ? `${o.creditsApplied} 🥖` : '', o.moneyAmount > 0 ? fmtMoney(o.moneyAmount) : '']
+          {[o.creditsApplied > 0 ? `${formatCredits(toMilli(o.creditsApplied))} 🥖` : '', o.moneyAmount > 0 ? fmtMoney(o.moneyAmount) : '']
             .filter(Boolean)
             .join(' + ') || fmtMoney(o.totalValue)}
-          {o.refundedCredits > 0 ? ` · estornado ${o.refundedCredits} 🥖` : ''}
+          {o.refundedCredits > 0 ? ` · estornado ${formatCredits(toMilli(o.refundedCredits))} 🥖` : ''}
         </p>
       </div>
       <Icon name="chevR" size={16} color="var(--color-text-ter)" stroke={2.2} />
@@ -405,7 +406,7 @@ function OrderSheet({
           <Row
             label="Pago"
             value={
-              [o.creditsApplied > 0 ? `${o.creditsApplied} 🥖` : '', o.moneyAmount > 0 ? fmtMoney(o.moneyAmount) : '']
+              [o.creditsApplied > 0 ? `${formatCredits(toMilli(o.creditsApplied))} 🥖` : '', o.moneyAmount > 0 ? fmtMoney(o.moneyAmount) : '']
                 .filter(Boolean)
                 .join(' + ') || '—'
             }
@@ -416,7 +417,7 @@ function OrderSheet({
           {o.deliveredAt && <Row label="Entregue" value={fmtDateTime(o.deliveredAt)} />}
           {o.failedAt && <Row label="Não entregue" value={`${fmtDateTime(o.failedAt)}${o.failureReason ? ` · ${o.failureReason}` : ''}`} />}
           {o.cancelledAt && <Row label="Cancelada" value={`${fmtDateTime(o.cancelledAt)}${o.cancelReason ? ` · ${o.cancelReason}` : ''}`} />}
-          {o.refundedCredits > 0 && <Row label="Estornado" value={`${o.refundedCredits} 🥖`} />}
+          {o.refundedCredits > 0 && <Row label="Estornado" value={`${formatCredits(toMilli(o.refundedCredits))} 🥖`} />}
           <Row label="Criada" value={fmtDateTime(o.createdAt)} />
         </div>
 

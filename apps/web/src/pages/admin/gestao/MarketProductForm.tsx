@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { CREDIT_SCALE, creditsForPrice, custoComPaezinhos, formatCredits } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
 import { SwitchToggle } from '../../../components/admin/SwitchToggle'
@@ -101,10 +102,14 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
   }, [id])
 
   const precoNum = Number(preco)
-  const paezinhos = avulsoUnit > 0 && precoNum > 0 ? Math.round(precoNum / avulsoUnit) : 0
+  // Preço em pãezinhos (milésimos) — a mesma conta do checkout. O crédito é fracionado, então
+  // cobre 100% do preço e o custo com saldo é SEMPRE menor que o preço em dinheiro. Antes o
+  // aviso arredondava para cima e mostrava um custo MAIOR (R$ 1,80 saía como "2 pãezinhos =
+  // R$ 2,00 a R$ 2,30"), sugerindo que pagar com saldo era pior — era o bug que originou tudo.
+  const milli = creditsForPrice(precoNum, avulsoUnit)
   const comboCosts = combos
     .filter((c) => c.quantity > 0)
-    .map((c) => ({ name: c.name, cost: paezinhos * (c.price / c.quantity) }))
+    .map((c) => ({ name: c.name, cost: custoComPaezinhos(precoNum, avulsoUnit, c.price / c.quantity) }))
   const minCombo = comboCosts.length ? comboCosts.reduce((a, b) => (b.cost < a.cost ? b : a)) : null
   const maxCombo = comboCosts.length ? comboCosts.reduce((a, b) => (b.cost > a.cost ? b : a)) : null
 
@@ -317,15 +322,21 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
       ) : (
       <div>
         <TextField label="Preço (R$)" value={preco} onChange={setPreco} placeholder="Ex.: 12.00" type="number" step="0.01" />
-        {paezinhos > 0 && (
+        {milli > 0 && (
           <div style={{ background: 'var(--color-espresso)', borderRadius: 12, padding: '11px 13px', marginTop: 8 }}>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-gold, #E3AC3F)', margin: 0 }}>
-              🥖 = {paezinhos} pãezinhos <span style={{ color: '#C9B79A', fontWeight: 600 }}>({formatBRL(avulsoUnit)}/pão)</span>
+              🥖 = {formatCredits(milli)} {milli === CREDIT_SCALE ? 'pãozinho' : 'pãezinhos'}{' '}
+              <span style={{ color: '#C9B79A', fontWeight: 600 }}>({formatBRL(avulsoUnit)}/pão)</span>
             </p>
             {minCombo && maxCombo && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: '#C9B79A', margin: '4px 0 0', lineHeight: 1.4 }}>
                 Com saldo, o cliente gasta o equivalente a <strong style={{ color: '#F4E8D2' }}>{formatBRL(minCombo.cost)}</strong> ({minCombo.name})
                 {maxCombo.name !== minCombo.name ? <> a <strong style={{ color: '#F4E8D2' }}>{formatBRL(maxCombo.cost)}</strong> ({maxCombo.name})</> : null}.
+              </p>
+            )}
+            {milli % CREDIT_SCALE !== 0 && (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#C9B79A', margin: '4px 0 0', lineHeight: 1.4 }}>
+                Pago 100% com pãezinhos — o crédito é fracionado, então não sobra troco em dinheiro.
               </p>
             )}
           </div>

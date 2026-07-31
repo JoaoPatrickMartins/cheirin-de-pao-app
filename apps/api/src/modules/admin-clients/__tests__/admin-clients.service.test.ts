@@ -15,7 +15,7 @@ function makeFastifyMock(overrides: {
     condominiumId?: string
     apartment?: string
     block?: string
-    creditBalance?: number
+    creditMilli?: number
     createdAt?: Date
   } | null
   clientList?: Array<{
@@ -24,7 +24,7 @@ function makeFastifyMock(overrides: {
     condominiumId: string | null
     apartment: string | null
     block: string | null
-    creditBalance: number
+    creditMilli: number
     isBlocked: boolean
     createdAt: Date
     role: string
@@ -61,7 +61,8 @@ function makeFastifyMock(overrides: {
     condominiumId: 'condo-01',
     apartment: '101',
     block: 'A',
-    creditBalance: 10,
+    // Saldo canônico em milésimos — o legado não é mais lido em runtime.
+    creditMilli: 10000,
     createdAt: new Date('2024-01-01'),
   }
 
@@ -148,7 +149,7 @@ function makeFastifyMock(overrides: {
     },
     $transaction: vi.fn().mockResolvedValue([
       { id: 'tx-02', userId: 'user-01', type: 'ADMIN_GRANT', quantity: 5 },
-      { id: 'user-01', name: 'João Cliente', creditBalance: 15 },
+      { id: 'user-01', name: 'João Cliente', creditMilli: 15000 },
     ]),
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-01', userId: 'user-01', type: 'CREDIT_GRANTED', isRead: false }),
@@ -454,7 +455,7 @@ describe('AdminClientsService', () => {
       expect(prisma.$transaction).toHaveBeenCalled()
       // com refund: cria CreditTransaction REFUND + incrementa saldo
       expect(prisma.creditTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantity: 2, adminId: 'admin-01' }) }),
+        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantityMilli: 2000, adminId: 'admin-01' }) }),
       )
       expect(result).toMatchObject({ id: 'ord-1', status: 'CANCELLED', refundedCredits: 2 })
     })
@@ -729,7 +730,7 @@ describe('AdminClientsService', () => {
 
   describe('removeCredits', () => {
     it('cria CreditTransaction ADMIN_DEBIT com quantity negativo e decrementa creditBalance', async () => {
-      const { fastify, prisma } = makeFastifyMock() // creditBalance default = 10
+      const { fastify, prisma } = makeFastifyMock() // saldo default = 10 🥖
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminClientsService(fastify as any)
 
@@ -740,7 +741,8 @@ describe('AdminClientsService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             type: 'ADMIN_DEBIT',
-            quantity: -5,
+            // O extrato guarda só o canônico, em milésimos de pãozinho.
+            quantityMilli: -5000,
             reason: 'Estorno',
             adminId: 'admin-01',
           }),
@@ -748,13 +750,13 @@ describe('AdminClientsService', () => {
       )
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { creditBalance: { decrement: 5 } },
+          data: { creditMilli: { decrement: 5000 } },
         }),
       )
     })
 
     it('lança { statusCode: 422 } quando quantity é maior que o saldo atual', async () => {
-      const { fastify, prisma } = makeFastifyMock() // creditBalance default = 10
+      const { fastify, prisma } = makeFastifyMock() // saldo default = 10 🥖
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminClientsService(fastify as any)
 
@@ -864,7 +866,7 @@ describe('AdminClientsService', () => {
       breadQty: 4,
       items: [{ productId: 'p1', name: 'Bolo', qty: 2, unitPrice: 12 }],
       totalValue: 30,
-      creditsApplied: 5,
+      creditsAppliedMilli: 5000,
       moneyAmount: 6,
       ...over,
     })
@@ -895,10 +897,10 @@ describe('AdminClientsService', () => {
     it('GMV e contagem usam a MESMA população — aguardando pagamento e cancelada ficam fora', async () => {
       const { fastify } = makeFastifyMock({
         marketOrders: [
-          cestinha({ id: 'ok-1', status: 'DELIVERED', totalValue: 30, creditsApplied: 5 }),
-          cestinha({ id: 'ok-2', status: 'SCHEDULED', totalValue: 20, creditsApplied: 2 }),
-          cestinha({ id: 'x-1', status: 'PENDING_PAYMENT', totalValue: 99, creditsApplied: 9 }),
-          cestinha({ id: 'x-2', status: 'CANCELLED', totalValue: 77, creditsApplied: 7 }),
+          cestinha({ id: 'ok-1', status: 'DELIVERED', totalValue: 30, creditsAppliedMilli: 5000 }),
+          cestinha({ id: 'ok-2', status: 'SCHEDULED', totalValue: 20, creditsAppliedMilli: 2000 }),
+          cestinha({ id: 'x-1', status: 'PENDING_PAYMENT', totalValue: 99, creditsAppliedMilli: 9000 }),
+          cestinha({ id: 'x-2', status: 'CANCELLED', totalValue: 77, creditsAppliedMilli: 7000 }),
         ],
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -964,7 +966,7 @@ describe('AdminClientsService', () => {
       breadQty: 4,
       items: [{ productId: 'p1', name: 'Bolo', qty: 2, unitPrice: 12 }],
       totalValue: 30,
-      creditsApplied: 5,
+      creditsAppliedMilli: 5000,
       moneyAmount: 6,
       deliveredAt: null,
       ...over,
@@ -993,6 +995,7 @@ describe('AdminClientsService', () => {
         quantity: 4,
         itemCount: 2,
         totalValue: 30,
+        // A API fala em pãezinhos: 5000 mili gravados → 5 na resposta.
         creditsApplied: 5,
         moneyAmount: 6,
       })
@@ -1015,7 +1018,7 @@ describe('AdminClientsService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(fastify as any).prisma.creditTransaction.findMany = vi
         .fn()
-        .mockResolvedValue([{ referenceId: 'mo-1', quantity: 6 }])
+        .mockResolvedValue([{ referenceId: 'mo-1', quantityMilli: 6000 }])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rows = await new AdminClientsService(fastify as any).getOrders('user-01')
 

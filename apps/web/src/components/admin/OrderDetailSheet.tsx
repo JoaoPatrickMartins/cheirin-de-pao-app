@@ -1,3 +1,4 @@
+import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useState } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
@@ -225,7 +226,7 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
                 label="Pago"
                 value={
                   [
-                    row.creditsApplied > 0 ? `${row.creditsApplied} 🥖` : '',
+                    row.creditsApplied > 0 ? `${formatCredits(toMilli(row.creditsApplied))} 🥖` : '',
                     row.moneyAmount > 0 ? fmtMoney(row.moneyAmount) : '',
                   ]
                     .filter(Boolean)

@@ -52,7 +52,7 @@ export const adminFinancialRoute: FastifyPluginAsync = async (fastify) => {
                   gmv: { type: 'number', description: 'Valor movimentado (Σ totalValue confirmado). NUNCA somar à receita.' },
                   moneyPart: { type: 'number', description: 'Recorte do GMV pago em dinheiro.' },
                   creditPart: { type: 'number', description: 'Recorte do GMV pago em pãezinhos (não é receita nova).' },
-                  credits: { type: 'integer', description: 'Pãezinhos usados como pagamento no período.' },
+                  credits: { type: 'number', description: 'Pãezinhos usados como pagamento no período (decimal — o crédito é fracionado).' },
                   orders: { type: 'integer', description: 'Cestinhas confirmadas no período.' },
                   cmv: { type: 'number', description: 'Custo esperado do que foi vendido (itens + pão da Cestinha), pela matriz de fornecimento.' },
                   margin: { type: 'number', description: 'GMV − CMV.' },

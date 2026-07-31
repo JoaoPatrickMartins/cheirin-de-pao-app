@@ -203,3 +203,46 @@ describe('CreditsService [CRED-03, CRED-04]', () => {
     })
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Onda F — saldo fracionado nas réguas de ENTREGA
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('checkBalance com saldo fracionado', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  /** Usuário com saldo canônico em milésimos (e o espelho legado arredondado, como no banco). */
+  const withBalance = (milli: number | null, legacy: number) =>
+    createMockFastify({
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 'u1', creditMilli: milli, creditBalance: legacy }) },
+    })
+
+  it('a fração NÃO compra pão: 1,5 🥖 cobrem 1 pão, não 2', async () => {
+    const service = new CreditsService(withBalance(1500, 2))
+    expect(await service.checkBalance('u1', 1)).toBe(true)
+    expect(await service.checkBalance('u1', 2)).toBe(false)
+  })
+
+  it('poeira (< 1 🥖) não cobre nem um pão', async () => {
+    const service = new CreditsService(withBalance(900, 1))
+    expect(await service.checkBalance('u1', 1)).toBe(false)
+  })
+
+  it('1,5 🥖 não liberam 2 pães (a fração nunca arredonda para cima)', async () => {
+    const service = new CreditsService(withBalance(1500, 2))
+    expect(await service.checkBalance('u1', 2)).toBe(false)
+  })
+
+  it('saldo canônico ausente conta como zero (não inventa crédito)', async () => {
+    // Desde a limpeza dos legados, `creditMilli` é o único saldo. Se a chave não existir, o
+    // cliente não tem crédito — o backfill do boot garante que isso não aconteça em runtime.
+    const service = new CreditsService(withBalance(null, 4))
+    expect(await service.checkBalance('u1', 1)).toBe(false)
+  })
+
+  it('saldo exato cobre exatamente', async () => {
+    const service = new CreditsService(withBalance(3000, 3))
+    expect(await service.checkBalance('u1', 3)).toBe(true)
+    expect(await service.checkBalance('u1', 4)).toBe(false)
+  })
+})

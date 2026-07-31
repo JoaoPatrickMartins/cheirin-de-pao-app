@@ -87,7 +87,7 @@ export default function ComboCard({ combo, selected, onSelect }: ComboCardProps)
               margin: '2px 0 0 0',
             }}
           >
-            {combo.quantity} pães
+            {combo.quantity} pãezins = {combo.quantity} pães
             {combo.description ? ` · ${combo.description}` : ''}
           </p>
         </div>

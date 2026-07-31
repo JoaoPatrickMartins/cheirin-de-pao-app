@@ -38,6 +38,7 @@ export class AdminCouriersService {
         ...data,
         role: 'COURIER',
         creditBalance: 0,
+        creditMilli: 0,
       },
     })
   }

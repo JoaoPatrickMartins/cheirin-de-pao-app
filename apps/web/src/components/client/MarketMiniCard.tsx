@@ -1,5 +1,6 @@
 import { ProdPhoto } from './ProdPhoto'
-import { formatBRL, paezinhosDe, type MarketProduct } from '../../lib/market'
+import { creditsForPrice } from '@cheirin-de-pao/shared'
+import { formatBRL, labelPaezinhos, type MarketProduct } from '../../lib/market'
 
 interface MarketMiniCardProps {
   product: MarketProduct
@@ -34,9 +35,12 @@ export function MarketMiniCard({
 }: MarketMiniCardProps) {
   const addMode = !!onAdd
   const disabled = addMode && product.soldOut
-  const paes = paezinhosDe(product.price, avulsoUnit)
-  const showEconomy = economyPercent > 0 && !product.soldOut
+  // Preço em pãezinhos (milésimos): o crédito é fracionado, então cobre 100% do valor —
+  // R$ 1,80 com avulso R$ 1,20 = 1,5 🥖, sem resto em dinheiro. É isso que devolve ao selo o
+  // % CHEIO do combo: antes, o resto pago em dinheiro não tinha desconto e diluía a economia.
+  const milli = creditsForPrice(product.price, avulsoUnit)
   const pct = Math.round(economyPercent)
+  const showEconomy = pct > 0 && !product.soldOut
 
   return (
     <button
@@ -111,7 +115,7 @@ export function MarketMiniCard({
       </div>
 
       {/* Rodapé: pague com pãezinhos (N pães · −X%) */}
-      {paes > 0 && (
+      {milli > 0 && (
         <div
           style={{
             display: 'flex',
@@ -124,7 +128,7 @@ export function MarketMiniCard({
           }}
         >
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-accent)' }}>
-            🥖 {paes} {paes === 1 ? 'pão' : 'pães'}
+            🥖 {labelPaezinhos(milli)}
           </span>
           {showEconomy && (
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 800, color: 'var(--color-accent)' }}>

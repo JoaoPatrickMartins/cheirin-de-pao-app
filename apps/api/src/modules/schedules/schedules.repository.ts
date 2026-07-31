@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { toMilli } from '@cheirin-de-pao/shared'
 import { ScheduleBody } from './schedules.schema.js'
 
 export class SchedulesRepository {
@@ -104,7 +105,7 @@ export class SchedulesRepository {
       where: { id: userId },
       select: {
         id: true,
-        creditBalance: true,
+        creditMilli: true,
         condominiumId: true,
         autoRecharge: true,
         oneSignalPlayerId: true,
@@ -115,7 +116,7 @@ export class SchedulesRepository {
   decrementCreditBalance(userId: string, amount: number) {
     return this.prisma.user.update({
       where: { id: userId },
-      data: { creditBalance: { decrement: amount } },
+      data: { creditMilli: { decrement: toMilli(amount) } },
     })
   }
 

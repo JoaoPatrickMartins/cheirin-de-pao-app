@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import { motion, MotionConfig, type Variants } from 'framer-motion'
+import { wholeBreadsOf } from '@cheirin-de-pao/shared'
 import { useAuth } from '../../hooks/useAuth'
 import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
 import { PushNudge } from '../../components/client/PushNudge'
@@ -370,7 +371,10 @@ export function HomeScreen() {
 
   // "Rende ~N dias" pelo ritmo real: média diária = consumo semanal / 7.
   const weeklyTotal = Object.values(dailyQty).reduce((acc, v) => acc + (v || 0), 0)
-  const daysEstimate = weeklyTotal > 0 ? Math.max(1, Math.floor(creditBalance / (weeklyTotal / 7))) : undefined
+  // Ritmo de ENTREGA: pão é entregue inteiro, então a fração do saldo (poeira da Cestinha) não
+  // rende dia nenhum.
+  const paesInteiros = wholeBreadsOf(creditBalance)
+  const daysEstimate = weeklyTotal > 0 ? Math.max(1, Math.floor(paesInteiros / (weeklyTotal / 7))) : undefined
 
   const firstName = user?.name?.split(' ')[0] ?? 'você'
   const greeting = getGreeting()
@@ -379,7 +383,7 @@ export function HomeScreen() {
     : 'Bem-vindo de volta'
 
   const showRiskBanner =
-    hasSchedule && creditBalance === 0 && !autoRechargeLoading && !autoRecharge?.active
+    hasSchedule && paesInteiros === 0 && !autoRechargeLoading && !autoRecharge?.active
 
   return (
     <MotionConfig reducedMotion="user">
@@ -436,7 +440,7 @@ export function HomeScreen() {
                     lineHeight: 1.45,
                   }}
                 >
-                  Sua agenda está ativa, mas você está <strong>sem pães</strong>. Compre mais para não perder as próximas entregas. 🥖
+                  Sua agenda está ativa, mas você está <strong>sem pãezins</strong>. Compre mais para não perder as próximas entregas. 🥖
                 </p>
               </div>
               <motion.button

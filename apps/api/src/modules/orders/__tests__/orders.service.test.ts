@@ -24,7 +24,8 @@ function makePastDateStr(daysAgo = 1): string {
 
 /** Cria um mock do fastify com prisma.$transaction controlável */
 function makeFastifyMock(overrides: {
-  creditBalance?: number
+  /** Saldo canônico em milésimos de pãozinho. */
+  creditMilli?: number
   transactionError?: unknown
   orderFindFirst?: unknown
   orderFindMany?: unknown[]
@@ -33,7 +34,7 @@ function makeFastifyMock(overrides: {
   pedidoMinimoUnico?: number
 } = {}) {
   const {
-    creditBalance = 10,
+    creditMilli = 10000,
     transactionError,
     orderFindFirst = null,
     orderFindMany = [],
@@ -41,7 +42,7 @@ function makeFastifyMock(overrides: {
     deliverySlots = [],
   } = overrides
 
-  const user = { id: 'user-01', creditBalance, condominiumId }
+  const user = { id: 'user-01', creditMilli, condominiumId }
   const condominium = { findUnique: vi.fn().mockResolvedValue({ deliverySlots }) }
 
   // prisma.$transaction chama a função passada com um tx simulado
@@ -100,7 +101,7 @@ describe('OrdersService', () => {
   })
 
   it('createSingleOrder reserva créditos e cria Order com type SINGLE e status SCHEDULED', async () => {
-    const { fastify, txOrder, txCreditTransaction } = makeFastifyMock({ creditBalance: 10 })
+    const { fastify, txOrder, txCreditTransaction } = makeFastifyMock({ creditMilli: 10000 })
 
     // Importar dinamicamente para evitar problemas de cache entre testes
     const { OrdersService } = await import('../orders.service.js')
@@ -130,7 +131,7 @@ describe('OrdersService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           type: 'DELIVERY',
-          quantity: -2,
+          quantityMilli: -2000,
           userId: 'user-01',
         }),
       }),
@@ -145,7 +146,7 @@ describe('OrdersService', () => {
 
   it('createSingleOrder é idempotente por paymentId — devolve o existente sem novo débito', async () => {
     const existing = { id: 'order-existente', quantity: 2, scheduledDate: new Date() }
-    const { fastify } = makeFastifyMock({ creditBalance: 10, orderFindFirst: existing })
+    const { fastify } = makeFastifyMock({ creditMilli: 10000, orderFindFirst: existing })
 
     const { OrdersService } = await import('../orders.service.js')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -180,7 +181,7 @@ describe('OrdersService', () => {
   })
 
   it('createSingleOrder rejeita (400) quantidade abaixo do pedido mínimo', async () => {
-    const { fastify } = makeFastifyMock({ creditBalance: 10, pedidoMinimoUnico: 5 })
+    const { fastify } = makeFastifyMock({ creditMilli: 10000, pedidoMinimoUnico: 5 })
 
     const { OrdersService } = await import('../orders.service.js')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,7 +195,7 @@ describe('OrdersService', () => {
   })
 
   it('createSingleOrder aceita quantidade igual ao pedido mínimo', async () => {
-    const { fastify, txOrder } = makeFastifyMock({ creditBalance: 10, pedidoMinimoUnico: 5 })
+    const { fastify, txOrder } = makeFastifyMock({ creditMilli: 10000, pedidoMinimoUnico: 5 })
 
     const { OrdersService } = await import('../orders.service.js')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -205,7 +206,7 @@ describe('OrdersService', () => {
   })
 
   it('createSingleOrder rejeita scheduledDate no passado', async () => {
-    const { fastify } = makeFastifyMock({ creditBalance: 10 })
+    const { fastify } = makeFastifyMock({ creditMilli: 10000 })
 
     const { OrdersService } = await import('../orders.service.js')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -220,7 +221,7 @@ describe('OrdersService', () => {
 
   it('createSingleOrder grava deliveryTime do slot escolhido quando o corte está aberto', async () => {
     const { fastify, txOrder } = makeFastifyMock({
-      creditBalance: 10,
+      creditMilli: 10000,
       condominiumId: 'condo-01',
       // tarde: corte é no próprio dia da entrega (15:30 > 10:00) → data futura está sempre aberta
       deliverySlots: [{ name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
@@ -250,7 +251,7 @@ describe('OrdersService', () => {
     if (cutoffPast) return // após o corte, este caminho não se aplica (coberto pelo teste de rejeição)
 
     const { fastify, txOrder } = makeFastifyMock({
-      creditBalance: 10,
+      creditMilli: 10000,
       condominiumId: 'condo-01',
       deliverySlots: [{ name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
     })
@@ -272,7 +273,7 @@ describe('OrdersService', () => {
 
   it('createSingleOrder rejeita HOJE no slot da manhã (corte da manhã é sempre na véspera)', async () => {
     const { fastify } = makeFastifyMock({
-      creditBalance: 10,
+      creditMilli: 10000,
       condominiumId: 'condo-01',
       deliverySlots: [{ name: 'manha', time: '06:30', cutoffTime: '22:00', isActive: true }],
     })
@@ -291,7 +292,7 @@ describe('OrdersService', () => {
   })
 
   it('createSingleOrder rejeita HOJE quando o condomínio não tem slots (piso permanece amanhã)', async () => {
-    const { fastify } = makeFastifyMock({ creditBalance: 10, condominiumId: 'condo-01', deliverySlots: [] })
+    const { fastify } = makeFastifyMock({ creditMilli: 10000, condominiumId: 'condo-01', deliverySlots: [] })
 
     const { OrdersService } = await import('../orders.service.js')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -304,7 +305,7 @@ describe('OrdersService', () => {
 
   it('createSingleOrder rejeita deliveryTime que não corresponde a um slot ativo', async () => {
     const { fastify } = makeFastifyMock({
-      creditBalance: 10,
+      creditMilli: 10000,
       condominiumId: 'condo-01',
       deliverySlots: [{ name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
     })
@@ -463,7 +464,8 @@ function makeCancelMock(opts: {
   condominiumId?: string
   deliverySlots?: { slotId?: string; name: string; time: string; cutoffTime: string; isActive: boolean }[]
   existingRefund?: unknown
-  creditBalance?: number
+  /** Saldo canônico em milésimos de pãozinho. */
+  creditMilli?: number
 } = {}) {
   const {
     order = {
@@ -480,7 +482,7 @@ function makeCancelMock(opts: {
     // tarde: corte no próprio dia da entrega (15:30 > 10:00) → data futura está sempre aberta
     deliverySlots = [{ slotId: 'tarde', name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }],
     existingRefund = null,
-    creditBalance = 8,
+    creditMilli = 8000,
   } = opts
 
   const orderUpdate = vi.fn().mockResolvedValue({})
@@ -490,7 +492,7 @@ function makeCancelMock(opts: {
   const prisma = {
     order: { findUnique: vi.fn().mockResolvedValue(order), update: orderUpdate },
     user: {
-      findUnique: vi.fn().mockResolvedValue({ condominiumId, creditBalance }),
+      findUnique: vi.fn().mockResolvedValue({ condominiumId, creditMilli }),
       update: userUpdate,
     },
     condominium: { findUnique: vi.fn().mockResolvedValue({ deliverySlots }) },
@@ -525,7 +527,7 @@ describe('OrdersService.cancelSingleOrder', () => {
   })
 
   it('cancela pedido único aberto: marca CANCELLED + estorna a quantidade ao saldo', async () => {
-    const { fastify, orderUpdate, ctCreate, userUpdate } = makeCancelMock({ creditBalance: 8 })
+    const { fastify, orderUpdate, ctCreate, userUpdate } = makeCancelMock({ creditMilli: 8000 })
     const service = await makeService(fastify)
 
     const result = await service.cancelSingleOrder('user-01', 'order-01')
@@ -538,11 +540,11 @@ describe('OrdersService.cancelSingleOrder', () => {
     )
     expect(ctCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ type: 'REFUND', quantity: 2, referenceId: 'order-01', userId: 'user-01' }),
+        data: expect.objectContaining({ type: 'REFUND', quantityMilli: 2000, referenceId: 'order-01', userId: 'user-01' }),
       }),
     )
     expect(userUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { creditBalance: { increment: 2 } } }),
+      expect.objectContaining({ data: { creditMilli: { increment: 2000 } } }),
     )
     expect(result).toMatchObject({ id: 'order-01', status: 'CANCELLED', refundedCredits: 2, creditBalance: 8 })
   })

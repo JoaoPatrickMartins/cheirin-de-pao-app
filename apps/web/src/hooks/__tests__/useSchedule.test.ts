@@ -1,6 +1,7 @@
 // useSchedule hook tests — Wave 2 implementation (GREEN state)
 // Requirements: SCHED-02, SCHED-06 (cálculo de cobertura de créditos D-03)
 import { describe, it, expect } from 'vitest'
+import { wholeBreadsOf } from '@cheirin-de-pao/shared'
 
 // Pure calculation functions extracted for unit testing
 // These mirror the logic inside useSchedule hook
@@ -19,12 +20,14 @@ function calcConsumoSemanal(weeklyQty: WeeklyQty): number {
   return Object.values(weeklyQty).reduce((a, b) => a + b, 0)
 }
 
+// Espelham o hook: o saldo pode ser FRACIONADO (a Cestinha gasta 1,5 🥖 num item de R$ 1,80),
+// mas a agenda entrega pão inteiro — então a cobertura se calcula sobre `wholeBreadsOf`.
 function calcCobre(creditBalance: number, consumoSemanal: number): number {
-  return Math.floor(creditBalance / (consumoSemanal || 1))
+  return Math.floor(wholeBreadsOf(creditBalance) / (consumoSemanal || 1))
 }
 
 function calcFalta(consumoSemanal: number, creditBalance: number): boolean {
-  return consumoSemanal > creditBalance
+  return consumoSemanal > wholeBreadsOf(creditBalance)
 }
 
 describe('useSchedule coverage calculation', () => {
@@ -64,5 +67,18 @@ describe('useSchedule coverage calculation', () => {
     const resultado = calcCobre(10, 0)
     expect(Number.isFinite(resultado)).toBe(true)
     expect(resultado).toBe(10) // Math.floor(10/1)
+  })
+})
+
+describe('useSchedule com saldo fracionado (crédito fracionado da Cestinha)', () => {
+  it('ignora a fração do saldo — pão é entregue inteiro', () => {
+    // 43,5 🥖 cobrem os mesmos dias que 43: o meio pãozinho não entrega nada.
+    expect(calcCobre(43.5, 7)).toBe(calcCobre(43, 7))
+    expect(calcCobre(43.5, 7)).toBe(6)
+  })
+
+  it('meio pãozinho de poeira NÃO cobre uma semana de 1 pão', () => {
+    expect(calcFalta(1, 0.5)).toBe(true)
+    expect(calcFalta(1, 1)).toBe(false)
   })
 })

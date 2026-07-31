@@ -46,6 +46,7 @@ export class AdminCouriersRepository {
         ...data,
         role: 'COURIER',
         creditBalance: 0,
+        creditMilli: 0,
       },
     })
   }

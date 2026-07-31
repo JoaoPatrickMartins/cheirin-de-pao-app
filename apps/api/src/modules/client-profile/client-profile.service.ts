@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { FastifyInstance } from 'fastify'
+import { fromMilli } from '@cheirin-de-pao/shared'
 import { ClientProfileRepository } from './client-profile.repository.js'
 import { sendEmailOtp } from '../auth/otp.service.js'
 import type { UpdateProfileBody, ContactChangeRequestBody, ContactChangeConfirmBody } from './client-profile.schema.js'
@@ -34,7 +35,9 @@ export class ClientProfileService {
       condominiumName: condo?.name ?? '',
       apartment: user.apartment ?? null,
       block: user.block ?? null,
-      creditBalance: user.creditBalance,
+      // Saldo em pãezinhos DECIMAIS (1 pão = 1000 milésimos no banco): depois do crédito
+      // fracionado, o campo legado é só um arredondamento e mostraria 43 onde há 43,5.
+      creditBalance: fromMilli((user.creditMilli ?? 0)),
     }
   }
 
@@ -69,7 +72,7 @@ export class ClientProfileService {
       condominiumName: condo?.name ?? '',
       apartment: updated.apartment ?? null,
       block: updated.block ?? null,
-      creditBalance: updated.creditBalance,
+      creditBalance: fromMilli((updated.creditMilli ?? 0)),
       scheduleDeactivated,
     }
   }

@@ -7,6 +7,7 @@
  * Requirements: SCHED-02, SCHED-04, SCHED-06, MSCHED-01, MSCHED-03
  * Threat model: T-04-05-02 — useEffect com dependência vazia [] para evitar loop infinito
  */
+import { wholeBreadsOf } from '@cheirin-de-pao/shared'
 import { useState, useEffect, Dispatch, SetStateAction } from 'react'
 import { apiFetch } from '../lib/apiFetch'
 
@@ -116,10 +117,12 @@ export function useSchedule(creditBalance: number = 0): UseScheduleReturn {
       : Object.values(weeklyQty).reduce((a, b) => a + b, 0)
 
   // cobre = Math.floor(saldo / consumoSemanal) — evita divisão por zero com (|| 1)
-  const cobre = Math.floor(creditBalance / (consumoSemanal || 1))
+  // Saldo em PÃES INTEIROS: a entrega consome pão fechado, a fração da Cestinha não conta.
+  const paesInteiros = wholeBreadsOf(creditBalance)
+  const cobre = Math.floor(paesInteiros / (consumoSemanal || 1))
 
   // falta = true quando semana > saldo
-  const falta = consumoSemanal > creditBalance
+  const falta = consumoSemanal > paesInteiros
 
   // Total por dia da semana — soma todos os slots em multi-slot, ou usa weeklyQty em single-slot.
   // Permite à Home exibir as próximas entregas sem precisar conhecer o formato (MSCHED-01).

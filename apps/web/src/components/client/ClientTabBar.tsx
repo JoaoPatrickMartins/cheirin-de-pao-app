@@ -13,7 +13,7 @@ interface TabItem {
 const TABS: TabItem[] = [
   { label: 'Início',   icon: 'home',     path: '/client/home'     },
   { label: 'Agenda',   icon: 'calendar', path: '/client/agenda'   },
-  { label: 'Pães',     brand: true,      path: '/client/creditos' },
+  { label: 'Pãezins',  brand: true,      path: '/client/creditos' },
   { label: 'Cestinha', icon: 'basket',   path: '/client/market'   },
   { label: 'Perfil',   icon: 'user',     path: '/client/perfil'   },
 ]

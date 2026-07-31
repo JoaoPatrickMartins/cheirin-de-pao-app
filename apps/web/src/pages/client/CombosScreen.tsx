@@ -182,7 +182,9 @@ export function CombosScreen() {
             margin: '0 0 16px 0',
           }}
         >
-          Cada crédito vale <strong style={{ color: 'var(--color-text)' }}>um pão fresquinho</strong>. Quanto maior o combo, menor o preço por pão.
+          Cada <strong style={{ color: 'var(--color-text)' }}>pãozin</strong> é a moeda do app e vale{' '}
+          <strong style={{ color: 'var(--color-text)' }}>um pão fresquinho</strong> na sua porta. Quanto maior o
+          combo, menor o preço por pãozin.
         </p>
 
         {error && (
@@ -242,7 +244,7 @@ export function CombosScreen() {
                   margin: 0,
                 }}
               >
-                ✓ Pães não expiram. Pause quando viajar.
+                ✓ Pãezins não expiram. Pause quando viajar.
               </p>
             </div>
           </div>

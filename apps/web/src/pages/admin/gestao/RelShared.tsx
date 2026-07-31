@@ -3,6 +3,13 @@ import { Icon } from '../../../components/brand/Icon'
 
 // ------------------------------------------------------------------ formatadores
 export const fmtInt = (n: number): string => (n ?? 0).toLocaleString('pt-BR')
+
+/**
+ * Pãezinhos nos relatórios — o crédito é fracionado, então o total pode ter decimal. Uma casa,
+ * sem ",0" à direita: `fmtInt` deixaria escapar "1.234,567".
+ */
+export const fmtCredits = (n: number): string =>
+  (n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 })
 export const fmtBRL = (n: number): string =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n ?? 0)
 export const fmtPct = (rate: number): string => `${((rate ?? 0) * 100).toFixed(1).replace('.', ',')}%`

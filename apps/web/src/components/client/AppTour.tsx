@@ -20,12 +20,12 @@ interface TourStop {
 }
 
 const TOUR_STOPS: TourStop[] = [
-  { sel: 'saldo', title: 'Seu saldo, em pães', body: 'Pães disponíveis na sua conta para agendar entregas.' },
-  { sel: 'comprar-paes', title: 'Comprar pães', body: 'Sem pães? Compre aqui em segundos, por Pix ou cartão.' },
+  { sel: 'saldo', title: 'Seu saldo de pãezins', body: 'Pãezins são a moeda do app: cada um vale um pão fresquinho na sua porta.' },
+  { sel: 'comprar-paes', title: 'Comprar pãezins', body: 'Sem pãezins? Compre aqui em segundos, por Pix ou cartão.' },
   { sel: 'entrega-hoje', title: 'Sua entrega do dia', body: 'Acompanhe por aqui quando o pão está a caminho e quando chega.' },
   { sel: 'pedido-avulso', title: 'Avulso ou agenda', body: 'Precisa de pão só num dia? Faça um pedido avulso, único, sem compromisso.' },
   { sel: 'tab-agenda', title: 'Monte sua agenda', body: 'Escolha os dias da semana e pronto — o pão chega sozinho.' },
-  { sel: 'tab-perfil', title: 'Recarga automática', body: 'No Perfil (ou na aba Pães) você ativa a recarga automática — seu saldo renova sozinho e você nunca fica sem.' },
+  { sel: 'tab-perfil', title: 'Recarga automática', body: 'No Perfil (ou na aba Pãezins) você ativa a recarga automática — seu saldo renova sozinho e você nunca fica sem.' },
 ]
 
 function prefersReducedMotion(): boolean {

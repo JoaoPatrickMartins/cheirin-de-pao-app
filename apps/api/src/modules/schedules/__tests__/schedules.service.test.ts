@@ -45,7 +45,7 @@ type ScheduleShape = {
 
 type UserShape = {
   id: string
-  creditBalance: number
+  creditMilli: number
   condominiumId: string | null
   autoRecharge: object | null
   oneSignalPlayerId: string | null
@@ -281,8 +281,8 @@ describe('SchedulesService', () => {
       ]
       const fastify = createMockFastify({
         users: {
-          'user-1': { id: 'user-1', creditBalance: 5, condominiumId: null, autoRecharge: null, oneSignalPlayerId: null },
-          'user-2': { id: 'user-2', creditBalance: 5, condominiumId: null, autoRecharge: null, oneSignalPlayerId: null },
+          'user-1': { id: 'user-1', creditMilli: 5000, condominiumId: null, autoRecharge: null, oneSignalPlayerId: null },
+          'user-2': { id: 'user-2', creditMilli: 5000, condominiumId: null, autoRecharge: null, oneSignalPlayerId: null },
         },
       })
       ;(fastify.prisma as unknown as Record<string, unknown>).order = {
@@ -460,7 +460,7 @@ describe('SchedulesService', () => {
 
       const user: UserShape = {
         id: 'user-1',
-        creditBalance: 10,
+        creditMilli: 10000,
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: 'player-abc',
@@ -494,7 +494,7 @@ describe('SchedulesService', () => {
 
       const user: UserShape = {
         id: 'user-1',
-        creditBalance: 10,
+        creditMilli: 10000,
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: null, // sem playerID
@@ -524,7 +524,7 @@ describe('SchedulesService', () => {
     it('é no-op: não envia push nem dispara cobrança', async () => {
       const user: UserShape = {
         id: 'user-noop',
-        creditBalance: 0,
+        creditMilli: 0,
         condominiumId: 'condo-1',
         autoRecharge: { active: true, mode: 'semanal', weekday: 'seg', comboId: 'combo-1' },
         oneSignalPlayerId: 'player-noop',
@@ -564,7 +564,7 @@ describe('SchedulesService', () => {
 
       const user: UserShape = {
         id: 'user-1',
-        creditBalance: 2, // < consumoSemanal (5)
+        creditMilli: 2000, // < consumoSemanal (5)
         condominiumId: 'condo-1',
         autoRecharge: null, // sem auto-recharge
         oneSignalPlayerId: 'osp-id',
@@ -610,7 +610,7 @@ describe('SchedulesService', () => {
 
       const user: UserShape = {
         id: 'user-2',
-        creditBalance: 2, // < consumoSemanal (5) — mas auto-recharge ativo
+        creditMilli: 2000, // < consumoSemanal (5) — mas auto-recharge ativo
         condominiumId: 'condo-1',
         autoRecharge: { active: true, mode: 'acabar' }, // auto-recharge ativo
         oneSignalPlayerId: 'osp-id-2',
@@ -650,7 +650,7 @@ describe('SchedulesService', () => {
 
       const user: UserShape = {
         id: 'user-3',
-        creditBalance: 10, // >= consumoSemanal (5) — saldo suficiente
+        creditMilli: 10000, // >= consumoSemanal (5) — saldo suficiente
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: 'osp-id-3',
@@ -690,7 +690,7 @@ describe('SchedulesService', () => {
 
       const user: UserShape = {
         id: 'user-4',
-        creditBalance: 2, // < consumoSemanal (5)
+        creditMilli: 2000, // < consumoSemanal (5)
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: null, // sem token push — não deve enviar push
@@ -752,7 +752,7 @@ describe('SchedulesService', () => {
 
       const userBaixo: UserShape = {
         id: 'user-consumo-1',
-        creditBalance: 8, // < consumoSemanal (9) → push enviado
+        creditMilli: 8000, // < consumoSemanal (9) → push enviado
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: 'player-consumo',
@@ -783,7 +783,7 @@ describe('SchedulesService', () => {
 
       const userAlto: UserShape = {
         id: 'user-consumo-1',
-        creditBalance: 10, // >= consumoSemanal (9) → push NÃO enviado
+        creditMilli: 10000, // >= consumoSemanal (9) → push NÃO enviado
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: 'player-consumo',
@@ -934,7 +934,7 @@ describe('SchedulesService', () => {
       // creditBalance=10 < consumoSemanal=42 → push enviado
       const userBaixo: UserShape = {
         id: 'user-low-multi-1',
-        creditBalance: 10,
+        creditMilli: 10000,
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: 'player-low-multi',
@@ -965,7 +965,7 @@ describe('SchedulesService', () => {
 
       const userAlto: UserShape = {
         id: 'user-low-multi-1',
-        creditBalance: 50,
+        creditMilli: 50000,
         condominiumId: 'condo-1',
         autoRecharge: null,
         oneSignalPlayerId: 'player-low-multi',
@@ -1075,7 +1075,7 @@ describe('SchedulesService', () => {
       const { fastify, createOrderFn } = mockFastifyCutoff({
         condominiums: [tardeCondo],
         schedules: [multiSchedule],
-        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+        users: { 'user-cut-1': { id: 'user-cut-1', creditMilli: 10000, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
       })
 
       const service = new SchedulesService(fastify)
@@ -1104,7 +1104,7 @@ describe('SchedulesService', () => {
       const { fastify, createOrderFn } = mockFastifyCutoff({
         condominiums: [tardeCondo],
         schedules: [multiSchedule],
-        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+        users: { 'user-cut-1': { id: 'user-cut-1', creditMilli: 10000, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
         existingOrder: true,
       })
 
@@ -1122,7 +1122,7 @@ describe('SchedulesService', () => {
       const { fastify, createOrderFn } = mockFastifyCutoff({
         condominiums: [tardeCondo],
         schedules: [multiSchedule],
-        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+        users: { 'user-cut-1': { id: 'user-cut-1', creditMilli: 10000, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
       })
 
       const service = new SchedulesService(fastify)
@@ -1138,7 +1138,7 @@ describe('SchedulesService', () => {
       const { fastify, createOrderFn } = mockFastifyCutoff({
         condominiums: [tardeCondo],
         schedules: [{ ...multiSchedule, pausedAt: new Date('2026-06-20T00:00:00Z') }],
-        users: { 'user-cut-1': { id: 'user-cut-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+        users: { 'user-cut-1': { id: 'user-cut-1', creditMilli: 10000, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
       })
 
       const service = new SchedulesService(fastify)
@@ -1244,7 +1244,7 @@ describe('SchedulesService', () => {
 
       const { fastify, createOrderFn } = mockFastifyWindow({
         schedules: [tardeSchedule(1)],
-        users: { 'user-w-1': { id: 'user-w-1', creditBalance: 0, condominiumId: 'condo-1', autoRecharge: { active: true }, oneSignalPlayerId: 'p1' } },
+        users: { 'user-w-1': { id: 'user-w-1', creditMilli: 0, condominiumId: 'condo-1', autoRecharge: { active: true }, oneSignalPlayerId: 'p1' } },
       })
 
       const service = new SchedulesService(fastify)
@@ -1266,14 +1266,15 @@ describe('SchedulesService', () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date('2026-06-22T11:30:00Z'))
 
-      const user = { id: 'user-w-1', creditBalance: 0, condominiumId: 'condo-1', autoRecharge: { active: true }, oneSignalPlayerId: 'p1' }
+      const user = { id: 'user-w-1', creditMilli: 0, condominiumId: 'condo-1', autoRecharge: { active: true }, oneSignalPlayerId: 'p1' }
       const { fastify, createOrderFn } = mockFastifyWindow({ schedules: [tardeSchedule(1)], users: { 'user-w-1': user } })
 
       const service = new SchedulesService(fastify)
       // 1ª cobrança credita saldo (simula recarga aprovada)
       vi.spyOn((service as unknown as { payments: { chargeAutoRecharge: (id: string) => Promise<{ ok: boolean }> } }).payments, 'chargeAutoRecharge')
         .mockImplementation(async () => {
-          user.creditBalance = 10
+          // A recarga credita o saldo CANÔNICO (milésimos) — é o que o serviço relê.
+          user.creditMilli = 10000
           return { ok: true }
         })
 
@@ -1290,7 +1291,7 @@ describe('SchedulesService', () => {
 
       const { fastify, createOrderFn, upsertFn } = mockFastifyWindow({
         schedules: [tardeSchedule(1)],
-        users: { 'user-w-1': { id: 'user-w-1', creditBalance: 10, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+        users: { 'user-w-1': { id: 'user-w-1', creditMilli: 10000, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
       })
 
       const service = new SchedulesService(fastify)
@@ -1320,7 +1321,7 @@ describe('SchedulesService', () => {
     }
     const user: UserShape = {
       id: 'user-p1',
-      creditBalance: 10,
+      creditMilli: 10000,
       condominiumId: 'condo-1',
       autoRecharge: null,
       oneSignalPlayerId: 'player-p1',

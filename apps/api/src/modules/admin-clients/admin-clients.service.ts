@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { Prisma, TransactionType, NotificationType } from '@prisma/client'
+import { CREDIT_SCALE, formatCredits, fromMilli, toMilli } from '@cheirin-de-pao/shared'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
 import { excludeNonCreditPurpose } from '../../lib/revenue.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
@@ -100,7 +101,9 @@ export class AdminClientsService {
     if (condominiumId) where.condominiumId = condominiumId
     if (status === 'blocked') where.isBlocked = true
     else if (status === 'active') where.isBlocked = false
-    else if (status === 'no-credits') where.creditBalance = { lte: 0 }
+    // "Sem crédito" = não dá nem UM pão. Com saldo fracionado, 0,6 🥖 não entrega nada, então a
+    // régua é `< 1 pãozinho` no canônico, não `<= 0` no espelho legado arredondado.
+    else if (status === 'no-credits') where.creditMilli = { lt: CREDIT_SCALE }
 
     const term = q?.trim()
     if (term) {
@@ -119,7 +122,7 @@ export class AdminClientsService {
 
     const orderBy: Prisma.UserOrderByWithRelationInput =
       sort === 'credits'
-        ? { creditBalance: 'desc' }
+        ? { creditMilli: 'desc' }
         : sort === 'recent'
           ? { createdAt: 'desc' }
           : { name: 'asc' }
@@ -132,7 +135,7 @@ export class AdminClientsService {
         condominiumId: true,
         apartment: true,
         block: true,
-        creditBalance: true,
+        creditMilli: true,
         isBlocked: true,
         createdAt: true,
       },
@@ -153,8 +156,11 @@ export class AdminClientsService {
       }
     }
 
-    let withPurchase = clients.map((c) => ({
+    let withPurchase = clients.map(({ creditMilli, ...c }) => ({
       ...c,
+      // Saldo em pãezinhos DECIMAIS: o campo legado é só o arredondamento e mostraria 43 onde
+      // há 43,5. O `creditMilli` sai do payload — a API fala em pãezinhos, não em milésimos.
+      creditBalance: fromMilli((creditMilli ?? 0)),
       lastPurchaseAt: lastByUser.get(c.id) ?? null,
     }))
 
@@ -258,7 +264,7 @@ export class AdminClientsService {
       this.prisma.order.count({ where: { userId: id } }),
       this.prisma.marketOrder.findMany({
         where: confirmedMarket,
-        select: { totalValue: true, creditsApplied: true },
+        select: { totalValue: true, creditsAppliedMilli: true },
       }),
       this.prisma.marketOrder.findMany({
         where: { userId: id, status: 'DELIVERED' },
@@ -267,7 +273,10 @@ export class AdminClientsService {
     ])
 
     const cestinhaGmv = marketConfirmed.reduce((acc, o) => acc + o.totalValue, 0)
-    const cestinhaCredits = marketConfirmed.reduce((acc, o) => acc + o.creditsApplied, 0)
+    // Soma em MILÉSIMOS e converte no fim — somar decimais acumularia erro de float.
+    const cestinhaCredits = fromMilli(
+      marketConfirmed.reduce((acc, o) => acc + (o.creditsAppliedMilli ?? 0), 0),
+    )
     const marketBreadsDelivered = marketDelivered.reduce((acc, o) => acc + o.breadQty, 0)
     const itemsDelivered = marketDelivered.reduce(
       (acc, o) => acc + o.items.reduce((s, i) => s + i.qty, 0),
@@ -321,7 +330,7 @@ export class AdminClientsService {
         items: o.items.map((i) => ({ name: i.name, qty: i.qty })),
         itemCount: o.items.reduce((acc, i) => acc + i.qty, 0),
         totalValue: o.totalValue,
-        creditsApplied: o.creditsApplied,
+        creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)),
         moneyAmount: o.moneyAmount,
       })),
       condominium,
@@ -425,11 +434,17 @@ export class AdminClientsService {
   async getCreditHistory(id: string, limit = 50) {
     await this.assertClient(id)
 
-    const txs = await this.prisma.creditTransaction.findMany({
+    const rows = await this.prisma.creditTransaction.findMany({
       where: { userId: id },
       orderBy: { createdAt: 'desc' },
       take: limit,
     })
+    // `quantity` em pãezinhos DECIMAIS: o campo legado guarda o arredondamento e o extrato não
+    // fecharia com o saldo (uma Cestinha de R$ 1,80 debita 1,5 🥖 e o legado grava 2).
+    const txs = rows.map((t) => ({
+      ...t,
+      quantity: fromMilli((t.quantityMilli ?? 0)),
+    }))
 
     const adminIds = [...new Set(txs.map((t) => t.adminId).filter((v): v is string => !!v))]
     const adminMap = new Map<string, string>()
@@ -588,18 +603,21 @@ export class AdminClientsService {
       marketIds.length > 0
         ? this.prisma.creditTransaction.findMany({
             where: { type: TransactionType.MARKET_REFUND, referenceId: { in: marketIds } },
-            select: { referenceId: true, quantity: true },
+            select: { referenceId: true, quantityMilli: true },
           })
         : Promise.resolve([]),
     ])
 
     const delByOrder = new Map(deliveries.map((d) => [d.orderId, d]))
     const courierName = new Map(couriers.map((c) => [c.id, c.name]))
-    const refundedById = new Map<string, number>()
+    // Soma em MILÉSIMOS e converte no fim (somar decimais acumularia erro de float).
+    const refundedMilliById = new Map<string, number>()
     for (const t of refunds) {
       if (!t.referenceId) continue
-      refundedById.set(t.referenceId, (refundedById.get(t.referenceId) ?? 0) + t.quantity)
+      const milli = (t.quantityMilli ?? 0)
+      refundedMilliById.set(t.referenceId, (refundedMilliById.get(t.referenceId) ?? 0) + milli)
     }
+    const refundedById = new Map([...refundedMilliById].map(([id, m]) => [id, fromMilli(m)]))
 
     const breadRows = orders.map((o) => {
       const d = delByOrder.get(o.id)
@@ -645,7 +663,7 @@ export class AdminClientsService {
       items: o.items.map((i) => ({ name: i.name, qty: i.qty })),
       itemCount: o.items.reduce((acc, i) => acc + i.qty, 0),
       totalValue: o.totalValue as number | null,
-      creditsApplied: o.creditsApplied as number | null,
+      creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)) as number | null,
       moneyAmount: o.moneyAmount as number | null,
       refundedCredits: refundedById.get(o.id) ?? 0,
     }))
@@ -682,26 +700,29 @@ export class AdminClientsService {
           data: {
             userId: clientId,
             type: TransactionType.REFUND,
-            quantity: order.quantity,
+            quantityMilli: toMilli(order.quantity),
             referenceId: orderId,
-            description: `Cancelamento de pedido — ${order.quantity} crédito(s) devolvido(s)`,
+            description: `Cancelamento de pedido — ${order.quantity} pãezins devolvidos`,
             adminId,
           },
         }),
         this.prisma.user.update({
           where: { id: clientId },
-          data: { creditBalance: { increment: order.quantity } },
+          data: { creditMilli: { increment: toMilli(order.quantity) } },
         }),
       )
     }
     await this.prisma.$transaction(ops)
 
-    const user = await this.prisma.user.findUnique({ where: { id: clientId }, select: { creditBalance: true } })
+    const user = await this.prisma.user.findUnique({
+      where: { id: clientId },
+      select: { creditMilli: true },
+    })
     return {
       id: orderId,
       status: 'CANCELLED',
       refundedCredits: refundCredits ? order.quantity : 0,
-      creditBalance: user?.creditBalance ?? 0,
+      creditBalance: fromMilli((user?.creditMilli ?? 0)),
     }
   }
 
@@ -856,18 +877,26 @@ export class AdminClientsService {
       throw { statusCode: 404, message: 'Cliente não encontrado' }
     }
 
-    // 3. Transação atômica: CreditTransaction ADMIN_GRANT + User.creditBalance increment
+    // 3. Transação atômica: CreditTransaction ADMIN_GRANT + User.creditMilli increment
     const [, updatedUser] = await this.prisma.$transaction([
       this.prisma.creditTransaction.create({
-        data: { userId: clientId, type: TransactionType.ADMIN_GRANT, quantity, adminId, reason },
+        data: {
+          userId: clientId,
+          type: TransactionType.ADMIN_GRANT,
+          quantityMilli: toMilli(quantity),
+          adminId,
+          reason,
+        },
       }),
       this.prisma.user.update({
         where: { id: clientId },
-        data: { creditBalance: { increment: quantity } },
+        data: { creditMilli: { increment: toMilli(quantity) } },
       }),
     ])
 
-    const total = updatedUser.creditBalance
+    // Novo saldo em pãezinhos decimais — é o número que vai no push e na resposta.
+    const totalMilli = (updatedUser.creditMilli ?? 0)
+    const total = formatCredits(totalMilli)
 
     // 4. Push OneSignal — best-effort (falha silenciosa)
     if (user?.oneSignalPlayerId) {
@@ -876,8 +905,8 @@ export class AdminClientsService {
         const notification = new OneSignal.Notification()
         notification.app_id = process.env.ONESIGNAL_APP_ID!
         notification.include_subscription_ids = [user.oneSignalPlayerId]
-        notification.headings = { pt: 'Pãezinhos chegando!' }
-        notification.contents = { pt: `Você ganhou ${quantity} pão(es) de crédito. Novo saldo: ${total} pão(es).` }
+        notification.headings = { pt: 'Pãezins chegando!' }
+        notification.contents = { pt: `Você ganhou ${quantity} ${quantity === 1 ? 'pãozin' : 'pãezins'}. Novo saldo: ${total}.` }
         notification.data = { screen: 'home' }
         await osClient.createNotification(notification)
       } catch (pushErr) {
@@ -890,13 +919,14 @@ export class AdminClientsService {
     await notificationsService.createAndTrim({
       userId: clientId,
       type: NotificationType.CREDIT_GRANTED,
-      title: 'Pãezinhos chegando!',
-      body: `Você ganhou ${quantity} pão(es) de crédito. Novo saldo: ${total} pão(es).`,
+      title: 'Pãezins chegando!',
+      body: `Você ganhou ${quantity} ${quantity === 1 ? 'pãozin' : 'pãezins'}. Novo saldo: ${total}.`,
       actionRoute: '/client/home',
     })
 
-    // 6. Retornar user atualizado
-    return updatedUser
+    // 6. Retornar user atualizado, com o saldo em pãezinhos DECIMAIS (o response-schema é
+    //    `number`; devolver o campo legado mostraria 43 onde há 43,5).
+    return { ...updatedUser, creditBalance: fromMilli(totalMilli) }
   }
 
   /**
@@ -907,7 +937,7 @@ export class AdminClientsService {
    * 2. Verifica se o cliente existe e é CLIENT
    * 3. Rejeita se quantity > saldo atual (não permite saldo negativo → 422)
    * 4. $transaction atômica: CreditTransaction ADMIN_DEBIT (quantity NEGATIVO,
-   *    seguindo a convenção "negativo = débito") + User.creditBalance decrement
+   *    seguindo a convenção "negativo = débito") + User.creditMilli decrement
    * 5. Sem push/notificação — remoção é correção interna, apenas auditada no extrato
    *
    * adminId e reason ficam no CreditTransaction para auditoria.
@@ -927,22 +957,32 @@ export class AdminClientsService {
     }
 
     // 3. Não permitir remover mais do que o saldo atual (sem saldo negativo)
-    if (quantity > user.creditBalance) {
+    if (toMilli(quantity) > (user.creditMilli ?? 0)) {
       throw { statusCode: 422, message: 'Quantidade maior que o saldo atual do cliente' }
     }
 
     // 4. Transação atômica: CreditTransaction ADMIN_DEBIT (negativo) + decrement
     const [, updatedUser] = await this.prisma.$transaction([
       this.prisma.creditTransaction.create({
-        data: { userId: clientId, type: TransactionType.ADMIN_DEBIT, quantity: -quantity, adminId, reason },
+        data: {
+          userId: clientId,
+          type: TransactionType.ADMIN_DEBIT,
+          quantityMilli: -toMilli(quantity),
+          adminId,
+          reason,
+        },
       }),
       this.prisma.user.update({
         where: { id: clientId },
-        data: { creditBalance: { decrement: quantity } },
+        data: { creditMilli: { decrement: toMilli(quantity) } },
       }),
     ])
 
-    return updatedUser
+    // Saldo em pãezinhos decimais — ver `grantCredits`.
+    return {
+      ...updatedUser,
+      creditBalance: fromMilli((updatedUser.creditMilli ?? 0)),
+    }
   }
 
   /**

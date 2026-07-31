@@ -40,7 +40,7 @@ export default function BannerInsuficiente({
             margin: 0,
           }}
         >
-          Você tem <strong>{saldo}</strong> créditos e precisa de{' '}
+          Você tem <strong>{saldo}</strong> pãezins e precisa de{' '}
           <strong>{requerido}</strong>. Compre mais ou ajuste a quantidade.
         </p>
       </div>
