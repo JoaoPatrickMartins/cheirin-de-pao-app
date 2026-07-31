@@ -46,13 +46,14 @@ describe('ClientTabBar [UI-08]', () => {
       expect(screen.getByText('Pães')).toBeDefined()
     })
 
-    it('aba "Pedidos" esta presente com label correto', () => {
+    // "Pedidos" saiu da barra (deu lugar à Cestinha) e virou "Meus Pedidos" dentro do Perfil.
+    it('aba "Cestinha" esta presente com label correto', () => {
       render(
         <MemoryRouter initialEntries={['/client/home']}>
           <ClientTabBar />
         </MemoryRouter>
       )
-      expect(screen.getByText('Pedidos')).toBeDefined()
+      expect(screen.getByText('Cestinha')).toBeDefined()
     })
 
     it('aba "Perfil" esta presente com label correto', () => {
