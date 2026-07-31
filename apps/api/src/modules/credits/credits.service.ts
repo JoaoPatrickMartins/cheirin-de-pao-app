@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { fromMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { CreditsRepository } from './credits.repository.js'
 import { effectiveComboPrice, comboEconomy } from '../../lib/combo-pricing.js'
 import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
@@ -88,8 +89,14 @@ export class CreditsService {
     }
   }
 
-  getCreditHistory(userId: string) {
-    return this.repo.getCreditHistory(userId)
+  /**
+   * Extrato do cliente com `quantity` em pãezinhos DECIMAIS (o crédito é fracionado: uma
+   * Cestinha de R$ 1,80 debita 1,5 🥖). O campo legado guarda só o arredondamento, então
+   * mostrá-lo faria o extrato não fechar com o saldo.
+   */
+  async getCreditHistory(userId: string) {
+    const rows = await this.repo.getCreditHistory(userId)
+    return rows.map((r) => ({ ...r, quantity: fromMilli((r.quantityMilli ?? 0)) }))
   }
 
   async validateCustomPurchase(quantity: number, avulsoLimite: number): Promise<void> {
@@ -129,6 +136,8 @@ export class CreditsService {
   async checkBalance(userId: string, requiredQty: number): Promise<boolean> {
     const user = await this.repo.getUserById(userId)
     if (!user) return false
-    return user.creditBalance >= requiredQty
+    // Pergunta é "cabem N PÃES no saldo?" — pão não é entregue pela metade, então a fração
+    // (poeira da Cestinha) não conta aqui.
+    return wholeBreads((user.creditMilli ?? 0)) >= requiredQty
   }
 }

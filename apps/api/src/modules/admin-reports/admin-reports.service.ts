@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { fromMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { getDateRange, type ReportPeriod } from '../../lib/date-range.js'
 import { excludeNonCreditPurpose, nonCreditPurposeMatchRaw } from '../../lib/revenue.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
@@ -321,7 +322,7 @@ export class AdminReportsService {
     const [clients, activeSchedules] = await Promise.all([
       this.prisma.user.findMany({
         where: { role: 'CLIENT', isBlocked: false },
-        select: { id: true, creditBalance: true, autoRecharge: true },
+        select: { id: true, creditMilli: true, autoRecharge: true },
       }),
       this.prisma.schedule.findMany({ where: { isActive: true }, select: { userId: true } }),
     ])
@@ -339,8 +340,9 @@ export class AdminReportsService {
         if (ar.mode === 'semanal') modeSemanal++
         else modeAcabar++
       }
-      // creditBalance pode ser null em contas legadas — trata como 0
-      if ((c.creditBalance ?? 0) <= 0) {
+      // "Sem crédito" para a operação = não dá nem um pão. A fração do saldo (poeira da
+      // Cestinha) não muda esse fato, então a régua é em PÃES INTEIROS, não em saldo > 0.
+      if (wholeBreads((c.creditMilli ?? 0)) <= 0) {
         zeroBalance++
         if (activeSchedUserIds.has(c.id)) atRisk++ // sem crédito mas com agenda ativa = risco
       }
@@ -365,21 +367,24 @@ export class AdminReportsService {
     const deliveredUserIds = new Set([...deliverers, ...marketDeliverers].map((d) => d.userId))
 
     // Créditos vendidos x consumidos no período
+    // Somas em MILÉSIMOS (`quantityMilli`): o campo legado guarda o arredondamento de cada
+    // movimento, e somar arredondamentos distorce o total de consumo.
     const [soldAgg, consumedAgg] = await Promise.all([
       this.prisma.creditTransaction.aggregate({
-        _sum: { quantity: true },
+        _sum: { quantityMilli: true },
         where: { type: 'PURCHASE', createdAt: { gte: startDate, lte: endDate } },
       }),
       // D5 — consumo de crédito inclui o gasto na Cestinha (`MARKET_PURCHASE`). Sem isso, um
       // cliente que troca pãezinhos por bolo aparecia como quem não consome nada, e o número
       // "vendidos × consumidos" (que mede se o crédito vira entrega ou vira passivo) mentia.
       this.prisma.creditTransaction.aggregate({
-        _sum: { quantity: true },
+        _sum: { quantityMilli: true },
         where: { type: { in: ['DELIVERY', 'MARKET_PURCHASE'] }, createdAt: { gte: startDate, lte: endDate } },
       }),
     ])
-    const creditsSold = soldAgg._sum.quantity ?? 0
-    const creditsConsumed = Math.abs(consumedAgg._sum.quantity ?? 0) // DELIVERY/MARKET_PURCHASE são negativos
+    const creditsSold = fromMilli(soldAgg._sum.quantityMilli ?? 0)
+    // DELIVERY/MARKET_PURCHASE são negativos.
+    const creditsConsumed = Math.abs(fromMilli(consumedAgg._sum.quantityMilli ?? 0))
 
     // Intervalo médio de recompra — janela de 180 dias
     const since = new Date(endDate.getTime() - 180 * 24 * 60 * 60 * 1000)
@@ -431,18 +436,22 @@ export class AdminReportsService {
    *
    * `creditsOutstanding` (soma de creditBalance dos clientes) é exato; o valor em R$ é uma
    * ESTIMATIVA usando o preço médio por crédito histórico (R$ pagos / créditos comprados).
+   *
+   * Tudo somado em MILÉSIMOS de pãozinho e convertido no fim: o saldo é fracionado, e somar os
+   * campos legados (arredondados por movimento) daria um passivo alguns pãezinhos fora.
    */
   async getCreditLiability(): Promise<CreditLiabilityReport> {
     const [balanceAgg, paidAgg, purchaseAgg, withCredit] = await Promise.all([
-      this.prisma.user.aggregate({ _sum: { creditBalance: true }, where: { role: 'CLIENT' } }),
+      this.prisma.user.aggregate({ _sum: { creditMilli: true }, where: { role: 'CLIENT' } }),
       // §4.7: passivo de crédito usa só receita de crédito (HOOK/MARKET não compram pães).
       this.prisma.payment.aggregate({ _sum: { amount: true }, where: { status: 'PAID', ...excludeNonCreditPurpose } }),
-      this.prisma.creditTransaction.aggregate({ _sum: { quantity: true }, where: { type: 'PURCHASE' } }),
-      this.prisma.user.count({ where: { role: 'CLIENT', creditBalance: { gt: 0 } } }),
+      this.prisma.creditTransaction.aggregate({ _sum: { quantityMilli: true }, where: { type: 'PURCHASE' } }),
+      // "Tem crédito" no relatório = tem saldo, mesmo fracionado (é passivo de qualquer forma).
+      this.prisma.user.count({ where: { role: 'CLIENT', creditMilli: { gt: 0 } } }),
     ])
-    const creditsOutstanding = balanceAgg._sum.creditBalance ?? 0
+    const creditsOutstanding = fromMilli(balanceAgg._sum.creditMilli ?? 0)
     const totalPaid = paidAgg._sum.amount ?? 0
-    const totalPurchased = purchaseAgg._sum.quantity ?? 0
+    const totalPurchased = fromMilli(purchaseAgg._sum.quantityMilli ?? 0)
     const estPricePerCredit = totalPurchased > 0 ? totalPaid / totalPurchased : 0
 
     return {

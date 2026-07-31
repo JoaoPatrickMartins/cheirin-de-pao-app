@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
+import { formatCredits, fromMilli } from '@cheirin-de-pao/shared'
 import type {
   CreateProductInput,
   UpdateProductInput,
@@ -9,7 +10,7 @@ import type {
 import { AdminMarketRepository } from './admin-market.repository.js'
 import type { SetStockBody, MarketOrderFilters } from './admin-market.schema.js'
 import { brtDateStr, brtDayRange, brtNoonFromStr } from '../../lib/cutoff.js'
-import { refundableCredits, reverseMarketOrder } from '../../lib/market-reversal.js'
+import { refundableCreditsMilli, reverseMarketOrder } from '../../lib/market-reversal.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
 import { LOW_STOCK_THRESHOLD } from '../../lib/market-stock-alerts.js'
 import { loadUnitCosts, productMargin } from '../../lib/product-cost.js'
@@ -377,8 +378,8 @@ export class AdminMarketService {
     if (!order) throw { statusCode: 404, message: 'Cestinha não encontrada' }
     if (order.status === 'CANCELLED') {
       // Idempotente: cancelar de novo não é erro nem estorna duas vezes.
-      const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
-      return { id, status: 'CANCELLED', refundedCredits: 0, creditBalance: user?.creditBalance ?? 0 }
+      const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditMilli: true } })
+      return { id, status: 'CANCELLED', refundedCredits: 0, creditBalance: fromMilli((user?.creditMilli ?? 0)) }
     }
     if (order.status === 'DELIVERED') {
       throw { statusCode: 422, message: 'Esta Cestinha já foi entregue. Use "resolver" em Entregas se precisar reverter.' }
@@ -406,8 +407,8 @@ export class AdminMarketService {
       refundedCredits,
     })
 
-    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
-    return { id, status: 'CANCELLED', refundedCredits, creditBalance: user?.creditBalance ?? 0 }
+    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditMilli: true } })
+    return { id, status: 'CANCELLED', refundedCredits, creditBalance: fromMilli((user?.creditMilli ?? 0)) }
   }
 
   /**
@@ -553,14 +554,14 @@ export class AdminMarketService {
       }
     }
 
-    const user0 = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
+    const user0 = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditMilli: true } })
     if (order.lossResolvedAt) {
       // Idempotente: devolve o estado atual em vez de estornar/creditar duas vezes.
       return {
         id,
         stockReturned: order.stockReturned ?? false,
         refundedCredits: 0,
-        creditBalance: user0?.creditBalance ?? 0,
+        creditBalance: fromMilli((user0?.creditMilli ?? 0)),
         alreadyResolved: true,
       }
     }
@@ -568,14 +569,18 @@ export class AdminMarketService {
     const avulsoRow = await this.repo.getSetting('avulsoUnit')
     const avulsoUnitRaw = avulsoRow ? Number(avulsoRow.value) : 0
     const avulsoUnit = Number.isFinite(avulsoUnitRaw) ? avulsoUnitRaw : 0
-    const wanted = opts.refundCredits ? refundableCredits(order, avulsoUnit) : 0
+    // Canônico em milésimos; o espelho legado é o arredondado (campo `Int` não aceita 1,5).
+    const wantedMilli = opts.refundCredits ? refundableCreditsMilli(order, avulsoUnit) : 0
+    const wanted = fromMilli(wantedMilli)
+    const wantedLegacy = Math.round(wanted)
 
     // Estorno já existente (ex.: o admin resolveu por outro caminho antes) não credita de novo.
     const existingRefund = await this.prisma.creditTransaction.findFirst({
       where: { type: 'MARKET_REFUND', referenceId: order.id },
       select: { id: true },
     })
-    const doRefund = wanted > 0 && !existingRefund
+    // Gate no MILÉSIMO: um estorno de 0,4 🥖 arredonda para 0 no legado e seria engolido.
+    const doRefund = wantedMilli > 0 && !existingRefund
     const dateStr = brtDateStr(order.scheduledDate)
 
     await this.prisma.$transaction(async (tx) => {
@@ -591,14 +596,17 @@ export class AdminMarketService {
       }
 
       if (doRefund) {
-        await tx.user.update({ where: { id: order.userId }, data: { creditBalance: { increment: wanted } } })
+        await tx.user.update({
+          where: { id: order.userId },
+          data: { creditMilli: { increment: wantedMilli } },
+        })
         await tx.creditTransaction.create({
           data: {
             userId: order.userId,
             type: 'MARKET_REFUND',
-            quantity: wanted,
+            quantityMilli: wantedMilli,
             referenceId: order.id,
-            description: `Cestinha não entregue — ${wanted} pãezinho(s) devolvido(s)`,
+            description: `Cestinha não entregue — ${formatCredits(wantedMilli)} pãezinho(s) devolvido(s)`,
             adminId,
             reason: opts.reason,
           },
@@ -622,12 +630,12 @@ export class AdminMarketService {
       await notifyMarketLossResolved(this.fastify, order, { refundedCredits: wanted, reason: opts.reason })
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
+    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditMilli: true } })
     return {
       id,
       stockReturned: opts.returnStock,
       refundedCredits: doRefund ? wanted : 0,
-      creditBalance: user?.creditBalance ?? 0,
+      creditBalance: fromMilli((user?.creditMilli ?? 0)),
       alreadyResolved: false,
     }
   }
@@ -645,6 +653,7 @@ export class AdminMarketService {
       breadQty: number
       totalValue: number
       creditsApplied: number
+      creditsAppliedMilli?: number | null
       moneyAmount: number
       paymentId: string | null
       scheduledDate: Date
@@ -683,7 +692,7 @@ export class AdminMarketService {
         : Promise.resolve([] as { id: string; name: string }[]),
       this.prisma.creditTransaction.findMany({
         where: { type: 'MARKET_REFUND', referenceId: { in: ids } },
-        select: { referenceId: true, quantity: true },
+        select: { referenceId: true, quantityMilli: true },
       }),
       paymentIds.length
         ? this.prisma.payment.findMany({
@@ -696,7 +705,10 @@ export class AdminMarketService {
     const userById = new Map(users.map((u) => [u.id, u]))
     const condoById = new Map(condos.map((c) => [c.id, c]))
     const courierById = new Map(couriers.map((c) => [c.id, c]))
-    const refundByOrder = new Map(refunds.map((r) => [r.referenceId ?? '', r.quantity]))
+    // Estorno em pãezinhos decimais (canônico com fallback no legado) — a lista mostra "1,5 🥖".
+    const refundByOrder = new Map(
+      refunds.map((r) => [r.referenceId ?? '', fromMilli((r.quantityMilli ?? 0))]),
+    )
     const paymentById = new Map(payments.map((p) => [p.id, p]))
 
     return orders.map((o) => {
@@ -722,7 +734,8 @@ export class AdminMarketService {
         items: o.items.map((i) => ({ productId: i.productId, name: i.name, qty: i.qty, unitPrice: i.unitPrice })),
         itemCount: o.items.reduce((n, i) => n + i.qty, 0),
         totalValue: o.totalValue,
-        creditsApplied: o.creditsApplied,
+        // Pãezinhos DECIMAIS — o espelho legado é só arredondamento.
+        creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)),
         moneyAmount: o.moneyAmount,
         courierId: o.courierId ?? '',
         courierName: (o.courierId && courierById.get(o.courierId)?.name) || '',

@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
+import { toMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { AdminPaymentsRepository } from './admin-payments.repository.js'
 import { StripeService } from '../payments/stripe.service.js'
 
@@ -99,7 +100,7 @@ export class AdminPaymentsService {
    * 2. Verificar status === 'PAID' — 400 se diferente (T-07-05-02)
    * 3. Verificar stripePaymentIntentId não nulo — 400 se nulo (T-07-05-03)
    * 4. Chamar stripe.refund(paymentIntentId) (estorno TOTAL)
-   * 5. Calcular creditsToDebit = Math.min(paesQty, user.creditBalance) (D-05)
+   * 5. Calcular creditsToDebit = Math.min(paesQty, pães inteiros no saldo) (D-05)
    * 6. $transaction: update Payment + create CreditTransaction + user.decrement (T-07-05-02)
    */
   async refund(id: string) {
@@ -155,7 +156,10 @@ export class AdminPaymentsService {
       paesQty = payment.customQuantity
     }
 
-    const creditsToDebit = Math.min(paesQty, user.creditBalance)
+    // Estorno de uma COMPRA de crédito: retira os pãezinhos que aquela compra concedeu, no
+    // limite do que o cliente ainda tem. A pergunta é em pães INTEIROS (a compra concedeu
+    // inteiros), então a fração do saldo — poeira da Cestinha — não entra na conta.
+    const creditsToDebit = Math.min(paesQty, wholeBreads((user.creditMilli ?? 0)))
 
     // 6. $transaction atomica: Payment.status=REFUNDED (+ débito de crédito só quando aplicável)
     const ops: Prisma.PrismaPromise<unknown>[] = [
@@ -167,14 +171,14 @@ export class AdminPaymentsService {
           data: {
             userId,
             type: 'REFUND',
-            quantity: -creditsToDebit,
+            quantityMilli: -toMilli(creditsToDebit),
             referenceId: id,
             description: `Estorno de ${creditsToDebit} crédito(s) — pagamento ${id}`,
           },
         }),
         this.prisma.user.update({
           where: { id: userId },
-          data: { creditBalance: { decrement: creditsToDebit } },
+          data: { creditMilli: { decrement: toMilli(creditsToDebit) } },
         }),
       )
     }

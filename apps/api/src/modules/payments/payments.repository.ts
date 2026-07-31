@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { PaymentStatus, PaymentPurpose } from '@prisma/client'
+import { toMilli } from '@cheirin-de-pao/shared'
 
 export class PaymentsRepository {
   constructor(private fastify: FastifyInstance) {}
@@ -44,14 +45,14 @@ export class PaymentsRepository {
         data: {
           userId,
           type: 'PURCHASE',
-          quantity,
+          quantityMilli: toMilli(quantity),
           referenceId: paymentId,
           description: `Compra de ${quantity} crédito(s)`,
         },
       }),
       this.prisma.user.update({
         where: { id: userId },
-        data: { creditBalance: { increment: quantity } },
+        data: { creditMilli: { increment: toMilli(quantity) } },
       }),
     ])
     return updatedUser

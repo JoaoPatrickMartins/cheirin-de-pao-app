@@ -21,7 +21,8 @@ interface StuckOrder {
   id: string
   userId: string
   status: string
-  creditsApplied: number
+  /** Pãezinhos aplicados em MILÉSIMOS — o único campo de crédito da aplicação. */
+  creditsAppliedMilli: number | null
   scheduledDate: Date
   items: { productId: string; qty: number }[]
 }
@@ -75,7 +76,7 @@ const stuck = (over: Partial<StuckOrder> = {}): StuckOrder => ({
   id: 'mo-1',
   userId: 'user-1',
   status: 'PENDING_PAYMENT',
-  creditsApplied: 3,
+  creditsAppliedMilli: 3000,
   scheduledDate: new Date('2026-07-30T15:00:00.000Z'),
   items: [{ productId: 'prod-1', qty: 2 }],
   ...over,
@@ -99,7 +100,7 @@ describe('MarketCheckoutService.sweepStuckPayments — aviso ao cliente (F1)', (
   })
 
   it('sem crédito aplicado (100% Pix) → avisa que nada foi cobrado', async () => {
-    const { fastify, creditTransactionCreate } = mockFastify([stuck({ creditsApplied: 0 })])
+    const { fastify, creditTransactionCreate } = mockFastify([stuck({ creditsAppliedMilli: 0 })])
     await new MarketCheckoutService(fastify).sweepStuckPayments()
 
     expect(creditTransactionCreate).not.toHaveBeenCalled()
@@ -134,7 +135,7 @@ describe('MarketCheckoutService.sweepStuckPayments — aviso ao cliente (F1)', (
   it('vários pedidos presos → um aviso por pedido, cada um para o seu cliente', async () => {
     const { fastify } = mockFastify([
       stuck({ id: 'mo-1', userId: 'user-1' }),
-      stuck({ id: 'mo-2', userId: 'user-2', creditsApplied: 1 }),
+      stuck({ id: 'mo-2', userId: 'user-2', creditsAppliedMilli: 1000 }),
     ])
     const res = await new MarketCheckoutService(fastify).sweepStuckPayments()
 
@@ -148,5 +149,50 @@ describe('MarketCheckoutService.sweepStuckPayments — aviso ao cliente (F1)', (
     const { fastify } = mockFastify([stuck()])
     const res = await new MarketCheckoutService(fastify).sweepStuckPayments()
     expect(res.released).toBe(1)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Onda C — o pedido pode ter sido pago com pãezinhos FRACIONADOS
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('MarketCheckoutService.sweepStuckPayments — crédito fracionado', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('devolve o valor exato em milésimos, sem arredondar', async () => {
+    // Cestinha de R$ 1,80 paga 100% em pãezinhos: 1500 mili saíram.
+    const { fastify, userUpdate, creditTransactionCreate } = mockFastify([
+      stuck({ creditsAppliedMilli: 1500 }),
+    ])
+    await new MarketCheckoutService(fastify).sweepStuckPayments()
+
+    expect(userUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { creditMilli: { increment: 1500 } } }),
+    )
+    expect(creditTransactionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ quantityMilli: 1500 }) }),
+    )
+    // Texto do aviso em pt-BR, nunca "1.5".
+    expect(notifyUser.mock.calls[0][1].body).toContain('1,5 pãezinhos')
+  })
+
+  it('devolve fração menor que um pãozinho', async () => {
+    // 0,4 🥖 debitados: o gate é no milésimo, então a devolução não é engolida.
+    const { fastify, creditTransactionCreate } = mockFastify([
+      stuck({ creditsAppliedMilli: 400 }),
+    ])
+    await new MarketCheckoutService(fastify).sweepStuckPayments()
+
+    expect(creditTransactionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ quantityMilli: 400 }) }),
+    )
+  })
+
+  it('pedido sem o canônico gravado não devolve crédito (não inventa saldo)', async () => {
+    const { fastify, userUpdate, creditTransactionCreate } = mockFastify([stuck({ creditsAppliedMilli: null })])
+    await new MarketCheckoutService(fastify).sweepStuckPayments()
+
+    expect(userUpdate).not.toHaveBeenCalled()
+    expect(creditTransactionCreate).not.toHaveBeenCalled()
   })
 })

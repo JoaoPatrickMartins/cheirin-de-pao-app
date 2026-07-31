@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
+import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { brtDateStr } from '../../lib/cutoff.js'
 import { clientLabel } from '../../lib/client-label.js'
 import { stockAlertLabel, type StockAlert } from '../../lib/market-stock-alerts.js'
@@ -34,7 +35,10 @@ function dayLabel(date: Date): string {
   return `${d}/${m}`
 }
 
-const paesLabel = (n: number) => (n === 1 ? '1 pãozinho' : `${n} pãezinhos`)
+// O crédito é fracionado, então o número pode vir decimal (1,5). `formatCredits` já entrega no
+// padrão pt-BR ("1,5") e some com o ",0" de valor inteiro — nunca montar o texto com `${n}` cru,
+// que imprimiria "1.5 pãezinhos".
+const paesLabel = (n: number) => (n === 1 ? '1 pãozinho' : `${formatCredits(toMilli(n))} pãezinhos`)
 const itemsLabel = (n: number) => (n === 1 ? '1 item' : `${n} itens`)
 
 /**

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { formatCredits, toMilli, wholeBreadsOf } from '@cheirin-de-pao/shared'
 import { animate, motion } from 'framer-motion'
 import { BreadMark } from '../brand/BreadMark'
 import { Icon } from '../brand/Icon'
@@ -48,10 +49,15 @@ function useCountUp(target: number, enabled: boolean): number {
 export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstimate }: CreditBalanceCardProps) {
   const navigate = useNavigate()
   const shouldAnimate = useShouldAnimate()
-  const displayed = useCountUp(creditBalance, shouldAnimate && !isLoading)
+  // O saldo pode ser fracionado (a Cestinha gasta 1,5 🥖 num item de R$ 1,80). Anima em
+  // MILÉSIMOS e formata em pt-BR — animar o decimal direto arredondaria 43,5 para 44.
+  const displayedMilli = useCountUp(toMilli(creditBalance), shouldAnimate && !isLoading)
+  // Já os textos de ritmo falam de ENTREGA, que consome pão inteiro: meio pãozinho de poeira
+  // não "rende dias" nenhum.
+  const paesInteiros = wholeBreadsOf(creditBalance)
 
   // "Rende ~N dias": ritmo real da agenda quando disponível; senão, aproximação do protótipo.
-  const days = daysEstimate && daysEstimate > 0 ? daysEstimate : Math.max(1, Math.floor(creditBalance / 4))
+  const days = daysEstimate && daysEstimate > 0 ? daysEstimate : Math.max(1, Math.floor(paesInteiros / 4))
 
   return (
     <div
@@ -135,7 +141,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {displayed}
+                {formatCredits(displayedMilli)}
               </span>
               <span
                 style={{
@@ -152,7 +158,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
           )}
 
           {/* Subtexto ritmo */}
-          {!isLoading && creditBalance > 0 && (
+          {!isLoading && paesInteiros > 0 && (
             <p
               style={{
                 fontFamily: 'var(--font-body)',
@@ -165,7 +171,7 @@ export function CreditBalanceCard({ creditBalance, isLoading = false, daysEstima
             </p>
           )}
 
-          {!isLoading && creditBalance === 0 && (
+          {!isLoading && paesInteiros === 0 && (
             <p
               style={{
                 fontFamily: 'var(--font-body)',

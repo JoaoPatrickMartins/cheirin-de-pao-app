@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { NotificationType, OrderStatus, MarketOrderStatus, PaymentStatus, Prisma } from '@prisma/client'
+import { fromMilli, toMilli } from '@cheirin-de-pao/shared'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
@@ -1344,7 +1345,7 @@ export class AdminOrdersService {
       failureReason: string | null
       cancelReason: string | null
       paymentId: string | null
-      creditsApplied: number
+      creditsAppliedMilli: number | null
       moneyAmount: number
       totalValue: number
       items: { name: string; qty: number }[]
@@ -1426,7 +1427,8 @@ export class AdminOrdersService {
         paymentStatus: (o.paymentId && paymentById.get(o.paymentId)?.status) || '',
         marketItems: o.items.map((i) => ({ name: i.name, qty: i.qty })),
         marketItemCount: o.items.reduce((n, i) => n + i.qty, 0),
-        creditsApplied: o.creditsApplied,
+        // Pãezinhos DECIMAIS (o crédito é fracionado; o espelho legado é só arredondamento).
+        creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)),
         moneyAmount: o.moneyAmount,
         totalValue: o.totalValue,
       }
@@ -1450,7 +1452,7 @@ export class AdminOrdersService {
       cancelReason: true,
       paymentId: true,
       courierId: true,
-      creditsApplied: true,
+      creditsAppliedMilli: true,
       moneyAmount: true,
       totalValue: true,
       items: { select: { name: true, qty: true } },
@@ -1634,7 +1636,7 @@ export class AdminOrdersService {
         data: {
           userId: order.userId,
           type: 'REFUND',
-          quantity: order.quantity,
+          quantityMilli: toMilli(order.quantity),
           referenceId: orderId,
           description: `Estorno de pedido — ${order.quantity} crédito(s) devolvido(s)`,
           adminId,
@@ -1643,12 +1645,19 @@ export class AdminOrdersService {
       }),
       this.prisma.user.update({
         where: { id: order.userId },
-        data: { creditBalance: { increment: order.quantity } },
+        data: { creditMilli: { increment: toMilli(order.quantity) } },
       }),
     ])
 
-    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
-    return { id: orderId, refundedCredits: order.quantity, creditBalance: user?.creditBalance ?? 0 }
+    const user = await this.prisma.user.findUnique({
+      where: { id: order.userId },
+      select: { creditMilli: true },
+    })
+    return {
+      id: orderId,
+      refundedCredits: order.quantity,
+      creditBalance: fromMilli((user?.creditMilli ?? 0)),
+    }
   }
 
   /**
@@ -1723,7 +1732,7 @@ export class AdminOrdersService {
           data: {
             userId: order.userId,
             type: 'REFUND',
-            quantity: order.quantity,
+            quantityMilli: toMilli(order.quantity),
             referenceId: orderId,
             description: `Estorno de pedido — ${order.quantity} crédito(s) devolvido(s)`,
             adminId,
@@ -1732,7 +1741,7 @@ export class AdminOrdersService {
         }),
         this.prisma.user.update({
           where: { id: order.userId },
-          data: { creditBalance: { increment: order.quantity } },
+          data: { creditMilli: { increment: toMilli(order.quantity) } },
         }),
       )
     }
@@ -1743,12 +1752,15 @@ export class AdminOrdersService {
       await this.notifyAndPersist(order)
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: order.userId }, select: { creditBalance: true } })
+    const user = await this.prisma.user.findUnique({
+      where: { id: order.userId },
+      select: { creditMilli: true },
+    })
     return {
       id: orderId,
       status: outcome,
       refundedCredits: doRefund ? order.quantity : 0,
-      creditBalance: user?.creditBalance ?? 0,
+      creditBalance: fromMilli((user?.creditMilli ?? 0)),
     }
   }
 
@@ -1820,13 +1832,13 @@ export class AdminOrdersService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: order.userId },
-      select: { creditBalance: true },
+      select: { creditMilli: true },
     })
     return {
       id: marketOrderId,
       status: opts.outcome,
       refundedCredits,
-      creditBalance: user?.creditBalance ?? 0,
+      creditBalance: fromMilli((user?.creditMilli ?? 0)),
     }
   }
 

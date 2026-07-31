@@ -1,6 +1,11 @@
 // Tipos e helpers do mini market "Além do Pãozin" (front cliente).
 // O catálogo vem de GET /market/catalog; a precificação (avulsoUnit) de GET /pricing;
 // o desconto máximo (selo "até X%") de GET /combos (economyPercent já calculado no backend).
+//
+// A aritmética de crédito vive em @cheirin-de-pao/shared (`credits.ts`) — mesma conta no
+// front e na API, em centavos inteiros. Aqui ficam só os tipos e a formatação.
+
+import { CREDIT_SCALE, formatCredits } from '@cheirin-de-pao/shared'
 
 export interface MarketCategory {
   id: string
@@ -103,10 +108,14 @@ export function formatBRL(value: number): string {
   return brl.format(value)
 }
 
-/** Equivalente em pãezinhos: 1 crédito resgata a valor avulso (`avulsoUnit`). */
-export function paezinhosDe(price: number, avulsoUnit: number): number {
-  if (!(avulsoUnit > 0) || !(price > 0)) return 0
-  return Math.round(price / avulsoUnit)
+/**
+ * Rótulo do preço em pãezinhos, a partir de MILÉSIMOS: "2 pães", "1,5 pães", "1 pão".
+ *
+ * O crédito é fracionado, então qualquer preço é pago 100% em pãezinhos — não existe mais
+ * "resto em dinheiro" na vitrine. Singular só no 1 exato ("1,5 pães" está correto em pt-BR).
+ */
+export function labelPaezinhos(milli: number): string {
+  return `${formatCredits(milli)} ${milli === CREDIT_SCALE ? 'pão' : 'pães'}`
 }
 
 // Rótulos curtos dos dias, na ordem da semana (para o aviso de disponibilidade).

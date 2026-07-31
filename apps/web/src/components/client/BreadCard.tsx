@@ -1,7 +1,8 @@
 import { ProdPhoto } from './ProdPhoto'
 import { useCart } from '../../contexts/CartContext'
 import { Icon } from '../brand/Icon'
-import { formatBRL, paezinhosDe, type MarketProduct } from '../../lib/market'
+import { CREDIT_SCALE } from '@cheirin-de-pao/shared'
+import { formatBRL, labelPaezinhos, type MarketProduct } from '../../lib/market'
 
 interface BreadCardProps {
   /** Produto fixo "Pão Francês" (isBread) — fonte de foto/nome/categoria, configurado no admin. */
@@ -29,8 +30,7 @@ export function BreadCard({ product, categoryName, emoji, avulsoUnit, economyPer
   // dele — ao passar do piso, remove de vez (0). Ou seja: 0 ou ≥ mínimo, nunca 1..min-1.
   const breadMin = Math.max(1, cart.breadMin || 1)
   const dec = () => setBreadQty(qty - 1 < breadMin ? 0 : qty - 1)
-  // O pão é a BASE da economia: preço = avulso e vale exatamente 1 pãozinho.
-  const paes = paezinhosDe(avulsoUnit, avulsoUnit)
+  // O pão é a BASE do crédito: preço = avulso e vale exatamente 1 pãozinho, por definição.
   const showEconomy = economyPercent > 0
   const pct = Math.round(economyPercent)
 
@@ -99,29 +99,27 @@ export function BreadCard({ product, categoryName, emoji, avulsoUnit, economyPer
         <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: 'var(--color-text-ter)' }}>a unidade</span>
       </div>
 
-      {/* Valor em pãezinhos + economia — mesma pílula e mesmo cálculo dos demais cards */}
-      {paes > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 6,
-            background: 'var(--color-gold-soft)',
-            borderRadius: 10,
-            padding: '5px 9px',
-          }}
-        >
-          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-accent)' }}>
-            🥖 {paes} {paes === 1 ? 'pão' : 'pães'}
+      {/* Valor em pãezinhos + economia — mesma pílula dos demais cards. Sempre "1 pão". */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 6,
+          background: 'var(--color-gold-soft)',
+          borderRadius: 10,
+          padding: '5px 9px',
+        }}
+      >
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-accent)' }}>
+          🥖 {labelPaezinhos(CREDIT_SCALE)}
+        </span>
+        {showEconomy && (
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 800, color: 'var(--color-accent)' }}>
+            −{pct}%
           </span>
-          {showEconomy && (
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 800, color: 'var(--color-accent)' }}>
-              −{pct}%
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Rodapé: adicionar (largura total) — escreve no breadQty, respeitando o mínimo */}
       {qty > 0 ? (

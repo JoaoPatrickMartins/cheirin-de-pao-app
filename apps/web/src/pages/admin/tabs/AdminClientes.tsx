@@ -1,3 +1,4 @@
+import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
@@ -233,7 +234,7 @@ export function AdminClientes({ initialClientId }: AdminClientesProps = {}) {
         nomeCondominio(c.condominiumId),
         c.apartment ?? '',
         c.block ?? '',
-        String(c.creditBalance),
+        formatCredits(toMilli(c.creditBalance)),
         c.isBlocked ? 'Sim' : 'Não',
         c.lastPurchaseAt ? c.lastPurchaseAt.slice(0, 10) : '',
         c.createdAt ? c.createdAt.slice(0, 10) : '',
@@ -587,7 +588,7 @@ export function AdminClientes({ initialClientId }: AdminClientesProps = {}) {
                         lineHeight: 1,
                       }}
                     >
-                      {c.creditBalance}
+                      {formatCredits(toMilli(c.creditBalance))}
                     </span>
                     <span
                       style={{

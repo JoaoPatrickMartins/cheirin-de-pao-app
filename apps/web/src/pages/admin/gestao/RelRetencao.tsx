@@ -10,7 +10,7 @@ import {
   StatRow,
   LoadingText,
   ErrorText,
-  fmtInt,
+  fmtInt, fmtCredits,
   fmtPct,
 } from './RelShared'
 import { buildCsv, downloadCsv } from '../../../lib/csv'
@@ -126,8 +126,8 @@ export function RelRetencao({ onBack }: { onBack: () => void }) {
                   value={data.repurchase.avgIntervalDays != null ? `${data.repurchase.avgIntervalDays.toFixed(1).replace('.', ',')} dias` : '—'}
                 />
                 <StatRow label="Clientes recorrentes (180d)" value={fmtInt(data.repurchase.repurchasingClients)} />
-                <StatRow label="Créditos vendidos (período)" value={fmtInt(data.repurchase.creditsSold)} />
-                <StatRow label="Créditos consumidos (período)" value={fmtInt(data.repurchase.creditsConsumed)} />
+                <StatRow label="Créditos vendidos (período)" value={fmtCredits(data.repurchase.creditsSold)} />
+                <StatRow label="Créditos consumidos (período)" value={fmtCredits(data.repurchase.creditsConsumed)} />
               </div>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
                 Consumidos = entregas de pão + pãezinhos gastos na Cestinha.

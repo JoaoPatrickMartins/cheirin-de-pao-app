@@ -1,3 +1,4 @@
+import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { Icon } from '../brand/Icon'
 import { InlineCancelConfirm, inlineCancelBtnStyle } from './InlineCancelConfirm'
 
@@ -149,10 +150,12 @@ export function MarketOrderCard({
           </div>
           {/* Split pago */}
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '6px 0 0' }}>
-            {o.creditsApplied > 0 ? `${o.creditsApplied} 🥖` : ''}
+            {o.creditsApplied > 0 ? `${formatCredits(toMilli(o.creditsApplied))} 🥖` : ''}
             {o.creditsApplied > 0 && o.moneyAmount > 0 ? ' + ' : ''}
             {o.moneyAmount > 0 ? `R$ ${o.moneyAmount.toFixed(2).replace('.', ',')}` : ''}
-            {o.status === 'CANCELLED' && o.refundedCredits ? ` · estornado em ${o.refundedCredits} 🥖` : ''}
+            {o.status === 'CANCELLED' && o.refundedCredits
+              ? ` · estornado em ${formatCredits(toMilli(o.refundedCredits))} 🥖`
+              : ''}
           </p>
         </div>
       </div>

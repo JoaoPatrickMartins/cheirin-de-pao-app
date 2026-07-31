@@ -117,7 +117,9 @@ export const creditsRoute: FastifyPluginAsync = async (fastify) => {
               properties: {
                 id: { type: 'string', description: 'ID da transação.' },
                 type: { type: 'string', description: 'Tipo: PURCHASE, DELIVERY, ADMIN_GRANT, etc.' },
-                quantity: { type: 'integer', description: 'Quantidade movimentada (positivo = entrada, negativo = saída).' },
+                // `number`, não `integer`: o crédito é fracionado (1,5 🥖 numa Cestinha de R$ 1,80) e
+                // o fast-json-stringify truncaria o decimal em silêncio.
+                quantity: { type: 'number', description: 'Pãezinhos movimentados, decimal (positivo = entrada, negativo = saída).' },
                 description: { type: 'string', nullable: true, description: 'Descrição legível, quando disponível.' },
                 createdAt: { type: 'string', description: 'Data/hora da transação (ISO 8601).' },
               },

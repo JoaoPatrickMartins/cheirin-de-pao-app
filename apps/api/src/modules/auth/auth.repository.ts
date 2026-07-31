@@ -31,7 +31,9 @@ export class AuthRepository {
     apartment?: string
     block?: string
   }) {
-    return this.prisma.user.create({ data: { role: 'CLIENT', ...data } })
+    // `creditMilli: 0` explícito: no Mongo o `@default` do Prisma não cria a chave, e um `$inc`
+    // sobre chave inexistente PERDE o valor (ver `credit-milli-backfill.ts`).
+    return this.prisma.user.create({ data: { role: 'CLIENT', creditMilli: 0, ...data } })
   }
 
   // Define/atualiza a senha (hash bcrypt) e registra o momento (auditoria).

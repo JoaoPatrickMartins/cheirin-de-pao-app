@@ -233,7 +233,15 @@ model User {
   condominiumId String?   @db.ObjectId
   apartment     String?
   block         String?
+  // LEGADO — nada em runtime lê nem escreve este campo desde a limpeza (31/07/2026). Continua
+  // declarado só porque é a FONTE do backfill do boot. Num cliente ativo hoje o valor está
+  // CONGELADO no momento da limpeza: não use para nada.
   creditBalance      Int       @default(0)
+  // Saldo CANÔNICO em milésimos de pãozinho (1 pão = 1000) — **é o único saldo da aplicação**.
+  // Inteiro de propósito: `Float` em dinheiro acumula drift, e trocar o tipo de um campo `Int` já
+  // gravado quebra a leitura no Prisma + MongoDB. Nullable porque `@default` não cria a chave em
+  // documento pré-existente; o backfill do boot garante que toda chave exista antes do tráfego.
+  creditMilli        Int?
   autoRecharge       Json?
   // Preferências de notificação do ADMIN — mapa { [NotificationType]: boolean }.
   // Ausência/null = todos os tipos ligados; só grava as chaves DESLIGADAS (false).
@@ -326,7 +334,12 @@ model CreditTransaction {
   id          String          @id @default(auto()) @map("_id") @db.ObjectId
   userId      String          @db.ObjectId
   type        TransactionType
-  quantity    Int
+  // LEGADO — nada em runtime lê nem escreve este campo desde a limpeza (31/07/2026). Continua
+  // declarado só porque é a FONTE do backfill do boot (`credit-milli-backfill.ts`), que preenche
+  // `quantityMilli` em linhas antigas. Opcional porque linhas novas não o gravam.
+  quantity    Int?
+  // Movimento CANÔNICO em milésimos de pãozinho (negativo = débito). É o único que a aplicação lê.
+  quantityMilli Int?
   referenceId String?
   description String?
   adminId     String?         @db.ObjectId
@@ -677,7 +690,11 @@ model MarketOrder {
   breadQty       Int               @default(0) // pães da cestinha — somam no total de pães da parada
   items          MarketOrderItem[]
   totalValue     Float             // R$ total (produtos + breadQty*avulsoUnit)
-  creditsApplied Int               @default(0) // pãezinhos aplicados
+  // LEGADO — não lido nem escrito em runtime; só fonte do backfill do boot. Pedido novo fica 0.
+  creditsApplied Int               @default(0)
+  // Pãezinhos aplicados em milésimos (CANÔNICO) — o único lido pela aplicação. É o que permite
+  // pagar 100% com pãezinhos um item de R$ 1,80 (1,5 🥖). Nullable: ver `creditMilli`.
+  creditsAppliedMilli Int?
   moneyAmount    Float             @default(0) // R$ cobrado no gateway (0 = 100% crédito)
   paymentId      String?           @db.ObjectId
   idempotencyKey String            @unique     // trava anti-duplo-clique do checkout

@@ -3,6 +3,7 @@
 // Requirements: ADMO-05..09
 
 import { FastifyInstance } from 'fastify'
+import { wholeBreads } from '@cheirin-de-pao/shared'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { AdminSupplierOrdersRepository } from './admin-supplier-orders.repository.js'
 import { generatePdf } from './pdf-generator.js'
@@ -177,7 +178,7 @@ export class AdminSupplierOrdersService {
     const [users, condos] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
-        select: { id: true, name: true, apartment: true, block: true, creditBalance: true, isBlocked: true, autoRecharge: true },
+        select: { id: true, name: true, apartment: true, block: true, creditMilli: true, isBlocked: true, autoRecharge: true },
       }),
       this.prisma.condominium.findMany({
         where: { id: { in: condoIds } },
@@ -214,7 +215,8 @@ export class AdminSupplierOrdersService {
           ? ''
           : u?.isBlocked
             ? 'blocked'
-            : !autoRechargeActive && (projTotalByUser.get(s.userId) ?? 0) > (u?.creditBalance ?? 0)
+            : !autoRechargeActive &&
+                (projTotalByUser.get(s.userId) ?? 0) > wholeBreads((u?.creditMilli ?? 0))
               ? 'no-credit'
               : ''
       return {

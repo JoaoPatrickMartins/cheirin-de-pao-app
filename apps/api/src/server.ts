@@ -46,6 +46,7 @@ import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 import { seedDefaultsIfAbsent } from './bootstrap/defaults-seed.js'
 import { backfillHooksIfNeeded } from './bootstrap/hooks-backfill.js'
 import { backfillSupplierProductsIfNeeded } from './bootstrap/supplier-products-backfill.js'
+import { backfillCreditMilliIfNeeded } from './bootstrap/credit-milli-backfill.js'
 
 const fastify = Fastify({ logger: true })
 
@@ -210,6 +211,13 @@ const start = async () => {
     // um produto só. DEVE rodar antes de qualquer geração de pedido ao fornecedor: sem a linha do
     // pão na matriz, o pão de amanhã não seria comprado. Depende do defaults-seed (breadProductId).
     await backfillSupplierProductsIfNeeded(fastify.prisma, fastify.log)
+
+    // Bootstrap — migra o saldo de crédito para milésimos de pãozinho (execução única via flag).
+    // DEVE rodar antes de servir tráfego: a escrita dupla incrementa os dois campos, e `$inc` num
+    // campo AUSENTE no Mongo cria o campo com o valor do incremento — o saldo canônico de quem
+    // ainda não foi migrado nasceria errado (e o backfill posterior não corrige, porque só
+    // preenche o que está null).
+    await backfillCreditMilliIfNeeded(fastify.prisma, fastify.log)
 
     // JWT — assina/verifica o access token. Registrado ANTES do authenticate (que usa fastify.jwt)
     // e das rotas (auth.service assina tokens). Access token de vida curta (15 min); o refresh

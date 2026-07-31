@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
+import { fromMilli, toMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { CreateOrderBody } from './orders.schema.js'
 import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr, dayKeyOf } from '../../lib/cutoff.js'
 import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
@@ -159,14 +160,16 @@ export class OrdersService {
     const order = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: userId } })
 
-      if (!user || user.creditBalance < data.quantity) {
+      // Pães inteiros disponíveis (a fração do saldo não entrega pão), lendo o canônico com
+      // fallback para o legado em quem ainda não foi migrado.
+      if (!user || wholeBreads((user.creditMilli ?? 0)) < data.quantity) {
         throw { statusCode: 400, message: 'Créditos insuficientes' }
       }
 
-      // Debitar créditos
+      // Debitar créditos (escrita dupla: legado inteiro + canônico em milésimos)
       await tx.user.update({
         where: { id: userId },
-        data: { creditBalance: { decrement: data.quantity } },
+        data: { creditMilli: { decrement: toMilli(data.quantity) } },
       })
 
       // Criar Order (type SINGLE, status SCHEDULED)
@@ -191,7 +194,7 @@ export class OrdersService {
         data: {
           userId,
           type: 'DELIVERY',
-          quantity: -data.quantity,
+          quantityMilli: -toMilli(data.quantity),
           referenceId: newOrder.id,
           description: avulsoDesc,
         },
@@ -312,21 +315,21 @@ export class OrdersService {
           data: {
             userId,
             type: 'REFUND',
-            quantity: order.quantity,
+            quantityMilli: toMilli(order.quantity),
             referenceId: orderId,
             description: `Cancelamento de pedido — ${paesLabel} devolvido(s)`,
           },
         })
         await tx.user.update({
           where: { id: userId },
-          data: { creditBalance: { increment: order.quantity } },
+          data: { creditMilli: { increment: toMilli(order.quantity) } },
         })
       }
     })
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { creditBalance: true, name: true, apartment: true, block: true },
+      select: { creditMilli: true, name: true, apartment: true, block: true },
     })
 
     // Aviso ao admin — pedido cancelado pelo cliente (best-effort).
@@ -346,7 +349,8 @@ export class OrdersService {
       id: orderId,
       status: 'CANCELLED' as const,
       refundedCredits: existingRefund ? 0 : order.quantity,
-      creditBalance: user?.creditBalance ?? 0,
+      // Pãezinhos decimais (o schema da rota declara `number` — `integer` truncaria 43,5).
+      creditBalance: fromMilli((user?.creditMilli ?? 0)),
     }
   }
 

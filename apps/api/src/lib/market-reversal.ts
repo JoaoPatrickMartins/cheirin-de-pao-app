@@ -4,14 +4,20 @@
  * Extraído de `MarketOrdersService.cancelOrder` para ser reusado pelo admin ao resolver uma
  * Cestinha "parada" (Onda B5). A matemática do estorno é delicada e não deve viver em dois lugares:
  *
- * - **Estorno é TUDO em crédito** (DEC-36), inclusive a parte paga em dinheiro, convertida a
- *   `ceil(moneyAmount / avulsoUnit)` — arredondamento a favor do cliente. Não há estorno no gateway.
+ * - **Estorno é TUDO em crédito** (DEC-36), inclusive a parte paga em dinheiro. Não há estorno no
+ *   gateway.
+ * - **A devolução é PROPORCIONAL, nunca arredondada para cima.** R$ 0,60 com avulso de R$ 1,20
+ *   devolve 0,5 🥖, não 1 🥖. Arredondar para o pãozinho inteiro era uma brecha explorável:
+ *   pagar R$ 0,10 em dinheiro e cancelar devolvia R$ 1,20 em crédito — R$ 1,10 de lucro por
+ *   ciclo, repetível à vontade. A conversão usa a MESMA função do débito (`creditsForPrice`),
+ *   então comprar-e-cancelar é sempre neutro: sai 1 🥖 + R$ 0,60, volta 1,5 🥖.
  * - **Dinheiro só foi cobrado se o pedido saiu de `PENDING_PAYMENT`.** Um pedido que morreu
  *   aguardando Pix não teve dinheiro capturado, então só os créditos aplicados voltam.
  * - **Idempotente por `referenceId`**: uma `CreditTransaction` `MARKET_REFUND` com o id do pedido já
  *   existente impede o segundo crédito (rota chamada 2×, retry, sweep + admin ao mesmo tempo).
  */
 import type { PrismaClient, MarketOrderStatus } from '@prisma/client'
+import { creditsForPrice, formatCredits, fromMilli } from '@cheirin-de-pao/shared'
 import { brtDateStr } from './cutoff.js'
 
 /** O que a reversão precisa saber do pedido. */
@@ -20,7 +26,8 @@ export interface ReversibleMarketOrder {
   userId: string
   status: string
   breadQty: number
-  creditsApplied: number
+  /** Pãezinhos aplicados, em MILÉSIMOS — o único campo de crédito do pedido. */
+  creditsAppliedMilli: number | null
   moneyAmount: number
   scheduledDate: Date
   items: { productId: string; qty: number }[]
@@ -31,7 +38,7 @@ export interface ReverseMarketOrderOptions {
   status: MarketOrderStatus
   /** Motivo (cancelReason em CANCELLED, failureReason em NOT_DELIVERED). */
   reason?: string
-  /** Devolve os pãezinhos (aplicados + parte em dinheiro convertida). */
+  /** Devolve os pãezinhos (aplicados + parte em dinheiro convertida proporcionalmente). */
   refundCredits: boolean
   /** Devolve o estoque dos produtos. */
   returnStock: boolean
@@ -44,16 +51,37 @@ export interface ReverseMarketOrderOptions {
 }
 
 /**
- * Quantos pãezinhos um estorno devolveria — `creditsApplied` + a parte em dinheiro convertida.
- * Exposto para a UI mostrar "isso vai devolver N 🥖" antes de confirmar.
+ * Quanto um estorno devolveria, em MILÉSIMOS de pãozinho: o que foi debitado em crédito + a parte
+ * paga em dinheiro convertida ao valor do pão avulso.
+ *
+ * Tudo **exato**, pelas duas pontas. A parte em crédito devolve o que saiu (1,5 🥖 → 1,5 🥖) — 2 🥖
+ * daria meio pãozinho de graça. A parte em dinheiro converte proporcionalmente pela mesma função
+ * do débito (`creditsForPrice`): R$ 0,60 com avulso R$ 1,20 → 0,5 🥖.
+ *
+ * O `ceil` para pãozinho inteiro que existia aqui era uma **brecha de dinheiro**: com uma
+ * Cestinha que sobrasse R$ 0,10 em dinheiro, cada ciclo comprar-cancelar devolvia R$ 1,20 em
+ * crédito e dava R$ 1,10 de lucro ao cliente, sem limite de repetição.
  */
-export function refundableCredits(
-  order: Pick<ReversibleMarketOrder, 'status' | 'creditsApplied' | 'moneyAmount'>,
+export function refundableCreditsMilli(
+  order: Pick<ReversibleMarketOrder, 'status' | 'creditsAppliedMilli' | 'moneyAmount'>,
   avulsoUnit: number,
 ): number {
+  const creditsMilli = (order.creditsAppliedMilli ?? 0)
   const moneyPaid = order.status !== 'PENDING_PAYMENT' && order.moneyAmount > 0
-  const moneyAsCredits = moneyPaid && avulsoUnit > 0 ? Math.ceil(order.moneyAmount / avulsoUnit) : 0
-  return order.creditsApplied + moneyAsCredits
+  // Mesma função do débito → o ciclo comprar-cancelar fecha em zero, sem brecha.
+  const moneyMilli = moneyPaid ? creditsForPrice(order.moneyAmount, avulsoUnit) : 0
+  return creditsMilli + moneyMilli
+}
+
+/**
+ * Mesma conta em pãezinhos DECIMAIS — para a UI mostrar "isso vai devolver 1,5 🥖" antes de
+ * confirmar. A gravação usa a versão em milésimos.
+ */
+export function refundableCredits(
+  order: Pick<ReversibleMarketOrder, 'status' | 'creditsAppliedMilli' | 'moneyAmount'>,
+  avulsoUnit: number,
+): number {
+  return fromMilli(refundableCreditsMilli(order, avulsoUnit))
 }
 
 /**
@@ -66,7 +94,7 @@ export async function reverseMarketOrder(
   order: ReversibleMarketOrder,
   opts: ReverseMarketOrderOptions,
 ): Promise<number> {
-  const refundCredits = opts.refundCredits ? refundableCredits(order, opts.avulsoUnit) : 0
+  const refundMilli = opts.refundCredits ? refundableCreditsMilli(order, opts.avulsoUnit) : 0
   const dateStr = brtDateStr(order.scheduledDate)
 
   // Idempotência: nunca credita duas vezes o mesmo pedido.
@@ -74,7 +102,8 @@ export async function reverseMarketOrder(
     where: { type: 'MARKET_REFUND', referenceId: order.id },
     select: { id: true },
   })
-  const doRefund = refundCredits > 0 && !existingRefund
+  // Gate no MILÉSIMO: um estorno de 0,4 🥖 arredonda para 0 no legado e seria engolido.
+  const doRefund = refundMilli > 0 && !existingRefund
 
   await prisma.$transaction(async (tx) => {
     if (opts.returnStock) {
@@ -96,16 +125,17 @@ export async function reverseMarketOrder(
     if (doRefund) {
       await tx.user.update({
         where: { id: order.userId },
-        data: { creditBalance: { increment: refundCredits } },
+        data: { creditMilli: { increment: refundMilli } },
       })
       await tx.creditTransaction.create({
         data: {
           userId: order.userId,
           type: 'MARKET_REFUND',
-          quantity: refundCredits,
+          quantityMilli: refundMilli,
           referenceId: order.id,
           description:
-            opts.description ?? `Cancelamento da Cestinha — ${refundCredits} pãezinho(s) devolvido(s)`,
+            opts.description ??
+            `Cancelamento da Cestinha — ${formatCredits(refundMilli)} pãezinho(s) devolvido(s)`,
           adminId: opts.adminId,
           reason: opts.reason,
         },
@@ -128,5 +158,6 @@ export async function reverseMarketOrder(
     })
   })
 
-  return doRefund ? refundCredits : 0
+  // Devolve em pãezinhos DECIMAIS — é o número que a UI mostra ("devolvidos 1,5 🥖").
+  return doRefund ? fromMilli(refundMilli) : 0
 }

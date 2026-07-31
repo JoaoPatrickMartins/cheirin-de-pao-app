@@ -23,7 +23,7 @@ interface OrderShape {
   userId: string
   status: string
   breadQty: number
-  creditsApplied: number
+  creditsAppliedMilli: number | null
   moneyAmount: number
   scheduledDate: Date
   items: { productId: string; name: string; qty: number; unitPrice: number }[]
@@ -37,7 +37,7 @@ const order = (over: Partial<OrderShape> = {}): OrderShape => ({
   userId: 'user-1',
   status: 'NOT_DELIVERED',
   breadQty: 4,
-  creditsApplied: 3,
+  creditsAppliedMilli: 3000,
   moneyAmount: 12,
   scheduledDate: new Date('2026-07-28T15:00:00.000Z'),
   items: [{ productId: 'fixo', name: 'Geleia', qty: 2, unitPrice: 8 }],
@@ -73,7 +73,7 @@ function makeService(
   }
 
   const prisma = {
-    user: { findUnique: vi.fn().mockResolvedValue({ creditBalance: 40 }) },
+    user: { findUnique: vi.fn().mockResolvedValue({ creditMilli: 40000 }) },
     setting: { findUnique: vi.fn().mockResolvedValue({ key: 'avulsoUnit', value: avulsoUnit }) },
     marketOrder: { findUnique: vi.fn().mockResolvedValue(o) },
     creditTransaction: { findFirst: vi.fn().mockResolvedValue(existingRefund ? { id: 'tx-old' } : null) },
@@ -108,10 +108,13 @@ describe('resolveNotDelivered', () => {
     // 3 créditos aplicados + ceil(12 / 2) da parte em dinheiro = 9 (DEC-36, a favor do cliente).
     expect(r).toMatchObject({ stockReturned: true, refundedCredits: 9, alreadyResolved: false })
     expect(productUpdate).toHaveBeenCalledWith({ where: { id: 'fixo' }, data: { stock: { increment: 2 } } })
-    expect(userUpdate).toHaveBeenCalledWith({ where: { id: 'user-1' }, data: { creditBalance: { increment: 9 } } })
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { creditMilli: { increment: 9000 } },
+    })
     expect(creditTransactionCreate.mock.calls[0][0].data).toMatchObject({
       type: 'MARKET_REFUND',
-      quantity: 9,
+      quantityMilli: 9000,
       referenceId: 'mo-1',
       adminId: 'admin-1',
     })

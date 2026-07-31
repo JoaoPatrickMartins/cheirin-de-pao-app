@@ -1,3 +1,4 @@
+import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
@@ -258,7 +259,7 @@ export function CreditHistoryScreen() {
                       flexShrink: 0,
                     }}
                   >
-                    {`${isCredit ? '+' : '−'}${Math.abs(tx.quantity)}`}
+                    {`${isCredit ? '+' : '−'}${formatCredits(toMilli(Math.abs(tx.quantity)))}`}
                   </div>
                 </div>
               )

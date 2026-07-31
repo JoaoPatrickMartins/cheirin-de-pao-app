@@ -49,7 +49,7 @@ function makeMock(overrides: Record<string, any> = {}) {
         const isCourier = couriers.some((c: { id: string }) => ids.includes(c.id))
         return Promise.resolve(isCourier ? couriers : users)
       }),
-      findUnique: vi.fn().mockResolvedValue({ creditBalance: creditBalanceAfter }),
+      findUnique: vi.fn().mockResolvedValue({ creditMilli: creditBalanceAfter * 1000 }),
       update: vi.fn().mockResolvedValue({}),
     },
     condominium: { findMany: vi.fn().mockResolvedValue(condos) },
@@ -104,7 +104,7 @@ function makeMarketOrder(over: Record<string, unknown> = {}) {
     cancelReason: null,
     paymentId: null,
     courierId: null,
-    creditsApplied: 3,
+    creditsAppliedMilli: 3000,
     moneyAmount: 5.5,
     totalValue: 8.5,
     items: [{ name: 'Bolo de Fubá', qty: 2 }],
@@ -294,10 +294,10 @@ describe('AdminOrdersService — ledger / stuck / refund', () => {
       const r = await new AdminOrdersService(fastify as any).refundOrder('o1', 'admin-1', 'falha de rota')
       expect(r).toEqual({ id: 'o1', refundedCredits: 5, creditBalance: 12 })
       expect(prisma.creditTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantity: 5, referenceId: 'o1' }) }),
+        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantityMilli: 5000, referenceId: 'o1' }) }),
       )
       expect(prisma.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { creditBalance: { increment: 5 } } }),
+        expect.objectContaining({ data: { creditMilli: { increment: 5000 } } }),
       )
     })
 
@@ -335,9 +335,11 @@ describe('AdminOrdersService — ledger / stuck / refund', () => {
         expect.objectContaining({ data: expect.objectContaining({ status: 'NOT_DELIVERED', failureReason: 'cliente ausente' }) }),
       )
       expect(prisma.creditTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantity: 4, referenceId: 'o1' }) }),
+        expect.objectContaining({ data: expect.objectContaining({ type: 'REFUND', quantityMilli: 4000, referenceId: 'o1' }) }),
       )
-      expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: { creditBalance: { increment: 4 } } }))
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { creditMilli: { increment: 4000 } } }),
+      )
     })
 
     it('NOT_DELIVERED sem estorno: aplica status e NÃO devolve pães', async () => {
@@ -410,5 +412,53 @@ describe('AdminOrdersService — ledger / stuck / refund', () => {
         new AdminOrdersService(fastify as any).resolveStuckOrder('x', 'admin-1', { outcome: 'DELIVERED' }),
       ).rejects.toMatchObject({ statusCode: 404 })
     })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Onda F — a Cestinha do ledger pode ter sido paga com pãezinhos FRACIONADOS
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getLedger — crédito fracionado na Cestinha', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('mostra 1,5 🥖 (canônico), não o espelho legado arredondado', async () => {
+    // Cestinha de R$ 1,80 paga 100% em pãezinhos: 1500 mili. O legado guarda 2.
+    const { fastify } = makeMock({
+      marketOrders: [makeMarketOrder({ creditsAppliedMilli: 1500, moneyAmount: 0, totalValue: 1.8 })],
+      marketCount: 1,
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await new AdminOrdersService(fastify as any).getLedger({ kind: 'CESTINHA' })
+
+    expect(r.rows[0].creditsApplied).toBe(1.5)
+  })
+
+  it('Cestinha sem o canônico gravado aparece com 0 (não reaparece pelo legado)', async () => {
+    const { fastify } = makeMock({
+      marketOrders: [makeMarketOrder({ creditsAppliedMilli: null })],
+      marketCount: 1,
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await new AdminOrdersService(fastify as any).getLedger({ kind: 'CESTINHA' })
+
+    expect(r.rows[0].creditsApplied).toBe(0)
+  })
+
+  it('o pão da Cestinha (breadQty) segue INTEIRO — o fracionado é só o crédito', async () => {
+    // Regressão do que foi reportado no teste manual: crédito fracionado não pode "vazar" para a
+    // quantidade de pães, que é o número que a operação separa.
+    const { fastify } = makeMock({
+      marketOrders: [makeMarketOrder({ breadQty: 2, creditsAppliedMilli: 1500 })],
+      marketCount: 1,
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await new AdminOrdersService(fastify as any).getLedger({ kind: 'CESTINHA' })
+
+    expect(r.rows[0].quantity).toBe(2)
+    expect(Number.isInteger(r.rows[0].quantity)).toBe(true)
   })
 })

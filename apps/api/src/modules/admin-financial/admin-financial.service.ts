@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { fromMilli } from '@cheirin-de-pao/shared'
 import { excludeNonCreditPurpose, nonCreditPurposeMatchRaw } from '../../lib/revenue.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
 import { loadUnitCosts } from '../../lib/product-cost.js'
@@ -191,7 +192,7 @@ export class AdminFinancialService {
         where: { status: 'PAID', purpose: 'MARKET', createdAt: { gte: startDate, lte: endDate } },
       }),
       this.prisma.marketOrder.aggregate({
-        _sum: { totalValue: true, moneyAmount: true, creditsApplied: true },
+        _sum: { totalValue: true, moneyAmount: true, creditsAppliedMilli: true },
         _count: true,
         where: {
           status: { in: [...CONFIRMED_MARKET_STATUSES] },
@@ -218,7 +219,9 @@ export class AdminFinancialService {
       // a parte em pãezinhos é exatamente a diferença — sem depender do preço avulso de hoje (que
       // pode ter mudado desde a compra).
       creditPart: round2(gmv - moneyPart),
-      credits: marketOrdersAgg._sum.creditsApplied ?? 0,
+      // Soma em MILÉSIMOS e converte no fim: o espelho legado arredonda por pedido, então somar
+      // `creditsApplied` daria alguns pãezinhos de diferença no fechamento.
+      credits: fromMilli(marketOrdersAgg._sum.creditsAppliedMilli ?? 0),
       orders: marketOrdersAgg._count,
       cmv,
       margin: round2(gmv - cmv),

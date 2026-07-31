@@ -135,7 +135,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } } },
     },
     marketItemCount: { type: 'integer', description: 'Soma das quantidades de marketItems.' },
-    creditsApplied: { type: 'integer', description: 'Pãezinhos aplicados na Cestinha (0 em BREAD).' },
+    creditsApplied: { type: 'number', description: 'Pãezinhos aplicados na Cestinha, decimal (0 em BREAD).' },
     moneyAmount: { type: 'number', description: 'R$ cobrado no gateway pela Cestinha (0 em BREAD).' },
     totalValue: { type: 'number', description: 'Valor total da Cestinha em R$ (0 em BREAD).' },
   }
@@ -230,8 +230,8 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             type: 'object',
             properties: {
               id: { type: 'string' },
-              refundedCredits: { type: 'integer' },
-              creditBalance: { type: 'integer' },
+              refundedCredits: { type: 'number' },
+              creditBalance: { type: 'number' },
             },
           },
         },
@@ -501,8 +501,8 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               id: { type: 'string' },
               status: { type: 'string', description: 'Novo status do pedido.' },
-              refundedCredits: { type: 'integer', description: 'Pães devolvidos ao saldo (0 se não houve estorno).' },
-              creditBalance: { type: 'integer', description: 'Saldo do cliente após a operação.' },
+              refundedCredits: { type: 'number', description: 'Pãezinhos devolvidos ao saldo, decimal (0 se não houve estorno).' },
+              creditBalance: { type: 'number', description: 'Saldo do cliente após a operação (decimal).' },
             },
           },
         },

@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { fromMilli } from '@cheirin-de-pao/shared'
 import { PaymentsRepository } from './payments.repository.js'
 import { StripeService } from './stripe.service.js'
 import { MercadoPagoPixService } from './mercadopago-pix.service.js'
@@ -381,7 +382,8 @@ export class PaymentsService {
 
     if (payment!.status === 'PAID') {
       const user = await this.prisma.user.findUnique({ where: { id: userId } })
-      return { status: 'approved', creditBalance: user?.creditBalance ?? 0 }
+      // Pãezinhos decimais — ver client-profile.service (o response-schema já é `number`).
+      return { status: 'approved', creditBalance: fromMilli((user?.creditMilli ?? 0)) }
     }
     if (payment!.status === 'FAILED' || payment!.status === 'REFUNDED') {
       return { status: 'rejected' }
