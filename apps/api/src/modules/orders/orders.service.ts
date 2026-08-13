@@ -3,7 +3,14 @@ import { NotificationType } from '@prisma/client'
 import { fromMilli, toMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { CreateOrderBody } from './orders.schema.js'
 import { isPastCutoffForDelivery, brtDateStr, brtNoonFromStr, dayKeyOf } from '../../lib/cutoff.js'
-import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
+import {
+  getRulesForCondo,
+  getDateBlock,
+  listBlocksOverlapping,
+  findBlockForDate,
+  blockedDateMessage,
+  isDayBlocked,
+} from '../../lib/delivery-rules.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { clientLabel } from '../../lib/client-label.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
@@ -96,15 +103,31 @@ export class OrdersService {
     // Armazena ao meio-dia BRT do dia escolhido (cai na janela correta de hoje/histórico)
     const scheduledDate = brtNoonFromStr(dateStr)
 
-    // Restrições por dia da semana (global, definidas pelo admin): dia bloqueado e teto de
-    // entregas. Checagem read-only antes da transação — o corte tem backstop hard (schedules).
+    // Condomínio do cliente — define QUAIS regras valem (as do condomínio, ou o padrão global
+    // quando ele não personalizou) e também os slots/horários de entrega dele.
+    const ownerCondo = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { condominiumId: true },
+    })
+    const condominiumId = ownerCondo?.condominiumId ?? null
+
+    // Restrições por dia da semana RESOLVIDAS para o condomínio do cliente: dia bloqueado e teto
+    // de entregas. Checagem read-only antes da transação — o corte tem backstop hard (schedules).
     const dayKey = dayKeyOf(scheduledDate)
-    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    const { blocked, limits } = await getRulesForCondo(this.prisma, condominiumId)
     if (isDayBlocked(blocked, dayKey)) {
       throw { statusCode: 422, message: 'Não há entregas neste dia da semana.' }
     }
+
+    // Bloqueio de DATA/período (feriado, obra na portaria): global ou do condomínio.
+    const dateBlock = await getDateBlock(this.prisma, condominiumId, dateStr)
+    if (dateBlock) {
+      throw { statusCode: 422, message: blockedDateMessage(dateBlock) }
+    }
+
+    // O teto conta apenas as entregas DESTE condomínio — é o que dá sentido ao limite por condo.
     if (limits[dayKey] > 0) {
-      const committed = await countCommittedDeliveries(this.prisma, scheduledDate)
+      const committed = await countCommittedDeliveries(this.prisma, scheduledDate, { condominiumId })
       if (committed >= limits[dayKey]) {
         throw { statusCode: 422, message: 'O limite de pedidos para este dia foi atingido.' }
       }
@@ -115,13 +138,9 @@ export class OrdersService {
     // um slot ainda aberto. O slot resolvido é gravado em Order.deliveryTime.
     let deliveryTime: string | undefined = data.deliveryTime
     let slotId: string | undefined
-    const ownerCondo = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { condominiumId: true },
-    })
-    const condo = ownerCondo?.condominiumId
+    const condo = condominiumId
       ? await this.prisma.condominium.findUnique({
-          where: { id: ownerCondo.condominiumId },
+          where: { id: condominiumId },
           select: { deliverySlots: true },
         })
       : null
@@ -398,31 +417,56 @@ export class OrdersService {
    * @param days    Número de dias para trás (default: 30)
    */
   /**
-   * Disponibilidade por data (global) para a régua de dias do pedido único, a partir de HOJE (BRT).
-   * Para cada data: `blocked` (dia da semana bloqueado) e `full` (limite de pedidos atingido).
-   * O limite é global (todos os condomínios) — coerente com a config do admin.
+   * Disponibilidade por data para a régua de dias, a partir de HOJE (BRT). Fonte única do pedido
+   * único E da Cestinha — as duas telas leem daqui, então a régua nunca divergir entre elas.
    *
-   * Faz uma contagem por data; `days` é limitado (≤ 60) no controller. Pode ser otimizado com
-   * uma única varredura agregada se a janela crescer.
+   * Tudo resolvido para o condomínio do cliente: as regras (override ?? padrão global), o teto
+   * (que conta só as entregas daquele condomínio) e os bloqueios de data (globais + do condo).
+   *
+   * Para cada data:
+   *   - `blocked`: não aceita entrega — dia da semana bloqueado OU data/período bloqueado;
+   *   - `reason`: motivo do bloqueio de data, quando houver ("Feriado") — a UI mostra ao cliente;
+   *   - `full`: teto de pedidos do dia atingido.
+   *
+   * Uma leitura de bloqueios cobre a janela inteira; a contagem do teto é por data (só nos dias
+   * que têm teto). `days` é limitado (≤ 60) no controller.
    */
   async getOrderAvailability(
     days: number = 14,
-  ): Promise<Array<{ date: string; blocked: boolean; full: boolean }>> {
-    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
-    const now = new Date()
-    const out: Array<{ date: string; blocked: boolean; full: boolean }> = []
+    userId?: string,
+  ): Promise<Array<{ date: string; blocked: boolean; full: boolean; reason?: string }>> {
+    const user = userId
+      ? await this.prisma.user.findUnique({ where: { id: userId }, select: { condominiumId: true } })
+      : null
+    const condominiumId = user?.condominiumId ?? null
 
+    const now = new Date()
+    const fromStr = brtDateStr(now, 0)
+    const toStr = brtDateStr(now, Math.max(0, days - 1))
+    const [{ blocked, limits }, dateBlocks] = await Promise.all([
+      getRulesForCondo(this.prisma, condominiumId),
+      listBlocksOverlapping(this.prisma, condominiumId, fromStr, toStr),
+    ])
+
+    const out: Array<{ date: string; blocked: boolean; full: boolean; reason?: string }> = []
     for (let i = 0; i < days; i++) {
       const dateStr = brtDateStr(now, i)
       const d = brtNoonFromStr(dateStr)
       const dayKey = dayKeyOf(d)
-      const dayBlocked = isDayBlocked(blocked, dayKey)
+      const dateBlock = findBlockForDate(dateBlocks, dateStr)
+      const dayBlocked = isDayBlocked(blocked, dayKey) || !!dateBlock
+
       let full = false
       if (!dayBlocked && limits[dayKey] > 0) {
-        const committed = await countCommittedDeliveries(this.prisma, d)
+        const committed = await countCommittedDeliveries(this.prisma, d, { condominiumId })
         full = committed >= limits[dayKey]
       }
-      out.push({ date: dateStr, blocked: dayBlocked, full })
+      out.push({
+        date: dateStr,
+        blocked: dayBlocked,
+        full,
+        ...(dateBlock?.reason ? { reason: dateBlock.reason } : {}),
+      })
     }
     return out
   }

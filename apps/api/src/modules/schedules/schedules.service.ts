@@ -6,13 +6,13 @@ import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
 import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
 import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
 import {
-  getAgendaRestrictions,
   isDayBlocked,
   nextDateForWeekday,
   WEEKDAY_ORDER,
   WEEKDAY_LABEL,
   type DiasBloqueados,
 } from '../../lib/agenda-restrictions.js'
+import { getRulesForCondo, getDateBlock } from '../../lib/delivery-rules.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { PRE_DELIVERY } from '../../lib/market-pipeline.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
@@ -199,8 +199,9 @@ export class SchedulesService {
       throw { statusCode: 422, message: erro }
     }
 
-    // Restrições por dia da semana (global): dias bloqueados e teto de entregas por dia.
-    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    // Restrições por dia da semana RESOLVIDAS para o condomínio do cliente (override ?? padrão
+    // global): dias bloqueados e teto de entregas por dia.
+    const { blocked, limits } = await getRulesForCondo(this.prisma, condominiumId)
 
     const erroBloqueio = findAgendaBlockedError(data, blocked)
     if (erroBloqueio) {
@@ -209,13 +210,17 @@ export class SchedulesService {
 
     // Limite por dia (reserva): para cada dia com entregas, checa as vagas na PRÓXIMA ocorrência,
     // excluindo este usuário (a agenda tem prioridade — o cliente não concorre contra a própria
-    // reserva já existente, então editar a agenda nunca falha por causa dela).
+    // reserva já existente, então editar a agenda nunca falha por causa dela). A contagem é
+    // restrita ao condomínio: o teto de um condo não é consumido pelas entregas de outro.
     const deliveriesPerDay = countDeliveriesPerWeekday(data)
     for (const day of WEEKDAY_ORDER) {
       const novas = deliveriesPerDay[day]
       if (novas === 0 || limits[day] === 0) continue
       const deliveryDate = nextDateForWeekday(day)
-      const base = await countCommittedDeliveries(this.prisma, deliveryDate, { excludeUserId: userId })
+      const base = await countCommittedDeliveries(this.prisma, deliveryDate, {
+        excludeUserId: userId,
+        condominiumId,
+      })
       if (base + novas > limits[day]) {
         throw {
           statusCode: 422,
@@ -255,15 +260,28 @@ export class SchedulesService {
       suppressInsufficientPush?: boolean
     } = {},
   ): Promise<void> {
-    // Restrições do admin (backstop hard): dia bloqueado não gera NADA; teto limita o total de
-    // entregas do dia. Protege agendas salvas ANTES de o dia ser bloqueado/limitado.
-    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    // Restrições do admin (backstop hard), resolvidas para ESTE condomínio: dia bloqueado não
+    // gera NADA; teto limita as entregas do dia. Protege agendas salvas ANTES de o dia ser
+    // bloqueado/limitado.
+    const { blocked, limits } = await getRulesForCondo(this.prisma, condominiumId)
     if (isDayBlocked(blocked, dayKey)) {
       this.fastify.log.info(
         `[schedules] dia ${dayKey} bloqueado — corte não gera orders (condo ${condominiumId}, slot ${slot.slotId})`,
       )
       return
     }
+
+    // Bloqueio de DATA/período (feriado, obra): mesmo backstop hard. Uma agenda salva antes do
+    // bloqueio não pode virar pedido numa data em que ninguém entrega.
+    const deliveryStr = brtDateStr(deliveryDate)
+    const dateBlock = await getDateBlock(this.prisma, condominiumId, deliveryStr)
+    if (dateBlock) {
+      this.fastify.log.info(
+        `[schedules] data ${deliveryStr} bloqueada${dateBlock.reason ? ` (${dateBlock.reason})` : ''} — corte não gera orders (condo ${condominiumId}, slot ${slot.slotId})`,
+      )
+      return
+    }
+
     const dayLimit = limits[dayKey] // 0 = ilimitado
 
     const schedules = await this.prisma.schedule.findMany({
@@ -296,13 +314,17 @@ export class SchedulesService {
         })
         if (existing) continue
 
-        // Backstop de limite (global por data): reconta ao vivo as entregas materializadas do dia
-        // (todos os condomínios/slots) e para de gerar quando o teto é atingido. Ordem = iteração
+        // Backstop de limite: reconta ao vivo as entregas materializadas do dia NESTE condomínio
+        // (todos os slots dele) e para de gerar quando o teto é atingido. Ordem = iteração
         // (first-come). Como o pedido único já respeita as reservas da agenda na criação, a
         // capacidade tende a estar consistente antes do corte.
         if (dayLimit > 0) {
           const materialized = await this.prisma.order.count({
-            where: { status: { not: 'CANCELLED' }, scheduledDate: { gte: start, lte: end } },
+            where: {
+              condominiumId,
+              status: { not: 'CANCELLED' },
+              scheduledDate: { gte: start, lte: end },
+            },
           })
           if (materialized >= dayLimit) {
             this.fastify.log.warn(

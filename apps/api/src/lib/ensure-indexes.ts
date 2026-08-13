@@ -51,6 +51,16 @@ const INDEX_SPECS: Array<{
       { key: { visitorId: 1, createdAt: 1 }, name: 'visitorId_1_createdAt_1' },
     ],
   },
+  {
+    // Bloqueios de data/período. A busca é sempre "bloqueios que cobrem esta data", filtrando
+    // por condomínio (+ os globais). Nomes/keys IDÊNTICOS aos `@@index` do schema.prisma — se
+    // divergirem, o `prisma db push` do deploy e este passo brigam pelo mesmo nome (erro 85).
+    collection: 'DeliveryBlock',
+    indexes: [
+      { key: { condominiumId: 1, startDate: 1 }, name: 'condominiumId_1_startDate_1' },
+      { key: { startDate: 1, endDate: 1 }, name: 'startDate_1_endDate_1' },
+    ],
+  },
 ]
 
 /**

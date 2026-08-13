@@ -122,6 +122,11 @@ function createMockFastify(overrides?: {
           Promise.resolve(where.key === 'pedidoMinimoAgenda' ? (agendaMinimoRow ?? null) : null),
         ),
       },
+      // Sem override por condomínio → as restrições resolvem para o padrão global (nada
+      // bloqueado, sem limite), mantendo os testes idênticos ao comportamento histórico.
+      condominium: { findUnique: vi.fn().mockResolvedValue(null) },
+      // Sem bloqueios de data/período.
+      deliveryBlock: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: transactionFn,
     },
   } as unknown as FastifyInstance
@@ -1019,9 +1024,14 @@ describe('SchedulesService', () => {
       const fastify = {
         log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         prisma: {
-          condominium: { findMany: vi.fn().mockResolvedValue(opts.condominiums) },
+          condominium: {
+            findMany: vi.fn().mockResolvedValue(opts.condominiums),
+            // Sem override → restrições resolvem para o padrão global.
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
           schedule: { findMany: vi.fn().mockResolvedValue(opts.schedules) },
           setting: { findUnique: vi.fn().mockResolvedValue(null) },
+          deliveryBlock: { findMany: vi.fn().mockResolvedValue([]) },
           order: {
             findFirst: vi.fn().mockResolvedValue(opts.existingOrder ? { id: 'existing' } : null),
             count: vi.fn().mockResolvedValue(0),
@@ -1092,6 +1102,58 @@ describe('SchedulesService', () => {
             condominiumId: 'condo-1',
             quantity: 1, // seg do slot 15:30
             type: 'SCHEDULED',
+          }),
+        }),
+      )
+    })
+
+    it('backstop hard: data BLOQUEADA não gera nenhuma order no corte', async () => {
+      // 2026-06-22T13:00:00Z = segunda 10:00 BRT → corte da tarde, entrega HOJE (Regra A).
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T13:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditMilli: 10000, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+      // Feriado cobrindo o dia da entrega — protege agenda salva ANTES do bloqueio.
+      fastify.prisma.deliveryBlock.findMany = vi.fn().mockResolvedValue([
+        { id: 'b1', condominiumId: null, startDate: '2026-06-22', endDate: '2026-06-22', reason: 'Feriado' },
+      ])
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      expect(createOrderFn).not.toHaveBeenCalled()
+    })
+
+    it('backstop hard: bloqueio de OUTRO condomínio não impede a geração', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-06-22T13:00:00Z'))
+
+      const { fastify, createOrderFn } = mockFastifyCutoff({
+        condominiums: [tardeCondo],
+        schedules: [multiSchedule],
+        users: { 'user-cut-1': { id: 'user-cut-1', creditMilli: 10000, condominiumId: 'condo-1', autoRecharge: null, oneSignalPlayerId: null } },
+      })
+      // O `findMany` real filtraria por escopo; aqui simulamos o retorno já filtrado (vazio)
+      // para o condomínio consultado, confirmando que nada é bloqueado por tabela alheia.
+      fastify.prisma.deliveryBlock.findMany = vi.fn().mockResolvedValue([])
+
+      const service = new SchedulesService(fastify)
+      await service.createOrdersAtCutoff()
+
+      expect(createOrderFn).toHaveBeenCalledTimes(1)
+      // A consulta de bloqueios foi feita no escopo do condomínio + globais.
+      expect(fastify.prisma.deliveryBlock.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [
+              { condominiumId: 'condo-1' },
+              { condominiumId: null },
+              { condominiumId: { isSet: false } },
+            ],
           }),
         }),
       )
@@ -1210,9 +1272,13 @@ describe('SchedulesService', () => {
       const fastify = {
         log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
         prisma: {
-          condominium: { findMany: vi.fn().mockResolvedValue([tardeOnlyCondo]) },
+          condominium: {
+            findMany: vi.fn().mockResolvedValue([tardeOnlyCondo]),
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
           schedule: { findMany: vi.fn().mockResolvedValue(opts.schedules) },
           setting: { findUnique: vi.fn().mockResolvedValue(null) },
+          deliveryBlock: { findMany: vi.fn().mockResolvedValue([]) },
           order: {
             findFirst: vi.fn().mockImplementation(({ where }: { where: { userId: string; slotId: string } }) =>
               Promise.resolve(createdOrders.has(`${where.userId}|${where.slotId}`) ? { id: 'existing' } : null),

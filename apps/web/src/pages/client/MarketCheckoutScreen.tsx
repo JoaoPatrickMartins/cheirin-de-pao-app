@@ -90,9 +90,12 @@ export function MarketCheckoutScreen() {
   const [slotsLoaded, setSlotsLoaded] = useState(false)
   const [dateStr, setDateStr] = useState<string>(() => brtDateStr(new Date(), 1))
   const [slotId, setSlotId] = useState<string | null>(null)
-  // Disponibilidade por data (dia bloqueado ou limite atingido) — MESMA fonte do pedido único
-  // (GET /orders/availability), pra Cestinha exibir CHEIO/bloqueado igual à agenda e ao pão.
-  const [availability, setAvailability] = useState<Record<string, { blocked: boolean; full: boolean }>>({})
+  // Disponibilidade por data — MESMA fonte do pedido único (GET /orders/availability), pra
+  // Cestinha exibir CHEIO/bloqueado igual à agenda e ao pão. `blocked` cobre dia da semana
+  // bloqueado E data/período bloqueado (feriado, obra); `reason` traz o motivo quando informado.
+  const [availability, setAvailability] = useState<
+    Record<string, { blocked: boolean; full: boolean; reason?: string }>
+  >({})
 
   useEffect(() => {
     apiFetch('/client/condominium/slots')
@@ -105,12 +108,20 @@ export function MarketCheckoutScreen() {
   useEffect(() => {
     apiFetch('/orders/availability?days=8')
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { availability?: Array<{ date: string; blocked: boolean; full: boolean }> } | null) => {
-        if (!data?.availability) return
-        const map: Record<string, { blocked: boolean; full: boolean }> = {}
-        for (const a of data.availability) map[a.date] = { blocked: a.blocked, full: a.full }
-        setAvailability(map)
-      })
+      .then(
+        (
+          data: {
+            availability?: Array<{ date: string; blocked: boolean; full: boolean; reason?: string }>
+          } | null,
+        ) => {
+          if (!data?.availability) return
+          const map: Record<string, { blocked: boolean; full: boolean; reason?: string }> = {}
+          for (const a of data.availability) {
+            map[a.date] = { blocked: a.blocked, full: a.full, ...(a.reason ? { reason: a.reason } : {}) }
+          }
+          setAvailability(map)
+        },
+      )
       .catch(() => {})
   }, [])
 
@@ -124,6 +135,17 @@ export function MarketCheckoutScreen() {
     return !!(info && (info.blocked || info.full))
   }
   const dateAvailable = (date: string) => !dateBlockedOrFull(date) && dateHasOpenSlot(date)
+
+  // Motivos dos bloqueios de data na janela exibida, um por motivo ("25/12 (Feriado)").
+  const blockedReasons = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const [date, info] of Object.entries(availability)) {
+      if (!info.blocked || !info.reason) continue
+      const dia = `${date.slice(8, 10)}/${date.slice(5, 7)}`
+      if (!seen.has(info.reason)) seen.set(info.reason, dia)
+    }
+    return [...seen].map(([reason, dia]) => `${dia} (${reason})`)
+  }, [availability])
 
   // Régua: hoje..+7; habilita a data só se tiver slot aberto e não estiver bloqueada/cheia.
   const stripDates = useMemo(() => Array.from({ length: 8 }, (_, i) => brtDateStr(now, i)), [slotsLoaded])
@@ -364,6 +386,13 @@ export function MarketCheckoutScreen() {
               )
             })}
           </div>
+          {/* Motivo do bloqueio das datas da janela, quando o admin informou um (ex.: "Feriado").
+              A régua já risca a data; isto explica o porquê em vez de deixar o cliente adivinhar. */}
+          {blockedReasons.length > 0 && (
+            <p style={{ ...muted, marginTop: 8 }}>
+              Sem entrega em {blockedReasons.join(' · ')}.
+            </p>
+          )}
           {needsSlot && (
             <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
               {slotsForDate.map(({ s, open }) => {

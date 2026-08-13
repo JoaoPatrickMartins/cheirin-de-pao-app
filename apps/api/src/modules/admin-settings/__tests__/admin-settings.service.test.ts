@@ -23,6 +23,8 @@ function makeFastifyMock(overrides: {
   users?: Array<{ id: string; oneSignalPlayerId: string | null }>
   orders?: Array<{ id: string; userId: string; scheduledDate: Date }>
   condominiums?: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }>
+  /** O que `condominium.findUnique` devolve — os overrides de restrições daquele condomínio. */
+  condoOverrides?: { id?: string; blockedDaysOverride?: unknown; dayLimitOverride?: unknown } | null
 } = {}) {
   const {
     setting = { key: 'cutoffTime', value: '20:00' },
@@ -57,7 +59,12 @@ function makeFastifyMock(overrides: {
     },
     condominium: {
       findMany: vi.fn().mockResolvedValue(condominiums),
+      // Override por condomínio das restrições por dia. Default: sem override → herda o padrão.
+      findUnique: vi.fn().mockResolvedValue(overrides.condoOverrides ?? null),
       update: vi.fn().mockResolvedValue({}),
+    },
+    schedule: {
+      findMany: vi.fn().mockResolvedValue([]),
     },
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-1' }),
@@ -323,6 +330,113 @@ describe('AdminSettingsService', () => {
       const agendaCall = calls.find((c) => c[0].where.key === 'pedidoMinimoAgenda')
       expect(agendaCall).toBeDefined()
       expect(JSON.parse(agendaCall![0].create.value)).toEqual(agenda)
+    })
+  })
+
+  describe('restrições por dia — padrão global vs. override por condomínio', () => {
+    const TODOS_LIVRES = { seg: false, ter: false, qua: false, qui: false, sex: false, sab: false, dom: false }
+    const SEM_LIMITE = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+
+    it('getRestricoes sem condomínio devolve o padrão global com source=global', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      const r = await service.getRestricoes()
+
+      expect(r.source).toEqual({ blocked: 'global', limits: 'global' })
+      // Não vale ler o condomínio quando o escopo é o padrão.
+      expect(prisma.condominium.findUnique).not.toHaveBeenCalled()
+    })
+
+    it('getRestricoes com condomínio marca em source o que é personalizado', async () => {
+      const { fastify } = makeFastifyMock({
+        condoOverrides: { blockedDaysOverride: { dom: true }, dayLimitOverride: null },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      const r = await service.getRestricoes('condo-1')
+
+      expect(r.blocked.dom).toBe(true)
+      expect(r.source).toEqual({ blocked: 'condo', limits: 'global' })
+    })
+
+    it('setRestricoes sem condomínio faz upsert das duas chaves globais', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setRestricoes({ ...TODOS_LIVRES, dom: true }, { ...SEM_LIMITE, ter: 20 })
+
+      const calls = prisma.setting.upsert.mock.calls as Array<[{ where: { key: string }; create: { value: string } }]>
+      const diasCall = calls.find((c) => c[0].where.key === 'diasBloqueados')
+      const limitesCall = calls.find((c) => c[0].where.key === 'limitePedidosDia')
+      expect(JSON.parse(diasCall![0].create.value).dom).toBe(true)
+      expect(JSON.parse(limitesCall![0].create.value).ter).toBe(20)
+      // O padrão global NÃO toca em condomínio.
+      expect(prisma.condominium.update).not.toHaveBeenCalled()
+    })
+
+    it('setRestricoes com condomínio grava o override e não mexe no Setting global', async () => {
+      const { fastify, prisma } = makeFastifyMock({ condoOverrides: { id: 'condo-1' } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setRestricoes({ ...TODOS_LIVRES, sab: true }, { ...SEM_LIMITE, sab: 5 }, 'condo-1')
+
+      expect(prisma.condominium.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'condo-1' },
+          data: {
+            blockedDaysOverride: expect.objectContaining({ sab: true }),
+            dayLimitOverride: expect.objectContaining({ sab: 5 }),
+          },
+        }),
+      )
+      const keys = (prisma.setting.upsert.mock.calls as Array<[{ where: { key: string } }]>).map(
+        (c) => c[0].where.key,
+      )
+      expect(keys).not.toContain('diasBloqueados')
+      expect(keys).not.toContain('limitePedidosDia')
+    })
+
+    it('setRestricoes com null grava null (volta a herdar o padrão)', async () => {
+      const { fastify, prisma } = makeFastifyMock({ condoOverrides: { id: 'condo-1' } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setRestricoes(null, null, 'condo-1')
+
+      expect(prisma.condominium.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { blockedDaysOverride: null, dayLimitOverride: null },
+        }),
+      )
+    })
+
+    it('setRestricoes recusa (404) condomínio inexistente sem gravar', async () => {
+      const { fastify, prisma } = makeFastifyMock({ condoOverrides: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await expect(
+        service.setRestricoes(TODOS_LIVRES, SEM_LIMITE, 'nope'),
+      ).rejects.toMatchObject({ statusCode: 404 })
+      expect(prisma.condominium.update).not.toHaveBeenCalled()
+    })
+
+    it('avisa apenas os clientes DAQUELE condomínio ao bloquear um dia no escopo local', async () => {
+      const { fastify, prisma } = makeFastifyMock({ condoOverrides: { id: 'condo-1' } })
+      // Depois do update, a leitura de "depois" precisa refletir o novo override.
+      prisma.condominium.findUnique
+        .mockResolvedValueOnce({ blockedDaysOverride: null, dayLimitOverride: null }) // antes
+        .mockResolvedValueOnce({ id: 'condo-1' }) // existência
+        .mockResolvedValueOnce({ blockedDaysOverride: { sab: true }, dayLimitOverride: null }) // depois
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setRestricoes({ ...TODOS_LIVRES, sab: true }, SEM_LIMITE, 'condo-1')
+
+      expect(prisma.schedule.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ isActive: true, condominiumId: 'condo-1' }),
+        }),
+      )
     })
   })
 })
