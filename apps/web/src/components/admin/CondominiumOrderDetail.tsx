@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
 
@@ -19,6 +20,8 @@ interface DeliveryDetail {
   name: string
   apartment: string
   block: string
+  /** Complemento do bloco ("Lado A"); '' quando não há. */
+  complement: string
   /** Total de pães da parada (pago + previsto). */
   quantity: number
   slotId: string
@@ -80,12 +83,6 @@ function slotColor(slotId: string): string {
   if (slotId === 'manha') return 'var(--color-gold)'
   if (slotId === 'tarde') return 'var(--color-accent)'
   return 'var(--color-text-sec)'
-}
-
-/** Rótulo do bloco sem duplicar a palavra "Bloco" (o valor já pode contê-la). */
-function blockLabel(block: string): string {
-  if (block === '—') return 'Sem bloco'
-  return /^bloco\b/i.test(block.trim()) ? block.trim() : `Bloco ${block}`
 }
 
 function initials(name: string): string {
@@ -162,12 +159,13 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
     if (!data) return
     // Colunas da Cestinha ao lado das do pão — quem separa precisa das duas (D-1).
     const header = [
-      'Cliente', 'Bloco', 'Apartamento', 'Turno', 'Tipo', 'Origem', 'Risco', 'Quantidade',
+      'Cliente', 'Bloco', 'Complemento', 'Apartamento', 'Turno', 'Tipo', 'Origem', 'Risco', 'Quantidade',
       'Pães da Cestinha', 'Itens da Cestinha', 'Itens (detalhe)',
     ]
     const linhas = data.deliveries.map((d) => [
       d.name,
       d.block,
+      d.complement,
       d.apartment,
       d.slotLabel,
       d.origin === 'market' ? 'Cestinha' : d.type === 'SINGLE' ? 'Avulso' : 'Agenda',
@@ -437,7 +435,7 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                       textTransform: 'uppercase',
                     }}
                   >
-                    {blockLabel(block)}
+                    {blockLabel(block) || 'Sem bloco'}
                   </span>
                   <span
                     style={{
@@ -535,7 +533,10 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                             fontWeight: 600,
                           }}
                         >
-                          {d.apartment ? <span>Ap {d.apartment}</span> : null}
+                          {/* Já agrupado por bloco — mas o complemento varia dentro dele. */}
+                          {d.apartment || d.complement ? (
+                            <span>{formatUnit(d, { block: 'omit', apartmentLabel: 'Ap', emptyApartment: '' })}</span>
+                          ) : null}
                           {/* Badge tipo/origem. Parada só-Cestinha (origin 'market') não é
                               "avulso" nem "agenda" — é uma compra do mercadinho. */}
                           {d.source === 'projected' ? (

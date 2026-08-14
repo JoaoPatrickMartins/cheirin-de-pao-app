@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { COMPLEMENT_MAX_LENGTH } from '@cheirin-de-pao/shared'
 
 export const UpdateProfileSchema = z.object({
   name: z.string().min(2).optional(),
@@ -6,6 +7,8 @@ export const UpdateProfileSchema = z.object({
   condominiumId: z.string().optional(),
   apartment: z.string().optional(),
   block: z.string().optional(),
+  // String vazia é aceita de propósito: é como o cliente APAGA o complemento.
+  complement: z.string().trim().max(COMPLEMENT_MAX_LENGTH).optional(),
 })
 
 export type UpdateProfileBody = z.infer<typeof UpdateProfileSchema>

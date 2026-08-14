@@ -238,6 +238,10 @@ model User {
   condominiumId String?   @db.ObjectId
   apartment     String?
   block         String?
+  // Complemento curto do endereço (máx. 10 chars) — subdivisão do bloco, ex.: "Lado A".
+  // Só é coletado em condomínio do tipo BLOCKS. Opcional: em documento antigo a chave nem
+  // existe, então toda leitura é via `select` + `?? null` (nunca `where: { complement: null }`).
+  complement    String?
   // LEGADO — nada em runtime lê nem escreve este campo desde a limpeza (31/07/2026). Continua
   // declarado só porque é a FONTE do backfill do boot. Num cliente ativo hoje o valor está
   // CONGELADO no momento da limpeza: não use para nada.

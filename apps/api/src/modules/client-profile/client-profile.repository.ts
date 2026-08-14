@@ -13,7 +13,14 @@ export class ClientProfileRepository {
 
   updateProfile(
     id: string,
-    data: { name?: string; birthDate?: Date; condominiumId?: string; apartment?: string; block?: string },
+    data: {
+      name?: string
+      birthDate?: Date
+      condominiumId?: string
+      apartment?: string
+      block?: string
+      complement?: string
+    },
   ) {
     return this.prisma.user.update({
       where: { id },
@@ -25,6 +32,7 @@ export class ClientProfileRepository {
         condominiumId: true,
         apartment: true,
         block: true,
+        complement: true,
         phone: true,
         email: true,
         cpf: true,

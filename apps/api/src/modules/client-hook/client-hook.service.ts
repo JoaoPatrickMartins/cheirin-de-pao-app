@@ -3,6 +3,7 @@ import { NotificationType } from '@prisma/client'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import { getGanchoConfig } from '../../lib/gancho-config.js'
+import { clientLabel } from '../../lib/client-label.js'
 
 /** Snapshot do gancho mais recente do cliente (ou null se nunca teve). */
 interface CurrentHook {
@@ -113,7 +114,7 @@ export class ClientHookService {
   async requestHook(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true, name: true, apartment: true, block: true },
+      select: { role: true, name: true, apartment: true, block: true, complement: true },
     })
     if (!user || user.role !== 'CLIENT') {
       throw { statusCode: 404, message: 'Cliente não encontrado' }
@@ -141,11 +142,10 @@ export class ClientHookService {
 
     // Aviso ao admin — best-effort.
     try {
-      const loc = [user.block, user.apartment].filter(Boolean).join(' ')
       await new NotificationsService(this.fastify).notifyAdmins({
         type: NotificationType.ADMIN_HOOK_REQUESTED,
         title: 'Solicitação de gancho',
-        body: `${user.name ?? 'Cliente'}${loc ? ` · Apto ${loc}` : ''} confirmou o recebimento do gancho.`,
+        body: `${clientLabel(user)} confirmou o recebimento do gancho.`,
         actionRoute: '/admin',
       })
     } catch (err) {

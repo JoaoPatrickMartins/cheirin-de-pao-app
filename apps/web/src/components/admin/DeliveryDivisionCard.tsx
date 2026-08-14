@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { blockLabel } from '@cheirin-de-pao/shared'
 import {
   DndContext,
   PointerSensor,
@@ -55,13 +56,6 @@ export interface DeliveryDivisionCardProps {
   lockedUnitKeys?: Set<string>
 }
 
-/** Rótulo do bloco sem duplicar "Bloco" (o valor já pode contê-la). */
-function blockLabel(block: string): string {
-  const b = (block || '').trim()
-  if (!b) return 'Sem bloco'
-  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
-}
-
 /** Chave estável de uma unidade dentro de um entregador (id do DnD + key React). */
 function unitKey(courierId: string, u: DeliveryUnit): string {
   return `${courierId}|${u.condominiumId}|${u.block ?? '*'}`
@@ -72,7 +66,7 @@ function lockKeyOf(u: DeliveryUnit): string {
 }
 /** Rótulo de exibição de uma unidade. */
 function unitLabel(u: DeliveryUnit): string {
-  return u.block !== null ? `${u.condominiumName} · ${blockLabel(u.block)}` : u.condominiumName
+  return u.block !== null ? `${u.condominiumName} · ${blockLabel(u.block) || 'Sem bloco'}` : u.condominiumName
 }
 
 /** Afordância de arraste — seis pontinhos (grip). */
@@ -159,7 +153,7 @@ function SortableUnit({ unit, courierId, disabled, locked, canExplode, canCollap
               textOverflow: 'ellipsis',
             }}
           >
-            {isBlock ? blockLabel(unit.block as string) : unit.condominiumName}
+            {isBlock ? blockLabel(unit.block as string) || 'Sem bloco' : unit.condominiumName}
           </p>
           <p
             style={{

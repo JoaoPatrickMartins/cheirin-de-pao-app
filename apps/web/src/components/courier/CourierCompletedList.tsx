@@ -1,9 +1,11 @@
+import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { Icon } from '../brand/Icon'
 
 export interface CompletedStop {
   orderId: string
   apartment: string
   block: string | null
+  complement?: string | null
   clientName: string
   quantity: number
   status: string
@@ -22,13 +24,6 @@ export interface CompletedCondo {
   condominiumId: string
   condominiumName: string
   stops: CompletedStop[]
-}
-
-/** Rótulo do bloco sem duplicar "Bloco" (o valor já pode contê-la). */
-function blockLabel(block: string): string {
-  const b = (block || '').trim()
-  if (!b || b === '—') return ''
-  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
 }
 
 /** Agrupa por bloco preservando a ordem recebida (já ordenada por bloco/apartamento). */
@@ -56,7 +51,11 @@ function timeLabel(iso: string | null): string {
 
 function CompletedRow({ stop, showBlock }: { stop: CompletedStop; showBlock: boolean }) {
   const delivered = stop.status === 'DELIVERED'
-  const title = showBlock && stop.block ? `${stop.block} — Apto ${stop.apartment}` : `Apto ${stop.apartment}`
+  const title = formatUnit(stop, {
+    block: showBlock ? 'bare' : 'omit',
+    apartmentSeparator: ' — ',
+    emptyApartment: '',
+  })
   const time = timeLabel(stop.completedAt)
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px' }}>

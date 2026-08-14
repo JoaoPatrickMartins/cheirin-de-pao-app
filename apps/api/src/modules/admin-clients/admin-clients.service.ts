@@ -27,6 +27,7 @@ export interface UpdateClientPayload {
   condominiumId?: string
   apartment?: string
   block?: string
+  complement?: string
 }
 
 /**
@@ -135,6 +136,7 @@ export class AdminClientsService {
         condominiumId: true,
         apartment: true,
         block: true,
+        complement: true,
         creditMilli: true,
         isBlocked: true,
         createdAt: true,
@@ -378,6 +380,7 @@ export class AdminClientsService {
     if (payload.condominiumId !== undefined) data.condominiumId = payload.condominiumId
     if (payload.apartment !== undefined) data.apartment = payload.apartment
     if (payload.block !== undefined) data.block = payload.block
+    if (payload.complement !== undefined) data.complement = payload.complement
 
     return this.prisma.user.update({ where: { id }, data })
   }

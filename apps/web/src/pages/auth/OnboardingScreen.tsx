@@ -8,7 +8,7 @@ import { ResendTimer } from '../../components/auth/ResendTimer'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { PasswordCriteria, isPasswordStrong } from '../../components/auth/AuthUI'
-import { isValidCpf, isValidBrMobile } from '@cheirin-de-pao/shared'
+import { isValidCpf, isValidBrMobile, COMPLEMENT_MAX_LENGTH } from '@cheirin-de-pao/shared'
 
 interface Condo {
   id: string
@@ -101,6 +101,8 @@ export function OnboardingScreen() {
 
   // Step 3 — Endereço
   const [bloco, setBloco] = useState<string | null>(null)
+  // Complemento do bloco ("Lado A"): opcional, curto e só existe em condomínio com blocos.
+  const [complemento, setComplemento] = useState('')
   const [apto, setApto] = useState('')
 
   // Step 4 — OTP
@@ -130,9 +132,11 @@ export function OnboardingScreen() {
       .finally(() => setCondosLoading(false))
   }, [step])
 
-  // Troca de condomínio invalida o bloco escolhido (opções mudam / some para SINGLE_ENTRANCE).
+  // Troca de condomínio invalida o bloco escolhido (opções mudam / some para SINGLE_ENTRANCE)
+  // e, junto com ele, o complemento — "Lado A" só faz sentido dentro do bloco de origem.
   useEffect(() => {
     setBloco(null)
+    setComplemento('')
   }, [selectedCondoId])
 
   const handleCpfChange = (value: string) => {
@@ -184,6 +188,7 @@ export function OnboardingScreen() {
           condominiumId: selectedCondoId!,
           apartment: apto,
           ...(isBlocksCondo && bloco ? { block: bloco } : {}),
+          ...(isBlocksCondo && complemento.trim() ? { complement: complemento.trim() } : {}),
         }),
       })
 
@@ -568,6 +573,7 @@ export function OnboardingScreen() {
               onSelect={(id) => {
                 setSelectedCondoId(id)
                 setBloco(null) // reset block when condo changes
+                setComplemento('')
               }}
             />
           )}
@@ -637,6 +643,19 @@ export function OnboardingScreen() {
                 placeholder="Ex.: A ou 1"
               />
             ))}
+
+          {/* Complemento — subdivisão do bloco ("Lado A"). Opcional e curto: entra no cupom
+              impresso e na parada do entregador, onde não há espaço para endereço livre. */}
+          {isBlocksCondo && (
+            <FieldRow
+              label="Complemento (opcional)"
+              icon="pin"
+              value={complemento}
+              onChange={(v) => setComplemento(v.slice(0, COMPLEMENT_MAX_LENGTH))}
+              placeholder="Ex.: Lado A"
+              maxLength={COMPLEMENT_MAX_LENGTH}
+            />
+          )}
 
           <FieldRow
             label="Apartamento"
@@ -729,9 +748,10 @@ interface FieldRowProps {
   placeholder?: string
   type?: string
   autoComplete?: string
+  maxLength?: number
 }
 
-function FieldRow({ label, icon, value, onChange, placeholder, type = 'text', autoComplete }: FieldRowProps) {
+function FieldRow({ label, icon, value, onChange, placeholder, type = 'text', autoComplete, maxLength }: FieldRowProps) {
   const [focused, setFocused] = useState(false)
   const [visible, setVisible] = useState(false)
   const isPassword = type === 'password'
@@ -773,6 +793,7 @@ function FieldRow({ label, icon, value, onChange, placeholder, type = 'text', au
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          maxLength={maxLength}
           style={{
             flex: 1,
             border: 'none',

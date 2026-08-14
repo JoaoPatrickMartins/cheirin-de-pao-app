@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
@@ -62,7 +63,11 @@ const KIND_FILTERS: Array<{ key: KindFilter; label: string }> = [
 ]
 
 function matchSearch(r: LedgerRow, q: string) {
-  return r.clientName.toLowerCase().includes(q) || r.apartment.toLowerCase().includes(q)
+  return (
+    r.clientName.toLowerCase().includes(q) ||
+    r.apartment.toLowerCase().includes(q) ||
+    (r.complement ?? '').toLowerCase().includes(q)
+  )
 }
 
 function formatDateLong(dateStr: string) {
@@ -468,7 +473,7 @@ function LedgerRowButton({ r, showDate = true, onSelect }: { r: LedgerRow; showD
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.clientName}</span>
         </p>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-          {r.condominiumName} · {r.block ? `Bl ${r.block} ` : ''}Apto {r.apartment || '—'}{showDate ? ` · ${formatDateLong(r.scheduledDate)}` : ''}
+          {r.condominiumName} · {formatUnit(r, { block: 'compact' })}{showDate ? ` · ${formatDateLong(r.scheduledDate)}` : ''}
         </p>
         {r.kind === 'CESTINHA' && r.marketItems.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>

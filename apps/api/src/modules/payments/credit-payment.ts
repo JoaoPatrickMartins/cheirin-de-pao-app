@@ -4,6 +4,7 @@ import { PaymentsRepository } from './payments.repository.js'
 import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
 import { fulfillMarketOrder } from './fulfill-market-order.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
+import { clientLabel } from '../../lib/client-label.js'
 
 /** Registro mínimo de Payment necessário para creditar/fulfillar. */
 export interface CreditablePayment {
@@ -77,13 +78,12 @@ async function fulfillHookPayment(fastify: FastifyInstance, payment: CreditableP
     try {
       const user = await fastify.prisma.user.findUnique({
         where: { id: payment.userId },
-        select: { name: true, apartment: true, block: true },
+        select: { name: true, apartment: true, block: true, complement: true },
       })
-      const loc = [user?.block, user?.apartment].filter(Boolean).join(' ')
       await new NotificationsService(fastify).notifyAdmins({
         type: NotificationType.ADMIN_HOOK_REQUESTED,
         title: 'Gancho adicional (pago)',
-        body: `${user?.name ?? 'Cliente'}${loc ? ` · Apto ${loc}` : ''} pagou um gancho adicional.`,
+        body: `${clientLabel(user ?? {})} pagou um gancho adicional.`,
         actionRoute: '/admin',
       })
     } catch (err) {

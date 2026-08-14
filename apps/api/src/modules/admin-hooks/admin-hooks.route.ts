@@ -52,6 +52,7 @@ export const adminHooksRoute: FastifyPluginAsync = async (fastify) => {
                     phone: { type: 'string', nullable: true, description: 'Telefone (apenas dígitos).' },
                     apartment: { type: 'string', nullable: true, description: 'Apartamento.' },
                     block: { type: 'string', nullable: true, description: 'Bloco (se aplicável).' },
+                    complement: { type: 'string', nullable: true, description: 'Complemento do bloco (ex.: "Lado A").' },
                     condominiumId: { type: 'string', nullable: true, description: 'ID do condomínio.' },
                     condominiumName: { type: 'string', nullable: true, description: 'Nome do condomínio.' },
                     requestedAt: { type: 'string', nullable: true, description: 'Quando entrou na fila (ISO 8601).' },

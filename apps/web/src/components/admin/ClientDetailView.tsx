@@ -1,4 +1,4 @@
-import { formatCredits, toMilli, wholeBreadsOf } from '@cheirin-de-pao/shared'
+import { formatCredits, toMilli, wholeBreadsOf, formatUnit, COMPLEMENT_MAX_LENGTH } from '@cheirin-de-pao/shared'
 import { useState, useEffect } from 'react'
 import type { CSSProperties, ReactNode, ComponentProps } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
@@ -74,6 +74,7 @@ interface ClienteDetalhe {
   condominiumName?: string | null
   apartment?: string | null
   block?: string | null
+  complement?: string | null
   creditBalance: number
   isBlocked: boolean
   blockReason?: string | null
@@ -266,7 +267,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [showEditSheet, setShowEditSheet] = useState(false)
   const [condominios, setCondominios] = useState<Condo[]>([])
   const [editForm, setEditForm] = useState({
-    name: '', phone: '', email: '', cpf: '', birthDate: '', condominiumId: '', apartment: '', block: '',
+    name: '', phone: '', email: '', cpf: '', birthDate: '', condominiumId: '', apartment: '', block: '', complement: '',
   })
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
@@ -430,6 +431,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
       condominiumId: cliente.condominiumId ?? '',
       apartment: cliente.apartment ?? '',
       block: cliente.block ?? '',
+      complement: cliente.complement ?? '',
     })
     setEditError(null)
     setShowEditSheet(true)
@@ -459,6 +461,8 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
     if (editForm.condominiumId) payload.condominiumId = editForm.condominiumId
     if (editForm.apartment.trim()) payload.apartment = editForm.apartment.trim()
     if (editForm.block.trim()) payload.block = editForm.block.trim()
+    // Sempre enviado (inclusive vazio): é como o admin APAGA um complemento errado.
+    payload.complement = editForm.complement.trim()
     payload.birthDate = editForm.birthDate ? `${editForm.birthDate}T00:00:00.000Z` : ''
 
     try {
@@ -632,7 +636,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
             </p>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-sec)', margin: '0 0 10px' }}>
               {cliente.condominiumName ? `${cliente.condominiumName} · ` : ''}
-              {cliente.block ? `Bl ${cliente.block} · ` : ''}Ap {cliente.apartment ?? '—'}
+              {formatUnit(cliente, { block: 'compact', apartmentLabel: 'Ap' })}
             </p>
             {cliente.isBlocked && (
               <div
@@ -1130,6 +1134,14 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               </div>
             </div>
 
+            <EditField
+              label="Complemento (opcional)"
+              value={editForm.complement}
+              onChange={(v) => setEditForm((f) => ({ ...f, complement: v.slice(0, COMPLEMENT_MAX_LENGTH) }))}
+              maxLength={COMPLEMENT_MAX_LENGTH}
+              placeholder="Ex.: Lado A"
+            />
+
             {editError && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-warn)', margin: '4px 0 0', textAlign: 'center' }}>
                 {editError}
@@ -1598,13 +1610,14 @@ function ContactRow({
 }
 
 function EditField({
-  label, value, onChange, placeholder, type = 'text',
+  label, value, onChange, placeholder, type = 'text', maxLength,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
   type?: string
+  maxLength?: number
 }) {
   return (
     <>
@@ -1613,6 +1626,7 @@ function EditField({
         type={type}
         value={value}
         placeholder={placeholder}
+        maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
         style={editInputStyle}
       />

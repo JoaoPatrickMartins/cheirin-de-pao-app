@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
 import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
@@ -17,6 +18,7 @@ interface HookItem {
   phone?: string | null
   apartment?: string | null
   block?: string | null
+  complement?: string | null
   condominiumId?: string | null
   condominiumName?: string | null
   requestedAt: string | null
@@ -60,29 +62,22 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
-/** Local do cliente: "Apto 302 · Bloco B" / "Apto 12" / condomínio. */
+/** Local do cliente: "Bloco B · Lado A · Apto 302" / "Apto 12" / condomínio. */
 function localLabel(item: HookItem): string {
-  const parts: string[] = []
-  if (item.apartment) parts.push(`Apto ${item.apartment}`)
-  if (item.block) parts.push(`Bloco ${item.block}`)
-  return parts.join(' · ') || 'Sem apartamento'
+  if (!item.apartment && !item.block && !item.complement) return 'Sem apartamento'
+  return formatUnit(item, { emptyApartment: '' })
 }
 
-/** Só o apartamento — usado no card quando o bloco já é o cabeçalho da seção. */
+/** Sem o bloco — usado no card quando o bloco já é o cabeçalho da seção. O complemento
+    fica, porque distingue as portas DENTRO do mesmo bloco. */
 function aptLabel(item: HookItem): string {
-  return item.apartment ? `Apto ${item.apartment}` : 'Sem apartamento'
-}
-
-/** Evita duplicar "Bloco": "B" → "Bloco B"; "Bloco 2" → "Bloco 2". */
-function blockLabel(block: string): string {
-  const b = (block || '').trim()
-  if (!b || b === '—') return ''
-  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
+  if (!item.apartment && !item.complement) return 'Sem apartamento'
+  return formatUnit(item, { block: 'omit', emptyApartment: '' })
 }
 
 /**
  * Agrupa itens contíguos por condomínio (a lista já vem ordenada do backend por
- * condomínio → bloco → apartamento, então basta quebrar em subgrupos contíguos).
+ * condomínio → bloco → complemento → apartamento, então basta quebrar em subgrupos contíguos).
  */
 function groupByCondo(items: HookItem[]): Array<{ condominiumId: string | null; condominiumName: string | null; items: HookItem[] }> {
   const groups: Array<{ condominiumId: string | null; condominiumName: string | null; items: HookItem[] }> = []

@@ -1,4 +1,4 @@
-import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
+import { formatCredits, toMilli, formatUnit } from '@cheirin-de-pao/shared'
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
@@ -12,6 +12,7 @@ interface Cliente {
   condominiumId: string
   apartment: string
   block?: string
+  complement?: string | null
   creditBalance: number
   isBlocked: boolean
   createdAt: string
@@ -228,12 +229,13 @@ export function AdminClientes({ initialClientId }: AdminClientesProps = {}) {
         pagina += 1
       }
 
-      const header = ['Nome', 'Condomínio', 'Apartamento', 'Bloco', 'Créditos', 'Bloqueado', 'Última compra', 'Cadastro']
+      const header = ['Nome', 'Condomínio', 'Apartamento', 'Bloco', 'Complemento', 'Créditos', 'Bloqueado', 'Última compra', 'Cadastro']
       const linhas = itens.map((c) => [
         c.name,
         nomeCondominio(c.condominiumId),
         c.apartment ?? '',
         c.block ?? '',
+        c.complement ?? '',
         formatCredits(toMilli(c.creditBalance)),
         c.isBlocked ? 'Sim' : 'Não',
         c.lastPurchaseAt ? c.lastPurchaseAt.slice(0, 10) : '',
@@ -499,7 +501,8 @@ export function AdminClientes({ initialClientId }: AdminClientesProps = {}) {
               const ultimaCompra = c.lastPurchaseAt
                 ? `últ. ${formatDataCurta(c.lastPurchaseAt)}`
                 : 'sem compras'
-              const linhaSecundaria = `${condoNome} · ${c.apartment}${c.block ? ` bl ${c.block}` : ''} · ${ultimaCompra}`
+              const unidade = formatUnit(c, { block: 'compact', apartmentLabel: '' })
+              const linhaSecundaria = `${condoNome} · ${unidade} · ${ultimaCompra}`
 
               return (
                 <div

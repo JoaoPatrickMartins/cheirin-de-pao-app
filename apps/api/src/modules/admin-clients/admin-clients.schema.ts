@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CpfSchema, PhoneSchema } from '@cheirin-de-pao/shared'
+import { COMPLEMENT_MAX_LENGTH, CpfSchema, PhoneSchema } from '@cheirin-de-pao/shared'
 
 /**
  * Schema de validação para operações de admin sobre clientes.
@@ -64,6 +64,7 @@ export const UpdateClientSchema = z
     condominiumId: z.string().optional(),
     apartment: z.string().optional(),
     block: z.string().optional(),
+    complement: z.string().trim().max(COMPLEMENT_MAX_LENGTH).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, { message: 'Nenhum campo para atualizar' })
 export type UpdateClientBody = z.infer<typeof UpdateClientSchema>

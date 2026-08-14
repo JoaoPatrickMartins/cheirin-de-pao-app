@@ -116,6 +116,7 @@ export class AdminClientsController {
         condominiumId: updated.condominiumId ?? null,
         apartment: updated.apartment ?? null,
         block: updated.block ?? null,
+        complement: updated.complement ?? null,
       })
     } catch (err) {
       this.fastify.log.error(err)
