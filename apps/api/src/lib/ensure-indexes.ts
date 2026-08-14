@@ -2,11 +2,16 @@ import type { FastifyBaseLogger } from 'fastify'
 import type { PrismaClient } from '@prisma/client'
 
 /**
- * Índices garantidos em runtime, declarados aqui (fonte única).
+ * Índices que o Prisma NÃO sabe expressar no schema — só eles moram aqui.
  *
- * Mantenha em sincronia com os `@@index` do schema.prisma. Como o projeto não roda
- * `prisma db push`/`migrate`, é este passo que cria os índices fisicamente — inclusive
- * em bancos novos/vazios — no startup da API.
+ * Desde o commit 22ce12e o deploy roda `prisma db push` (ansible/playbook.yml), então quem cria
+ * os índices do schema é ele: todo `@@index`/`@@unique` chega ao Atlas com o nome do Prisma
+ * (`Model_campos_idx`). Duplicar um deles aqui recria a corrida que quebrou o deploy em 14/08/2026:
+ * este passo é fire-and-forget no boot (server.ts) e o playbook só espera o container existir, então
+ * o `createIndexes` podia vencer o `db push` e criar o mesmo índice com o nome legado do Mongo
+ * (`campo_1_campo_1`) — o push então batia em `Error 85 (IndexOptionsConflict)`.
+ *
+ * REGRA: índice que o schema.prisma consegue declarar vai NO SCHEMA, nunca aqui.
  */
 const INDEX_SPECS: Array<{
   collection: string
@@ -20,8 +25,6 @@ const INDEX_SPECS: Array<{
   {
     collection: 'Order',
     indexes: [
-      { key: { status: 1, scheduledDate: 1 }, name: 'status_1_scheduledDate_1' },
-      { key: { condominiumId: 1, scheduledDate: 1 }, name: 'condominiumId_1_scheduledDate_1' },
       // Um pagamento financia no máximo UM pedido único. Índice único PARCIAL (só quando
       // paymentId existe — pedidos pagos via saldo têm paymentId nulo) que barra a duplicata
       // na corrida entre frontend (na tela) e servidor (webhook/pull). Best-effort: se houver
@@ -34,33 +37,6 @@ const INDEX_SPECS: Array<{
       },
     ],
   },
-  {
-    collection: 'MaterializedCycle',
-    indexes: [
-      {
-        key: { condominiumId: 1, slotId: 1, deliveryDate: 1 },
-        name: 'condominiumId_1_slotId_1_deliveryDate_1',
-        unique: true,
-      },
-    ],
-  },
-  {
-    collection: 'AnalyticsEvent',
-    indexes: [
-      { key: { type: 1, createdAt: 1 }, name: 'type_1_createdAt_1' },
-      { key: { visitorId: 1, createdAt: 1 }, name: 'visitorId_1_createdAt_1' },
-    ],
-  },
-  {
-    // Bloqueios de data/período. A busca é sempre "bloqueios que cobrem esta data", filtrando
-    // por condomínio (+ os globais). Nomes/keys IDÊNTICOS aos `@@index` do schema.prisma — se
-    // divergirem, o `prisma db push` do deploy e este passo brigam pelo mesmo nome (erro 85).
-    collection: 'DeliveryBlock',
-    indexes: [
-      { key: { condominiumId: 1, startDate: 1 }, name: 'condominiumId_1_startDate_1' },
-      { key: { startDate: 1, endDate: 1 }, name: 'startDate_1_endDate_1' },
-    ],
-  },
 ]
 
 /**
@@ -68,7 +44,8 @@ const INDEX_SPECS: Array<{
  *
  * - Idempotente: `createIndexes` é no-op quando o índice já existe com a mesma spec.
  * - Best-effort: falhas (ex.: permissão) são apenas logadas — NUNCA derrubam o boot.
- * - Roda no startup, então qualquer banco novo recebe os índices automaticamente.
+ * - Roda no startup, então qualquer banco novo (dev/local, que não recebe o `db push` do deploy)
+ *   também ganha estes índices.
  */
 export async function ensureIndexes(prisma: PrismaClient, log: FastifyBaseLogger): Promise<void> {
   for (const spec of INDEX_SPECS) {

@@ -8,6 +8,7 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "db:push": "prisma db push --schema=prisma/schema.prisma",
     "migrate:slots": "tsx src/scripts/migrate-delivery-slots.ts",
     "seed:slots": "tsx src/scripts/seed-delivery-slots.ts",
     "migrate:slotid": "tsx src/scripts/migrate-to-slotid.ts",
