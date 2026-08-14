@@ -93,27 +93,35 @@ export async function projectScheduleForDate(
  * `opts.excludeUserId` remove as entregas (materializadas e previstas) de um usuário — usado
  * ao salvar a agenda, para que o cliente não concorra contra a própria reserva já existente.
  *
+ * `opts.condominiumId` restringe a contagem a UM condomínio. É o que dá sentido ao limite por
+ * condomínio: "terça = 20" passa a significar 20 entregas NAQUELE condomínio, não 20 na operação
+ * inteira. Sem essa opção o comportamento é o histórico (total geral do dia).
+ *
  * @param deliveryDate qualquer Date que caia no dia BRT alvo (meio-dia BRT é seguro)
  */
 export async function countCommittedDeliveries(
   prisma: PrismaClient,
   deliveryDate: Date,
-  opts: { excludeUserId?: string } = {},
+  opts: { excludeUserId?: string; condominiumId?: string | null } = {},
 ): Promise<number> {
   const { start, end } = brtDayRange(deliveryDate)
+  const condoScope = opts.condominiumId ? { condominiumId: opts.condominiumId } : {}
 
   const matWhere = {
     status: { not: 'CANCELLED' as const },
     scheduledDate: { gte: start, lte: end },
+    ...condoScope,
     ...(opts.excludeUserId ? { userId: { not: opts.excludeUserId } } : {}),
   }
   const matCount = await prisma.order.count({ where: matWhere })
   const matStops = await prisma.order.findMany({ where: matWhere, select: { userId: true, slotId: true } })
 
   const projected = await projectScheduleDetailForDate(prisma, deliveryDate)
-  const projectedRows = opts.excludeUserId
-    ? projected.filter((r) => r.userId !== opts.excludeUserId)
-    : projected
+  const projectedRows = projected.filter(
+    (r) =>
+      (!opts.excludeUserId || r.userId !== opts.excludeUserId) &&
+      (!opts.condominiumId || r.condominiumId === opts.condominiumId),
+  )
   const projectedCount = projectedRows.length
 
   // Cestinhas (MarketOrders não-cancelados) também ocupam ENTREGA, mas a unidade é a PARADA
@@ -129,6 +137,7 @@ export async function countCommittedDeliveries(
     where: {
       status: { not: 'CANCELLED' },
       scheduledDate: { gte: start, lte: end },
+      ...condoScope,
       ...(opts.excludeUserId ? { userId: { not: opts.excludeUserId } } : {}),
     },
     select: { userId: true, slotId: true },

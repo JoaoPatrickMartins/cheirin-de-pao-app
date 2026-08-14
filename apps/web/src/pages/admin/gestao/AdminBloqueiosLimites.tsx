@@ -1,15 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
+import { CondoScopeSelector, InheritBadge } from './CondoScopeSelector'
+import { BloqueiosData } from './BloqueiosData'
 
 // ------------------------------------------------------------------ tipos
 type Weekday = 'seg' | 'ter' | 'qua' | 'qui' | 'sex' | 'sab' | 'dom'
 type DiasBloqueados = Record<Weekday, boolean>
 type LimitePedidosDia = Record<Weekday, number>
 
+/** De onde veio cada seção: 'condo' = personalizado; 'global' = herdado do padrão. */
+interface RulesSource {
+  blocked: 'global' | 'condo'
+  limits: 'global' | 'condo'
+}
+
 interface RestricoesSettings {
   diasBloqueados: DiasBloqueados
   limitePedidosDia: LimitePedidosDia
+  source?: RulesSource
 }
 
 interface AdminBloqueiosLimitesProps {
@@ -28,51 +37,67 @@ const DAYS: Array<{ label: string; key: Weekday }> = [
 
 const DEFAULT_BLOQUEADOS: DiasBloqueados = { seg: false, ter: false, qua: false, qui: false, sex: false, sab: false, dom: false }
 const DEFAULT_LIMITES: LimitePedidosDia = { seg: 0, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+const DEFAULT_SOURCE: RulesSource = { blocked: 'global', limits: 'global' }
 
 // ------------------------------------------------------------------ componente
 export function AdminBloqueiosLimites({ onBack }: AdminBloqueiosLimitesProps) {
+  // null = padrão global (vale para todo condomínio que não personalizou).
+  const [scope, setScope] = useState<string | null>(null)
   const [bloqueados, setBloqueados] = useState<DiasBloqueados>(DEFAULT_BLOQUEADOS)
   const [limites, setLimites] = useState<LimitePedidosDia>(DEFAULT_LIMITES)
+  const [source, setSource] = useState<RulesSource>(DEFAULT_SOURCE)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await apiFetch('/admin/settings/restricoes-dias')
-        if (res.ok) {
-          const data = (await res.json()) as RestricoesSettings
-          if (data.diasBloqueados && typeof data.diasBloqueados === 'object') {
-            setBloqueados({ ...DEFAULT_BLOQUEADOS, ...data.diasBloqueados })
-          }
-          if (data.limitePedidosDia && typeof data.limitePedidosDia === 'object') {
-            setLimites({ ...DEFAULT_LIMITES, ...data.limitePedidosDia })
-          }
-        }
-      } catch {
-        // falha silenciosa
-      } finally {
-        setIsLoading(false)
+  const fetchSettings = useCallback(async () => {
+    setIsLoading(true)
+    setSaved(false)
+    setError(null)
+    try {
+      const qs = scope ? `?condominiumId=${scope}` : ''
+      const res = await apiFetch(`/admin/settings/restricoes-dias${qs}`)
+      if (res.ok) {
+        const data = (await res.json()) as RestricoesSettings
+        setBloqueados({ ...DEFAULT_BLOQUEADOS, ...(data.diasBloqueados ?? {}) })
+        setLimites({ ...DEFAULT_LIMITES, ...(data.limitePedidosDia ?? {}) })
+        setSource(data.source ?? DEFAULT_SOURCE)
       }
+    } catch {
+      // falha silenciosa
+    } finally {
+      setIsLoading(false)
     }
-    void fetchSettings()
-  }, [])
+  }, [scope])
 
-  const handleSalvar = async () => {
+  useEffect(() => {
+    void fetchSettings()
+  }, [fetchSettings])
+
+  /** Grava no escopo atual. `inherit` faz o condomínio voltar a herdar o padrão. */
+  const salvar = async (inherit = false) => {
     setError(null)
     setSaved(false)
     setIsSaving(true)
     try {
       const res = await apiFetch('/admin/settings/restricoes-dias', {
         method: 'PATCH',
-        body: JSON.stringify({ diasBloqueados: bloqueados, limitePedidosDia: limites }),
+        body: JSON.stringify({
+          ...(scope ? { condominiumId: scope } : {}),
+          diasBloqueados: inherit ? null : bloqueados,
+          limitePedidosDia: inherit ? null : limites,
+        }),
       })
       if (res.ok) {
+        const data = (await res.json()) as RestricoesSettings
+        setBloqueados({ ...DEFAULT_BLOQUEADOS, ...(data.diasBloqueados ?? {}) })
+        setLimites({ ...DEFAULT_LIMITES, ...(data.limitePedidosDia ?? {}) })
+        setSource(data.source ?? DEFAULT_SOURCE)
         setSaved(true)
       } else {
-        setError('Não foi possível salvar. Tente novamente.')
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        setError(body?.error ?? 'Não foi possível salvar. Tente novamente.')
       }
     } catch {
       setError('Erro de conexão. Tente novamente.')
@@ -90,6 +115,9 @@ export function AdminBloqueiosLimites({ onBack }: AdminBloqueiosLimitesProps) {
     setSaved(false)
     setLimites((prev) => ({ ...prev, [key]: v }))
   }
+
+  const isCondoScope = scope !== null
+  const isCustom = source.blocked === 'condo' || source.limits === 'condo'
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -139,6 +167,8 @@ export function AdminBloqueiosLimites({ onBack }: AdminBloqueiosLimitesProps) {
           gap: 16,
         }}
       >
+        <CondoScopeSelector value={scope} onChange={setScope} disabled={isSaving} />
+
         {isLoading ? (
           <div style={{ textAlign: 'center', paddingTop: 32 }}>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)' }}>
@@ -148,7 +178,23 @@ export function AdminBloqueiosLimites({ onBack }: AdminBloqueiosLimitesProps) {
         ) : (
           <>
             <div>
-              <p style={sectionTitle}>Dias da semana</p>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  marginBottom: 9,
+                }}
+              >
+                <p style={{ ...sectionTitle, margin: 0 }}>Dias da semana</p>
+                {isCondoScope && (
+                  <InheritBadge
+                    custom={isCustom}
+                    onReset={isCustom ? () => void salvar(true) : undefined}
+                  />
+                )}
+              </div>
               <p
                 style={{
                   fontFamily: 'var(--font-body)',
@@ -158,8 +204,11 @@ export function AdminBloqueiosLimites({ onBack }: AdminBloqueiosLimitesProps) {
                   margin: '0 0 10px',
                 }}
               >
-                Bloqueie os dias em que não há entrega — vale para pedido único e agenda semanal.
-                Defina também o limite de pedidos por dia (0 = sem limite).
+                Bloqueie os dias em que não há entrega — vale para pedido único, agenda semanal e
+                Cestinha. Defina também o limite de pedidos por dia (0 = sem limite).
+                {isCondoScope
+                  ? ' O limite conta apenas as entregas deste condomínio.'
+                  : ' Este é o padrão: vale para todo condomínio que não tiver configuração própria.'}
               </p>
 
               <div style={{ ...cardStyle, gap: 0 }}>
@@ -221,7 +270,7 @@ export function AdminBloqueiosLimites({ onBack }: AdminBloqueiosLimitesProps) {
             {/* Botão salvar */}
             <button
               type="button"
-              onClick={() => void handleSalvar()}
+              onClick={() => void salvar()}
               disabled={isSaving}
               style={{
                 display: 'flex',
@@ -244,6 +293,10 @@ export function AdminBloqueiosLimites({ onBack }: AdminBloqueiosLimitesProps) {
             >
               {isSaving ? 'Salvando...' : 'Salvar configuração'}
             </button>
+
+            {/* Datas e períodos bloqueados — mesmo escopo selecionado acima */}
+            <div style={{ height: 1, background: 'var(--color-border-2)', margin: '4px 0' }} />
+            <BloqueiosData scope={scope} />
           </>
         )}
       </div>

@@ -5,17 +5,20 @@ import { isPastCutoffForDelivery, nextDeliveryDateStr, brtDateStr } from '../../
 import {
   getGlobalDeliverySlots,
   setGlobalDeliverySlots,
+  getCondoDeliverySlots,
+  setCondoDeliverySlots,
   normalizeSlot,
   type GlobalDeliverySlot,
+  type DeliverySlotView,
   type SlotPatch,
+  type CondoSlotPatch,
 } from '../../lib/delivery-slots.js'
+import { getRulesForCondo, type ResolvedRules } from '../../lib/delivery-rules.js'
 import type { WeekdayMinimums } from './admin-settings.schema.js'
 import { getGanchoConfig, type GanchoConfig } from '../../lib/gancho-config.js'
 import {
-  getAgendaRestrictions,
   WEEKDAY_ORDER,
   WEEKDAY_LABEL,
-  type AgendaRestrictions,
   type DiasBloqueados,
   type LimitePedidosDia,
 } from '../../lib/agenda-restrictions.js'
@@ -75,19 +78,30 @@ export class AdminSettingsService {
   }
 
   /**
-   * Retorna a config global de slots de entrega (fonte da verdade).
-   * Substitui o antigo cutoff global único — agora há um cutoffTime por slot.
+   * Slots de entrega: o PADRÃO global, ou os slots EFETIVOS de um condomínio.
+   *
+   * No escopo de condomínio as flags `timeCustom`/`activeCustom` vêm preenchidas, dizendo o que
+   * é personalizado e o que é herdado; no escopo global elas simplesmente não existem.
    */
-  async getDeliverySlots(): Promise<GlobalDeliverySlot[]> {
-    return getGlobalDeliverySlots(this.prisma)
+  async getDeliverySlots(condominiumId?: string | null): Promise<DeliverySlotView[]> {
+    return condominiumId
+      ? getCondoDeliverySlots(this.prisma, condominiumId)
+      : getGlobalDeliverySlots(this.prisma)
   }
 
   /**
-   * Aplica edições na config global de slots e propaga para todos os condomínios.
-   * Apenas cutoffTime/label/emoji/isActive são editáveis (time/slotId/name read-only).
+   * Aplica edições nos slots. Sem `condominiumId`, edita o PADRÃO global (time, cutoffTime,
+   * label, emoji, isActive) e propaga para os condomínios — preservando o que cada um
+   * personalizou. Com `condominiumId`, personaliza só `time`/`isActive` daquele condomínio
+   * (`null` volta a herdar); o corte permanece global.
    */
-  async setDeliverySlots(patches: SlotPatch[]): Promise<GlobalDeliverySlot[]> {
-    return setGlobalDeliverySlots(this.prisma, patches)
+  async setDeliverySlots(
+    patches: SlotPatch[] | CondoSlotPatch[],
+    condominiumId?: string | null,
+  ): Promise<DeliverySlotView[]> {
+    return condominiumId
+      ? setCondoDeliverySlots(this.prisma, condominiumId, patches as CondoSlotPatch[])
+      : setGlobalDeliverySlots(this.prisma, patches as SlotPatch[])
   }
 
   /**
@@ -190,54 +204,90 @@ export class AdminSettingsService {
   }
 
   /**
-   * Retorna as restrições de agendamento por dia da semana (dias bloqueados + limite de pedidos).
+   * Restrições por dia da semana RESOLVIDAS: o padrão global, ou o efetivo de um condomínio
+   * (override ?? global) junto com `source`, que diz por seção se veio do condomínio ou do padrão.
    */
-  async getRestricoes(): Promise<AgendaRestrictions> {
-    return getAgendaRestrictions(this.prisma)
+  async getRestricoes(condominiumId?: string | null): Promise<ResolvedRules> {
+    return getRulesForCondo(this.prisma, condominiumId)
   }
 
   /**
-   * Atualiza (upsert) as restrições por dia da semana. Ao BLOQUEAR um dia que estava liberado,
-   * avisa (best-effort) os clientes cuja agenda ativa entrega naquele dia para reconfigurarem.
+   * Atualiza as restrições por dia da semana.
+   *
+   * Sem `condominiumId` grava o PADRÃO global (Setting) — vale para todo condomínio que não
+   * personalizou. Com `condominiumId` grava o override daquele condomínio, e `null` em qualquer
+   * um dos dois mapas significa "voltar a herdar o padrão".
+   *
+   * Nos dois casos, dias que passaram de liberado → bloqueado disparam aviso (best-effort) aos
+   * clientes com agenda ativa naquele dia. Não cancela pedidos já materializados — para isso
+   * existe o bloqueio de DATA com `cancelExisting` (ver AdminBlocksService).
    */
   async setRestricoes(
-    diasBloqueados: DiasBloqueados,
-    limitePedidosDia: LimitePedidosDia,
-  ): Promise<void> {
-    const before = await getAgendaRestrictions(this.prisma)
+    diasBloqueados: DiasBloqueados | null,
+    limitePedidosDia: LimitePedidosDia | null,
+    condominiumId?: string | null,
+  ): Promise<ResolvedRules> {
+    const before = await getRulesForCondo(this.prisma, condominiumId)
 
-    await Promise.all([
-      this.prisma.setting.upsert({
-        where: { key: 'diasBloqueados' },
-        create: { key: 'diasBloqueados', value: JSON.stringify(diasBloqueados) },
-        update: { value: JSON.stringify(diasBloqueados) },
-      }),
-      this.prisma.setting.upsert({
-        where: { key: 'limitePedidosDia' },
-        create: { key: 'limitePedidosDia', value: JSON.stringify(limitePedidosDia) },
-        update: { value: JSON.stringify(limitePedidosDia) },
-      }),
-    ])
+    if (condominiumId) {
+      const exists = await this.prisma.condominium.findUnique({
+        where: { id: condominiumId },
+        select: { id: true },
+      })
+      if (!exists) throw { statusCode: 404, message: 'Condomínio não encontrado' }
 
-    // Dias que passaram de liberado → bloqueado nesta edição.
-    const newlyBlocked = WEEKDAY_ORDER.filter((d) => !before.blocked[d] && diasBloqueados[d] === true)
+      // `null` = herdar. No Mongo, gravar null é diferente de não ter a chave; a resolução trata
+      // os dois como herança (ver resolveCondoRules), então null explícito é seguro e simples.
+      await this.prisma.condominium.update({
+        where: { id: condominiumId },
+        data: {
+          blockedDaysOverride: diasBloqueados ?? null,
+          dayLimitOverride: limitePedidosDia ?? null,
+        },
+      })
+    } else {
+      await Promise.all([
+        this.prisma.setting.upsert({
+          where: { key: 'diasBloqueados' },
+          create: { key: 'diasBloqueados', value: JSON.stringify(diasBloqueados) },
+          update: { value: JSON.stringify(diasBloqueados) },
+        }),
+        this.prisma.setting.upsert({
+          where: { key: 'limitePedidosDia' },
+          create: { key: 'limitePedidosDia', value: JSON.stringify(limitePedidosDia) },
+          update: { value: JSON.stringify(limitePedidosDia) },
+        }),
+      ])
+    }
+
+    const after = await getRulesForCondo(this.prisma, condominiumId)
+
+    // Dias que passaram de liberado → bloqueado nesta edição (no escopo editado).
+    const newlyBlocked = WEEKDAY_ORDER.filter((d) => !before.blocked[d] && after.blocked[d])
     if (newlyBlocked.length > 0) {
       try {
-        await this.notifyNewlyBlockedDays(newlyBlocked)
+        await this.notifyNewlyBlockedDays(newlyBlocked, condominiumId)
       } catch (err) {
         this.fastify.log.warn({ err }, '[admin-settings] falha ao avisar clientes de dias bloqueados — ignorado')
       }
     }
+
+    return after
   }
 
   /**
    * Notifica (in-app + push best-effort) clientes com agenda ativa que entrega em algum dos
    * `days` recém-bloqueados, pedindo para reconfigurarem. Um aviso por cliente afetado.
    * Não cancela pedidos já materializados — o corte simplesmente para de gerar nesses dias.
+   *
+   * Com `condominiumId`, avisa só os clientes daquele condomínio (a mudança foi local).
    */
-  private async notifyNewlyBlockedDays(days: Array<keyof DiasBloqueados>): Promise<void> {
+  private async notifyNewlyBlockedDays(
+    days: Array<keyof DiasBloqueados>,
+    condominiumId?: string | null,
+  ): Promise<void> {
     const schedules = await this.prisma.schedule.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(condominiumId ? { condominiumId } : {}) },
       select: { userId: true, days: true, weeklyQty: true, pausedAt: true },
     })
 

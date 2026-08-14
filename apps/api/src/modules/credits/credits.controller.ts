@@ -26,9 +26,10 @@ export class CreditsController {
     }
   }
 
-  async getPricing(_request: FastifyRequest, reply: FastifyReply) {
+  async getPricing(request: FastifyRequest, reply: FastifyReply) {
     try {
-      const pricing = await this.service.getPricing()
+      // userId vem do JWT — define o condomínio e, com ele, quais restrições por dia valem.
+      const pricing = await this.service.getPricing(request.user?.id)
       return reply.status(200).send(pricing)
     } catch (err) {
       this.fastify.log.error(err)

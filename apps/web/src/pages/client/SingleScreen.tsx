@@ -140,8 +140,12 @@ export function SingleScreen() {
   const [showFreeHookPrompt, setShowFreeHookPrompt] = useState(false)
   // Bottom sheet de resumo/confirmação antes de finalizar a compra.
   const [summaryOpen, setSummaryOpen] = useState(false)
-  // Disponibilidade por data (dia bloqueado ou limite atingido) para a régua de dias.
-  const [availability, setAvailability] = useState<Record<string, { blocked: boolean; full: boolean }>>({})
+  // Disponibilidade por data para a régua de dias: `blocked` (dia da semana bloqueado OU data/
+  // período bloqueado pelo admin), `reason` (motivo do bloqueio de data, ex.: "Feriado") e
+  // `full` (limite de pedidos do dia atingido). Já vem resolvido para o condomínio do cliente.
+  const [availability, setAvailability] = useState<
+    Record<string, { blocked: boolean; full: boolean; reason?: string }>
+  >({})
 
   // Preço por pão (avulso) + pedido mínimo — usados para cobrar a diferença e limitar a quantidade.
   useEffect(() => {
@@ -162,13 +166,21 @@ export function SingleScreen() {
   useEffect(() => {
     apiFetch('/orders/availability?days=32')
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { availability?: Array<{ date: string; blocked: boolean; full: boolean }> } | null) => {
-        if (data?.availability) {
-          const map: Record<string, { blocked: boolean; full: boolean }> = {}
-          for (const a of data.availability) map[a.date] = { blocked: a.blocked, full: a.full }
-          setAvailability(map)
-        }
-      })
+      .then(
+        (
+          data: {
+            availability?: Array<{ date: string; blocked: boolean; full: boolean; reason?: string }>
+          } | null,
+        ) => {
+          if (data?.availability) {
+            const map: Record<string, { blocked: boolean; full: boolean; reason?: string }> = {}
+            for (const a of data.availability) {
+              map[a.date] = { blocked: a.blocked, full: a.full, ...(a.reason ? { reason: a.reason } : {}) }
+            }
+            setAvailability(map)
+          }
+        },
+      )
       .catch(() => {})
   }, [])
 
@@ -348,12 +360,15 @@ export function SingleScreen() {
     slotPendente ||
     isSubmitting ||
     (precisaPagar && avulsoUnit === null)
-  // Aviso do dia indisponível (bloqueado vs. lotado) exibido acima do botão.
-  const diaIndisponivelMsg = quandoIndisponivel
-    ? availability[quando!]?.full
-      ? 'O limite de pedidos para este dia foi atingido. Escolha outra data.'
-      : 'Não há entregas neste dia. Escolha outra data.'
-    : null
+  // Aviso do dia indisponível exibido acima do botão. Quando o admin informou um motivo para o
+  // bloqueio daquela data ("Feriado"), ele aparece — é mais útil que "não há entregas".
+  const diaIndisponivelMsg = (() => {
+    if (!quandoIndisponivel) return null
+    const info = availability[quando!]
+    if (info?.blocked && info.reason) return `${info.reason} — não há entregas neste dia. Escolha outra data.`
+    if (info?.blocked) return 'Não há entregas neste dia. Escolha outra data.'
+    return 'O limite de pedidos para este dia foi atingido. Escolha outra data.'
+  })()
 
   // Saldo cobre o pedido inteiro → reserva direto via POST /orders.
   const handleReservar = async (quantity: number) => {

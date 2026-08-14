@@ -32,6 +32,14 @@ function makeFastifyMock(overrides: {
   condominiumId?: string
   deliverySlots?: { name: string; time: string; cutoffTime: string; isActive: boolean }[]
   pedidoMinimoUnico?: number
+  /** Bloqueios de data/período que o `deliveryBlock.findMany` devolve (default: nenhum). */
+  deliveryBlocks?: Array<{
+    id: string
+    condominiumId: string | null
+    startDate: string
+    endDate: string
+    reason: string | null
+  }>
 } = {}) {
   const {
     creditMilli = 10000,
@@ -82,14 +90,25 @@ function makeFastifyMock(overrides: {
     ),
   }
 
+  // Bloqueios de data/período. Default: nenhum (a data escolhida está liberada).
+  const deliveryBlock = { findMany: vi.fn().mockResolvedValue(overrides.deliveryBlocks ?? []) }
+
   return {
     fastify: {
-      prisma: { $transaction: transaction, user: txUser, order: orderMock, condominium, setting },
+      prisma: {
+        $transaction: transaction,
+        user: txUser,
+        order: orderMock,
+        condominium,
+        setting,
+        deliveryBlock,
+      },
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
     } as unknown,
     txUser,
     txOrder: orderMock,
     txCreditTransaction,
+    deliveryBlock,
   }
 }
 
@@ -217,6 +236,156 @@ describe('OrdersService', () => {
     await expect(
       service.createSingleOrder('user-01', { quantity: 2, scheduledDate: pastDate }),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Data inválida' })
+  })
+
+  describe('bloqueio de data/período e restrições por condomínio', () => {
+    const TARDE = [{ name: 'tarde', time: '15:30', cutoffTime: '10:00', isActive: true }]
+
+    it('recusa (422) pedido numa data coberta por bloqueio, com o motivo na mensagem', async () => {
+      const target = brtDateStr(new Date(), 5)
+      const { fastify, txOrder } = makeFastifyMock({
+        creditMilli: 10000,
+        condominiumId: 'condo-01',
+        deliverySlots: TARDE,
+        deliveryBlocks: [
+          { id: 'b1', condominiumId: null, startDate: target, endDate: target, reason: 'Feriado' },
+        ],
+      })
+
+      const { OrdersService } = await import('../orders.service.js')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new OrdersService(fastify as any)
+
+      await expect(
+        service.createSingleOrder('user-01', {
+          quantity: 2,
+          scheduledDate: `${target}T12:00:00.000Z`,
+          deliveryTime: '15:30',
+        }),
+      ).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('Feriado') })
+      expect(txOrder.create).not.toHaveBeenCalled()
+    })
+
+    it('recusa data no MEIO de um período bloqueado', async () => {
+      const start = brtDateStr(new Date(), 3)
+      const middle = brtDateStr(new Date(), 5)
+      const end = brtDateStr(new Date(), 8)
+      const { fastify } = makeFastifyMock({
+        creditMilli: 10000,
+        condominiumId: 'condo-01',
+        deliverySlots: TARDE,
+        deliveryBlocks: [
+          { id: 'b1', condominiumId: 'condo-01', startDate: start, endDate: end, reason: null },
+        ],
+      })
+
+      const { OrdersService } = await import('../orders.service.js')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new OrdersService(fastify as any)
+
+      await expect(
+        service.createSingleOrder('user-01', {
+          quantity: 2,
+          scheduledDate: `${middle}T12:00:00.000Z`,
+          deliveryTime: '15:30',
+        }),
+      ).rejects.toMatchObject({ statusCode: 422 })
+    })
+
+    it('aceita normalmente quando não há bloqueio para a data', async () => {
+      const { fastify, txOrder } = makeFastifyMock({
+        creditMilli: 10000,
+        condominiumId: 'condo-01',
+        deliverySlots: TARDE,
+        deliveryBlocks: [],
+      })
+
+      const { OrdersService } = await import('../orders.service.js')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new OrdersService(fastify as any)
+
+      await service.createSingleOrder('user-01', {
+        quantity: 2,
+        scheduledDate: makeFutureDateStr(5),
+        deliveryTime: '15:30',
+      })
+      expect(txOrder.create).toHaveBeenCalled()
+    })
+
+    it('usa o override do CONDOMÍNIO nos dias bloqueados, ignorando o padrão global', async () => {
+      // O dia da entrega escolhida, bloqueado apenas no override do condomínio.
+      const target = brtDateStr(new Date(), 5)
+      const dayKey = (['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'] as const)[
+        new Date(`${target}T15:00:00.000Z`).getUTCDay()
+      ]
+
+      const { fastify } = makeFastifyMock({
+        creditMilli: 10000,
+        condominiumId: 'condo-01',
+        deliverySlots: TARDE,
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prisma = (fastify as any).prisma
+      prisma.condominium.findUnique = vi.fn().mockResolvedValue({
+        deliverySlots: TARDE,
+        blockedDaysOverride: { [dayKey]: true },
+        dayLimitOverride: null,
+      })
+
+      const { OrdersService } = await import('../orders.service.js')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new OrdersService(fastify as any)
+
+      await expect(
+        service.createSingleOrder('user-01', {
+          quantity: 2,
+          scheduledDate: `${target}T12:00:00.000Z`,
+          deliveryTime: '15:30',
+        }),
+      ).rejects.toMatchObject({ statusCode: 422, message: 'Não há entregas neste dia da semana.' })
+    })
+
+    it('conta o teto do dia SÓ no condomínio do cliente', async () => {
+      const target = brtDateStr(new Date(), 5)
+      const dayKey = (['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'] as const)[
+        new Date(`${target}T15:00:00.000Z`).getUTCDay()
+      ]
+
+      const { fastify } = makeFastifyMock({
+        creditMilli: 10000,
+        condominiumId: 'condo-01',
+        deliverySlots: TARDE,
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prisma = (fastify as any).prisma
+      prisma.condominium.findUnique = vi.fn().mockResolvedValue({
+        deliverySlots: TARDE,
+        blockedDaysOverride: null,
+        dayLimitOverride: { [dayKey]: 1 },
+      })
+      // Uma entrega já comprometida no condomínio → teto de 1 atingido.
+      prisma.order.count = vi.fn().mockResolvedValue(1)
+      prisma.order.findMany = vi.fn().mockResolvedValue([{ userId: 'outro', slotId: 'tarde' }])
+      prisma.schedule = { findMany: vi.fn().mockResolvedValue([]) }
+      prisma.marketOrder = { findMany: vi.fn().mockResolvedValue([]) }
+
+      const { OrdersService } = await import('../orders.service.js')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new OrdersService(fastify as any)
+
+      await expect(
+        service.createSingleOrder('user-01', {
+          quantity: 2,
+          scheduledDate: `${target}T12:00:00.000Z`,
+          deliveryTime: '15:30',
+        }),
+      ).rejects.toMatchObject({ statusCode: 422, message: 'O limite de pedidos para este dia foi atingido.' })
+
+      // A contagem foi restrita ao condomínio (e não à operação inteira).
+      expect(prisma.order.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ condominiumId: 'condo-01' }) }),
+      )
+    })
   })
 
   it('createSingleOrder grava deliveryTime do slot escolhido quando o corte está aberto', async () => {

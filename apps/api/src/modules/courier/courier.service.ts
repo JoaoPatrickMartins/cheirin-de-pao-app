@@ -2,7 +2,12 @@ import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
 import { CourierRepository } from './courier.repository.js'
 import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
-import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
+import {
+  getGlobalDeliverySlots,
+  listActiveCondoSlots,
+  groupCondoSlotsByTime,
+  minuteOfDay,
+} from '../../lib/delivery-slots.js'
 import { addressToQuery, geocodeAddress, type AddressLike } from '../../lib/geocode.js'
 import { nowHHMM, brtDayRange } from '../../lib/cutoff.js'
 import { notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
@@ -575,40 +580,39 @@ export class CourierService {
   }
 
   /**
-   * Lembrete ao entregador no horário do turno: no MINUTO EXATO de `slot.time`, para cada
+   * Lembrete ao entregador no horário do turno: no MINUTO EXATO do horário de entrega, para cada
    * entregador com pedidos de HOJE naquele turno que ainda NÃO iniciou/concluiu nenhuma
    * entrega (nenhum DELIVERED/NOT_DELIVERED entre seus pedidos do turno), envia um push +
    * notificação in-app COURIER_PENDING_REMINDER. Best-effort; 1× por minuto/turno.
+   *
+   * O disparo é por HORÁRIO EFETIVO de cada condomínio, não pelo horário do padrão global: um
+   * condomínio que entrega 05:00 lembra o entregador às 05:00, não às 06:30 (quando a rota já
+   * deveria estar terminando). Condomínios com o mesmo horário caem no mesmo passo, então sem
+   * personalização isto é idêntico ao comportamento histórico — um lembrete por turno.
    */
   async sendCourierPendingReminders(now: Date = new Date()): Promise<void> {
-    const [nh, nm] = nowHHMM(now).split(':').map(Number)
-    const cur = nh * 60 + nm
-    const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
+    const cur = minuteOfDay(nowHHMM(now))
+    const groups = groupCondoSlotsByTime(await listActiveCondoSlots(this.prisma))
     const { start, end } = brtDayRange(now)
 
-    for (const slot of slots) {
-      const [sh, sm] = slot.time.split(':').map(Number)
-      if (cur !== (sh * 60 + sm)) continue
+    for (const group of groups) {
+      if (cur !== minuteOfDay(group.time)) continue
 
       // Paradas do turno hoje que já têm entregador atribuído — pão E Cestinha. Sem a Cestinha,
       // um entregador com rota 100% de paradas só-Cestinha nunca recebia o lembrete.
+      const scope = {
+        slotId: group.slotId,
+        condominiumId: { in: group.condominiumIds },
+        scheduledDate: { gte: start, lte: end },
+        courierId: { not: null },
+      }
       const [orders, marketOrders] = await Promise.all([
         this.prisma.order.findMany({
-          where: {
-            slotId: slot.slotId,
-            scheduledDate: { gte: start, lte: end },
-            courierId: { not: null },
-            status: { not: 'CANCELLED' },
-          },
+          where: { ...scope, status: { not: 'CANCELLED' as const } },
           select: { courierId: true, status: true },
         }),
         this.prisma.marketOrder.findMany({
-          where: {
-            slotId: slot.slotId,
-            scheduledDate: { gte: start, lte: end },
-            courierId: { not: null },
-            status: { notIn: ['CANCELLED', 'PENDING_PAYMENT'] },
-          },
+          where: { ...scope, status: { notIn: ['CANCELLED', 'PENDING_PAYMENT'] as const } },
           select: { courierId: true, status: true },
         }),
       ])
@@ -633,7 +637,7 @@ export class CourierService {
           await notifications.notifyUser(courierId, {
             type: NotificationType.COURIER_PENDING_REMINDER,
             title: 'Entregas a fazer',
-            body: `Começou o turno ${slot.label} e você ainda tem ${entregas} para realizar.`,
+            body: `Começou o turno ${group.label} e você ainda tem ${entregas} para realizar.`,
             actionRoute: '/courier',
           })
         } catch (err) {

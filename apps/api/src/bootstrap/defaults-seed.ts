@@ -60,8 +60,9 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     create: { key: 'ganchoPreco', value: '5.00' },
   })
 
-  // Dias bloqueados para agendamento — default nenhum dia bloqueado (preserva o comportamento
-  // atual). true = dia sem entregas (pedido único, agenda e corte). O admin ajusta em Gestão.
+  // Dias bloqueados para agendamento — PADRÃO da operação, default nenhum dia bloqueado.
+  // true = dia sem entregas (pedido único, agenda, Cestinha e corte). Cada condomínio pode
+  // sobrescrever (Condominium.blockedDaysOverride); sem override, herda este padrão.
   await prisma.setting.upsert({
     where: { key: 'diasBloqueados' },
     update: {},
@@ -71,8 +72,10 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     },
   })
 
-  // Limite de pedidos por dia da semana — default 0 (ilimitado) em todos os dias, preservando o
-  // comportamento atual. Positivo = teto de entregas naquele dia. O admin ajusta em Gestão.
+  // Limite de pedidos por dia da semana — PADRÃO da operação, default 0 (ilimitado) em todos os
+  // dias. Positivo = teto de entregas naquele dia. Quando resolvido para um condomínio, o teto
+  // conta apenas as entregas DAQUELE condomínio (ver countCommittedDeliveries). Cada condomínio
+  // pode sobrescrever (Condominium.dayLimitOverride); sem override, herda este padrão.
   await prisma.setting.upsert({
     where: { key: 'limitePedidosDia' },
     update: {},

@@ -23,7 +23,13 @@ import { buildProductDemand, loadSourcingOptions } from '../../lib/product-deman
 import { splitDemandBySupplier, type UnsourcedProduct } from '../../lib/supplier-split.js'
 import { buildRestockCandidates, RESTOCK_COVER_DAYS, type RestockCandidate } from '../../lib/restock-demand.js'
 import { SchedulesService } from '../schedules/schedules.service.js'
-import { getGlobalDeliverySlots, type GlobalDeliverySlot } from '../../lib/delivery-slots.js'
+import {
+  getGlobalDeliverySlots,
+  listActiveCondoSlots,
+  groupCondoSlotsByTime,
+  minuteOfDay,
+  type GlobalDeliverySlot,
+} from '../../lib/delivery-slots.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { NotificationType } from '@prisma/client'
 
@@ -1177,36 +1183,37 @@ export class AdminSupplierOrdersService {
 
   /**
    * Avisa os admins sobre ENTREGAS PENDENTES após o prazo do turno: no minuto exato de
-   * (slot.time + bufferMin), conta os pedidos de HOJE naquele turno ainda não finalizados
-   * (SCHEDULED/SEPARATED/OUT_FOR_DELIVERY) e, se houver, notifica. Toggle ADMIN_DELIVERY_PENDING.
+   * (horário de entrega + bufferMin), conta os pedidos de HOJE naquele turno ainda não
+   * finalizados (SCHEDULED/SEPARATED/OUT_FOR_DELIVERY) e, se houver, notifica.
+   * Toggle ADMIN_DELIVERY_PENDING.
+   *
+   * O disparo é por HORÁRIO EFETIVO, não pelo horário do padrão global: condomínios que
+   * compartilham o mesmo horário caem num aviso só, e um condomínio com horário próprio é
+   * avisado no horário DELE. Sem personalização, isto é exatamente um aviso por turno cobrindo
+   * a operação inteira — igual ao comportamento histórico. Quando o grupo é um subconjunto, o
+   * aviso nomeia os condomínios (senão "3 entregas pendentes" não diria pendentes ONDE).
    */
   async sendDeliveryPendingReminders(now: Date = new Date(), bufferMin = 60): Promise<void> {
-    const [nh, nm] = nowHHMM(now).split(':').map(Number)
-    const cur = nh * 60 + nm
-    const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
+    const cur = minuteOfDay(nowHHMM(now))
+    const groups = groupCondoSlotsByTime(await listActiveCondoSlots(this.prisma))
     const { start, end } = brtDayRange(now)
 
-    for (const slot of slots) {
-      const [sh, sm] = slot.time.split(':').map(Number)
-      const target = (sh * 60 + sm + bufferMin + 1440) % 1440
-      if (cur !== target) continue
+    for (const group of groups) {
+      if (cur !== minuteOfDay(group.time, bufferMin)) continue
 
       // Pendências de pão E de Cestinha: uma parada só-Cestinha esquecida também precisa avisar.
+      const scope = {
+        slotId: group.slotId,
+        condominiumId: { in: group.condominiumIds },
+        scheduledDate: { gte: start, lte: end },
+      }
       const [pending, pendingMarket] = await Promise.all([
         this.prisma.order.findMany({
-          where: {
-            slotId: slot.slotId,
-            scheduledDate: { gte: start, lte: end },
-            status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
-          },
+          where: { ...scope, status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] } },
           select: { userId: true, quantity: true },
         }),
         this.prisma.marketOrder.findMany({
-          where: {
-            slotId: slot.slotId,
-            scheduledDate: { gte: start, lte: end },
-            status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] },
-          },
+          where: { ...scope, status: { in: ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] } },
           select: { userId: true, breadQty: true, items: { select: { qty: true } } },
         }),
       ])
@@ -1218,15 +1225,19 @@ export class AdminSupplierOrdersService {
       for (const m of pendingMarket) stops.add(m.userId)
       const total = pending.reduce((s, o) => s + o.quantity, 0) + pendingMarket.reduce((s, m) => s + m.breadQty, 0)
       const items = pendingMarket.reduce((s, m) => s + m.items.reduce((n, i) => n + i.qty, 0), 0)
+      const onde = group.coversAllCondos ? '' : ` em ${group.condominiumNames.join(', ')}`
       try {
         await new NotificationsService(this.fastify).notifyAdmins({
           type: NotificationType.ADMIN_DELIVERY_PENDING,
           title: 'Entregas pendentes',
-          body: `${stops.size} entrega(s) do turno ${slot.label} ainda não concluídas (${total} pães${items > 0 ? ` · ${items} itens` : ''}) após o prazo.`,
+          body: `${stops.size} entrega(s) do turno ${group.label}${onde} ainda não concluídas (${total} pães${items > 0 ? ` · ${items} itens` : ''}) após o prazo.`,
           actionRoute: '/admin',
         })
       } catch (err) {
-        this.fastify.log.warn({ err, slotId: slot.slotId }, '[supplier-orders] falha no aviso de pendentes — ignorado')
+        this.fastify.log.warn(
+          { err, slotId: group.slotId, time: group.time },
+          '[supplier-orders] falha no aviso de pendentes — ignorado',
+        )
       }
     }
   }
