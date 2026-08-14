@@ -184,8 +184,8 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
       preHandler: [fastify.authenticate],
       schema: {
         tags: ['orders'],
-        summary: 'Disponibilidade de datas para pedido único',
-        description: 'Retorna, a partir de hoje (BRT), para cada data da janela: se o dia da semana está bloqueado (blocked) e se o limite de pedidos daquele dia já foi atingido (full). Usado para desabilitar dias na régua do pedido único.',
+        summary: 'Disponibilidade de datas para pedido único e Cestinha',
+        description: 'Retorna, a partir de hoje (BRT), para cada data da janela: se a data não aceita entrega (blocked — por dia da semana bloqueado OU por bloqueio de data/período), o motivo do bloqueio de data quando houver (reason) e se o limite de pedidos daquele dia já foi atingido (full). Tudo resolvido no escopo do condomínio do cliente autenticado. Usado para desabilitar dias na régua do pedido único e da Cestinha.',
         security: [{ bearerAuth: [] }],
         querystring: {
           type: 'object',
@@ -204,8 +204,9 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
                   type: 'object',
                   properties: {
                     date: { type: 'string', description: 'Data no formato YYYY-MM-DD (BRT).' },
-                    blocked: { type: 'boolean', description: 'true se o dia da semana está bloqueado.' },
+                    blocked: { type: 'boolean', description: 'true se a data não aceita entrega (dia da semana bloqueado ou data/período bloqueado).' },
                     full: { type: 'boolean', description: 'true se o limite de pedidos do dia já foi atingido.' },
+                    reason: { type: 'string', description: 'Motivo do bloqueio de data, quando informado pelo admin (ex.: "Feriado"). Ausente em dias liberados ou bloqueados apenas por dia da semana.' },
                   },
                 },
               },

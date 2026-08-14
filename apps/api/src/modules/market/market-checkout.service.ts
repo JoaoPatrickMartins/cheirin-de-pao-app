@@ -8,7 +8,12 @@ import {
   type MarketCheckoutInput,
 } from '@cheirin-de-pao/shared'
 import { brtNoonFromStr, brtDateStr, dayKeyOf, isPastCutoffForDelivery } from '../../lib/cutoff.js'
-import { getAgendaRestrictions, isDayBlocked } from '../../lib/agenda-restrictions.js'
+import {
+  getRulesForCondo,
+  getDateBlock,
+  blockedDateMessage,
+  isDayBlocked,
+} from '../../lib/delivery-rules.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { MARKET_CARTAO_MIN_KEY, isCardBelowMinimum, parseCartaoMinimo } from '../../lib/market-card-policy.js'
 import { buildStockAlerts, type StockSnapshot } from '../../lib/market-stock-alerts.js'
@@ -132,17 +137,24 @@ export class MarketCheckoutService {
       }
     }
 
-    // 7.5. Restrições do admin por dia da semana — MESMA regra do pedido único e da agenda
-    // (getAgendaRestrictions): dia bloqueado nunca aceita entrega; com limite ativo, barra
-    // quando as entregas comprometidas do dia atingem o teto. A contagem já inclui Cestinhas
+    // 7.5. Restrições do admin — MESMA regra do pedido único e da agenda, resolvidas para o
+    // condomínio do cliente (override ?? padrão global): dia da semana bloqueado nunca aceita
+    // entrega, data/período bloqueado (feriado, obra) também não, e com limite ativo barra quando
+    // as entregas comprometidas DAQUELE condomínio atingem o teto. A contagem já inclui Cestinhas
     // (por parada userId+slotId), então a Cestinha respeita e consome o limite igual ao pão.
     // Backend é a autoridade — o front só sugere a régua de dias.
-    const { blocked, limits } = await getAgendaRestrictions(this.prisma)
+    const { blocked, limits } = await getRulesForCondo(this.prisma, user.condominiumId)
     if (isDayBlocked(blocked, dayKey)) {
       throw { statusCode: 422, message: 'Não há entregas neste dia da semana.' }
     }
+    const dateBlock = await getDateBlock(this.prisma, user.condominiumId, dateStr)
+    if (dateBlock) {
+      throw { statusCode: 422, message: blockedDateMessage(dateBlock) }
+    }
     if (limits[dayKey] > 0) {
-      const committed = await countCommittedDeliveries(this.prisma, scheduledDate)
+      const committed = await countCommittedDeliveries(this.prisma, scheduledDate, {
+        condominiumId: user.condominiumId,
+      })
       if (committed >= limits[dayKey]) {
         throw { statusCode: 422, message: 'O limite de pedidos para este dia foi atingido.' }
       }

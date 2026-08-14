@@ -4,11 +4,8 @@ import { CreditsRepository } from './credits.repository.js'
 import { effectiveComboPrice, comboEconomy } from '../../lib/combo-pricing.js'
 import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
 import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
-import {
-  getAgendaRestrictions,
-  type DiasBloqueados,
-  type LimitePedidosDia,
-} from '../../lib/agenda-restrictions.js'
+import type { DiasBloqueados, LimitePedidosDia } from '../../lib/agenda-restrictions.js'
+import { getRulesForCondo } from '../../lib/delivery-rules.js'
 
 export class CreditsService {
   private repo: CreditsRepository
@@ -55,7 +52,15 @@ export class CreditsService {
     })
   }
 
-  async getPricing(): Promise<{
+  /**
+   * Configuração de preço + restrições que o cliente usa para montar agenda e pedido único.
+   *
+   * As restrições por dia da semana são resolvidas para o CONDOMÍNIO do cliente (override do
+   * condomínio quando existe, senão o padrão global) — dois clientes de condomínios diferentes
+   * podem ver dias bloqueados diferentes. Sem `userId` (ou cliente sem condomínio) devolve o
+   * padrão global. O backend segue sendo a autoridade: isto aqui é a régua da UI.
+   */
+  async getPricing(userId?: string): Promise<{
     avulsoLimite: number
     avulsoUnit: number
     pedidoMinimoUnico: number
@@ -77,7 +82,14 @@ export class CreditsService {
     const minUnicoParsed = minUnicoEntry ? parseInt(minUnicoEntry.value, 10) : 1
 
     // Restrições por dia da semana — o cliente usa para desabilitar dias na agenda/pedido único.
-    const { blocked, limits } = await getAgendaRestrictions(this.fastify.prisma)
+    // Resolvidas no escopo do condomínio dele (ver doc do método).
+    const user = userId
+      ? await this.fastify.prisma.user.findUnique({
+          where: { id: userId },
+          select: { condominiumId: true },
+        })
+      : null
+    const { blocked, limits } = await getRulesForCondo(this.fastify.prisma, user?.condominiumId)
 
     return {
       avulsoLimite: limiteEntry ? parseFloat(limiteEntry.value) : 0,

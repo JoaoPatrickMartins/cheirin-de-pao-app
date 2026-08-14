@@ -56,16 +56,19 @@ export class OrdersController {
   }
 
   /**
-   * GET /orders/availability?days=14 — disponibilidade por data para a régua do pedido único.
-   * Retorna, a partir de hoje (BRT), para cada data: se o dia está bloqueado e se o limite de
-   * pedidos daquele dia já foi atingido (full). userId vem do JWT (rota autenticada).
+   * GET /orders/availability?days=14 — disponibilidade por data para a régua do pedido único
+   * e da Cestinha. Retorna, a partir de hoje (BRT), para cada data: se está bloqueada (dia da
+   * semana ou data/período), o motivo do bloqueio de data quando houver, e se o limite de pedidos
+   * daquele dia já foi atingido (full).
+   *
+   * userId vem do JWT (rota autenticada) e define o condomínio — tudo é resolvido no escopo dele.
    */
   async getAvailability(request: FastifyRequest, reply: FastifyReply) {
     try {
       const query = request.query as { days?: string }
       const parsed = query.days ? parseInt(query.days, 10) : 14
       const days = Number.isFinite(parsed) ? Math.min(60, Math.max(1, parsed)) : 14
-      const availability = await this.service.getOrderAvailability(days)
+      const availability = await this.service.getOrderAvailability(days, request.user?.id)
       return reply.status(200).send({ availability })
     } catch (err) {
       this.fastify.log.error(err)

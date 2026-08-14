@@ -27,9 +27,14 @@ type DeliverySlot {
   name        String  // legado/identidade atual; mantido igual ao slotId
   label       String? // rótulo de exibição (ex.: "Manhã") — editável
   emoji       String? // emoji de exibição (ex.: "☀️") — editável
-  time        String  // "06:30" — chave de junção (agendas/pedidos); read-only na Etapa A
-  cutoffTime  String  // "22:00" — editável
+  time        String  // "06:30" — horário de ENTREGA; personalizável por condomínio (timeCustom)
+  cutoffTime  String  // "22:00" — horário de CORTE; SEMPRE global (propagado por cima)
   isActive    Boolean
+  // Flags de personalização por condomínio (Etapa C). Ausente/false = herda o global e a
+  // propagação sobrescreve; true = valor definido naquele condomínio e a propagação PRESERVA.
+  // Só `time` e `isActive` são personalizáveis — `cutoffTime`, `label` e `emoji` seguem globais.
+  timeCustom   Boolean?
+  activeCustom Boolean?
 }
 
 // Item de um pedido do mercadinho — snapshot de nome e preço no momento da compra.
@@ -284,6 +289,14 @@ model Condominium {
   numBlocks     Int?
   isActive      Boolean   @default(true)
   deliverySlots DeliverySlot[]
+  // Overrides das restrições por dia da semana (Etapa C). AUSENTE = herda o padrão global
+  // (Setting `diasBloqueados` / `limitePedidosDia`). Presente = mapa completo `{seg..dom}` que
+  // substitui o global naquele condomínio.
+  //
+  // ATENÇÃO (Mongo): a resolução é feita EM CÓDIGO (`override ?? global`) — nunca consultar
+  // `where: { blockedDaysOverride: null }`, que não encontra documento sem a chave.
+  blockedDaysOverride Json?
+  dayLimitOverride    Json?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -731,4 +744,31 @@ model ProductDailyStock {
   updatedAt DateTime @updatedAt
 
   @@unique([productId, date])
+}
+
+// 26. DeliveryBlock — bloqueio de uma DATA ou de um PERÍODO para pedidos/entregas.
+//
+// Complementa o bloqueio por dia da semana (`diasBloqueados`), que é recorrente: aqui o admin
+// bloqueia datas pontuais (feriado, férias da padaria) ou uma faixa contínua (obra na portaria).
+//
+// Escopo: `condominiumId` AUSENTE = bloqueio GLOBAL (vale para todos os condomínios); presente =
+// vale só naquele condomínio. Uma data está bloqueada se cair em QUALQUER um dos dois.
+//
+// Datas em String "YYYY-MM-DD" (dia BRT), mesma convenção de `ProductDailyStock.date` — evita
+// toda a ambiguidade de fuso de um DateTime (o dia BRT não coincide com o dia UTC).
+// Data única = `startDate == endDate`. Intervalo INCLUSIVO nas duas pontas.
+//
+// Vale para os três caminhos de entrega: pedido único (avulso), agenda (o corte não gera) e
+// Cestinha. Não tem granularidade por turno — bloquear uma data bloqueia todos os turnos.
+model DeliveryBlock {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  condominiumId String?  @db.ObjectId
+  startDate     String
+  endDate       String
+  reason        String?  // motivo exibido ao cliente (ex.: "Feriado", "Portaria em obra")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([condominiumId, startDate])
+  @@index([startDate, endDate])
 }

@@ -4,13 +4,16 @@ import { type DayKey, brtDateStr, brtNoonFromStr, dayKeyOf } from './cutoff.js'
 /**
  * agenda-restrictions.ts — restrições de agendamento por dia da semana definidas pelo admin.
  *
- * Duas configs globais (Setting key/value, JSON `{seg..dom}` — mesmo padrão de
- * `pedidoMinimoAgenda`):
+ * Duas configs no `Setting` (key/value, JSON `{seg..dom}` — mesmo padrão de `pedidoMinimoAgenda`):
  *  - `diasBloqueados`: dia com `true` NÃO aceita entregas (pedido único, agenda e corte).
- *  - `limitePedidosDia`: máximo de ENTREGAS (Orders) por dia da semana; `0` = ilimitado.
+ *  - `limitePedidosDia`: máximo de ENTREGAS por dia da semana; `0` = ilimitado.
+ *
+ * Estas são o **PADRÃO** da operação. Cada condomínio pode sobrescrever as duas
+ * (`Condominium.blockedDaysOverride` / `dayLimitOverride`) — a resolução da herança e os
+ * bloqueios de DATA/período vivem em `delivery-rules.ts`, que é por onde os chokepoints entram.
+ * Este módulo segue sendo o leitor/parser do padrão global e a fonte dos rótulos de dia.
  *
  * Parse sempre defensivo — chave ausente/malformada degrada para "sem restrição" (nunca lança).
- * Fonte única compartilhada por orders, schedules, admin-settings e credits (/pricing).
  */
 
 /** Ordem canônica dos dias — usada em labels e iteração. */
@@ -35,17 +38,10 @@ export interface AgendaRestrictions {
   limits: LimitePedidosDia
 }
 
-/** Objeto `{seg..dom}` a partir de um raw JSON, aplicando `map` a cada valor (ausente → default). */
-function parseWeekdayMap<T>(raw: string | null | undefined, map: (v: unknown) => T): Record<DayKey, T> {
-  let parsed: Record<string, unknown> = {}
-  if (raw) {
-    try {
-      const obj = JSON.parse(raw) as unknown
-      if (obj && typeof obj === 'object') parsed = obj as Record<string, unknown>
-    } catch {
-      // JSON inválido → mantém {} (todos os dias no default)
-    }
-  }
+/** Objeto `{seg..dom}` a partir de um objeto já desserializado, aplicando `map` (ausente → default). */
+function coerceWeekdayMap<T>(obj: unknown, map: (v: unknown) => T): Record<DayKey, T> {
+  const parsed: Record<string, unknown> =
+    obj && typeof obj === 'object' ? (obj as Record<string, unknown>) : {}
   return {
     seg: map(parsed.seg),
     ter: map(parsed.ter),
@@ -57,18 +53,48 @@ function parseWeekdayMap<T>(raw: string | null | undefined, map: (v: unknown) =>
   }
 }
 
+/** Objeto `{seg..dom}` a partir de um raw JSON (string), aplicando `map` a cada valor. */
+function parseWeekdayMap<T>(raw: string | null | undefined, map: (v: unknown) => T): Record<DayKey, T> {
+  let obj: unknown = null
+  if (raw) {
+    try {
+      obj = JSON.parse(raw)
+    } catch {
+      // JSON inválido → todos os dias no default
+    }
+  }
+  return coerceWeekdayMap(obj, map)
+}
+
+const blockedValue = (v: unknown): boolean => v === true || v === 'true'
+
+const limitValue = (v: unknown): number => {
+  const n = typeof v === 'number' ? v : parseInt(String(v), 10)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.floor(n)
+}
+
 /** Parse dos dias bloqueados. Só `true` (boolean ou "true") bloqueia; qualquer outra coisa = liberado. */
 export function parseDiasBloqueados(raw: string | null | undefined): DiasBloqueados {
-  return parseWeekdayMap(raw, (v) => v === true || v === 'true')
+  return parseWeekdayMap(raw, blockedValue)
 }
 
 /** Parse dos limites por dia. Cada valor é clampado para inteiro >= 0; ausente/inválido → 0 (ilimitado). */
 export function parseLimitePedidosDia(raw: string | null | undefined): LimitePedidosDia {
-  return parseWeekdayMap(raw, (v) => {
-    const n = typeof v === 'number' ? v : parseInt(String(v), 10)
-    if (!Number.isFinite(n) || n < 0) return 0
-    return Math.floor(n)
-  })
+  return parseWeekdayMap(raw, limitValue)
+}
+
+/**
+ * Mesma coerção de `parseDiasBloqueados`, mas a partir de um OBJETO já desserializado —
+ * usado pelos overrides por condomínio, que chegam como `Json` do Prisma (não string).
+ */
+export function coerceDiasBloqueados(obj: unknown): DiasBloqueados {
+  return coerceWeekdayMap(obj, blockedValue)
+}
+
+/** Mesma coerção de `parseLimitePedidosDia`, a partir de um objeto já desserializado. */
+export function coerceLimitePedidosDia(obj: unknown): LimitePedidosDia {
+  return coerceWeekdayMap(obj, limitValue)
 }
 
 /**
