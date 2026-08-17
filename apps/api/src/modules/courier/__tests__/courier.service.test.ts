@@ -340,6 +340,44 @@ describe('CourierService', () => {
       expect(stops[1].apartment).toBe('10')
       expect(stops[2].apartment).toBe('101')
     })
+
+    it('agrupa por complemento antes do apartamento — o entregador não atravessa o bloco a cada porta', async () => {
+      const { fastify } = makeFastifyMock({
+        orders: ['101', '102', '103'].map((apt, i) => ({
+          id: `order-${apt}`,
+          userId: `user-0${i + 1}`,
+          courierId: 'courier-01',
+          quantity: 1,
+          status: 'SCHEDULED',
+          scheduledDate: new Date(),
+          condominiumId: 'condo-01',
+          apartment: apt,
+          block: 'A',
+        })),
+      })
+
+      const fetchMock = vi.mocked(fetch)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ lat: '-23.5', lon: '-46.6' }] } as Response)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ routes: [{ distance: 5000, duration: 600, geometry: { coordinates: [] } }] }),
+      } as Response)
+
+      // Intercalados de propósito: 101 (Lado A), 102 (Lado B), 103 (Lado A).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prismaRef = (fastify as any).prisma
+      prismaRef.user.findUnique
+        .mockResolvedValueOnce({ id: 'user-01', name: 'C1', condominiumId: 'condo-01', apartment: '101', block: 'A', complement: 'Lado A' })
+        .mockResolvedValueOnce({ id: 'user-02', name: 'C2', condominiumId: 'condo-01', apartment: '102', block: 'A', complement: 'Lado B' })
+        .mockResolvedValueOnce({ id: 'user-03', name: 'C3', condominiumId: 'condo-01', apartment: '103', block: 'A', complement: 'Lado A' })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new CourierService(fastify as any)
+      const stops = (await service.getTodayOrders('courier-01')).condos[0].stops
+
+      expect(stops.map((s) => s.complement)).toEqual(['Lado A', 'Lado A', 'Lado B'])
+      expect(stops.map((s) => s.apartment)).toEqual(['101', '103', '102'])
+    })
   })
 
   describe('markNotDelivered', () => {

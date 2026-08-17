@@ -35,12 +35,16 @@ const order = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function mockFastify(found: Record<string, unknown> | null, claimCount = 1) {
+function mockFastify(
+  found: Record<string, unknown> | null,
+  claimCount = 1,
+  client: Record<string, unknown> = { name: 'Fulano', block: 'B', apartment: '101' },
+) {
   const updateMany = vi.fn().mockResolvedValue({ count: claimCount })
   const prisma = {
     marketOrder: { findFirst: vi.fn().mockResolvedValue(found), updateMany },
     user: {
-      findUnique: vi.fn().mockResolvedValue({ name: 'Fulano', block: 'B', apartment: '101' }),
+      findUnique: vi.fn().mockResolvedValue(client),
       findMany: vi.fn().mockResolvedValue([]),
     },
   }
@@ -65,11 +69,23 @@ describe('fulfillMarketOrder', () => {
     const payload = notifyAdmins.mock.calls[0][0]
     expect(payload.type).toBe('ADMIN_ORDER_PLACED')
     expect(payload.title).toBe('Nova Cestinha')
-    expect(payload.body).toContain('Fulano · Apto B 101')
+    expect(payload.body).toContain('Fulano · Bl B · Apto 101')
     expect(payload.body).toContain('2 itens')
     expect(payload.body).toContain('4 🥖')
     expect(payload.body).toContain('30/07')
     expect(updatePaymentStatus).toHaveBeenCalledWith('pay-1', 'PAID')
+  })
+
+  it('leva o complemento do bloco no aviso — é o que diz em qual lado bater', async () => {
+    const { fastify } = mockFastify(order(), 1, {
+      name: 'Fulano',
+      block: 'B',
+      complement: 'Lado A',
+      apartment: '101',
+    })
+    await fulfillMarketOrder(fastify, payment)
+
+    expect(notifyAdmins.mock.calls[0][0].body).toContain('Fulano · Bl B · Lado A · Apto 101')
   })
 
   it('claim perdido (outro webhook chegou primeiro) → marca PAID mas NÃO avisa de novo', async () => {

@@ -43,6 +43,7 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     userId: { type: 'string' },
     name: { type: 'string' },
     block: { type: 'string' },
+    complement: { type: 'string' },
     apartment: { type: 'string' },
     quantity: { type: 'integer' },
     slotId: { type: 'string' },

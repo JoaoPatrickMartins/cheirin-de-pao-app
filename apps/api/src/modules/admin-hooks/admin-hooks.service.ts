@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { Prisma, NotificationType, HookRequestType } from '@prisma/client'
+import { compareUnits } from '@cheirin-de-pao/shared'
 import { NotificationsService } from '../notifications/notifications.service.js'
 
 /** Parâmetros de listagem de solicitações de gancho. */
@@ -14,18 +15,10 @@ export interface ListHooksParams {
 }
 
 /**
- * Ordena por bloco e depois por apartamento com comparação numérica
- * ("Bloco 2" antes de "Bloco 10", "Apto 20" antes de "Apto 101").
+ * Ordena por bloco → complemento → apartamento com comparação numérica
+ * ("Bloco 2" antes de "Bloco 10", "Apto 20" antes de "Apto 101"). Ver `compareUnits`.
  */
-function byBlockThenApartment(
-  a: { block?: string | null; apartment?: string | null },
-  b: { block?: string | null; apartment?: string | null },
-): number {
-  const ba = (a.block ?? '').trim()
-  const bb = (b.block ?? '').trim()
-  if (ba !== bb) return ba.localeCompare(bb, 'pt-BR', { numeric: true })
-  return (a.apartment ?? '').trim().localeCompare((b.apartment ?? '').trim(), 'pt-BR', { numeric: true })
-}
+const byBlockThenApartment = compareUnits
 
 function createOsClient() {
   const configuration = OneSignal.createConfiguration({
@@ -77,6 +70,7 @@ export class AdminHooksService {
         { name: { contains: term, mode: 'insensitive' } },
         { apartment: { contains: term, mode: 'insensitive' } },
         { block: { contains: term, mode: 'insensitive' } },
+        { complement: { contains: term, mode: 'insensitive' } },
         { phone: { contains: term } },
       ]
       if (digits) {
@@ -176,7 +170,7 @@ export class AdminHooksService {
       userIds.length > 0
         ? await this.prisma.user.findMany({
             where: { id: { in: userIds } },
-            select: { id: true, name: true, phone: true, apartment: true, block: true, condominiumId: true },
+            select: { id: true, name: true, phone: true, apartment: true, block: true, complement: true, condominiumId: true },
           })
         : []
     const userMap = new Map(users.map((u) => [u.id, u]))
@@ -206,6 +200,7 @@ export class AdminHooksService {
         phone: u?.phone ?? null,
         apartment: u?.apartment ?? null,
         block: u?.block ?? null,
+        complement: u?.complement ?? null,
         condominiumId: u?.condominiumId ?? null,
         condominiumName: u?.condominiumId ? condoMap.get(u.condominiumId) ?? null : null,
       }

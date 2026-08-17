@@ -9,10 +9,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { runCreditMilliBackfill, backfillCreditMilliIfNeeded } from '../credit-milli-backfill.js'
 
 interface MockOpts {
-  users?: Array<{ id: string; creditBalance: number }>
+  users?: Array<{ id: string; creditBalanceLegacy: number }>
   txs?: Array<{ id: string; quantity: number }>
   orders?: Array<{ id: string; creditsApplied: number }>
-  /** Σ creditBalance de TODOS os usuários (inclui os já migrados). */
+  /** Σ creditBalanceLegacy de TODOS os usuários (inclui os já migrados). */
   somaLegado?: number
   /** Σ creditMilli depois do backfill (o mock não recalcula sozinho). */
   somaMilli?: number
@@ -21,7 +21,7 @@ interface MockOpts {
 
 function makePrisma(o: MockOpts = {}) {
   const { users = [], txs = [], orders = [], flag = false } = o
-  const somaLegado = o.somaLegado ?? users.reduce((s, u) => s + u.creditBalance, 0)
+  const somaLegado = o.somaLegado ?? users.reduce((s, u) => s + u.creditBalanceLegacy, 0)
   const somaMilli = o.somaMilli ?? somaLegado * 1000
 
   // Cada findMany devolve a lista pendente na 1ª chamada e vazio depois — simula o campo
@@ -44,7 +44,7 @@ function makePrisma(o: MockOpts = {}) {
     user: {
       findMany: drain(users),
       update: userUpdate,
-      aggregate: vi.fn().mockResolvedValue({ _sum: { creditMilli: somaMilli, creditBalance: somaLegado } }),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { creditMilli: somaMilli, creditBalanceLegacy: somaLegado } }),
       // `count` responde a pendência: o guard do boot é por documento pendente, não por flag.
       count: vi.fn().mockResolvedValue(users.length),
     },
@@ -63,7 +63,7 @@ const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 describe('runCreditMilliBackfill', () => {
   it('multiplica por 1000 os três campos legados', async () => {
     const { prisma, userUpdate, txUpdate, orderUpdate } = makePrisma({
-      users: [{ id: 'u1', creditBalance: 45 }, { id: 'u2', creditBalance: 0 }],
+      users: [{ id: 'u1', creditBalanceLegacy: 45 }, { id: 'u2', creditBalanceLegacy: 0 }],
       txs: [{ id: 't1', quantity: 30 }, { id: 't2', quantity: -2 }],
       orders: [{ id: 'o1', creditsApplied: 3 }],
     })
@@ -92,7 +92,7 @@ describe('runCreditMilliBackfill', () => {
   })
 
   it('devolve as duas somas para conferência', async () => {
-    const { prisma } = makePrisma({ users: [{ id: 'u1', creditBalance: 45 }] })
+    const { prisma } = makePrisma({ users: [{ id: 'u1', creditBalanceLegacy: 45 }] })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const r = await runCreditMilliBackfill(prisma as any)
     expect(r.somaMilli).toBe(45000)
@@ -116,7 +116,7 @@ describe('backfillCreditMilliIfNeeded', () => {
     // Regressão do incidente real: o 1º backfill gravou a flag sem migrar ninguém (o filtro
     // `{ creditMilli: null }` não acha documento SEM a chave no Prisma + MongoDB). Com guard por
     // flag, esses usuários nunca mais seriam migrados.
-    const { prisma, userUpdate } = makePrisma({ flag: true, users: [{ id: 'u1', creditBalance: 45 }] })
+    const { prisma, userUpdate } = makePrisma({ flag: true, users: [{ id: 'u1', creditBalanceLegacy: 45 }] })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await backfillCreditMilliIfNeeded(prisma as any, log as any)
@@ -125,7 +125,7 @@ describe('backfillCreditMilliIfNeeded', () => {
   })
 
   it('roda e grava a flag de execução única', async () => {
-    const { prisma, userUpdate, settingUpsert } = makePrisma({ users: [{ id: 'u1', creditBalance: 45 }] })
+    const { prisma, userUpdate, settingUpsert } = makePrisma({ users: [{ id: 'u1', creditBalanceLegacy: 45 }] })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await backfillCreditMilliIfNeeded(prisma as any, log as any)
@@ -138,7 +138,7 @@ describe('backfillCreditMilliIfNeeded', () => {
 
   it('avisa quando as somas divergem, sem falhar', async () => {
     const warn = vi.fn()
-    const { prisma } = makePrisma({ users: [{ id: 'u1', creditBalance: 45 }], somaMilli: 44500 })
+    const { prisma } = makePrisma({ users: [{ id: 'u1', creditBalanceLegacy: 45 }], somaMilli: 44500 })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await backfillCreditMilliIfNeeded(prisma as any, { ...log, warn } as any)
@@ -148,7 +148,7 @@ describe('backfillCreditMilliIfNeeded', () => {
 
   it('não derruba o boot nem grava a flag se o backfill falhar', async () => {
     const error = vi.fn()
-    const { prisma, settingUpsert } = makePrisma({ users: [{ id: 'u1', creditBalance: 45 }] })
+    const { prisma, settingUpsert } = makePrisma({ users: [{ id: 'u1', creditBalanceLegacy: 45 }] })
     prisma.user.update = vi.fn().mockRejectedValue(new Error('mongo caiu'))
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,7 +165,7 @@ describe('filtro de pendência (lição do Prisma + MongoDB)', () => {
     // `{ campo: null }` sozinho casa só `null` explícito: documento em que a chave nunca foi
     // escrita fica de fora. Medido na base real: 9 documentos sem a chave, `{ creditMilli: null }`
     // achava 1. Sem o `isSet`, o backfill "roda" e não migra ninguém.
-    const { prisma } = makePrisma({ users: [{ id: 'u1', creditBalance: 45 }] })
+    const { prisma } = makePrisma({ users: [{ id: 'u1', creditBalanceLegacy: 45 }] })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await runCreditMilliBackfill(prisma as any)

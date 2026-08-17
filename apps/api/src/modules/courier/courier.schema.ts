@@ -35,6 +35,8 @@ export type TodayOrdersResponse = {
       orderId: string
       apartment: string
       block: string | null
+      /** Complemento do bloco ("Lado A"); null quando não há. */
+      complement: string | null
       clientName: string
       quantity: number
       status: string
@@ -67,6 +69,8 @@ export type TodayOrdersResponse = {
       orderId: string
       apartment: string
       block: string | null
+      /** Complemento do bloco ("Lado A"); null quando não há. */
+      complement: string | null
       clientName: string
       quantity: number
       status: string

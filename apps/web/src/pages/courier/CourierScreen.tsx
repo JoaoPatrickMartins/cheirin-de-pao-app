@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { compareUnits } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../lib/apiFetch'
 import { getGreeting } from '../../lib/greeting'
 import { BreadMark } from '../../components/brand/BreadMark'
@@ -36,17 +37,9 @@ interface TodayOrdersResponse {
   completedTotal: number
 }
 
-// Ordena por bloco (crescente) e depois apartamento (crescente), localeCompare numérico
-// pt-BR — espelha a ordenação do backend para a lista de concluídas mesclada.
-function byBlockThenApartment(
-  a: { block?: string | null; apartment?: string | null },
-  b: { block?: string | null; apartment?: string | null },
-): number {
-  const ba = (a.block ?? '').trim()
-  const bb = (b.block ?? '').trim()
-  if (ba !== bb) return ba.localeCompare(bb, 'pt-BR', { numeric: true })
-  return (a.apartment ?? '').localeCompare(b.apartment ?? '', 'pt-BR', { numeric: true })
-}
+// Ordena por bloco → complemento → apartamento — espelha a ordenação do backend
+// (compareUnits) para a lista de concluídas mesclada.
+const byBlockThenApartment = compareUnits
 
 // Data por extenso (ex.: "Sexta-feira, 27 de junho") — deixa clara a data da entrega.
 function getTodayLabel(): string {
@@ -207,6 +200,7 @@ export function CourierScreen() {
           orderId: stop.orderId,
           apartment: stop.apartment,
           block: stop.block,
+          complement: stop.complement,
           clientName: stop.clientName,
           quantity: stop.quantity,
           status: isConf ? 'DELIVERED' : 'NOT_DELIVERED',

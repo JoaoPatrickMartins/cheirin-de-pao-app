@@ -21,7 +21,7 @@ async function main() {
   console.log(`  User.creditMilli: ${r.users} preenchidos.`)
   console.log(`  CreditTransaction.quantityMilli: ${r.transactions} preenchidos.`)
   console.log(`  MarketOrder.creditsAppliedMilli: ${r.marketOrders} preenchidos.`)
-  console.log(`  Conferência: Σ creditMilli = ${r.somaMilli} · Σ creditBalance × 1000 = ${r.somaLegado}`)
+  console.log(`  Conferência: Σ creditMilli = ${r.somaMilli} · Σ creditBalanceLegacy × 1000 = ${r.somaLegado}`)
 
   if (r.somaMilli !== r.somaLegado) {
     const difEmPaes = (r.somaMilli - r.somaLegado) / 1000

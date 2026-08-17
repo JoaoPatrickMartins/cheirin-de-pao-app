@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  COMPLEMENT_MAX_LENGTH,
   CpfSchema,
   PhoneSchema,
   RefreshSchema,
@@ -31,6 +32,7 @@ export const RegisterSchema = z.object({
   condominiumId: z.string(),
   apartment: z.string(),
   block: z.string().optional(),
+  complement: z.string().trim().max(COMPLEMENT_MAX_LENGTH).optional(),
 })
 
 export type RegisterBody = z.infer<typeof RegisterSchema>

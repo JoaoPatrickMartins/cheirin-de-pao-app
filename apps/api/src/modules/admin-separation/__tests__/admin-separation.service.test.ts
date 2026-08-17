@@ -92,6 +92,46 @@ describe('AdminSeparationService', () => {
       expect(manha.orders.map((o) => o.orderId)).toEqual(['o1', 'o2']) // bloco A, ap 101 antes de 102
     })
 
+    it('leva o complemento até a linha do pedido e ordena por ele antes do apartamento', async () => {
+      // A pilha de cupons sai nesta ordem — precisa bater com a caminhada do entregador.
+      const orders = ['101', '102', '103'].map((apt, i) => ({
+        id: `o${i + 1}`,
+        userId: `u${i + 1}`,
+        quantity: 1,
+        slotId: 'manha',
+        type: 'SCHEDULED',
+        condominiumId: 'c1',
+        status: 'SCHEDULED',
+      }))
+      const users = [
+        { id: 'u1', name: 'Ana', apartment: '101', block: 'A', complement: 'Lado A' },
+        { id: 'u2', name: 'Bia', apartment: '102', block: 'A', complement: 'Lado B' },
+        { id: 'u3', name: 'Caio', apartment: '103', block: 'A', complement: 'Lado A' },
+      ]
+      const condos = [{ id: 'c1', name: 'Cond 1', deliverySlots: SLOTS }]
+
+      const { fastify } = makeMock({ orders, users, condos })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const board = await new AdminSeparationService(fastify as any).getBoard('2026-06-26')
+      const manha = board.condominiums[0].slots.find((s) => s.slotId === 'manha')!
+
+      expect(manha.orders.map((o) => o.complement)).toEqual(['Lado A', 'Lado A', 'Lado B'])
+      expect(manha.orders.map((o) => o.apartment)).toEqual(['101', '103', '102'])
+    })
+
+    it('devolve complemento vazio para cliente sem o campo (documento antigo no Mongo)', async () => {
+      const orders = [
+        { id: 'o1', userId: 'u1', quantity: 4, slotId: 'manha', type: 'SCHEDULED', condominiumId: 'c1', status: 'SCHEDULED' },
+      ]
+      const users = [{ id: 'u1', name: 'Ana', apartment: '101', block: 'A' }]
+      const condos = [{ id: 'c1', name: 'Cond 1', deliverySlots: SLOTS }]
+
+      const { fastify } = makeMock({ orders, users, condos })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const board = await new AdminSeparationService(fastify as any).getBoard('2026-06-26')
+      expect(board.condominiums[0].slots[0].orders[0].complement).toBe('')
+    })
+
     it('marca concluded=true quando todos os pedidos do turno estão separados', async () => {
       const orders = [
         { id: 'o1', userId: 'u1', quantity: 4, slotId: 'manha', type: 'SCHEDULED', condominiumId: 'c1', status: 'SEPARATED' },

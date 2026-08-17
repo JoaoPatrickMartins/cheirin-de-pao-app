@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
+import { COMPLEMENT_MAX_LENGTH } from '@cheirin-de-pao/shared'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { CondoSearch } from '../../components/auth/CondoSearch'
@@ -45,6 +46,7 @@ export function AccountScreen() {
   )
   const [apartment, setApartment] = useState(user?.apartment ?? '')
   const [block, setBlock] = useState(user?.block ?? '')
+  const [complement, setComplement] = useState(user?.complement ?? '')
   const [showCondoDialog, setShowCondoDialog] = useState(false)
 
   const [loading, setLoading] = useState(false)
@@ -121,6 +123,9 @@ export function AccountScreen() {
           condominiumId: selectedCondo.id,
           apartment: apartment.trim(),
           block: block.trim() || undefined,
+          // String vazia (e não `undefined`) para APAGAR: `undefined` some do JSON e o
+          // backend leria como "não mexer", deixando um "Lado A" órfão no endereço novo.
+          complement: isBlocksCondo ? complement.trim() : '',
         }),
       })
       if (res.ok) {
@@ -130,6 +135,7 @@ export function AccountScreen() {
           condominiumName: selectedCondo.name,
           apartment: apartment.trim(),
           block: block.trim() || undefined,
+          complement: isBlocksCondo ? complement.trim() : '',
           ...(data.scheduleDeactivated ? { condominiumJustChanged: true } : {}),
         }
         auth.updateUser(update)
@@ -155,6 +161,7 @@ export function AccountScreen() {
     }
     setApartment(user?.apartment ?? '')
     setBlock(user?.block ?? '')
+    setComplement(user?.complement ?? '')
     setEditingEndereco(false)
   }
 
@@ -369,6 +376,17 @@ export function AccountScreen() {
                     placeholder="Ex: A"
                     style={inputStyle}
                   />
+
+                  <div style={{ height: 16 }} />
+                  <FieldLabel>Complemento (opcional)</FieldLabel>
+                  <input
+                    type="text"
+                    value={complement}
+                    maxLength={COMPLEMENT_MAX_LENGTH}
+                    onChange={(e) => setComplement(e.target.value.slice(0, COMPLEMENT_MAX_LENGTH))}
+                    placeholder="Ex: Lado A"
+                    style={inputStyle}
+                  />
                 </>
               )}
               <div style={{ height: 20 }} />
@@ -384,7 +402,8 @@ export function AccountScreen() {
             <>
               <ReadRow label="Condomínio" value={user?.condominiumName} />
               <ReadRow label="Apartamento" value={user?.apartment} />
-              <ReadRow label="Bloco / Torre" value={user?.block} last />
+              <ReadRow label="Bloco / Torre" value={user?.block} />
+              <ReadRow label="Complemento" value={user?.complement} last />
             </>
           )}
         </SectionCard>

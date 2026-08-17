@@ -2,7 +2,7 @@
  * credit-milli-backfill.ts — preenche os campos canônicos de crédito em milésimos de pãozinho
  * a partir dos campos legados inteiros (× 1000).
  *
- *   User.creditMilli                ← creditBalance   × 1000
+ *   User.creditMilli                ← creditBalanceLegacy × 1000
  *   CreditTransaction.quantityMilli ← quantity        × 1000
  *   MarketOrder.creditsAppliedMilli ← creditsApplied  × 1000
  *
@@ -35,7 +35,7 @@ export interface CreditMilliBackfillResult {
   users: number
   transactions: number
   marketOrders: number
-  /** Σ creditMilli e Σ creditBalance × 1000 — devem bater ao fim do backfill. */
+  /** Σ creditMilli e Σ creditBalanceLegacy × 1000 — devem bater ao fim do backfill. */
   somaMilli: number
   somaLegado: number
 }
@@ -45,14 +45,14 @@ export async function runCreditMilliBackfill(prisma: PrismaClient): Promise<Cred
   for (;;) {
     const rows = await prisma.user.findMany({
       where: { OR: [{ creditMilli: null }, { creditMilli: { isSet: false } }] },
-      select: { id: true, creditBalance: true },
+      select: { id: true, creditBalanceLegacy: true },
       take: BATCH,
     })
     if (rows.length === 0) break
     for (const u of rows) {
       await prisma.user.update({
         where: { id: u.id },
-        data: { creditMilli: toMilli(u.creditBalance ?? 0) },
+        data: { creditMilli: toMilli(u.creditBalanceLegacy ?? 0) },
       })
       users++
     }
@@ -97,7 +97,7 @@ export async function runCreditMilliBackfill(prisma: PrismaClient): Promise<Cred
 
   const [milliAgg, legacyAgg] = await Promise.all([
     prisma.user.aggregate({ _sum: { creditMilli: true } }),
-    prisma.user.aggregate({ _sum: { creditBalance: true } }),
+    prisma.user.aggregate({ _sum: { creditBalanceLegacy: true } }),
   ])
 
   return {
@@ -105,7 +105,7 @@ export async function runCreditMilliBackfill(prisma: PrismaClient): Promise<Cred
     transactions,
     marketOrders,
     somaMilli: milliAgg._sum.creditMilli ?? 0,
-    somaLegado: toMilli(legacyAgg._sum.creditBalance ?? 0),
+    somaLegado: toMilli(legacyAgg._sum.creditBalanceLegacy ?? 0),
   }
 }
 

@@ -13,7 +13,7 @@ type PrefsMap = Record<string, boolean>
 /** Ordem/rótulos dos toggles — paridade com ADMIN_NOTIFICATION_TYPES do backend. */
 const NOTIF_ITEMS: { key: string; titulo: string; descricao: string }[] = [
   { key: 'ADMIN_ORDER_PLACED', titulo: 'Pedidos realizados', descricao: 'Quando um cliente faz um novo pedido' },
-  { key: 'ADMIN_HOOK_REQUESTED', titulo: 'Solicitação de gancho', descricao: 'Quando um cliente confirma o recebimento do gancho' },
+  { key: 'ADMIN_HOOK_REQUESTED', titulo: 'Solicitação de gancho', descricao: 'Quando um cliente pede o gancho grátis' },
   { key: 'ADMIN_DELIVERY_DONE', titulo: 'Entregas realizadas', descricao: 'Quando uma entrega é confirmada' },
   { key: 'ADMIN_DELIVERY_FAILED', titulo: 'Entregas não realizadas', descricao: 'Quando uma entrega é marcada como não entregue' },
   { key: 'ADMIN_DELIVERY_PENDING', titulo: 'Entregas pendentes', descricao: 'Quando há entregas pendentes após o prazo do turno' },

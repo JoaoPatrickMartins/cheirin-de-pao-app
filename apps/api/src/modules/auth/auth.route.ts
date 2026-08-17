@@ -26,6 +26,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
           condominiumId: { type: 'string', description: 'ID do condomínio onde o cliente mora (MongoDB ObjectId).' },
           apartment: { type: 'string', description: 'Número ou identificação do apartamento/unidade.' },
           block: { type: 'string', description: 'Bloco do apartamento. Obrigatório em condomínios do tipo BLOCKS.' },
+          complement: { type: 'string', maxLength: 10, description: 'Complemento curto do bloco (máx. 10 chars), ex.: "Lado A". Opcional, só em condomínios do tipo BLOCKS.' },
         },
       },
       response: {

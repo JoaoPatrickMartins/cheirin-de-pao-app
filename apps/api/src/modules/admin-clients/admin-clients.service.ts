@@ -27,6 +27,7 @@ export interface UpdateClientPayload {
   condominiumId?: string
   apartment?: string
   block?: string
+  complement?: string
 }
 
 /**
@@ -135,6 +136,7 @@ export class AdminClientsService {
         condominiumId: true,
         apartment: true,
         block: true,
+        complement: true,
         creditMilli: true,
         isBlocked: true,
         createdAt: true,
@@ -316,8 +318,16 @@ export class AdminClientsService {
       blockedByName = admin?.name ?? null
     }
 
+    // O documento CRU carrega `creditBalance`, o espelho LEGADO congelado desde a limpeza de
+    // 31/07/2026 — e o controller espalha este objeto na resposta. Sem derivar aqui, o detalhe
+    // serve o saldo de antes da migração enquanto a lista serve o canônico: foi o bug em que o
+    // mesmo cliente aparecia com 0 na lista e 6 no detalhe (e, do outro lado, quem tem saldo real
+    // e nunca teve legado escrito aparecia como 0 no detalhe). `creditMilli` sai do payload — a
+    // API fala em pãezinhos, não em milésimos.
+    const { creditMilli, ...clientSemMilli } = user
+
     return {
-      client: user,
+      client: { ...clientSemMilli, creditBalance: fromMilli(creditMilli ?? 0) },
       schedule,
       recentOrders,
       recentCestinhas: recentCestinhas.map((o) => ({
@@ -378,6 +388,7 @@ export class AdminClientsService {
     if (payload.condominiumId !== undefined) data.condominiumId = payload.condominiumId
     if (payload.apartment !== undefined) data.apartment = payload.apartment
     if (payload.block !== undefined) data.block = payload.block
+    if (payload.complement !== undefined) data.complement = payload.complement
 
     return this.prisma.user.update({ where: { id }, data })
   }

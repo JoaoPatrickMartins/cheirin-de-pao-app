@@ -238,7 +238,7 @@ export class OrdersService {
     try {
       const client = await this.prisma.user.findUnique({
         where: { id: userId },
-        select: { name: true, apartment: true, block: true },
+        select: { name: true, apartment: true, block: true, complement: true },
       })
       await new NotificationsService(this.fastify).notifyAdmins({
         type: NotificationType.ADMIN_ORDER_PLACED,
@@ -348,7 +348,7 @@ export class OrdersService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { creditMilli: true, name: true, apartment: true, block: true },
+      select: { creditMilli: true, name: true, apartment: true, block: true, complement: true },
     })
 
     // Aviso ao admin — pedido cancelado pelo cliente (best-effort).

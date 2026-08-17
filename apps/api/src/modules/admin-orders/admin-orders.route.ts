@@ -110,6 +110,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
     condominiumId: { type: 'string' },
     condominiumName: { type: 'string' },
     block: { type: 'string' },
+    complement: { type: 'string' },
     apartment: { type: 'string' },
     quantity: { type: 'integer' },
     slotId: { type: 'string' },

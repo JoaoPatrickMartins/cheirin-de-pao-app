@@ -23,6 +23,8 @@ export interface AdminMarketOrderRow {
   clientName: string
   clientPhone: string
   block: string
+  /** Complemento do bloco ("Lado A"); '' quando não há. */
+  complement: string
   apartment: string
   condominiumId: string
   condominiumName: string
@@ -330,7 +332,11 @@ export class AdminMarketService {
       const q = filters.q.trim()
       const matched = await this.prisma.user.findMany({
         where: {
-          OR: [{ name: { contains: q, mode: 'insensitive' } }, { apartment: { contains: q, mode: 'insensitive' } }],
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { apartment: { contains: q, mode: 'insensitive' } },
+            { complement: { contains: q, mode: 'insensitive' } },
+          ],
         },
         select: { id: true },
       })
@@ -681,7 +687,7 @@ export class AdminMarketService {
     const [users, condos, couriers, refunds, payments] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
-        select: { id: true, name: true, apartment: true, block: true, phone: true },
+        select: { id: true, name: true, apartment: true, block: true, complement: true, phone: true },
       }),
       this.prisma.condominium.findMany({
         where: { id: { in: condoIds } },
@@ -722,6 +728,7 @@ export class AdminMarketService {
         clientName: u?.name ?? 'Cliente',
         clientPhone: u?.phone ?? '',
         block: u?.block ?? '',
+        complement: u?.complement ?? '',
         apartment: u?.apartment ?? '',
         condominiumId: o.condominiumId,
         condominiumName: condo?.name ?? '—',

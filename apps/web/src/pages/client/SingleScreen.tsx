@@ -13,6 +13,7 @@ import { wholeBreadsOf } from '@cheirin-de-pao/shared'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
+import { useFreeHookStatus } from '../../hooks/useFreeHookStatus'
 import { useCart } from '../../contexts/CartContext'
 import { Icon } from '../../components/brand/Icon'
 import QuantityStepper from '../../components/client/QuantityStepper'
@@ -129,13 +130,9 @@ export function SingleScreen() {
   const dateInputRef = useRef<HTMLInputElement>(null)
 
   // Status do gancho — alimenta o nudge do gancho grátis e o aviso "deixe o gancho na porta"
-  // (este último só quando o gancho já foi ENTREGUE, campo `delivered`).
-  const [hookInfo, setHookInfo] = useState<{
-    hasHook: boolean
-    freeEligible: boolean
-    pedidoUnicoMin: number
-    delivered: boolean
-  } | null>(null)
+  // (este último só quando o gancho já foi ENTREGUE, campo `delivered`). Mesma fonte que o
+  // aviso da Cestinha (useFreeHookStatus), para os dois não divergirem do contrato.
+  const { status: hookInfo, podeGanharGratis } = useFreeHookStatus()
   // Diálogo de decisão exibido ao confirmar abaixo do mínimo do gancho grátis.
   const [showFreeHookPrompt, setShowFreeHookPrompt] = useState(false)
   // Bottom sheet de resumo/confirmação antes de finalizar a compra.
@@ -193,32 +190,6 @@ export function SingleScreen() {
       )
       .catch(() => setSlots([]))
       .finally(() => setSlotsLoaded(true))
-  }, [])
-
-  // Status do gancho — para o nudge do grátis e para o aviso de "gancho na porta".
-  useEffect(() => {
-    apiFetch('/client/hook-request')
-      .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (
-          d: {
-            hasHook?: boolean
-            freeEligible?: boolean
-            pedidoUnicoMin?: number
-            current?: { status?: string } | null
-          } | null,
-        ) => {
-          if (d && typeof d.pedidoUnicoMin === 'number') {
-            setHookInfo({
-              hasHook: !!d.hasHook,
-              freeEligible: !!d.freeEligible,
-              pedidoUnicoMin: d.pedidoUnicoMin,
-              delivered: d.current?.status === 'DELIVERED',
-            })
-          }
-        },
-      )
-      .catch(() => {})
   }, [])
 
   // Eixos de "Para quando?": data (hoje..+30d) × slot, com disponibilidade por corte.
@@ -339,7 +310,6 @@ export function SingleScreen() {
 
   // Nudge do gancho grátis: só quando o cliente ainda não tem gancho e ainda não
   // qualificou por outra via (ex.: combo). O direito não expira — vale a 1ª vez que atingir.
-  const podeGanharGratis = !!hookInfo && !hookInfo.hasHook && !hookInfo.freeEligible
   const freeThreshold = hookInfo?.pedidoUnicoMin ?? 0
   // Meta alcançável dentro do guardrail do pedido único.
   const completeTarget = Math.min(Math.max(freeThreshold, pedidoMinimo), PEDIDO_UNICO_MAX)

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { ProgressBar } from '../../../components/admin/ProgressBar'
@@ -30,6 +31,7 @@ interface BoardOrder {
   userId: string
   name: string
   block: string
+  complement: string
   apartment: string
   quantity: number
   slotId: string
@@ -91,13 +93,6 @@ function formatDateLabel(dateStr: string): string {
 const shortCode = (orderId: string) => orderId.slice(-4).toUpperCase()
 
 const countSep = (orders: BoardOrder[]) => orders.filter((o) => o.separated).length
-
-/** Rótulo do bloco sem duplicar "Bloco" (o valor já pode contê-la). */
-function blockLabel(block: string): string {
-  const b = (block || '').trim()
-  if (!b || b === '—') return ''
-  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
-}
 
 /**
  * Agrupa os pedidos de um turno por bloco, preservando a ordem já recebida (o backend
@@ -192,6 +187,7 @@ export function AdminSeparacao() {
         clientName: o.name,
         condominiumName: condoName,
         block: o.block,
+        complement: o.complement,
         apartment: o.apartment,
         quantity: o.quantity,
         slotLabel: o.slotLabel,
@@ -569,8 +565,9 @@ function MarketPicklist({ items, title, compact = false }: { items: MarketPickIt
 }
 
 function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: BoardOrder; onToggle: () => void; onPrint: () => void; showBlock?: boolean }) {
-  const blk = showBlock ? blockLabel(order.block) : ''
-  const location = blk ? `${blk} · Apto ${order.apartment || '—'}` : `Apto ${order.apartment || '—'}`
+  // Quando a lista já está agrupada por bloco, o rótulo do grupo diz o bloco — mas o
+  // complemento varia dentro do mesmo bloco, então ele continua na linha.
+  const location = formatUnit(order, { block: showBlock ? 'full' : 'omit' })
   const items = order.marketItems ?? []
   // Parada só-Cestinha (sem pedido de pão) também alterna: o toggle vai nos MarketOrder dela.
   const marketIds = order.marketOrderIds ?? (order.marketOrderId ? [order.marketOrderId] : [])

@@ -3,7 +3,7 @@
 // Requirements: ADMO-05..09
 
 import { FastifyInstance } from 'fastify'
-import { wholeBreads } from '@cheirin-de-pao/shared'
+import { wholeBreads, compareUnits } from '@cheirin-de-pao/shared'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { AdminSupplierOrdersRepository } from './admin-supplier-orders.repository.js'
 import { generatePdf } from './pdf-generator.js'
@@ -64,6 +64,8 @@ export interface DeliveryRow {
   name: string
   apartment: string
   block: string
+  /** Complemento do bloco ("Lado A"); '' quando não há. */
+  complement: string
   /** Total de PÃES da parada = confirmados (pedido + Cestinha) + previstos. */
   quantity: number
   slotId: string
@@ -184,7 +186,7 @@ export class AdminSupplierOrdersService {
     const [users, condos] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
-        select: { id: true, name: true, apartment: true, block: true, creditMilli: true, isBlocked: true, autoRecharge: true },
+        select: { id: true, name: true, apartment: true, block: true, complement: true, creditMilli: true, isBlocked: true, autoRecharge: true },
       }),
       this.prisma.condominium.findMany({
         where: { id: { in: condoIds } },
@@ -232,6 +234,7 @@ export class AdminSupplierOrdersService {
         name: u?.name ?? 'Cliente',
         apartment: u?.apartment ?? '',
         block: u?.block ?? '',
+        complement: u?.complement ?? '',
         quantity: s.breadConfirmed + s.breadProjected,
         slotId: s.slotId,
         slotLabel: slotLabelFor(s.condominiumId, s.slotId),
@@ -348,6 +351,7 @@ export class AdminSupplierOrdersService {
       name: string
       apartment: string
       block: string
+      complement: string
       quantity: number
       slotId: string
       slotLabel: string
@@ -376,12 +380,8 @@ export class AdminSupplierOrdersService {
     const confirmed = rows.filter((r) => r.source === 'order')
     const riskUsers = new Set(rows.filter((r) => r.risk !== '').map((r) => r.userId))
 
-    // Ordenar entregas: bloco, depois apartamento (numérico quando possível), depois nome
-    const deliveries = [...rows].sort((a, b) => {
-      if (a.block !== b.block) return a.block.localeCompare(b.block, 'pt-BR', { numeric: true })
-      if (a.apartment !== b.apartment) return a.apartment.localeCompare(b.apartment, 'pt-BR', { numeric: true })
-      return a.name.localeCompare(b.name, 'pt-BR')
-    })
+    // Ordenar entregas: bloco → complemento → apartamento (numérico quando possível), depois nome
+    const deliveries = [...rows].sort((a, b) => compareUnits(a, b) || a.name.localeCompare(b.name, 'pt-BR'))
 
     return {
       condominiumId,
@@ -406,6 +406,7 @@ export class AdminSupplierOrdersService {
         name: r.name,
         apartment: r.apartment,
         block: r.block,
+        complement: r.complement,
         quantity: r.quantity,
         slotId: r.slotId,
         slotLabel: r.slotLabel,

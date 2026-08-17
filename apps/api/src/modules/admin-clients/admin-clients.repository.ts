@@ -19,6 +19,7 @@ export class AdminClientsRepository {
         condominiumId: true,
         apartment: true,
         block: true,
+        complement: true,
         creditMilli: true,
         isBlocked: true,
         createdAt: true,

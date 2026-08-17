@@ -300,7 +300,7 @@ export class AuthService {
   async register(
     body: RegisterBody,
   ): Promise<{ userId: string } | { error: string; status: 409 }> {
-    const { phone, email, name, cpf, birthDate, password, condominiumId, apartment, block } = body
+    const { phone, email, name, cpf, birthDate, password, condominiumId, apartment, block, complement } = body
 
     const existingPhone = await this.repo.findUserByPhone(phone)
     if (existingPhone) return { error: 'Telefone já cadastrado', status: 409 }
@@ -324,6 +324,7 @@ export class AuthService {
       condominiumId,
       apartment,
       block,
+      complement,
     })
 
     await this.sendOtp(user.id, email)
