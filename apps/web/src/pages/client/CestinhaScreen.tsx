@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router'
 import { useCart } from '../../contexts/CartContext'
 import { useMarketCatalog } from '../../hooks/useMarketCatalog'
+import { useFreeHookStatus } from '../../hooks/useFreeHookStatus'
 import { ProdPhoto } from '../../components/client/ProdPhoto'
 import StepperInline from '../../components/client/StepperInline'
 import { Icon } from '../../components/brand/Icon'
@@ -15,6 +16,7 @@ export function CestinhaScreen() {
   const navigate = useNavigate()
   const { cart, isLoading, setQty, removeProduct, setBreadQty } = useCart()
   const { categories } = useMarketCatalog()
+  const { status: hook, podeGanharGratis } = useFreeHookStatus()
 
   const emojiOf = (categoryId: string) => categories.find((c) => c.id === categoryId)?.emoji ?? null
 
@@ -24,6 +26,18 @@ export function CestinhaScreen() {
   // Mensagens de mínimo: pão só de pão respeita a quantidade (breadMin); com produtos, o R$.
   const breadShort = cart.breadQty > 0 && cart.breadQty < cart.breadMin
   const moneyShort = cart.items.length > 0 && cart.subtotal < cart.minimo
+
+  // Aviso do gancho grátis — mesmo papel do nudge do pedido único, mas o gatilho aqui é o
+  // VALOR da Cestinha. `cestinhaMinValue` é 0 quando a regra está indisponível (sem preço
+  // avulso configurado): nesse caso não prometemos nada.
+  const cestinhaMin = hook?.cestinhaMinValue ?? 0
+  const ganchoAlcancavel = podeGanharGratis && cestinhaMin > 0
+  // O critério é o `totalValue` da Cestinha (produtos + pães × avulso) = exatamente este
+  // subtotal, e vale mesmo pagando com pãezins. Meio centavo de tolerância espelha o
+  // FLOAT_EPSILON do backend — sem isso uma Cestinha de R$ 6,00 gravada como 5,999999
+  // mostraria "faltam R$ 0,00".
+  const vaiGanharGratis = ganchoAlcancavel && cart.subtotal + 0.005 >= cestinhaMin
+  const faltaParaGancho = Math.max(0, Math.round((cestinhaMin - cart.subtotal) * 100) / 100)
 
   return (
     <div style={{ background: 'var(--color-app-bg)', minHeight: 'calc(100dvh - 56px)', paddingBottom: isEmpty ? 24 : 168 }}>
@@ -166,6 +180,27 @@ export function CestinhaScreen() {
               Faltam <strong>{formatBRL(faltam)}</strong> para o pedido mínimo de {formatBRL(cart.minimo)}.
             </p>
           )}
+          {/* Gancho grátis — espelha o nudge do pedido único (SingleScreen), só que o
+              gatilho é o valor da Cestinha. */}
+          {vaiGanharGratis && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-good)', margin: '0 0 8px', lineHeight: 1.4 }}>
+              🎁 Esta Cestinha te dá o gancho de porta grátis!
+            </p>
+          )}
+          {ganchoAlcancavel && !vaiGanharGratis && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)', margin: '0 0 8px', lineHeight: 1.4 }}>
+              🎁 Chegue a <strong>{formatBRL(cestinhaMin)}</strong> e ganhe o gancho de porta grátis
+              {faltaParaGancho > 0 ? ` · faltam ${formatBRL(faltaParaGancho)}` : ''}.{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/client/market')}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-accent)' }}
+              >
+                Adicionar mais
+              </button>
+            </p>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }}>Subtotal do mercadinho</span>
             <span style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>

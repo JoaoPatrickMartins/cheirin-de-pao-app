@@ -856,7 +856,10 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               >
                 + Conceder gancho
               </button>
-              {cliente.creditBalance > 0 && (
+              {/* Régua em PÃO INTEIRO, a mesma do servidor: a remoção é digitada em pãezinhos
+                  inteiros e `removeCredits` recusa 1 sobre um saldo de 0,5 🥖. Com `> 0` o botão
+                  aparecia para quem só tem fração e toda tentativa voltava 422. */}
+              {wholeBreadsOf(cliente.creditBalance) >= 1 && (
                 <button
                   onClick={() => { setRemoveQty(1); setRemoveMotivo(null); setShowRemoveModal(true) }}
                   aria-label="Remover créditos"

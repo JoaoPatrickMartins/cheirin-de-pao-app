@@ -121,6 +121,74 @@ describe('extrato do cliente no admin — movimentos decimais', () => {
   })
 })
 
+// O detalhe monta o payload espalhando o documento CRU do User, então precisa de um mock mais
+// largo que o das outras superfícies — mas o que está sob teste é só uma linha: qual saldo sai.
+function makeDetailFastify(user: { creditMilli?: number | null; creditBalance?: number }) {
+  const prisma = {
+    user: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 'u1', name: 'Cliente', role: 'CLIENT', email: null, condominiumId: null,
+        isBlocked: false, blockedById: null, createdAt: new Date('2026-06-14'), ...user,
+      }),
+    },
+    schedule: { findFirst: vi.fn().mockResolvedValue(null) },
+    order: {
+      findMany: vi.fn().mockResolvedValue([]),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { quantity: 0 }, _count: 0 }),
+      count: vi.fn().mockResolvedValue(0),
+    },
+    marketOrder: { findMany: vi.fn().mockResolvedValue([]) },
+    payment: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }) },
+  }
+  return { prisma, fastify: { prisma, log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } } as unknown as FastifyInstance }
+}
+
+describe('detalhe do cliente no admin — o MESMO saldo da lista', () => {
+  // Regressão do bug reportado: o mesmo cliente aparecia com 0 crédito na lista e 6 pães no
+  // detalhe. A lista deriva o canônico; o detalhe espalhava o documento cru e servia o
+  // `creditBalance` legado, congelado desde a limpeza de 31/07/2026.
+  it('expõe o canônico, não o espelho legado congelado', async () => {
+    const { fastify } = makeDetailFastify({ creditMilli: 0, creditBalance: 6 })
+    const r = await new AdminClientsService(fastify).getDetail('u1')
+    expect(r.client.creditBalance).toBe(0)
+  })
+
+  it('cliente novo com saldo real e legado nunca escrito NÃO aparece zerado', async () => {
+    // O outro lado do mesmo bug: quem entrou depois da migração tem `creditBalance` no default 0
+    // para sempre, e o detalhe mostrava "0 pães" para quem tem 9,5 🥖 de verdade.
+    const { fastify } = makeDetailFastify({ creditMilli: 9500, creditBalance: 0 })
+    const r = await new AdminClientsService(fastify).getDetail('u1')
+    expect(r.client.creditBalance).toBe(9.5)
+  })
+
+  it('a fração atravessa o detalhe sem arredondar', async () => {
+    const { fastify } = makeDetailFastify({ creditMilli: 43500, creditBalance: 43 })
+    const r = await new AdminClientsService(fastify).getDetail('u1')
+    expect(r.client.creditBalance).toBe(43.5)
+  })
+
+  it('não vaza `creditMilli` no payload — a API fala em pãezinhos', async () => {
+    const { fastify } = makeDetailFastify({ creditMilli: 43500 })
+    const r = await new AdminClientsService(fastify).getDetail('u1')
+    expect(r.client).not.toHaveProperty('creditMilli')
+  })
+
+  it('saldo canônico ausente vira 0 — nunca inventa crédito a partir do legado', async () => {
+    const { fastify } = makeDetailFastify({ creditMilli: null, creditBalance: 6 })
+    const r = await new AdminClientsService(fastify).getDetail('u1')
+    expect(r.client.creditBalance).toBe(0)
+  })
+
+  it('lista e detalhe do MESMO cliente devolvem o MESMO número', async () => {
+    const canonico = { id: 'u1', creditMilli: 43500 }
+    const lista = await new AdminClientsService(makeFastify({ clients: [canonico] }).fastify).list()
+    const detalhe = await new AdminClientsService(
+      makeDetailFastify({ creditMilli: 43500, creditBalance: 43 }).fastify,
+    ).getDetail('u1')
+    expect(detalhe.client.creditBalance).toBe(lista.items[0].creditBalance)
+  })
+})
+
 describe('concessão e remoção manual de crédito', () => {
   it('grantCredits devolve o novo saldo em decimal', async () => {
     const { fastify } = makeFastify({

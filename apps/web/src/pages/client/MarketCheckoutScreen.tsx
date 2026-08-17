@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { useCart } from '../../contexts/CartContext'
 import { useMarketCatalog } from '../../hooks/useMarketCatalog'
+import { useFreeHookStatus } from '../../hooks/useFreeHookStatus'
 import { useSchedule } from '../../hooks/useSchedule'
 import { usePaymentPolling } from '../../hooks/usePaymentPolling'
 import { apiFetch } from '../../lib/apiFetch'
@@ -60,6 +61,7 @@ export function MarketCheckoutScreen() {
   const { user, updateCreditBalance } = useAuth()
   const { cart, isLoading: cartLoading, reload: reloadCart } = useCart()
   const { avulsoUnit: catalogAvulso, categories } = useMarketCatalog()
+  const { status: hook, podeGanharGratis } = useFreeHookStatus()
   const emojiOf = (categoryId: string) => categories.find((c) => c.id === categoryId)?.emoji ?? null
   // Saldo em pãezinhos decimais (a API já responde 43,5); as contas rodam em MILÉSIMOS.
   const creditBalance = user?.creditBalance ?? 0
@@ -80,6 +82,12 @@ export function MarketCheckoutScreen() {
   const credits = fromMilli(creditsMilli)
   const creditValue = moneyForCredits(creditsMilli, avulso)
   const moneyAmount = round2(subtotal - creditValue)
+
+  // Gancho grátis: o critério é o `totalValue` da Cestinha (= subtotal), independente de
+  // pagar com pãezins ou dinheiro. Meio centavo de tolerância espelha o FLOAT_EPSILON do
+  // backend. `cestinhaMinValue === 0` = regra indisponível → não prometemos nada.
+  const cestinhaMin = hook?.cestinhaMinValue ?? 0
+  const ganhaGanchoGratis = podeGanharGratis && cestinhaMin > 0 && subtotal + 0.005 >= cestinhaMin
 
   // Política de cartão do admin: abaixo do mínimo (parte EM DINHEIRO), só Pix é permitido.
   const cartaoMinimo = cart.cartaoMinimo ?? 0
@@ -354,6 +362,14 @@ export function MarketCheckoutScreen() {
           </span>
           <strong style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--color-text)', flexShrink: 0 }}>{formatBRL(subtotal)}</strong>
         </button>
+
+        {/* Gancho grátis conquistado — reforço antes de pagar. Sem versão "faltam X" aqui:
+            nesta tela o carrinho já está fechado, o lugar de completar é a Cestinha. */}
+        {ganhaGanchoGratis && (
+          <p style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-good)', background: 'var(--color-good-soft)', borderRadius: 12, padding: '10px 12px', margin: 0, lineHeight: 1.35 }}>
+            🎁 Esta Cestinha te dá o gancho de porta grátis!
+          </p>
+        )}
 
         {/* Entrega */}
         <Section title="Quando chega">

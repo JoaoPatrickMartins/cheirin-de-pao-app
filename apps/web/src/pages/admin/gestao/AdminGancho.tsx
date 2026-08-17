@@ -5,6 +5,12 @@ import { Icon } from '../../../components/brand/Icon'
 interface GanchoSettings {
   pedidoUnicoMin: number
   preco: number
+  /** Pedidos entregues que dão o gancho por fidelidade. 0 = regra desligada. */
+  recorrenciaMin: number
+  /** Marco de vigência da fidelidade (ISO). null = regra nunca foi ligada. */
+  recorrenciaDesde: string | null
+  /** Preço do pão avulso (somente leitura) — base do limiar da Cestinha. */
+  avulsoUnit: number
 }
 
 interface AdminGanchoProps {
@@ -15,9 +21,18 @@ function formatBRL(valor: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 }
 
+/** Data do marco de vigência da fidelidade, curta (13/08/2026). Vazio se inválida. */
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR')
+}
+
 export function AdminGancho({ onBack }: AdminGanchoProps) {
   const [pedidoUnicoMin, setPedidoUnicoMin] = useState(10)
   const [preco, setPreco] = useState(5)
+  const [recorrenciaMin, setRecorrenciaMin] = useState(0)
+  const [recorrenciaDesde, setRecorrenciaDesde] = useState<string | null>(null)
+  const [avulsoUnit, setAvulsoUnit] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -31,6 +46,9 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
           const data = (await res.json()) as GanchoSettings
           if (typeof data.pedidoUnicoMin === 'number' && data.pedidoUnicoMin > 0) setPedidoUnicoMin(data.pedidoUnicoMin)
           if (typeof data.preco === 'number' && data.preco >= 0) setPreco(data.preco)
+          if (typeof data.recorrenciaMin === 'number' && data.recorrenciaMin >= 0) setRecorrenciaMin(data.recorrenciaMin)
+          if (typeof data.avulsoUnit === 'number' && data.avulsoUnit > 0) setAvulsoUnit(data.avulsoUnit)
+          setRecorrenciaDesde(data.recorrenciaDesde ?? null)
         }
       } catch {
         // falha silenciosa
@@ -41,6 +59,9 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
     void fetchSettings()
   }, [])
 
+  // Limiar da Cestinha: o mesmo mínimo de pães, convertido pelo preço do pão avulso.
+  const cestinhaMin = avulsoUnit > 0 ? Math.round(pedidoUnicoMin * avulsoUnit * 100) / 100 : 0
+
   const handleSalvar = async () => {
     setError(null)
     setSaved(false)
@@ -48,7 +69,7 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
     try {
       const res = await apiFetch('/admin/settings/gancho', {
         method: 'PATCH',
-        body: JSON.stringify({ pedidoUnicoMin, preco }),
+        body: JSON.stringify({ pedidoUnicoMin, preco, recorrenciaMin }),
       })
       if (res.ok) {
         setSaved(true)
@@ -101,8 +122,9 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
 
       <div style={{ overflow: 'auto', flex: 1, padding: '0 20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', lineHeight: 1.5, margin: 0 }}>
-          O cliente ganha o gancho grátis (uma vez) ao comprar um combo ou fazer um pedido único a
-          partir do mínimo abaixo. Depois disso, pode pedir um novo gancho pagando o valor definido.
+          O cliente ganha o gancho grátis <strong>uma única vez</strong>, pela primeira regra que ele
+          atingir — inclusive quando o gancho vem de uma cortesia sua. Depois disso, pode pedir um
+          novo gancho pagando o valor definido.
         </p>
 
         {isLoading ? (
@@ -129,6 +151,7 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
                   </p>
                   <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
                     Pães no pedido único para dar direito ao gancho grátis
+                    {cestinhaMin > 0 && ` — e ${formatBRL(cestinhaMin)} na Cestinha`}
                   </p>
                 </div>
                 <NumberStepper
@@ -138,6 +161,29 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
                   onChange={(v) => {
                     setSaved(false)
                     setPedidoUnicoMin(v)
+                  }}
+                />
+              </div>
+
+              <div style={{ height: 1, background: 'var(--color-border-2)', margin: '14px 0' }} />
+
+              {/* Fidelidade — pedidos entregues */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                    Pedidos para o gancho por fidelidade
+                  </p>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                    Pedidos entregues (avulso ou Cestinha) para ganhar o gancho. 0 desliga a regra.
+                  </p>
+                </div>
+                <NumberStepper
+                  value={recorrenciaMin}
+                  min={0}
+                  max={100}
+                  onChange={(v) => {
+                    setSaved(false)
+                    setRecorrenciaMin(v)
                   }}
                 />
               </div>
@@ -181,9 +227,23 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
                 COMO FICA
               </p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: '#FAF5EC', margin: 0, lineHeight: 1.5 }}>
-                Grátis ao comprar combo ou pedido único de {pedidoUnicoMin}+ pães. Gancho extra por{' '}
-                <strong>{formatBRL(preco)}</strong>.
+                Grátis ao comprar combo, pedido único de {pedidoUnicoMin}+ pães
+                {cestinhaMin > 0 && <> ou Cestinha de <strong>{formatBRL(cestinhaMin)}</strong>+</>}
+                {recorrenciaMin > 0 && <> — e também ao completar <strong>{recorrenciaMin} pedidos entregues</strong></>}
+                . Gancho extra por <strong>{formatBRL(preco)}</strong>.
               </p>
+              {cestinhaMin === 0 && (
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#E3AC3F', margin: 0, lineHeight: 1.45 }}>
+                  Defina o preço do pão avulso em Gestão → Compra avulsa para a regra da Cestinha valer.
+                </p>
+              )}
+              {recorrenciaMin > 0 && (
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: '#D9CDBA', margin: 0, lineHeight: 1.45 }}>
+                  {recorrenciaDesde
+                    ? `Contam os pedidos entregues a partir de ${formatDate(recorrenciaDesde)}. Desligar e religar a regra não zera o que os clientes já acumularam.`
+                    : 'Ao salvar, a contagem começa agora — pedidos entregues antes disso não entram.'}
+                </p>
+              )}
             </div>
 
             {error && (

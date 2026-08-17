@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useLocation, useNavigate } from 'react-router'
 import { Icon } from '../../components/brand/Icon'
@@ -34,6 +35,14 @@ export function MarketDoneScreen() {
   const navigate = useNavigate()
   const location = useLocation()
   const s = (location.state as DoneState | null) ?? {}
+
+  // Uma Cestinha a partir do valor equivalente ao mínimo de pães dá direito ao gancho grátis.
+  // A Cestinha tem tela de sucesso própria (não passa pela PurchasedScreen), então o aviso ao
+  // ClientLayout sai daqui — sem ele o modal só apareceria na próxima abertura do app.
+  // O backend é a autoridade: só mostra o modal se de fato ficou elegível.
+  useEffect(() => {
+    window.dispatchEvent(new Event('cdp:refresh-hook'))
+  }, [])
 
   return (
     <div style={{ background: 'var(--color-app-bg)', minHeight: 'calc(100dvh - 56px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 'calc(24px + env(safe-area-inset-top)) 24px 32px', gap: 16 }}>

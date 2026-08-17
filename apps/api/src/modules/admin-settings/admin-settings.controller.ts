@@ -224,7 +224,8 @@ export class AdminSettingsController {
 
   /**
    * GET /admin/settings/gancho
-   * Retorna a config do gancho (mínimo do pedido único + preço do gancho adicional).
+   * Retorna a config do gancho (mínimo do pedido único, preço do gancho adicional, mínimo de
+   * pedidos da fidelidade + seu marco de vigência, e o preço avulso para o cálculo do limiar).
    */
   async getGancho(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
@@ -242,7 +243,8 @@ export class AdminSettingsController {
 
   /**
    * PATCH /admin/settings/gancho
-   * Atualiza a config do gancho. Body: { pedidoUnicoMin: number, preco: number }
+   * Atualiza a config do gancho.
+   * Body: { pedidoUnicoMin: number, preco: number, recorrenciaMin: number }
    */
   async setGancho(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
@@ -260,8 +262,13 @@ export class AdminSettingsController {
     }
 
     try {
-      await this.service.setGanchoConfig(body.pedidoUnicoMin, body.preco)
-      return reply.status(200).send({ ok: true, pedidoUnicoMin: body.pedidoUnicoMin, preco: body.preco })
+      const saved = await this.service.setGanchoConfig(body.pedidoUnicoMin, body.preco, body.recorrenciaMin)
+      return reply.status(200).send({
+        ok: true,
+        pedidoUnicoMin: body.pedidoUnicoMin,
+        preco: body.preco,
+        recorrenciaMin: saved.recorrenciaMin,
+      })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
