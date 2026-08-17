@@ -1,4 +1,4 @@
-import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
+import { formatCredits, toMilli, formatUnit } from '@cheirin-de-pao/shared'
 import { useState } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
@@ -14,6 +14,8 @@ export interface LedgerRow {
   condominiumId: string
   condominiumName: string
   block: string
+  /** Complemento do bloco ("Lado A"); '' quando não há. */
+  complement: string
   apartment: string
   quantity: number
   slotId: string
@@ -194,7 +196,7 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
           <div style={{ minWidth: 0 }}>
             <p style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>{row.clientName}</p>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)', margin: '3px 0 0' }}>
-              {row.condominiumName} · {row.block ? `Bloco ${row.block} · ` : ''}Apto {row.apartment || '—'}
+              {row.condominiumName} · {formatUnit(row)}
             </p>
           </div>
           <span style={{ padding: '4px 10px', borderRadius: 99, background: meta.soft, color: meta.color, fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap' }}>

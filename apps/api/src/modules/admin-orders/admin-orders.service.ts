@@ -11,6 +11,7 @@ import { reverseMarketOrder } from '../../lib/market-reversal.js'
 import { propagateMarketStatusForOrder, dispatchMarketForOrders, assignMarketByCondoDay } from '../../lib/market-pipeline.js'
 import { notifyMarketCancelled, notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
+import { clientLabel } from '../../lib/client-label.js'
 
 /** Centavos, sem lixo de ponto flutuante em somas de R$. */
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -151,6 +152,8 @@ export interface LedgerRow {
   condominiumId: string
   condominiumName: string
   block: string
+  /** Complemento do bloco ("Lado A"); '' quando não há. */
+  complement: string
   apartment: string
   quantity: number
   slotId: string
@@ -307,10 +310,9 @@ export class AdminOrdersService {
     try {
       const client = await this.prisma.user.findUnique({
         where: { id: order.userId },
-        select: { name: true, apartment: true, block: true },
+        select: { name: true, apartment: true, block: true, complement: true },
       })
-      const loc = [client?.block, client?.apartment].filter(Boolean).join(' ')
-      const who = `${client?.name ?? 'Cliente'}${loc ? ` · Apto ${loc}` : ''}`
+      const who = clientLabel(client ?? {})
       const paes = order.quantity === 1 ? '1 pão' : `${order.quantity} pães`
       if (status === 'DELIVERED') {
         await new NotificationsService(this.fastify).notifyAdmins({
@@ -1249,7 +1251,7 @@ export class AdminOrdersService {
     const [users, condos, couriers, refunds, payments] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
-        select: { id: true, name: true, apartment: true, block: true },
+        select: { id: true, name: true, apartment: true, block: true, complement: true },
       }),
       this.prisma.condominium.findMany({
         where: { id: { in: condoIds } },
@@ -1294,6 +1296,7 @@ export class AdminOrdersService {
         condominiumId: o.condominiumId ?? '',
         condominiumName: (o.condominiumId && condoById.get(o.condominiumId)?.name) || '—',
         block: u?.block ?? '',
+        complement: u?.complement ?? '',
         apartment: u?.apartment ?? '',
         quantity: o.quantity,
         slotId,
@@ -1361,7 +1364,7 @@ export class AdminOrdersService {
     const [users, condos, refunds, payments] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
-        select: { id: true, name: true, apartment: true, block: true },
+        select: { id: true, name: true, apartment: true, block: true, complement: true },
       }),
       this.prisma.condominium.findMany({
         where: { id: { in: condoIds } },
@@ -1406,6 +1409,7 @@ export class AdminOrdersService {
         condominiumId: o.condominiumId,
         condominiumName: condo?.name ?? '—',
         block: u?.block ?? '',
+        complement: u?.complement ?? '',
         apartment: u?.apartment ?? '',
         quantity: o.breadQty,
         slotId: o.slotId,

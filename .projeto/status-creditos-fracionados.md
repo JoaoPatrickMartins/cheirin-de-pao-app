@@ -449,6 +449,25 @@ os mocks agora devolvem `creditsAppliedMilli`/`quantityMilli`, como o Prisma dev
 varredura por leitura de saldo legado exposta → nenhuma (fora do próprio backfill, que compara os
 dois campos de propósito).
 
+> ⚠️ **Errata (17/08/2026) — a varredura acima passou por cima de um caso.** Ela procurou por
+> *leituras* de `creditBalance`, e o `GET /admin/clients/:id` não lia o campo: ele **espalhava o
+> documento cru** (`...result.client` no controller, sobre um `findUnique` sem `select`), e o
+> espelho legado entrava na resposta pela porta dos fundos — o response schema da rota declara
+> `creditBalance` e deixou passar. Sintoma: o mesmo cliente com **0 crédito na lista e 6 pães no
+> detalhe**; e, do outro lado, cliente novo com saldo real aparecendo **zerado** no detalhe
+> (`creditBalance` nunca sai do default 0 para quem entrou depois da limpeza).
+>
+> Corrigido derivando o canônico no `getDetail` (+6 testes de regressão em
+> `admin-clients.credit-decimal.service.test.ts`). A blindagem contra a recaída é o **rename do
+> campo Prisma para `creditBalanceLegacy` com `@map("creditBalance")`**: o banco não muda, mas
+> nenhum spread acidental volta a produzir a chave `creditBalance`, e o allowlist da rota passa a
+> descartá-la sozinho. Lição para varreduras futuras: procurar por *spread de documento do Prisma*
+> em resposta, não só por leitura nominal do campo.
+>
+> Conferência de dados (banco de teste, 8 clientes): 7 fecham extrato = saldo ao centavo; o único
+> divergente carrega um resíduo de reset manual de junho. **Nenhum reparo de saldo foi necessário
+> — o defeito era só de exibição.**
+
 ### ✅ Onda F (testes) — CONCLUÍDA (31/07/2026) · ⏳ F-limpeza pendente
 
 > Verificação: typecheck shared+api+web ✅ · api **610 + 3 todo** ✅ (+19) · web **118 + 17 todo** ✅ ·

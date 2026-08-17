@@ -180,15 +180,36 @@ export class AdminSettingsService {
    * Retorna a config do gancho de porta:
    * - `pedidoUnicoMin`: mínimo de pães num pedido único para ganhar o gancho grátis.
    * - `preco`: preço de um gancho adicional (reposição), cobrado via Pix.
+   * - `recorrenciaMin`: pedidos entregues para o gancho por fidelidade (0 = desligada).
+   * - `recorrenciaDesde`: marco de vigência da regra de fidelidade (null = nunca ligada).
+   * - `avulsoUnit`: preço do pão avulso — só leitura, para a tela calcular o limiar em R$ da
+   *   Cestinha (`pedidoUnicoMin × avulsoUnit`) sem uma segunda requisição.
    */
-  async getGanchoConfig(): Promise<GanchoConfig> {
-    return getGanchoConfig(this.prisma)
+  async getGanchoConfig(): Promise<GanchoConfig & { avulsoUnit: number }> {
+    const [config, avulsoRow] = await Promise.all([
+      getGanchoConfig(this.prisma),
+      this.prisma.setting.findUnique({ where: { key: 'avulsoUnit' } }),
+    ])
+    const parsed = avulsoRow ? parseFloat(avulsoRow.value) : NaN
+    return { ...config, avulsoUnit: Number.isFinite(parsed) && parsed > 0 ? parsed : 0 }
   }
 
   /**
-   * Atualiza (upsert) a config do gancho de porta (mínimo do pedido único + preço).
+   * Atualiza (upsert) a config do gancho de porta (mínimo do pedido único + preço + fidelidade).
+   *
+   * `recorrenciaMin` omitido = **preserva** o valor vigente (cliente antigo em cache não desliga a
+   * regra sem querer — ver `UpdateGanchoSchema`). Devolve o valor efetivamente em vigor ao final.
+   *
+   * Marco da fidelidade: ao ativar a regra (`recorrenciaMin > 0`), grava `ganchoRecorrenciaDesde`
+   * **apenas se ainda não existir** (upsert com `update: {}`). Nunca reescrever é proposital —
+   * regravar a cada ajuste zeraria o progresso de todos os clientes sem aviso, e desligar e
+   * religar a regra não preservaria nada.
    */
-  async setGanchoConfig(pedidoUnicoMin: number, preco: number): Promise<void> {
+  async setGanchoConfig(
+    pedidoUnicoMin: number,
+    preco: number,
+    recorrenciaMin?: number,
+  ): Promise<{ recorrenciaMin: number }> {
     await Promise.all([
       this.prisma.setting.upsert({
         where: { key: 'ganchoPedidoUnicoMin' },
@@ -200,7 +221,28 @@ export class AdminSettingsService {
         create: { key: 'ganchoPreco', value: String(preco) },
         update: { value: String(preco) },
       }),
+      ...(recorrenciaMin === undefined
+        ? []
+        : [
+            this.prisma.setting.upsert({
+              where: { key: 'ganchoRecorrenciaMin' },
+              create: { key: 'ganchoRecorrenciaMin', value: String(recorrenciaMin) },
+              update: { value: String(recorrenciaMin) },
+            }),
+          ]),
     ])
+
+    if (recorrenciaMin !== undefined && recorrenciaMin > 0) {
+      await this.prisma.setting.upsert({
+        where: { key: 'ganchoRecorrenciaDesde' },
+        create: { key: 'ganchoRecorrenciaDesde', value: new Date().toISOString() },
+        update: {}, // já existe → preserva o marco original
+      })
+    }
+
+    if (recorrenciaMin !== undefined) return { recorrenciaMin }
+    const { recorrenciaMin: vigente } = await getGanchoConfig(this.prisma)
+    return { recorrenciaMin: vigente }
   }
 
   /**

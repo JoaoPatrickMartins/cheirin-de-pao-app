@@ -35,6 +35,7 @@ export class ClientProfileService {
       condominiumName: condo?.name ?? '',
       apartment: user.apartment ?? null,
       block: user.block ?? null,
+      complement: user.complement ?? null,
       // Saldo em pãezinhos DECIMAIS (1 pão = 1000 milésimos no banco): depois do crédito
       // fracionado, o campo legado é só um arredondamento e mostraria 43 onde há 43,5.
       creditBalance: fromMilli((user.creditMilli ?? 0)),
@@ -50,6 +51,7 @@ export class ClientProfileService {
     if (body.birthDate !== undefined) data.birthDate = new Date(body.birthDate)
     if (body.apartment !== undefined) data.apartment = body.apartment
     if (body.block !== undefined) data.block = body.block
+    if (body.complement !== undefined) data.complement = body.complement
 
     let scheduleDeactivated = false
     if (body.condominiumId !== undefined && body.condominiumId !== user.condominiumId) {
@@ -72,6 +74,7 @@ export class ClientProfileService {
       condominiumName: condo?.name ?? '',
       apartment: updated.apartment ?? null,
       block: updated.block ?? null,
+      complement: updated.complement ?? null,
       creditBalance: fromMilli((updated.creditMilli ?? 0)),
       scheduleDeactivated,
     }

@@ -1,9 +1,12 @@
+import { formatUnit } from '@cheirin-de-pao/shared'
 import { Icon } from '../brand/Icon'
 
 export interface Stop {
   orderId: string
   apartment: string
   block: string | null
+  /** Complemento do bloco ("Lado A"). Aparece na parada mesmo com a lista agrupada por bloco. */
+  complement?: string | null
   clientName: string
   quantity: number
   status: string
@@ -117,7 +120,13 @@ export function StopRow({ stop, order, isConfirmed, isNotDelivered = false, show
             textOverflow: 'ellipsis',
           }}
         >
-          {showBlock && stop.block ? `${stop.block} — Apto ${stop.apartment}` : `Apto ${stop.apartment}`}
+          {/* Sob subtítulo de bloco o bloco some, mas o complemento fica: ele varia DENTRO
+              do bloco e é o que diz em qual lado do prédio o entregador entra. */}
+          {formatUnit(stop, {
+            block: showBlock ? 'bare' : 'omit',
+            apartmentSeparator: ' — ',
+            emptyApartment: '',
+          })}
         </p>
         <p
           style={{

@@ -1,16 +1,10 @@
+import { blockLabel } from '@cheirin-de-pao/shared'
 import { Icon } from '../brand/Icon'
 import { StopRow, Stop, stopKey } from './StopRow'
 
-/** Rótulo do bloco sem duplicar "Bloco" (o valor já pode contê-la). */
-function blockLabel(block: string): string {
-  const b = (block || '').trim()
-  if (!b || b === '—') return ''
-  return /^bloco\b/i.test(b) ? b : `Bloco ${b}`
-}
-
 /**
  * Agrupa paradas por bloco preservando a ordem já recebida (backend ordena por
- * bloco → apartamento). Paradas sem bloco caem num grupo com block === null.
+ * bloco → complemento → apartamento). Paradas sem bloco caem num grupo com block === null.
  */
 function groupByBlock(stops: Stop[]): Array<{ block: string | null; stops: Stop[] }> {
   const groups: Array<{ block: string | null; stops: Stop[] }> = []

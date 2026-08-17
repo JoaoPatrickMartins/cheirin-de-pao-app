@@ -170,7 +170,7 @@ interface AdminMarketOrderRef extends MarketOrderRef {
 async function labelFor(fastify: FastifyInstance, userId: string): Promise<string> {
   const client = await fastify.prisma.user.findUnique({
     where: { id: userId },
-    select: { name: true, apartment: true, block: true },
+    select: { name: true, apartment: true, block: true, complement: true },
   })
   return clientLabel(client ?? {})
 }

@@ -60,6 +60,16 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     create: { key: 'ganchoPreco', value: '5.00' },
   })
 
+  // Gancho grátis por FIDELIDADE — pedidos entregues (pedido único + Cestinha) que dão direito
+  // ao gancho. default 0 = regra DESLIGADA: só passa a valer quando o admin definir o número em
+  // Gestão → Gancho. O marco de vigência (ganchoRecorrenciaDesde) NÃO é semeado de propósito —
+  // sua ausência é o sinal de "regra nunca foi ligada", e ele é gravado na primeira ativação.
+  await prisma.setting.upsert({
+    where: { key: 'ganchoRecorrenciaMin' },
+    update: {},
+    create: { key: 'ganchoRecorrenciaMin', value: '0' },
+  })
+
   // Dias bloqueados para agendamento — PADRÃO da operação, default nenhum dia bloqueado.
   // true = dia sem entregas (pedido único, agenda, Cestinha e corte). Cada condomínio pode
   // sobrescrever (Condominium.blockedDaysOverride); sem override, herda este padrão.

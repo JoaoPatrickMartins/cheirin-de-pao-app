@@ -337,6 +337,7 @@ export const adminSupplierOrdersRoute: FastifyPluginAsync = async (fastify) => {
                     name: { type: 'string' },
                     apartment: { type: 'string' },
                     block: { type: 'string' },
+                    complement: { type: 'string' },
                     quantity: { type: 'integer', description: 'Total de pães da parada (pago + previsto).' },
                     slotId: { type: 'string' },
                     slotLabel: { type: 'string' },

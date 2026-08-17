@@ -21,6 +21,8 @@ export interface AuthUser {
   condominiumName?: string
   apartment?: string
   block?: string
+  /** Complemento curto do bloco ("Lado A"). '' = sem complemento. */
+  complement?: string
   condominiumJustChanged?: boolean
   // false = conta ainda sem senha (1º acesso via OTP) — força tela de definir senha.
   hasPassword?: boolean

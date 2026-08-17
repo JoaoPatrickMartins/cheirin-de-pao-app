@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
+import { compareUnits } from '@cheirin-de-pao/shared'
 import { CourierRepository } from './courier.repository.js'
 import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import {
@@ -22,19 +23,13 @@ import type { TodayOrdersResponse } from './courier.schema.js'
 const BRAZIL_OFFSET_HOURS = 3
 
 /**
- * Ordena paradas por BLOCO (crescente) e, dentro do bloco, por APARTAMENTO (crescente),
- * ambos com localeCompare numérico pt-BR (assim "Bloco 2" vem antes de "Bloco 10" e
- * "Apto 20" antes de "Apto 101"). Condomínios sem bloco caem todos no mesmo grupo.
+ * Ordena paradas por BLOCO → COMPLEMENTO → APARTAMENTO (crescente), todos com
+ * localeCompare numérico pt-BR (assim "Bloco 2" vem antes de "Bloco 10" e "Apto 20" antes
+ * de "Apto 101"). Condomínios sem bloco caem todos no mesmo grupo. O complemento entra no
+ * meio porque marca uma separação física ("Lado A"/"Lado B") — sem ele o entregador
+ * atravessaria o bloco a cada parada. Ver `compareUnits` no shared.
  */
-function byBlockThenApartment(
-  a: { block?: string | null; apartment?: string | null },
-  b: { block?: string | null; apartment?: string | null },
-): number {
-  const ba = (a.block ?? '').trim()
-  const bb = (b.block ?? '').trim()
-  if (ba !== bb) return ba.localeCompare(bb, 'pt-BR', { numeric: true })
-  return (a.apartment ?? '').localeCompare(b.apartment ?? '', 'pt-BR', { numeric: true })
-}
+const byBlockThenApartment = compareUnits
 
 /**
  * Retorna o intervalo de "hoje" em UTC-3 como par de datas UTC.
@@ -165,7 +160,7 @@ export class CourierService {
       orders.map(async (order: Record<string, unknown>) => {
         const user = await this.prisma.user.findUnique({
           where: { id: order.userId as string },
-          select: { id: true, name: true, condominiumId: true, apartment: true, block: true },
+          select: { id: true, name: true, condominiumId: true, apartment: true, block: true, complement: true },
         })
 
         const condominium = user?.condominiumId
@@ -192,6 +187,7 @@ export class CourierService {
           geoQuery: addr ? addressToQuery(addr) : '',
           apartment: user?.apartment ?? '',
           block: user?.block ?? null,
+          complement: user?.complement ?? null,
           clientName: user?.name ?? 'Cliente',
           quantity: (order.quantity as number) + (mk?.breadQty ?? 0),
           status: order.status as string,
@@ -213,7 +209,7 @@ export class CourierService {
           const userId = mk.userId
           const user = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: { id: true, name: true, condominiumId: true, apartment: true, block: true },
+            select: { id: true, name: true, condominiumId: true, apartment: true, block: true, complement: true },
           })
           const condominium = user?.condominiumId
             ? await this.prisma.condominium.findUnique({
@@ -234,6 +230,7 @@ export class CourierService {
             geoQuery: addr ? addressToQuery(addr) : '',
             apartment: user?.apartment ?? '',
             block: user?.block ?? null,
+            complement: user?.complement ?? null,
             clientName: user?.name ?? 'Cliente',
             quantity: mk.breadQty,
             status: mk.status,
@@ -305,6 +302,7 @@ export class CourierService {
             orderId: s.orderId,
             apartment: s.apartment,
             block: s.block,
+            complement: s.complement,
             clientName: s.clientName,
             quantity: s.quantity,
             status: s.status,
@@ -380,7 +378,7 @@ export class CourierService {
       completedOrders.map(async (order: Record<string, unknown>) => {
         const user = await this.prisma.user.findUnique({
           where: { id: order.userId as string },
-          select: { name: true, condominiumId: true, apartment: true, block: true },
+          select: { name: true, condominiumId: true, apartment: true, block: true, complement: true },
         })
         const condominium = user?.condominiumId
           ? await this.prisma.condominium.findUnique({
@@ -401,6 +399,7 @@ export class CourierService {
           condominiumName: condominium?.name ?? 'Condominio desconhecido',
           apartment: user?.apartment ?? '',
           block: user?.block ?? null,
+          complement: user?.complement ?? null,
           clientName: user?.name ?? 'Cliente',
           quantity: (order.quantity as number) + (mk?.breadQty ?? 0),
           status,
@@ -423,7 +422,7 @@ export class CourierService {
           const userId = mk.userId
           const user = await this.prisma.user.findUnique({
             where: { id: userId },
-            select: { name: true, condominiumId: true, apartment: true, block: true },
+            select: { name: true, condominiumId: true, apartment: true, block: true, complement: true },
           })
           const condominium = user?.condominiumId
             ? await this.prisma.condominium.findUnique({ where: { id: user.condominiumId }, select: { name: true } })
@@ -434,6 +433,7 @@ export class CourierService {
             condominiumName: condominium?.name ?? 'Condominio desconhecido',
             apartment: user?.apartment ?? '',
             block: user?.block ?? null,
+            complement: user?.complement ?? null,
             clientName: user?.name ?? 'Cliente',
             quantity: mk.breadQty,
             status: mk.status,
@@ -474,6 +474,7 @@ export class CourierService {
             orderId: s.orderId,
             apartment: s.apartment,
             block: s.block,
+            complement: s.complement,
             clientName: s.clientName,
             quantity: s.quantity,
             status: s.status,

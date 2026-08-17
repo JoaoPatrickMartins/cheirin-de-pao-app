@@ -6,6 +6,7 @@
 // para a divisão de entregas (ver admin-orders: gate em getDivisionSuggestion).
 
 import { FastifyInstance } from 'fastify'
+import { compareUnits } from '@cheirin-de-pao/shared'
 import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { separateMarketOrders } from '../../lib/market-pipeline.js'
@@ -24,6 +25,8 @@ export interface SeparationOrder {
   userId: string
   name: string
   block: string
+  /** Complemento do bloco ("Lado A"); '' quando não há. Vai impresso no cupom. */
+  complement: string
   apartment: string
   quantity: number
   slotId: string
@@ -189,7 +192,7 @@ export class AdminSeparationService {
     const [users, condos] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
-        select: { id: true, name: true, apartment: true, block: true },
+        select: { id: true, name: true, apartment: true, block: true, complement: true },
       }),
       this.prisma.condominium.findMany({
         where: { id: { in: condoIds } },
@@ -241,6 +244,7 @@ export class AdminSeparationService {
         userId: o.userId,
         name: u?.name ?? 'Cliente',
         block: u?.block ?? '',
+        complement: u?.complement ?? '',
         apartment: u?.apartment ?? '',
         quantity: o.quantity,
         slotId,
@@ -321,6 +325,7 @@ export class AdminSeparationService {
           userId: mo.userId,
           name: u?.name ?? 'Cliente',
           block: u?.block ?? '',
+          complement: u?.complement ?? '',
           apartment: u?.apartment ?? '',
           quantity: mo.breadQty,
           slotId: moSlotId,
@@ -353,11 +358,9 @@ export class AdminSeparationService {
       .map((c) => {
         const slots = [...c.slots.values()]
           .map((s) => {
-            s.orders.sort((a, b) => {
-              if (a.block !== b.block) return a.block.localeCompare(b.block, 'pt-BR', { numeric: true })
-              if (a.apartment !== b.apartment) return a.apartment.localeCompare(b.apartment, 'pt-BR', { numeric: true })
-              return a.name.localeCompare(b.name, 'pt-BR')
-            })
+            // bloco → complemento → apartamento: a pilha de cupons sai na mesma ordem em que
+            // o entregador percorre o prédio (o complemento separa fisicamente os lados).
+            s.orders.sort((a, b) => compareUnits(a, b) || a.name.localeCompare(b.name, 'pt-BR'))
             s.concluded = s.totalDeliveries > 0 && s.separatedDeliveries === s.totalDeliveries
             s.marketPicklist.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
             return s

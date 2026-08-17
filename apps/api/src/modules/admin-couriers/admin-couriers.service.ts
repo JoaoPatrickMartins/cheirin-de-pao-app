@@ -37,7 +37,7 @@ export class AdminCouriersService {
       data: {
         ...data,
         role: 'COURIER',
-        creditBalance: 0,
+        creditBalanceLegacy: 0,
         creditMilli: 0,
       },
     })

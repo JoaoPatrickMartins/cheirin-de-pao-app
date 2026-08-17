@@ -6,7 +6,7 @@ import { ClientHookController } from './client-hook.controller.js'
  *
  * Rotas:
  *   GET  /client/hook-request      — status (grátis/pago/atual) do gancho do cliente
- *   POST /client/hook-request      — confirma o recebimento do gancho GRÁTIS (consentimento)
+ *   POST /client/hook-request      — cliente PEDE o gancho GRÁTIS (consentimento)
  *   POST /client/hook-request/paid — inicia a compra de um gancho ADICIONAL (Pix)
  */
 export const clientHookRoute: FastifyPluginAsync = async (fastify) => {
@@ -20,7 +20,7 @@ export const clientHookRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['client — hook'],
         summary: 'Status do gancho de porta do cliente',
         description:
-          'Retorna o status do gancho do cliente. `needsConsent=true` → o app exibe o modal de consentimento do gancho GRÁTIS (cliente elegível e sem nenhum gancho). `canRequestPaid=true` → o cliente pode comprar um gancho adicional (Pix). `current` traz o gancho mais recente. Restrito a CLIENT.',
+          'Retorna o status do gancho do cliente. `needsConsent=true` → o app exibe o modal de consentimento do gancho GRÁTIS (cliente elegível e sem nenhum gancho). `canRequestPaid=true` → o cliente pode comprar um gancho adicional (Pix). `current` traz o gancho mais recente. O gancho grátis é único por cliente: quem já tem qualquer gancho (inclusive o de cortesia do admin) vem com `freeEligible=false`. Restrito a CLIENT.',
         security: [{ bearerAuth: [] }],
         response: {
           200: {
@@ -28,7 +28,10 @@ export const clientHookRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               hookPrice: { type: 'number', description: 'Preço de um gancho adicional em reais.' },
               pedidoUnicoMin: { type: 'integer', description: 'Mínimo de pães num pedido único para dar direito ao gancho grátis.' },
-              freeEligible: { type: 'boolean', description: 'true se o cliente atende ao critério do gancho grátis (combo ou pedido único >= mínimo).' },
+              cestinhaMinValue: { type: 'number', description: 'Valor mínimo em R$ de uma Cestinha para dar direito ao gancho grátis (pedidoUnicoMin × preço avulso). 0 = regra indisponível (sem preço avulso configurado).' },
+              recorrenciaMin: { type: 'integer', description: 'Pedidos entregues (pedido único + Cestinha) que dão o gancho por fidelidade. 0 = regra desligada.' },
+              recorrenciaProgress: { type: 'integer', description: 'Pedidos entregues do cliente já contados na fidelidade. 0 quando a regra está desligada ou o cliente já tem gancho.' },
+              freeEligible: { type: 'boolean', description: 'true se o cliente atende a alguma regra do gancho grátis (combo, pedido único >= mínimo, Cestinha >= limiar ou fidelidade).' },
               hasHook: { type: 'boolean', description: 'true se o cliente já possui algum gancho (grátis, pago ou bônus).' },
               needsConsent: { type: 'boolean', description: 'true se o app deve exibir o modal de consentimento do gancho grátis.' },
               canRequestPaid: { type: 'boolean', description: 'true se o cliente pode comprar um gancho adicional.' },
@@ -60,9 +63,9 @@ export const clientHookRoute: FastifyPluginAsync = async (fastify) => {
       preHandler: [fastify.authenticate],
       schema: {
         tags: ['client — hook'],
-        summary: 'Confirmar recebimento do gancho grátis',
+        summary: 'Pedir o gancho grátis (consentimento do cliente)',
         description:
-          'Concede o gancho de porta GRÁTIS após o consentimento do cliente. Idempotente — se o cliente já tem gancho, devolve o atual. 422 se ainda não atende ao critério (combo ou pedido único >= mínimo). Restrito a CLIENT.',
+          'Registra o PEDIDO do gancho de porta GRÁTIS após o consentimento do cliente — o gancho ainda será entregue (nasce em REQUESTED). Idempotente — se o cliente já tem gancho, devolve o atual. 422 se ainda não atende a nenhuma regra (combo, pedido único >= mínimo, Cestinha >= limiar ou fidelidade). Restrito a CLIENT.',
         security: [{ bearerAuth: [] }],
         response: {
           200: {

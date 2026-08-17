@@ -1,4 +1,4 @@
-import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
+import { formatCredits, toMilli, formatUnit } from '@cheirin-de-pao/shared'
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
@@ -26,6 +26,7 @@ interface MarketOrderRow {
   clientName: string
   clientPhone: string
   block: string
+  complement: string
   apartment: string
   condominiumId: string
   condominiumName: string
@@ -203,7 +204,7 @@ export function MarketCestinhas() {
 
 function OrderCard({ order: o, onOpen }: { order: MarketOrderRow; onOpen: () => void }) {
   const meta = STATUS_META[o.status] ?? { label: o.status, color: 'var(--color-text-ter)', soft: 'var(--color-surface-2)' }
-  const loc = [o.block && `Bl ${o.block}`, `Apto ${o.apartment || '—'}`].filter(Boolean).join(' · ')
+  const loc = formatUnit(o, { block: 'compact' })
   return (
     <button
       type="button"
@@ -367,7 +368,7 @@ function OrderSheet({
               🧺 {o.clientName}
             </h3>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-              {o.condominiumName} · {o.block ? `Bl ${o.block} · ` : ''}Apto {o.apartment || '—'}
+              {o.condominiumName} · {formatUnit(o, { block: 'compact' })}
               {o.clientPhone ? ` · ${o.clientPhone}` : ''}
             </p>
           </div>

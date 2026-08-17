@@ -9,6 +9,14 @@ type HookStatus = 'PENDING_PAYMENT' | 'REQUESTED' | 'DELIVERED' | 'CANCELLED'
 
 interface HookStatusResponse {
   hookPrice: number
+  /** Mínimo de pães num pedido único para o gancho grátis. */
+  pedidoUnicoMin: number
+  /** Valor mínimo de uma Cestinha para o gancho grátis (0 = regra indisponível). */
+  cestinhaMinValue: number
+  /** Pedidos entregues que dão o gancho por fidelidade (0 = regra desligada). */
+  recorrenciaMin: number
+  /** Quantos pedidos entregues o cliente já tem na fidelidade. */
+  recorrenciaProgress: number
   freeEligible: boolean
   hasHook: boolean
   needsConsent: boolean
@@ -242,7 +250,17 @@ function StatusCard({ data }: { data: HookStatusResponse }) {
     } else {
       icon = 'gift'
       title = 'Ganhe um gancho grátis'
-      body = 'Ao comprar um combo — ou fazer um pedido único maior — você recebe, de graça, o gancho de porta onde deixamos seus pães fresquinhos toda manhã.'
+      // Enumera só as regras que estão de fato valendo — a da Cestinha depende do preço avulso
+      // configurado e a de fidelidade pode estar desligada.
+      const caminhos = ['comprar um combo', `fazer um pedido único de ${data.pedidoUnicoMin}+ pães`]
+      if (data.cestinhaMinValue > 0) {
+        caminhos.push(`levar uma Cestinha a partir de ${formatBRL(data.cestinhaMinValue)}`)
+      }
+      if (data.recorrenciaMin > 0) {
+        caminhos.push(`receber ${data.recorrenciaMin} entregas`)
+      }
+      const ultima = caminhos.pop()
+      body = `É só ${caminhos.join(', ')} ou ${ultima} — e o gancho de porta onde deixamos seus pães fresquinhos toda manhã é seu, de graça.`
       tint = 'var(--color-surface-2)'
       tintFg = 'var(--color-accent)'
     }
@@ -314,6 +332,51 @@ function StatusCard({ data }: { data: HookStatusResponse }) {
       <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, lineHeight: 1.5, color: 'var(--color-text-sec)', margin: 0 }}>
         {body}
       </p>
+
+      {/* Progresso da fidelidade — só para quem ainda não tem gancho nem ficou elegível por
+          outra regra (com o gancho já garantido, o contador vira ruído). */}
+      {!data.hasHook && !data.freeEligible && data.recorrenciaMin > 0 && (
+        <FidelidadeProgress atual={data.recorrenciaProgress} alvo={data.recorrenciaMin} />
+      )}
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ FidelidadeProgress
+/**
+ * Barra "X de N entregas" do caminho de fidelidade até o gancho grátis.
+ *
+ * Fala em ENTREGAS, não em pedidos/compras: o contador só avança quando o pedido é
+ * efetivamente entregue (`status DELIVERED`). "3 pedidos" fazia o cliente esperar o gancho
+ * logo após a 3ª compra, com as entregas ainda agendadas para dias à frente.
+ */
+function FidelidadeProgress({ atual, alvo }: { atual: number; alvo: number }) {
+  const pct = Math.min(100, Math.round((atual / alvo) * 100))
+  const faltam = Math.max(0, alvo - atual)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, paddingTop: 2 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>
+          {atual} de {alvo} entregas
+        </span>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)' }}>
+          {faltam === 1 ? 'falta 1' : `faltam ${faltam}`}
+        </span>
+      </div>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: 0, lineHeight: 1.35 }}>
+        Conta quando o pedido chega na sua porta — pedidos agendados entram depois da entrega.
+      </p>
+      <div
+        role="progressbar"
+        aria-valuenow={atual}
+        aria-valuemin={0}
+        aria-valuemax={alvo}
+        aria-label="Entregas até o gancho grátis"
+        style={{ height: 6, borderRadius: 999, background: 'var(--color-surface-2)', overflow: 'hidden' }}
+      >
+        <div style={{ width: `${pct}%`, height: '100%', background: 'var(--color-accent)', borderRadius: 999 }} />
+      </div>
     </div>
   )
 }

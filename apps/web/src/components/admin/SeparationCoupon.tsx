@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { QRCodeSVG } from 'qrcode.react'
+import { formatUnit } from '@cheirin-de-pao/shared'
 
 /**
  * Cupom não fiscal da Separação — impresso em impressora térmica via window.print().
@@ -18,6 +19,8 @@ export interface CouponData {
   clientName: string
   condominiumName: string
   block: string
+  /** Complemento do bloco ("Lado A"); '' quando não há. */
+  complement: string
   apartment: string
   quantity: number
   slotLabel: string
@@ -89,9 +92,7 @@ export function SeparationCouponSheet({ coupons }: { coupons: CouponData[] }) {
 
           <div className="cdp-dash" style={{ padding: '3mm 0', fontSize: '10pt', lineHeight: 1.45 }}>
             <div style={{ fontWeight: 800, fontSize: '12.5pt' }}>{c.condominiumName}</div>
-            <div style={{ fontWeight: 700 }}>
-              {c.block ? `Bloco ${c.block} · ` : ''}Apto {c.apartment || '—'}
-            </div>
+            <div style={{ fontWeight: 700 }}>{formatUnit(c)}</div>
             <div>{c.clientName}</div>
           </div>
 

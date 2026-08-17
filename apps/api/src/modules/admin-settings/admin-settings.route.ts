@@ -304,15 +304,18 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — settings'],
         summary: 'Consultar config do gancho de porta (admin)',
         description:
-          'Retorna o mínimo de pães num pedido único para ganhar o gancho grátis e o preço de um gancho adicional (reposição por defeito/perda, cobrado via Pix). A compra de combo sempre dá direito ao gancho grátis. Restrito a ADMIN.',
+          'Retorna as regras do gancho grátis (mínimo de pães do pedido único — que também define o limiar em R$ da Cestinha — e pedidos entregues da fidelidade) e o preço de um gancho adicional (reposição por defeito/perda, cobrado via Pix). A compra de combo sempre dá direito ao gancho grátis. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         response: {
           200: {
             type: 'object',
             description: 'Configuração do gancho de porta.',
             properties: {
-              pedidoUnicoMin: { type: 'integer', description: 'Mínimo de pães no pedido único para o gancho grátis.' },
+              pedidoUnicoMin: { type: 'integer', description: 'Mínimo de pães no pedido único para o gancho grátis. Também define o limiar da Cestinha (pedidoUnicoMin × avulsoUnit).' },
               preco: { type: 'number', description: 'Preço de um gancho adicional em reais.' },
+              recorrenciaMin: { type: 'integer', description: 'Pedidos entregues (pedido único + Cestinha) para o gancho por fidelidade. 0 = regra desligada.' },
+              recorrenciaDesde: { type: 'string', nullable: true, description: 'Marco de vigência da fidelidade (ISO 8601): só pedidos entregues a partir daqui contam. null = regra nunca foi ligada.' },
+              avulsoUnit: { type: 'number', description: 'Preço do pão avulso em reais (somente leitura) — base do cálculo do limiar da Cestinha.' },
             },
           },
         },
@@ -329,7 +332,7 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — settings'],
         summary: 'Atualizar config do gancho de porta (admin)',
         description:
-          'Atualiza o mínimo de pães do pedido único (1..50) para o gancho grátis e o preço do gancho adicional. Restrito a ADMIN.',
+          'Atualiza o mínimo de pães do pedido único (1..50) para o gancho grátis, o preço do gancho adicional e os pedidos entregues da fidelidade (0 = regra desligada). Ao ativar a fidelidade pela primeira vez, o marco de vigência é gravado e nunca mais reescrito — desligar e religar preserva o progresso dos clientes. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
@@ -337,6 +340,7 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
           properties: {
             pedidoUnicoMin: { type: 'integer', minimum: 1, maximum: 50, description: 'Novo mínimo de pães do pedido único.' },
             preco: { type: 'number', minimum: 0, description: 'Novo preço do gancho adicional em reais.' },
+            recorrenciaMin: { type: 'integer', minimum: 0, maximum: 100, description: 'Pedidos entregues para o gancho por fidelidade; 0 desliga a regra. Omitido = preserva o valor vigente.' },
           },
         },
         response: {
@@ -347,6 +351,7 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
               ok: { type: 'boolean' },
               pedidoUnicoMin: { type: 'integer' },
               preco: { type: 'number' },
+              recorrenciaMin: { type: 'integer', description: 'Valor em vigor após o salvamento.' },
             },
           },
         },

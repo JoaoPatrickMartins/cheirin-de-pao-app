@@ -5,7 +5,7 @@ import { StepVisual } from './onboardingSlides'
 
 interface GanchoConsentModalProps {
   isOpen: boolean
-  /** Chamado após o servidor registrar a solicitação (hookRequestedAt preenchido). */
+  /** Chamado após o servidor registrar a solicitação (HookRequest criado). */
   onConfirmed: () => void
 }
 
@@ -39,8 +39,13 @@ function Ponto({ icon, children }: { icon: 'gift' | 'check' | 'bag'; children: R
  *
  * Exibido pelo ClientLayout após o cliente fazer o primeiro pedido (needsConsent).
  * É obrigatório: não fecha por backdrop/ESC e não tem botão de dispensar — só sai
- * quando o cliente confirma o recebimento (POST /client/hook-request). Reaparece
- * enquanto não confirmado. Modelado em ConfirmDeliveryDialog (tokens + isLoading/error).
+ * quando o cliente PEDE o gancho (POST /client/hook-request). Reaparece enquanto não
+ * pedido. Modelado em ConfirmDeliveryDialog (tokens + isLoading/error).
+ *
+ * O CTA fala na primeira pessoa e no futuro ("Quero receber meu gancho") de propósito:
+ * "Confirmar recebimento do gancho" fazia o cliente entender que estava dando baixa num
+ * gancho já entregue, e não pedindo um. Aqui o gancho ainda vai ser produzido e entregue —
+ * o HookRequest nasce em REQUESTED e só vira DELIVERED pela mão do entregador/admin.
  */
 export function GanchoConsentModal({ isOpen, onConfirmed }: GanchoConsentModalProps) {
   const [isLoading, setIsLoading] = useState(false)
@@ -58,7 +63,7 @@ export function GanchoConsentModal({ isOpen, onConfirmed }: GanchoConsentModalPr
         return
       }
       const data = (await res.json().catch(() => null)) as { error?: string } | null
-      setError(data?.error ?? 'Não foi possível confirmar. Tente novamente.')
+      setError(data?.error ?? 'Não foi possível solicitar. Tente novamente.')
     } catch {
       setError('Falha na conexão. Tente novamente.')
     } finally {
@@ -144,8 +149,10 @@ export function GanchoConsentModal({ isOpen, onConfirmed }: GanchoConsentModalPr
             gap: 8,
           }}
         >
-          {!isLoading && <Icon name="check" size={20} color="var(--color-primary-btn-text)" stroke={2.4} />}
-          {isLoading ? 'Confirmando...' : 'Confirmar recebimento do gancho'}
+          {/* Ícone de presente, não de "check": o check reforçava a leitura errada de que o
+              cliente estaria dando baixa num gancho que já teria em mãos. */}
+          {!isLoading && <Icon name="gift" size={20} color="var(--color-primary-btn-text)" stroke={2.4} />}
+          {isLoading ? 'Solicitando...' : 'Quero receber meu gancho'}
         </button>
 
         {error !== null && (

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../lib/apiFetch'
 import { Stop, stopKey } from './StopRow'
 
@@ -116,7 +117,7 @@ export function ConfirmDeliveryDialog({
           ]
             .filter(Boolean)
             .join(' + ') || 'Entrega'}{' '}
-          para {stop.clientName} · Apartamento {stop.apartment}
+          para {stop.clientName} · {formatUnit(stop, { block: 'omit', apartmentLabel: 'Apartamento' })}
         </p>
 
         {mode === 'menu' ? (

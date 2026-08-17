@@ -30,6 +30,7 @@ export class AuthRepository {
     condominiumId?: string
     apartment?: string
     block?: string
+    complement?: string
   }) {
     // `creditMilli: 0` explícito: no Mongo o `@default` do Prisma não cria a chave, e um `$inc`
     // sobre chave inexistente PERDE o valor (ver `credit-milli-backfill.ts`).

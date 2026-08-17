@@ -100,12 +100,18 @@ export type WeekdayMinimums = UpdatePedidoMinimoBody['agenda']
  * UpdateGanchoSchema — valida a config do gancho de porta.
  *
  * - `pedidoUnicoMin`: mínimo de pães num pedido único para ganhar o gancho grátis (1..50).
- *   A compra de combo sempre dá direito, independente da quantidade.
+ *   A compra de combo sempre dá direito, independente da quantidade. O mesmo mínimo, convertido
+ *   pelo preço avulso, é o limiar em R$ de uma Cestinha.
  * - `preco`: preço de um gancho adicional (reposição por defeito/perda), cobrado via Pix.
+ * - `recorrenciaMin`: pedidos ENTREGUES (pedido único + Cestinha) que dão o gancho por
+ *   fidelidade; `0` desliga a regra. **Opcional de propósito**: um PWA em cache com a versão
+ *   anterior da tela não envia o campo — nesse caso o valor vigente é preservado, em vez de o
+ *   admin desligar a regra sem perceber (ou levar 400 e não conseguir salvar nada).
  */
 export const UpdateGanchoSchema = z.object({
   pedidoUnicoMin: z.number().int().min(1, 'Mínimo é 1').max(50, 'Máximo é 50'),
   preco: z.number().min(0, 'Preço não pode ser negativo'),
+  recorrenciaMin: z.number().int().min(0, 'Mínimo é 0').max(100, 'Máximo é 100').optional(),
 })
 
 export type UpdateGanchoBody = z.infer<typeof UpdateGanchoSchema>

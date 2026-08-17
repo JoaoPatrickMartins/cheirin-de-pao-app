@@ -238,10 +238,20 @@ model User {
   condominiumId String?   @db.ObjectId
   apartment     String?
   block         String?
+  // Complemento curto do endereço (máx. 10 chars) — subdivisão do bloco, ex.: "Lado A".
+  // Só é coletado em condomínio do tipo BLOCKS. Opcional: em documento antigo a chave nem
+  // existe, então toda leitura é via `select` + `?? null` (nunca `where: { complement: null }`).
+  complement    String?
   // LEGADO — nada em runtime lê nem escreve este campo desde a limpeza (31/07/2026). Continua
   // declarado só porque é a FONTE do backfill do boot. Num cliente ativo hoje o valor está
   // CONGELADO no momento da limpeza: não use para nada.
-  creditBalance      Int       @default(0)
+  //
+  // O NOME é a blindagem: em 17/08/2026 o detalhe do cliente no admin espalhava o documento cru
+  // (`...user`) e servia este campo como se fosse o saldo — a lista mostrava 0 e o detalhe 6 para
+  // o mesmo cliente. Com o campo chamando-se `creditBalanceLegacy`, nenhum spread acidental volta
+  // a produzir a chave `creditBalance`, e o allowlist do response schema a descarta sozinho.
+  // O `@map` mantém o nome original no Mongo — o banco não muda.
+  creditBalanceLegacy Int      @default(0) @map("creditBalance")
   // Saldo CANÔNICO em milésimos de pãozinho (1 pão = 1000) — **é o único saldo da aplicação**.
   // Inteiro de propósito: `Float` em dinheiro acumula drift, e trocar o tipo de um campo `Int` já
   // gravado quebra a leitura no Prisma + MongoDB. Nullable porque `@default` não cria a chave em

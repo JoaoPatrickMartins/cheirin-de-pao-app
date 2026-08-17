@@ -20,6 +20,9 @@ function makeFastifyMock(overrides: {
   deliverySlots?: { key: string; value: string } | null
   settingAvulsoLimite?: { key: string; value: string } | null
   settingAvulsoUnit?: { key: string; value: string } | null
+  /** Config do gancho — usado nos testes de getGanchoConfig/setGanchoConfig. */
+  settingGanchoRecorrenciaMin?: { key: string; value: string } | null
+  settingGanchoRecorrenciaDesde?: { key: string; value: string } | null
   users?: Array<{ id: string; oneSignalPlayerId: string | null }>
   orders?: Array<{ id: string; userId: string; scheduledDate: Date }>
   condominiums?: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }>
@@ -41,6 +44,8 @@ function makeFastifyMock(overrides: {
     if (where.key === 'deliverySlots') return Promise.resolve(deliverySlots)
     if (where.key === 'avulsoLimite') return Promise.resolve(settingAvulsoLimite)
     if (where.key === 'avulsoUnit') return Promise.resolve(settingAvulsoUnit)
+    if (where.key === 'ganchoRecorrenciaMin') return Promise.resolve(overrides.settingGanchoRecorrenciaMin ?? null)
+    if (where.key === 'ganchoRecorrenciaDesde') return Promise.resolve(overrides.settingGanchoRecorrenciaDesde ?? null)
     return Promise.resolve(null)
   })
 
@@ -437,6 +442,85 @@ describe('AdminSettingsService', () => {
           where: expect.objectContaining({ isActive: true, condominiumId: 'condo-1' }),
         }),
       )
+    })
+  })
+
+  // ── Config do gancho de porta (regras do grátis + preço do adicional) ───────
+  describe('gancho de porta', () => {
+    interface UpsertArg {
+      where: { key: string }
+      create: { value: string }
+      update: Record<string, unknown>
+    }
+
+    /** Chamadas de upsert do Setting indexadas por chave. */
+    function upsertsByKey(prisma: ReturnType<typeof makeFastifyMock>['prisma']) {
+      const calls = prisma.setting.upsert.mock.calls as unknown as UpsertArg[][]
+      return new Map(calls.map((call) => [call[0].where.key, call[0]]))
+    }
+
+    it('getGanchoConfig devolve o avulsoUnit e a fidelidade desligada quando as chaves não existem', async () => {
+      const { fastify } = makeFastifyMock({ settingAvulsoUnit: { key: 'avulsoUnit', value: '1.20' } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+
+      const config = await service.getGanchoConfig()
+
+      expect(config.avulsoUnit).toBe(1.2)
+      expect(config.recorrenciaMin).toBe(0)
+      expect(config.recorrenciaDesde).toBeNull()
+    })
+
+    it('setGanchoConfig grava o mínimo de pedidos da fidelidade', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+
+      const result = await service.setGanchoConfig(10, 5, 5)
+
+      expect(upsertsByKey(prisma).get('ganchoRecorrenciaMin')?.create.value).toBe('5')
+      expect(result.recorrenciaMin).toBe(5)
+    })
+
+    it('grava o marco de vigência na PRIMEIRA ativação, sem reescrever se já existir', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+
+      await service.setGanchoConfig(10, 5, 5)
+
+      const marco = upsertsByKey(prisma).get('ganchoRecorrenciaDesde')
+      expect(marco).toBeDefined()
+      // `update: {}` é o que garante "cria só se ausente" — reescrever zeraria o progresso.
+      expect(marco?.update).toEqual({})
+      expect(new Date(marco!.create.value).getTime()).not.toBeNaN()
+    })
+
+    it('não toca no marco ao DESLIGAR a regra (0) — progresso dos clientes preservado', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        settingGanchoRecorrenciaDesde: { key: 'ganchoRecorrenciaDesde', value: '2026-08-01T00:00:00.000Z' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+
+      await service.setGanchoConfig(10, 5, 0)
+
+      expect(upsertsByKey(prisma).get('ganchoRecorrenciaMin')?.create.value).toBe('0')
+      expect(upsertsByKey(prisma).has('ganchoRecorrenciaDesde')).toBe(false)
+    })
+
+    it('recorrenciaMin omitido preserva o valor vigente (PWA em cache não desliga a regra)', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        settingGanchoRecorrenciaMin: { key: 'ganchoRecorrenciaMin', value: '7' },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+
+      const result = await service.setGanchoConfig(12, 6)
+
+      expect(upsertsByKey(prisma).has('ganchoRecorrenciaMin')).toBe(false)
+      expect(upsertsByKey(prisma).has('ganchoRecorrenciaDesde')).toBe(false)
+      expect(result.recorrenciaMin).toBe(7)
     })
   })
 })
