@@ -307,6 +307,12 @@ model Condominium {
   // `where: { blockedDaysOverride: null }`, que não encontra documento sem a chave.
   blockedDaysOverride Json?
   dayLimitOverride    Json?
+  // Overrides do PEDIDO MÍNIMO — mesma semântica e mesma armadilha do Mongo dos dois acima:
+  // AUSENTE/null = herda o padrão global (Setting `pedidoMinimoUnico` / `pedidoMinimoAgenda` /
+  // `marketMinimoCestinha`), resolução SEMPRE em código (`lib/order-minimums.ts`).
+  pedidoMinimoUnicoOverride    Int?   // pães por pedido único, 1..20
+  pedidoMinimoAgendaOverride   Json?  // mapa completo {seg..dom}, 0..12 (por turno)
+  marketMinimoCestinhaOverride Float? // valor mínimo da Cestinha em R$, >= 0 (0 = sem mínimo)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }

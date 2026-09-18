@@ -1,15 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import type { UpdateCartInput } from '@cheirin-de-pao/shared'
 import { MARKET_CARTAO_MIN_KEY, parseCartaoMinimo } from '../../lib/market-card-policy.js'
+import { getMinimumsForUser } from '../../lib/order-minimums.js'
 import { MarketRepository } from './market.repository.js'
 
 // Abaixo disso, um produto FIXO exibe "Últimas unidades" no catálogo.
 const LOW_STOCK_THRESHOLD = 5
 const AVULSO_KEY = 'avulsoUnit'
-const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
-const DEFAULT_MIN_CESTINHA = 15
 const BREAD_PRODUCT_KEY = 'breadProductId'
-const PEDIDO_MINIMO_UNICO_KEY = 'pedidoMinimoUnico'
 
 // Linha da Cestinha com snapshot do produto (nome/preço/foto no momento da leitura).
 export interface CartLineView {
@@ -54,7 +52,7 @@ export interface CartView {
 export class MarketService {
   private repo: MarketRepository
 
-  constructor(fastify: FastifyInstance) {
+  constructor(private fastify: FastifyInstance) {
     this.repo = new MarketRepository(fastify)
   }
 
@@ -110,23 +108,10 @@ export class MarketService {
     return Number.isFinite(v) ? v : 0
   }
 
-  private async getMinimo(): Promise<number> {
-    const s = await this.repo.getSetting(MIN_CESTINHA_KEY)
-    const v = s ? parseFloat(s.value) : DEFAULT_MIN_CESTINHA
-    return Number.isFinite(v) ? v : DEFAULT_MIN_CESTINHA
-  }
-
   /** Mínimo (R$) da parte em dinheiro para liberar cartão; 0 = sempre liberado (regra desligada). */
   private async getCartaoMinimo(): Promise<number> {
     const s = await this.repo.getSetting(MARKET_CARTAO_MIN_KEY)
     return parseCartaoMinimo(s?.value)
-  }
-
-  /** Mínimo em quantidade de pães do Pão Francês — herdado do pedido único. */
-  private async getBreadMin(): Promise<number> {
-    const s = await this.repo.getSetting(PEDIDO_MINIMO_UNICO_KEY)
-    const v = s ? parseInt(s.value, 10) : 1
-    return Number.isFinite(v) && v >= 1 ? v : 1
   }
 
   /** Id do produto fixo "Pão Francês" — ele só pode existir como breadQty, nunca como item. */
@@ -142,16 +127,20 @@ export class MarketService {
   // ── Cestinha ────────────────────────────────────────────────────────────────
   /** Monta a visão da Cestinha juntando itens persistidos + Product (snapshot + subtotal). */
   private async buildCartView(
+    userId: string,
     rawItems: { productId: string; qty: number }[],
     breadQty: number,
   ): Promise<CartView> {
-    const [avulsoUnit, minimo, breadMin, breadId, cartaoMinimo] = await Promise.all([
+    const [avulsoUnit, minimos, breadId, cartaoMinimo] = await Promise.all([
       this.getAvulsoUnit(),
-      this.getMinimo(),
-      this.getBreadMin(),
+      // Mínimos resolvidos para o condomínio do cliente (override ?? padrão global): o valor em
+      // R$ da Cestinha e a quantidade mínima de pães, que segue o mínimo do pedido único.
+      getMinimumsForUser(this.fastify.prisma, userId),
       this.getBreadProductId(),
       this.getCartaoMinimo(),
     ])
+    const minimo = minimos.cestinha
+    const breadMin = minimos.unico
 
     // O produto-pão só pode existir como breadQty — se aparecer em items[], é ignorado
     // (auto-cura carrinhos antigos que o tenham como item separado).
@@ -216,7 +205,7 @@ export class MarketService {
   async getCart(userId: string): Promise<CartView> {
     const cart = await this.repo.getCart(userId)
     const rawItems = (cart?.items ?? []).map((i) => ({ productId: i.productId, qty: i.qty }))
-    return this.buildCartView(rawItems, cart?.breadQty ?? 0)
+    return this.buildCartView(userId, rawItems, cart?.breadQty ?? 0)
   }
 
   /**
@@ -262,6 +251,6 @@ export class MarketService {
     breadQty = Math.max(0, Math.min(100, breadQty))
 
     await this.repo.upsertCart(userId, normalized, breadQty)
-    return this.buildCartView(normalized, breadQty)
+    return this.buildCartView(userId, normalized, breadQty)
   }
 }

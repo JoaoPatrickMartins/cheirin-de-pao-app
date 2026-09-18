@@ -11,6 +11,7 @@ import {
   blockedDateMessage,
   isDayBlocked,
 } from '../../lib/delivery-rules.js'
+import { getMinimumsForCondo, paesLabel } from '../../lib/order-minimums.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { clientLabel } from '../../lib/client-label.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
@@ -91,15 +92,6 @@ export class OrdersService {
       throw { statusCode: 400, message: 'Data inválida' }
     }
 
-    // Pedido mínimo (global) do pedido único — piso dinâmico definido pelo admin.
-    // Chokepoint único: cobre saldo, déficit-Pix e déficit-cartão (todos terminam aqui).
-    const minRow = await this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoUnico' } })
-    const minParsed = minRow ? parseInt(minRow.value, 10) : 1
-    const pedidoMinimo = Number.isFinite(minParsed) && minParsed >= 1 ? minParsed : 1
-    if (data.quantity < pedidoMinimo) {
-      const paesMin = pedidoMinimo === 1 ? '1 pão' : `${pedidoMinimo} pães`
-      throw { statusCode: 400, message: `Pedido mínimo de ${paesMin}` }
-    }
     // Armazena ao meio-dia BRT do dia escolhido (cai na janela correta de hoje/histórico)
     const scheduledDate = brtNoonFromStr(dateStr)
 
@@ -110,6 +102,13 @@ export class OrdersService {
       select: { condominiumId: true },
     })
     const condominiumId = ownerCondo?.condominiumId ?? null
+
+    // Pedido mínimo do pedido único, RESOLVIDO para o condomínio do cliente (override ?? padrão).
+    // Chokepoint único: cobre saldo, déficit-Pix e déficit-cartão (todos terminam aqui).
+    const { unico: pedidoMinimo } = await getMinimumsForCondo(this.prisma, condominiumId)
+    if (data.quantity < pedidoMinimo) {
+      throw { statusCode: 400, message: `Pedido mínimo de ${paesLabel(pedidoMinimo)}` }
+    }
 
     // Restrições por dia da semana RESOLVIDAS para o condomínio do cliente: dia bloqueado e teto
     // de entregas. Checagem read-only antes da transação — o corte tem backstop hard (schedules).
@@ -172,9 +171,9 @@ export class OrdersService {
 
     // T-04-03-04: Reserva atômica — verifica saldo, debita e cria Order/CreditTransaction
     // Descrição amigável para o extrato (sem ID interno): "Pedido avulso · N pães · DD/MM"
-    const paesLabel = data.quantity === 1 ? '1 pão' : `${data.quantity} pães`
+    const paesStr = paesLabel(data.quantity)
     const [, mesStr, diaStr] = dateStr.split('-')
-    const avulsoDesc = `Pedido avulso · ${paesLabel} · ${diaStr}/${mesStr}`
+    const avulsoDesc = `Pedido avulso · ${paesStr} · ${diaStr}/${mesStr}`
 
     const order = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: userId } })
@@ -243,7 +242,7 @@ export class OrdersService {
       await new NotificationsService(this.fastify).notifyAdmins({
         type: NotificationType.ADMIN_ORDER_PLACED,
         title: 'Novo pedido',
-        body: `${clientLabel(client ?? {})} · ${paesLabel} · ${diaStr}/${mesStr}`,
+        body: `${clientLabel(client ?? {})} · ${paesStr} · ${diaStr}/${mesStr}`,
         actionRoute: '/admin',
       })
     } catch (err) {
@@ -319,7 +318,7 @@ export class OrdersService {
       where: { type: 'REFUND', referenceId: orderId },
     })
 
-    const paesLabel = order.quantity === 1 ? '1 pão' : `${order.quantity} pães`
+    const paesStr = paesLabel(order.quantity)
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: orderId },
@@ -357,7 +356,7 @@ export class OrdersService {
       await new NotificationsService(this.fastify).notifyAdmins({
         type: NotificationType.ADMIN_ORDER_CANCELLED,
         title: 'Pedido cancelado',
-        body: `${clientLabel(user ?? {})} · ${paesLabel} · ${diaStr}/${mesStr}`,
+        body: `${clientLabel(user ?? {})} · ${paesStr} · ${diaStr}/${mesStr}`,
         actionRoute: '/admin',
       })
     } catch (err) {

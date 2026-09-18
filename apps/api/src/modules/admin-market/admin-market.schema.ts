@@ -14,10 +14,11 @@ export const SetStockSchema = z
   })
 export type SetStockBody = z.infer<typeof SetStockSchema>
 
-// Config do mini market — mínimo da Cestinha (R$) e mínimo p/ liberar cartão (R$; 0 = sempre).
+// Config do mini market — mínimo p/ liberar cartão (R$; 0 = sempre liberado).
+// O MÍNIMO DA CESTINHA saiu daqui: ele agora é configurável por condomínio junto com os outros
+// pedidos mínimos, em `PATCH /admin/settings/pedido-minimo` (fonte única de escrita).
 export const SetMarketConfigSchema = z.object({
-  minimo: z.number().min(0),
-  cartaoMinimo: z.number().min(0).optional(),
+  cartaoMinimo: z.number().min(0),
 })
 export type SetMarketConfigBody = z.infer<typeof SetMarketConfigSchema>
 

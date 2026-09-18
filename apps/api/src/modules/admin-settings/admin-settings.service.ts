@@ -14,7 +14,12 @@ import {
   type CondoSlotPatch,
 } from '../../lib/delivery-slots.js'
 import { getRulesForCondo, type ResolvedRules } from '../../lib/delivery-rules.js'
-import type { WeekdayMinimums } from './admin-settings.schema.js'
+import {
+  getMinimumsForCondo,
+  parseAgendaMinimos,
+  type ResolvedMinimums,
+  type WeekdayMinimums,
+} from '../../lib/order-minimums.js'
 import { getGanchoConfig, type GanchoConfig } from '../../lib/gancho-config.js'
 import {
   WEEKDAY_ORDER,
@@ -25,35 +30,10 @@ import {
 import { NotificationsService } from '../notifications/notifications.service.js'
 
 /**
- * Faz parse defensivo do JSON de mínimos da agenda (coluna Setting.value).
- * Cada dia é clampado para [0..12] inteiro; ausente/inválido → 0 (sem mínimo).
- * Nunca lança — docs legados/malformados degradam para "sem mínimo".
+ * Reexport de compatibilidade — o parse dos mínimos da agenda vive em `lib/order-minimums.ts`
+ * junto com a resolução por condomínio (fonte única). Mantido aqui só para não quebrar imports.
  */
-export function parseAgendaMinimos(raw: string | null | undefined): WeekdayMinimums {
-  let parsed: Record<string, unknown> = {}
-  if (raw) {
-    try {
-      const obj = JSON.parse(raw) as unknown
-      if (obj && typeof obj === 'object') parsed = obj as Record<string, unknown>
-    } catch {
-      // JSON inválido → mantém {} (todos os dias sem mínimo)
-    }
-  }
-  const clamp = (v: unknown): number => {
-    const n = typeof v === 'number' ? v : parseInt(String(v), 10)
-    if (!Number.isFinite(n) || n < 0) return 0
-    return Math.min(12, Math.floor(n))
-  }
-  return {
-    seg: clamp(parsed.seg),
-    ter: clamp(parsed.ter),
-    qua: clamp(parsed.qua),
-    qui: clamp(parsed.qui),
-    sex: clamp(parsed.sex),
-    sab: clamp(parsed.sab),
-    dom: clamp(parsed.dom),
-  }
-}
+export { parseAgendaMinimos }
 
 /**
  * AdminSettingsService — gerencia configurações globais (slots de entrega/cutoff + avulso).
@@ -140,40 +120,170 @@ export class AdminSettingsService {
   }
 
   /**
-   * Retorna os pedidos mínimos configurados:
-   * - `unico`: mínimo do pedido único (default 1).
-   * - `agenda`: mínimo por dia da semana (default 0 por dia). Aplica-se por turno.
+   * Pedidos mínimos RESOLVIDOS: o padrão global, ou o efetivo de um condomínio
+   * (override ?? global) junto com `source`, que diz por mínimo se veio do condomínio.
    *
-   * Faz parse defensivo do JSON de agenda: chave ausente/malformada → 0 no dia (não quebra).
+   * - `unico`: mínimo do pedido único (default 1); vale também para o pão da Cestinha.
+   * - `agenda`: mínimo por dia da semana (default 0 por dia). Aplica-se por turno.
+   * - `cestinha`: valor mínimo da Cestinha em R$ (default 15).
    */
-  async getPedidoMinimoConfig(): Promise<{ unico: number; agenda: WeekdayMinimums }> {
-    const [unicoRow, agendaRow] = await Promise.all([
-      this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoUnico' } }),
-      this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoAgenda' } }),
-    ])
-
-    const unicoParsed = unicoRow ? parseInt(unicoRow.value, 10) : 1
-    const unico = Number.isFinite(unicoParsed) && unicoParsed >= 1 ? unicoParsed : 1
-
-    return { unico, agenda: parseAgendaMinimos(agendaRow?.value) }
+  async getPedidoMinimoConfig(condominiumId?: string | null): Promise<ResolvedMinimums> {
+    return getMinimumsForCondo(this.prisma, condominiumId)
   }
 
   /**
-   * Atualiza (upsert) os pedidos mínimos (pedido único + agenda por dia).
+   * Atualiza os pedidos mínimos (pedido único + agenda por dia + Cestinha em R$).
+   *
+   * Sem `condominiumId` grava o PADRÃO global (Setting) — vale para todo condomínio que não
+   * personalizou. Com `condominiumId` grava o override daquele condomínio, e `null` em qualquer
+   * um dos três significa "voltar a herdar o padrão".
+   *
+   * Mínimos da AGENDA que SUBIRAM disparam aviso (best-effort) aos clientes cuja agenda ficou
+   * abaixo do novo piso. Nada é cancelado: as entregas já agendadas continuam saindo com a
+   * quantidade atual — o novo mínimo só é exigido no próximo save do cliente.
    */
-  async setPedidoMinimoConfig(unico: number, agenda: WeekdayMinimums): Promise<void> {
-    await Promise.all([
-      this.prisma.setting.upsert({
-        where: { key: 'pedidoMinimoUnico' },
-        create: { key: 'pedidoMinimoUnico', value: String(unico) },
-        update: { value: String(unico) },
-      }),
-      this.prisma.setting.upsert({
-        where: { key: 'pedidoMinimoAgenda' },
-        create: { key: 'pedidoMinimoAgenda', value: JSON.stringify(agenda) },
-        update: { value: JSON.stringify(agenda) },
-      }),
-    ])
+  async setPedidoMinimoConfig(
+    unico: number | null,
+    agenda: WeekdayMinimums | null,
+    cestinha: number | null,
+    condominiumId?: string | null,
+  ): Promise<ResolvedMinimums> {
+    const before = await getMinimumsForCondo(this.prisma, condominiumId)
+
+    if (condominiumId) {
+      const exists = await this.prisma.condominium.findUnique({
+        where: { id: condominiumId },
+        select: { id: true },
+      })
+      if (!exists) throw { statusCode: 404, message: 'Condomínio não encontrado' }
+
+      // `null` = herdar. No Mongo, gravar null é diferente de não ter a chave; a resolução
+      // trata os dois como herança (ver resolveCondoMinimums), então null explícito é seguro.
+      await this.prisma.condominium.update({
+        where: { id: condominiumId },
+        data: {
+          pedidoMinimoUnicoOverride: unico ?? null,
+          pedidoMinimoAgendaOverride: agenda ?? null,
+          marketMinimoCestinhaOverride: cestinha ?? null,
+        },
+      })
+    } else {
+      await Promise.all([
+        this.prisma.setting.upsert({
+          where: { key: 'pedidoMinimoUnico' },
+          create: { key: 'pedidoMinimoUnico', value: String(unico) },
+          update: { value: String(unico) },
+        }),
+        this.prisma.setting.upsert({
+          where: { key: 'pedidoMinimoAgenda' },
+          create: { key: 'pedidoMinimoAgenda', value: JSON.stringify(agenda) },
+          update: { value: JSON.stringify(agenda) },
+        }),
+        this.prisma.setting.upsert({
+          where: { key: 'marketMinimoCestinha' },
+          create: { key: 'marketMinimoCestinha', value: String(cestinha) },
+          update: { value: String(cestinha) },
+        }),
+      ])
+    }
+
+    const after = await getMinimumsForCondo(this.prisma, condominiumId)
+
+    // Dias cujo mínimo da agenda SUBIU nesta edição (no escopo editado).
+    const raised = WEEKDAY_ORDER.filter((d) => after.agenda[d] > before.agenda[d])
+    if (raised.length > 0) {
+      try {
+        await this.notifyRaisedAgendaMinimums(raised, after.agenda, condominiumId)
+      } catch (err) {
+        this.fastify.log.warn({ err }, '[admin-settings] falha ao avisar clientes de mínimo maior — ignorado')
+      }
+    }
+
+    return after
+  }
+
+  /**
+   * Notifica (in-app + push best-effort) clientes cuja agenda ativa tem algum turno ABAIXO do
+   * novo mínimo em algum dos `days` que subiram. Um aviso por cliente afetado. Folga (`0`)
+   * nunca conta — continua sendo válida.
+   *
+   * Com `condominiumId`, avisa só os clientes daquele condomínio (a mudança foi local). No
+   * escopo GLOBAL, condomínios que personalizaram a agenda ficam de fora: para eles nada mudou.
+   */
+  private async notifyRaisedAgendaMinimums(
+    days: Array<keyof WeekdayMinimums>,
+    minimos: WeekdayMinimums,
+    condominiumId?: string | null,
+  ): Promise<void> {
+    // Escopo global: descobre quem personalizou a agenda para não avisar cliente à toa.
+    // Nunca filtrar por `where: { campo: null }` no Mongo — carrega e resolve em código.
+    let condosComOverride = new Set<string>()
+    if (!condominiumId) {
+      const condos = await this.prisma.condominium.findMany({
+        select: { id: true, pedidoMinimoAgendaOverride: true },
+      })
+      condosComOverride = new Set(
+        condos
+          .filter(
+            (c) =>
+              !!c.pedidoMinimoAgendaOverride &&
+              typeof c.pedidoMinimoAgendaOverride === 'object' &&
+              !Array.isArray(c.pedidoMinimoAgendaOverride),
+          )
+          .map((c) => c.id),
+      )
+    }
+
+    const schedules = await this.prisma.schedule.findMany({
+      where: { isActive: true, ...(condominiumId ? { condominiumId } : {}) },
+      select: { userId: true, condominiumId: true, days: true, weeklyQty: true },
+    })
+
+    const affected = new Set<string>()
+    for (const s of schedules) {
+      if (!condominiumId && condosComOverride.has(s.condominiumId)) continue
+
+      const buckets: Array<Record<string, unknown>> = []
+      if (s.days && typeof s.days === 'object') {
+        buckets.push(...Object.values(s.days as Record<string, Record<string, unknown>>))
+      }
+      if (s.weeklyQty && typeof s.weeklyQty === 'object') {
+        buckets.push(s.weeklyQty as Record<string, unknown>)
+      }
+      // Abaixo do mínimo = quantidade > 0 e < mínimo do dia. `0` (folga) é sempre válido.
+      const hit = buckets.some(
+        (wq) =>
+          wq &&
+          days.some((d) => {
+            const qty = Number((wq as Record<string, unknown>)[d] ?? 0)
+            return qty > 0 && qty < minimos[d]
+          }),
+      )
+      if (hit) affected.add(s.userId)
+    }
+
+    if (affected.size === 0) return
+
+    const detalhe = days.map((d) => `${WEEKDAY_LABEL[d]} (mín ${minimos[d]})`).join(', ')
+    const body = `O pedido mínimo mudou: ${detalhe}. Atualize sua agenda semanal.`
+    const notifications = new NotificationsService(this.fastify)
+
+    for (const userId of affected) {
+      try {
+        await notifications.notifyUser(userId, {
+          type: NotificationType.RECONFIGURE,
+          title: 'Ajuste sua agenda',
+          body,
+          actionRoute: '/client/agenda',
+        })
+      } catch (err) {
+        this.fastify.log.warn({ userId, err }, '[admin-settings] falha ao notificar cliente de mínimo maior')
+      }
+    }
+
+    this.fastify.log.info(
+      `[admin-settings] ${affected.size} cliente(s) avisado(s) de pedido mínimo maior: ${detalhe}`,
+    )
   }
 
   /**

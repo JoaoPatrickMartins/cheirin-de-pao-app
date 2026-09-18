@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 
+/**
+ * MarketConfig — política de CARTÃO da Cestinha.
+ *
+ * O mínimo da Cestinha (R$) saiu daqui: ele agora vive em Gestão → Pedido mínimo, junto com os
+ * mínimos do pedido único e da agenda, e pode ser configurado por condomínio. Manter os dois
+ * lugares escrevendo a mesma configuração era pedir divergência.
+ */
 export function MarketConfig() {
-  const [minimo, setMinimo] = useState('')
   const [cartaoMinimo, setCartaoMinimo] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [focused, setFocused] = useState(false)
   const [focusedCard, setFocusedCard] = useState(false)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
@@ -15,8 +20,7 @@ export function MarketConfig() {
       try {
         const r = await apiFetch('/admin/market/config')
         if (r.ok) {
-          const c = (await r.json()) as { minimo: number; cartaoMinimo?: number }
-          setMinimo(String(c.minimo))
+          const c = (await r.json()) as { cartaoMinimo?: number }
           setCartaoMinimo(String(c.cartaoMinimo ?? 0))
         }
       } catch {
@@ -34,7 +38,7 @@ export function MarketConfig() {
     try {
       const r = await apiFetch('/admin/market/config', {
         method: 'PATCH',
-        body: JSON.stringify({ minimo: Number(minimo), cartaoMinimo: Number(cartaoMinimo || 0) }),
+        body: JSON.stringify({ cartaoMinimo: Number(cartaoMinimo || 0) }),
       })
       setMsg(r.ok ? { text: 'Salvo!', ok: true } : { text: 'Não foi possível salvar.', ok: false })
     } catch {
@@ -48,8 +52,7 @@ export function MarketConfig() {
     return <p style={{ textAlign: 'center', paddingTop: 28, fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)' }}>Carregando...</p>
   }
 
-  const valid =
-    Number(minimo) >= 0 && minimo.trim() !== '' && Number(cartaoMinimo || 0) >= 0
+  const valid = Number(cartaoMinimo || 0) >= 0
 
   const inputBox = (isFocused: boolean): React.CSSProperties => ({
     background: 'var(--color-surface-alt, #FBF6EC)',
@@ -71,27 +74,6 @@ export function MarketConfig() {
   return (
     <div style={{ padding: '0 20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <label style={{ display: 'block' }}>
-        <div style={labelStyle}>Mínimo da Cestinha (R$)</div>
-        <div style={inputBox(focused)}>
-          <input
-            type="number"
-            step="0.01"
-            value={minimo}
-            onChange={(e) => setMinimo(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder="Ex.: 15.00"
-            style={inputStyle}
-          />
-        </div>
-      </label>
-
-      <p style={helpStyle}>
-        Pedidos do mercadinho abaixo desse valor ficam bloqueados no checkout. O resgate com pãezinhos
-        segue sempre o preço do pão avulso (Gestão → Compra personalizada).
-      </p>
-
-      <label style={{ display: 'block' }}>
         <div style={labelStyle}>Valor mínimo para cartão (R$)</div>
         <div style={inputBox(focusedCard)}>
           <input
@@ -111,6 +93,11 @@ export function MarketConfig() {
         Abaixo desse valor, a parte <strong>em dinheiro</strong> da Cestinha (o que sobra depois dos
         pãezinhos) só pode ser paga por <strong>Pix</strong>. O cartão de crédito é liberado a partir dele.{' '}
         <strong>0</strong> = cartão sempre disponível.
+      </p>
+
+      <p style={helpStyle}>
+        O <strong>pedido mínimo da Cestinha</strong> fica em <strong>Gestão → Pedido mínimo</strong>, onde
+        também dá para definir um valor diferente por condomínio.
       </p>
 
       {msg && (

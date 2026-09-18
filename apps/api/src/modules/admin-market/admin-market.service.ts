@@ -66,8 +66,6 @@ export interface AdminMarketOrderRow {
 
 // O limiar de "estoque baixo" vive em `lib/market-stock-alerts.ts` — a flag desta listagem e a
 // notificação ao admin (F5) têm de concordar, senão a tela mostra "Baixo" sem ninguém ser avisado.
-const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
-const DEFAULT_MIN_CESTINHA = 15
 const CARTAO_MIN_KEY = 'marketCartaoMinimo'
 const DEFAULT_CARTAO_MIN = 0
 const BREAD_PRODUCT_KEY = 'breadProductId'
@@ -282,22 +280,20 @@ export class AdminMarketService {
   }
 
   // ── Config ──
-  async getConfig(): Promise<{ minimo: number; cartaoMinimo: number }> {
-    const [mRow, cRow] = await Promise.all([
-      this.repo.getSetting(MIN_CESTINHA_KEY),
-      this.repo.getSetting(CARTAO_MIN_KEY),
-    ])
-    const minimo = mRow ? parseFloat(mRow.value) : DEFAULT_MIN_CESTINHA
+  //
+  // Só o mínimo do CARTÃO vive aqui. O mínimo da Cestinha (R$) mudou de casa: ele é
+  // configurável por condomínio junto com os demais pedidos mínimos, em
+  // `/admin/settings/pedido-minimo` — que passa a ser a única escrita de `marketMinimoCestinha`.
+  async getConfig(): Promise<{ cartaoMinimo: number }> {
+    const cRow = await this.repo.getSetting(CARTAO_MIN_KEY)
     const cartaoMinimo = cRow ? parseFloat(cRow.value) : DEFAULT_CARTAO_MIN
     return {
-      minimo: Number.isFinite(minimo) ? minimo : DEFAULT_MIN_CESTINHA,
       cartaoMinimo: Number.isFinite(cartaoMinimo) && cartaoMinimo > 0 ? cartaoMinimo : DEFAULT_CARTAO_MIN,
     }
   }
 
-  async setConfig(minimo: number, cartaoMinimo?: number): Promise<{ minimo: number; cartaoMinimo: number }> {
-    await this.repo.upsertSetting(MIN_CESTINHA_KEY, String(minimo))
-    if (cartaoMinimo != null) await this.repo.upsertSetting(CARTAO_MIN_KEY, String(cartaoMinimo))
+  async setConfig(cartaoMinimo: number): Promise<{ cartaoMinimo: number }> {
+    await this.repo.upsertSetting(CARTAO_MIN_KEY, String(cartaoMinimo))
     return this.getConfig()
   }
 

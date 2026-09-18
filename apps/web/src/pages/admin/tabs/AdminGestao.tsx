@@ -49,7 +49,7 @@ const HUB_ITEMS: HubItem[] = [
   { key: 'combos', icon: 'bag', titulo: 'Combos e promoções', descricao: 'Criar, editar, descontos' },
   { key: 'market', icon: 'bag', titulo: 'Além do Pãozin', descricao: 'Mini market: produtos, categorias, estoque' },
   { key: 'avulso', icon: 'coin', titulo: 'Compra personalizada', descricao: 'Limite e preço por pão' },
-  { key: 'pedido-minimo', icon: 'bag', titulo: 'Pedido mínimo', descricao: 'Mínimo da agenda e do pedido único' },
+  { key: 'pedido-minimo', icon: 'bag', titulo: 'Pedido mínimo', descricao: 'Pedido único, agenda e Cestinha — geral ou por condomínio' },
   { key: 'restricoes', icon: 'calendar', titulo: 'Bloqueios e limites', descricao: 'Dias, datas e teto de pedidos — geral ou por condomínio' },
   { key: 'cortes', icon: 'clock', titulo: 'Horários e corte', descricao: 'Prazo por turno e horário de entrega por condomínio' },
   { key: 'fornecedores', icon: 'factory', titulo: 'Fornecedores', descricao: 'Padarias e preço do pão' },

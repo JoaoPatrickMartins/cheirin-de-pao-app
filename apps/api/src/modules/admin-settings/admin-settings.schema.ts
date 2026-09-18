@@ -72,29 +72,58 @@ export const UpdateAvulsoSchema = z.object({
 export type UpdateAvulsoBody = z.infer<typeof UpdateAvulsoSchema>
 
 /**
- * UpdatePedidoMinimoSchema — valida os pedidos mínimos (agenda por dia + pedido único).
+ * UpdatePedidoMinimoSchema — valida os três pedidos mínimos (pedido único, agenda e Cestinha).
  *
- * - `unico`: mínimo do pedido único (1..20 — casa com o teto do pedido único).
+ * - `unico`: mínimo do pedido único (1..20 — casa com o teto do pedido único). Vale também como
+ *   mínimo do Pão Francês dentro da Cestinha.
  * - `agenda`: mínimo por dia da semana (0..12 — casa com o teto do StepperInline da agenda).
  *   0 = sem mínimo naquele dia. Aplica-se por turno quando a qtd do dia é > 0.
+ * - `cestinha`: valor mínimo da Cestinha em R$ (>= 0; 0 = sem mínimo).
+ *
+ * Escopo (mesmo contrato de `UpdateRestricoesSchema`): sem `condominiumId` grava o PADRÃO
+ * global e os três campos são obrigatórios; com `condominiumId`, `null` em qualquer um deles
+ * significa "voltar a herdar o padrão".
  */
 const WeekdayMinSchema = z.number().int().min(0).max(12)
 
-export const UpdatePedidoMinimoSchema = z.object({
-  unico: z.number().int().min(1, 'Mínimo do pedido único é 1').max(20, 'Máximo é 20'),
-  agenda: z.object({
-    seg: WeekdayMinSchema,
-    ter: WeekdayMinSchema,
-    qua: WeekdayMinSchema,
-    qui: WeekdayMinSchema,
-    sex: WeekdayMinSchema,
-    sab: WeekdayMinSchema,
-    dom: WeekdayMinSchema,
-  }),
+const AgendaMinimosSchema = z.object({
+  seg: WeekdayMinSchema,
+  ter: WeekdayMinSchema,
+  qua: WeekdayMinSchema,
+  qui: WeekdayMinSchema,
+  sex: WeekdayMinSchema,
+  sab: WeekdayMinSchema,
+  dom: WeekdayMinSchema,
 })
 
+export const UpdatePedidoMinimoSchema = z
+  .object({
+    condominiumId: ObjectIdSchema.optional(),
+    unico: z
+      .number()
+      .int()
+      .min(1, 'Mínimo do pedido único é 1')
+      .max(20, 'Máximo é 20')
+      .nullable(),
+    agenda: AgendaMinimosSchema.nullable(),
+    cestinha: z
+      .number()
+      .min(0, 'O mínimo da Cestinha não pode ser negativo')
+      .max(9999, 'Valor muito alto')
+      .nullable(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.condominiumId) return
+    if (v.unico === null || v.agenda === null || v.cestinha === null) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'O padrão global não pode herdar — informe os três mínimos.',
+      })
+    }
+  })
+
 export type UpdatePedidoMinimoBody = z.infer<typeof UpdatePedidoMinimoSchema>
-export type WeekdayMinimums = UpdatePedidoMinimoBody['agenda']
+export type WeekdayMinimums = NonNullable<UpdatePedidoMinimoBody['agenda']>
 
 /**
  * UpdateGanchoSchema — valida a config do gancho de porta.

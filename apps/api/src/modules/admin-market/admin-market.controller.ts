@@ -218,7 +218,7 @@ export class AdminMarketController {
       return reply.status(400).send({ error: 'Dados inválidos.' })
     }
     try {
-      return reply.status(200).send(await this.service.setConfig(body.minimo, body.cartaoMinimo))
+      return reply.status(200).send(await this.service.setConfig(body.cartaoMinimo))
     } catch (err) {
       return this.handleError(reply, err)
     }

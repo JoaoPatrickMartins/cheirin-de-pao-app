@@ -16,15 +16,13 @@ import {
 } from '../../lib/delivery-rules.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
 import { MARKET_CARTAO_MIN_KEY, isCardBelowMinimum, parseCartaoMinimo } from '../../lib/market-card-policy.js'
+import { getMinimumsForCondo, paesLabel } from '../../lib/order-minimums.js'
 import { buildStockAlerts, type StockSnapshot } from '../../lib/market-stock-alerts.js'
 import { PaymentsService } from '../payments/payments.service.js'
 import { MarketRepository } from './market.repository.js'
 import { notifyAdminLowStock, notifyAdminMarketOrderPlaced, notifyMarketCancelled } from './market-notify.js'
 
 const AVULSO_KEY = 'avulsoUnit'
-const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
-const DEFAULT_MIN_CESTINHA = 15
-const PEDIDO_MINIMO_UNICO_KEY = 'pedidoMinimoUnico'
 const BREAD_PRODUCT_KEY = 'breadProductId'
 const WEEKDAY_PT: Record<string, string> = {
   seg: 'segunda', ter: 'terça', qua: 'quarta', qui: 'quinta', sex: 'sexta', sab: 'sábado', dom: 'domingo',
@@ -94,10 +92,11 @@ export class MarketCheckoutService {
     if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
     if (!user.condominiumId) throw { statusCode: 400, message: 'Cadastre seu condomínio para receber entregas.' }
 
-    // 4. Precificação.
+    // 4. Precificação + mínimos RESOLVIDOS para o condomínio do cliente (override ?? global).
     const avulsoUnit = await this.getNumberSetting(AVULSO_KEY, 0)
     if (!(avulsoUnit > 0)) throw { statusCode: 500, message: 'Preço avulso não configurado.' }
-    const minimo = await this.getNumberSetting(MIN_CESTINHA_KEY, DEFAULT_MIN_CESTINHA)
+    const minimos = await getMinimumsForCondo(this.prisma, user.condominiumId)
+    const minimo = minimos.cestinha
 
     // 5. Produtos (snapshot + validação de existência/ativação).
     const products = await this.repo.findProductsByIds(rawItems.map((i) => i.productId))
@@ -188,10 +187,10 @@ export class MarketCheckoutService {
     const productSubtotal = round2(lines.reduce((acc, l) => acc + l.product.price * l.qty, 0))
     const total = round2(productSubtotal + breadQty * avulsoUnit)
     const hasProducts = lines.length > 0
-    // Pão Francês: quantidade mínima herdada do pedido único (pedidoMinimoUnico).
-    const breadMin = Math.max(1, Math.floor(await this.getNumberSetting(PEDIDO_MINIMO_UNICO_KEY, 1)))
+    // Pão Francês: quantidade mínima herdada do pedido único (já resolvida no passo 4).
+    const breadMin = minimos.unico
     if (breadQty > 0 && breadQty < breadMin) {
-      throw { statusCode: 422, message: `O pedido mínimo de pães é ${breadMin === 1 ? '1 pão' : `${breadMin} pães`}.` }
+      throw { statusCode: 422, message: `O pedido mínimo de pães é ${paesLabel(breadMin)}.` }
     }
     // Mínimo em R$ da Cestinha só quando há produtos (carrinho só de pão é isento).
     if (hasProducts && total < minimo) {

@@ -78,14 +78,16 @@ export const adminMarketRoute: FastifyPluginAsync = async (fastify) => {
   }, ctrl.removeCategory.bind(ctrl))
 
   // ── Config ──
+  // Só o mínimo do CARTÃO. O mínimo da Cestinha (R$) é configurável por condomínio em
+  // GET/PATCH /admin/settings/pedido-minimo, junto com os mínimos do pedido único e da agenda.
   fastify.get('/admin/market/config', {
     ...auth,
-    schema: { tags: [tag], summary: 'Config do mini market (admin)', security: [{ bearerAuth: [] }] },
+    schema: { tags: [tag], summary: 'Config do mini market — mínimo do cartão (admin)', security: [{ bearerAuth: [] }] },
   }, ctrl.getConfig.bind(ctrl))
 
   fastify.patch('/admin/market/config', {
     ...auth,
-    schema: { tags: [tag], summary: 'Atualizar config do mini market (admin)', security: [{ bearerAuth: [] }] },
+    schema: { tags: [tag], summary: 'Atualizar mínimo do cartão da Cestinha (admin)', security: [{ bearerAuth: [] }] },
   }, ctrl.setConfig.bind(ctrl))
 
   // ── Cestinhas (MarketOrder) ──
