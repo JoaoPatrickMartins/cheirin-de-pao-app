@@ -689,6 +689,46 @@ model Product {
   availableDays Json?     // null/ausente = sempre; senão lista de dias ["seg","qua",...]
   isActive      Boolean   @default(true)
   sortOrder     Int       @default(0)
+
+  // ── Janela diária de PEDIDO (BRT "HH:MM") ──────────────────────────────────
+  // MESMA FAMÍLIA de `availableDays`: é relativo à DATA DE ENTREGA, não ao relógio da loja.
+  // O horário do produto entra no lugar do `cutoffTime` do slot — é um corte PRÓPRIO, que só
+  // ANTECIPA o corte do turno, nunca o estende (corteEfetivo = min(corte do slot, corte do produto)).
+  // Depois dele o produto para de aceitar pedido para o ciclo em curso e volta SOZINHO quando o
+  // ciclo vira — sem cron: o estado é derivado de `now` na leitura (ver lib/product-availability.ts).
+  // null = sem restrição de horário. Não cruza meia-noite (from < until, validado no schema Zod).
+  availableFrom  String?
+  availableUntil String?
+
+  // ── Pausa de VITRINE (bloqueia AGORA, para qualquer data de entrega) ───────
+  // Outro mecanismo, não confundir com a janela acima: aqui o admin derruba o item na hora.
+  // Os dois compõem por OR — quando a pausa temporária expira, a janela volta a mandar.
+  isPaused    Boolean?  // sem prazo — o admin religa na mão
+  pausedUntil DateTime? // com prazo — despausa sozinha ao passar do instante
+  pauseReason String?   // motivo; só o admin vê (o cliente lê sempre "Esgotado")
+  pausedBy    String?   @db.ObjectId
+  pausedAt    DateTime?
+
+  // ── Novidade ───────────────────────────────────────────────────────────────
+  // Sobe o produto para a frente da grade (atrás só do Pão Francês, que tem card próprio).
+  // `newUntil` é derivado como o resto: null com isNew=true = "até eu remover".
+  isNew    Boolean?
+  newUntil DateTime?
+
+  // ── Promoção (PREÇO, não enfeite) ──────────────────────────────────────────
+  // Espelha a promoção de combo (model Promotion + effectiveComboPrice): mesmo enum DiscountType,
+  // mesma conta (lib/discount.ts), mesmo "antes" riscado no card. Derivada de `now` na leitura,
+  // sem cron — igual isNew/isPaused.
+  // O preço efetivo NUNCA chega a zero (validado na escrita): zero quebraria a conversão em
+  // pãezinhos e liberaria item grátis no carrinho.
+  isPromo    Boolean?
+  promoType  DiscountType?
+  promoValue Float?
+  promoUntil DateTime?
+  // Furar fila é decisão SEPARADA do desconto — dá para ter o selo sem destaque. Escrito só pela
+  // tela de ordenar; o desconto, só pelo formulário.
+  promoPriority Boolean?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

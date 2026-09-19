@@ -6,10 +6,26 @@ import type {
   UpdateProductInput,
   CreateCategoryInput,
   UpdateCategoryInput,
+  PauseProductInput,
+  ReorderProductsInput,
 } from '@cheirin-de-pao/shared'
 import { AdminMarketRepository } from './admin-market.repository.js'
 import type { SetStockBody, MarketOrderFilters } from './admin-market.schema.js'
 import { brtDateStr, brtDayRange, brtNoonFromStr } from '../../lib/cutoff.js'
+import {
+  availabilityOf,
+  isNovidadeVigente,
+  novidadeExpiryFromNow,
+  type AvailabilityFields,
+} from '../../lib/product-availability.js'
+import {
+  effectiveProductPrice,
+  isPromoVigente,
+  promoExpiryFromNow,
+  priceView,
+  validatePromo,
+  type PromoFields,
+} from '../../lib/product-pricing.js'
 import { refundableCreditsMilli, reverseMarketOrder } from '../../lib/market-reversal.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
 import { LOW_STOCK_THRESHOLD } from '../../lib/market-stock-alerts.js'
@@ -73,6 +89,18 @@ const BREAD_PRODUCT_KEY = 'breadProductId'
 type ProductRow = Awaited<ReturnType<AdminMarketRepository['findProduct']>>
 
 /**
+ * Campos de promoção prontos para gravar. Tipo PLANO de propósito: os inputs do Prisma aceitam
+ * envelopes (`{ set: ... }`) que não servem no caminho de `create`, e um só objeto precisa
+ * atender aos dois.
+ */
+interface PromoWrite {
+  isPromo: boolean
+  promoType: 'PERCENT' | 'FIXED' | null
+  promoValue: number | null
+  promoUntil: Date | null
+}
+
+/**
  * AdminMarketService — CRUD de produtos/categorias, ajuste de estoque e config do mini market.
  * Erros de negócio via `throw { statusCode, message }` (padrão da casa).
  */
@@ -95,6 +123,32 @@ export class AdminMarketService {
     return { ...p, lowStock: this.isLowStock(p) }
   }
 
+  /** Teto por pedido — mesma conta do catálogo do cliente (FIXED: estoque; DAILY: capacidade). */
+  private maxQtyOf(p: { stockType: string; stock: number | null; dailyCapacity: number | null }): number {
+    return p.stockType === 'FIXED' ? Math.max(0, p.stock ?? 0) : Math.max(0, p.dailyCapacity ?? 0)
+  }
+
+  /**
+   * Estado de disponibilidade de cada produto para o ADMIN — com motivo e hora da volta, que é
+   * exatamente o que o cliente NÃO recebe.
+   */
+  private async withAvailability<
+    T extends AvailabilityFields & {
+      isActive: boolean
+      stockType: string
+      stock: number | null
+      dailyCapacity: number | null
+    },
+  >(products: T[]) {
+    const now = new Date()
+    return products.map((p) => ({
+      ...p,
+      availability: availabilityOf(p, { isActive: p.isActive, outOfStock: this.maxQtyOf(p) <= 0 }, now),
+      /** O selo está valendo AGORA (leva `newUntil` em conta) — `isNew` cru pode estar vencido. */
+      isNovidade: isNovidadeVigente(p, now),
+    }))
+  }
+
   /** Id do produto FIXO "Pão Francês" (marcado por Setting) — ou null se ainda não semeado. */
   private async getBreadProductId(): Promise<string | null> {
     const s = await this.repo.getSetting(BREAD_PRODUCT_KEY)
@@ -109,11 +163,15 @@ export class AdminMarketService {
    * escuro. Produto sem fornecedor cadastrado vem com `unitCost: null` e `margin: null` — a tela
    * diz "sem custo", nunca "100% de margem".
    */
-  private async withCost<T extends { id: string; price: number }>(products: T[]) {
+  private async withCost<T extends PromoFields & { id: string; price: number }>(products: T[]) {
     const costs = await loadUnitCosts(this.prisma, products.map((p) => p.id))
+    const now = new Date()
     return products.map((p) => {
       const cost = costs.get(p.id)
-      const m = productMargin(p.price, cost?.unitCost)
+      // Margem sobre o preço EFETIVO. Com promoção ligada, calcular sobre o cheio mostraria ao
+      // admin uma margem que não existe — justamente no momento em que ela é mais apertada.
+      const effectivePrice = effectiveProductPrice(p.price, p, now)
+      const m = productMargin(effectivePrice, cost?.unitCost)
       return {
         ...p,
         unitCost: cost?.unitCost ?? null,
@@ -121,19 +179,28 @@ export class AdminMarketService {
         costSuppliers: cost?.suppliers ?? 0,
         margin: m?.margin ?? null,
         marginPct: m?.marginPct ?? null,
+        /** O que está sendo cobrado agora (= `price` quando não há promoção vigente). */
+        effectivePrice,
+        isPromoVigente: isPromoVigente(p, now),
+        /** Avisa, não bloqueia: vender no prejuízo pode ser isca deliberada (P-13). */
+        belowCost: cost?.unitCost != null && effectivePrice < cost.unitCost,
       }
     })
   }
 
   async listProducts() {
     const [products, breadId] = await Promise.all([this.repo.listProducts(), this.getBreadProductId()])
-    return this.withCost(products.map((p) => ({ ...this.withFlags(p), isBread: p.id === breadId })))
+    const withAvail = await this.withAvailability(
+      products.map((p) => ({ ...this.withFlags(p), isBread: p.id === breadId })),
+    )
+    return this.withCost(withAvail)
   }
 
   async getProduct(id: string) {
     const [p, breadId] = await Promise.all([this.repo.findProduct(id), this.getBreadProductId()])
     if (!p) throw { statusCode: 404, message: 'Produto não encontrado' }
-    return (await this.withCost([{ ...this.withFlags(p), isBread: p.id === breadId }]))[0]
+    const withAvail = await this.withAvailability([{ ...this.withFlags(p), isBread: p.id === breadId }])
+    return (await this.withCost(withAvail))[0]
   }
 
   async createProduct(input: CreateProductInput) {
@@ -151,10 +218,69 @@ export class AdminMarketService {
       dailyCapacity: input.stockType === 'DAILY' ? (input.dailyCapacity ?? 0) : null,
       // [] = sempre disponível (evita JSON-null no Mongo)
       availableDays: (input.availableDays ?? []) as Prisma.InputJsonValue,
+      availableFrom: input.availableFrom ?? null,
+      availableUntil: input.availableUntil ?? null,
       isActive: input.isActive ?? true,
       sortOrder: input.sortOrder ?? 0,
+      isNew: input.isNew ?? false,
+      newUntil: this.resolveNewUntil(input.isNew ?? false, input.newUntil, null),
+      ...this.resolvePromo(input.price, input, { isPromo: false, promoUntil: null }),
+      // Destaque na vitrine é decisão da tela de ordenar, nunca do cadastro (P-6/P-8).
+      promoPriority: false,
     }
     return this.repo.createProduct(data)
+  }
+
+  /**
+   * Campos de promoção a gravar, já validados contra o PREÇO do produto.
+   *
+   * O Zod barra formato; o que só dá para julgar aqui é a relação entre o desconto e o preço —
+   * R$ 3 de desconto é razoável num item de R$ 12 e absurdo num de R$ 2. Desligar a promoção
+   * limpa tipo, valor e prazo, para que religar depois não ressuscite um desconto esquecido.
+   */
+  private resolvePromo(
+    price: number,
+    input: { isPromo?: boolean; promoType?: 'PERCENT' | 'FIXED' | null; promoValue?: number | null; promoUntil?: string | null },
+    current: { isPromo: boolean; promoUntil: Date | null },
+  ): PromoWrite {
+    const nextIsPromo = input.isPromo ?? current.isPromo
+    if (!nextIsPromo) {
+      return { isPromo: false, promoType: null, promoValue: null, promoUntil: null }
+    }
+
+    const type = input.promoType ?? null
+    const value = input.promoValue ?? null
+    if (type == null || value == null) {
+      throw { statusCode: 400, message: 'Para ligar a promoção, informe o tipo e o valor do desconto.' }
+    }
+    const invalid = validatePromo(price, type, value)
+    if (invalid) throw { statusCode: 400, message: invalid }
+
+    // `promoUntil` ausente preserva o prazo já gravado (ou aplica o padrão ao ligar) — mesma
+    // regra do selo de novidade, para salvar uma edição de nome não reiniciar a contagem.
+    const promoUntil =
+      input.promoUntil !== undefined
+        ? input.promoUntil
+          ? new Date(input.promoUntil)
+          : null
+        : (current.isPromo ? current.promoUntil : null) ?? promoExpiryFromNow()
+
+    return { isPromo: true, promoType: type, promoValue: value, promoUntil }
+  }
+
+  /**
+   * Prazo do selo de novidade. Marcar SEM dizer o prazo aplica o default — "até eu remover"
+   * (`null`) tem de ser explícito, senão a vitrine acumula novidade eterna por esquecimento.
+   * Desmarcar limpa o prazo, para que remarcar depois não ressuscite uma data velha.
+   */
+  private resolveNewUntil(
+    isNew: boolean,
+    provided: string | null | undefined,
+    current: Date | null,
+  ): Date | null {
+    if (!isNew) return null
+    if (provided !== undefined) return provided ? new Date(provided) : null
+    return current ?? novidadeExpiryFromNow()
   }
 
   async updateProduct(id: string, input: UpdateProductInput) {
@@ -212,6 +338,47 @@ export class AdminMarketService {
       data.availableDays = (input.availableDays ?? []) as Prisma.InputJsonValue
     }
 
+    // Horário de venda: num PATCH pode chegar só uma das pontas, e o Zod só consegue julgar o par
+    // que veio — por isso a revalidação usa o valor já gravado da outra ponta.
+    //
+    // Cruzar a meia-noite é LEGÍTIMO ("fecha 20:00, reabre 22:00" = fechado só nessas 2 horas):
+    // com relógio de loja, a ordem entre os dois é o que define se a janela vira o dia. O único
+    // caso recusado é fechar e reabrir na MESMA hora, que seria duração zero ou 24h — ambíguo.
+    const nextFrom = input.availableFrom !== undefined ? input.availableFrom : existing.availableFrom
+    const nextUntil = input.availableUntil !== undefined ? input.availableUntil : existing.availableUntil
+    if (nextFrom && nextUntil && nextFrom === nextUntil) {
+      throw {
+        statusCode: 400,
+        message: 'O horário de fechar e o de reabrir não podem ser iguais.',
+      }
+    }
+    if (input.availableFrom !== undefined) data.availableFrom = input.availableFrom
+    if (input.availableUntil !== undefined) data.availableUntil = input.availableUntil
+
+    if (input.isNew !== undefined || input.newUntil !== undefined) {
+      const nextIsNew = input.isNew ?? existing.isNew === true
+      data.isNew = nextIsNew
+      data.newUntil = this.resolveNewUntil(nextIsNew, input.newUntil, existing.newUntil)
+    }
+
+    // Promoção: validada contra o preço RESULTANTE (o novo, quando o PATCH também muda o preço) —
+    // senão daria para baixar o preço e deixar um desconto antigo zerando o produto.
+    if (
+      input.isPromo !== undefined ||
+      input.promoType !== undefined ||
+      input.promoValue !== undefined ||
+      input.promoUntil !== undefined
+    ) {
+      const nextPrice = input.price ?? existing.price
+      Object.assign(
+        data,
+        this.resolvePromo(nextPrice, input, {
+          isPromo: existing.isPromo === true,
+          promoUntil: existing.promoUntil,
+        }),
+      )
+    }
+
     return this.repo.updateProduct(id, data)
   }
 
@@ -240,6 +407,138 @@ export class AdminMarketService {
     }
     const updated = await this.repo.updateProduct(id, data)
     return this.withFlags(updated as NonNullable<ProductRow>)
+  }
+
+  // ── Pausa de vitrine ──
+  //
+  // Derruba o item AGORA, para qualquer data de entrega — outro mecanismo que o corte por
+  // horário, e os dois convivem: expirada a pausa, a janela volta a mandar sozinha.
+  // O despausar automático não tem cron: `pausedUntil` é lido contra o relógio na leitura.
+
+  /** Pausa imediata. `minutes` ausente = sem prazo ("até eu religar"). */
+  async pauseProduct(id: string, adminId: string, body: PauseProductInput) {
+    const p = await this.repo.findProduct(id)
+    if (!p) throw { statusCode: 404, message: 'Produto não encontrado' }
+    const breadId = await this.getBreadProductId()
+    if (id === breadId) {
+      throw { statusCode: 409, message: 'O Pão Francês é um item fixo da Cestinha e não pode ser pausado.' }
+    }
+
+    const now = new Date()
+    const data: Prisma.ProductUncheckedUpdateInput = {
+      pausedBy: adminId,
+      pausedAt: now,
+      pauseReason: body.reason ?? null,
+      isPaused: body.minutes == null,
+      pausedUntil: body.minutes == null ? null : new Date(now.getTime() + body.minutes * 60_000),
+    }
+    await this.repo.updateProduct(id, data)
+    return this.getProduct(id)
+  }
+
+  /** Religa o produto. Não mexe na janela de horário — ela continua valendo. */
+  async resumeProduct(id: string) {
+    const p = await this.repo.findProduct(id)
+    if (!p) throw { statusCode: 404, message: 'Produto não encontrado' }
+    await this.repo.updateProduct(id, {
+      isPaused: false,
+      pausedUntil: null,
+      pauseReason: null,
+      pausedBy: null,
+      pausedAt: null,
+    })
+    return this.getProduct(id)
+  }
+
+  // ── Ordem da vitrine ──
+
+  /**
+   * Grava a ordem da vitrine e o selo de novidade NUMA TRANSAÇÃO SÓ.
+   *
+   * As duas listas viajam juntas porque, na tela, arrastar um item entre as seções É o gesto que
+   * liga/desliga o selo — salvar em duas chamadas deixaria a vitrine com ordem nova e selo velho.
+   *
+   * `sortOrder` é uma sequência contínua (novidades primeiro) em vez de duas sequências
+   * independentes: quando uma novidade expira, ela guarda um índice baixo e reaparece no topo do
+   * catálogo comum — que é onde um lançamento recente merece ficar.
+   */
+  async reorderProducts(input: ReorderProductsInput) {
+    const breadId = await this.getBreadProductId()
+    // O Pão Francês tem card próprio fora da grade: não ordena, não vira novidade, não destaca.
+    const novidades = input.novidades.filter((id) => id !== breadId)
+    const promocoes = input.promocoes.filter((id) => id !== breadId)
+    const catalogo = input.catalogo.filter((id) => id !== breadId)
+
+    const all = [...novidades, ...promocoes, ...catalogo]
+    if (new Set(all).size !== all.length) {
+      throw { statusCode: 400, message: 'Um produto aparece duas vezes na ordem enviada.' }
+    }
+
+    const existing = await this.prisma.product.findMany({
+      where: { id: { in: all } },
+      select: {
+        id: true,
+        name: true,
+        isNew: true,
+        newUntil: true,
+        isPromo: true,
+        promoType: true,
+        promoValue: true,
+        promoUntil: true,
+      },
+    })
+    if (existing.length !== all.length) {
+      throw { statusCode: 400, message: 'A ordem enviada tem produto que não existe mais. Recarregue a tela.' }
+    }
+    const byId = new Map(existing.map((p) => [p.id, p]))
+
+    // Destacar exige uma promoção de verdade. O front já impede o drop; isto é o backstop, e a
+    // mensagem diz ONDE resolver — o desconto é decisão de preço e mora no formulário (P-9).
+    const now = new Date()
+    for (const id of promocoes) {
+      const p = byId.get(id)
+      if (!p || !isPromoVigente(p, now)) {
+        throw {
+          statusCode: 400,
+          message: `Defina o desconto em "${p?.name ?? 'produto'}" antes de destacá-lo na vitrine.`,
+        }
+      }
+    }
+
+    // Os três baldes são exclusivos e definem SÓ `isNew` e `promoPriority`. O desconto em si
+    // (isPromo/promoType/promoValue/promoUntil) nunca é tocado aqui (P-10): arrastar organiza a
+    // vitrine, não mexe em preço.
+    await this.prisma.$transaction([
+      ...novidades.map((id, i) => {
+        const prev = byId.get(id)
+        // Promover pelo arraste também precisa de prazo, senão o selo vira eterno por descuido.
+        const newUntil = prev?.isNew === true ? (prev.newUntil ?? null) : novidadeExpiryFromNow()
+        return this.prisma.product.update({
+          where: { id },
+          data: { isNew: true, newUntil, promoPriority: false, sortOrder: i },
+        })
+      }),
+      ...promocoes.map((id, i) =>
+        this.prisma.product.update({
+          where: { id },
+          data: { isNew: false, newUntil: null, promoPriority: true, sortOrder: novidades.length + i },
+        }),
+      ),
+      ...catalogo.map((id, i) =>
+        this.prisma.product.update({
+          where: { id },
+          data: {
+            isNew: false,
+            newUntil: null,
+            // Sai do destaque mas MANTÉM o selo: tirar da fila não é cancelar a promoção (P-8).
+            promoPriority: false,
+            sortOrder: novidades.length + promocoes.length + i,
+          },
+        }),
+      ),
+    ])
+
+    return this.listProducts()
   }
 
   // ── Categorias ──

@@ -15,6 +15,8 @@ import {
   isDayBlocked,
 } from '../../lib/delivery-rules.js'
 import { countCommittedDeliveries } from '../../lib/schedule-projection.js'
+import { acceptsOrder } from '../../lib/product-availability.js'
+import { effectiveProductPrice } from '../../lib/product-pricing.js'
 import { MARKET_CARTAO_MIN_KEY, isCardBelowMinimum, parseCartaoMinimo } from '../../lib/market-card-policy.js'
 import { getMinimumsForCondo, paesLabel } from '../../lib/order-minimums.js'
 import { buildStockAlerts, type StockSnapshot } from '../../lib/market-stock-alerts.js'
@@ -136,6 +138,21 @@ export class MarketCheckoutService {
       }
     }
 
+    // 7.1. Pausa manual + horário de venda. Sem isto a pausa seria decorativa: quem já tivesse o
+    // item no carrinho atravessaria até a reserva atômica.
+    //
+    // Os dois são RELÓGIO, não data de entrega — por isso a checagem aqui é idêntica à do
+    // catálogo, e um item fechado agora não é vendido nem para entrega daqui a uma semana.
+    //
+    // A mensagem é IDÊNTICA à de estoque zerado (passo 8) de propósito — o cliente nunca fica
+    // sabendo que alguém pausou o item, exatamente como no catálogo.
+    const now = new Date()
+    for (const { product } of lines) {
+      if (!acceptsOrder(product, now)) {
+        throw { statusCode: 409, message: `${product.name} está esgotado.` }
+      }
+    }
+
     // 7.5. Restrições do admin — MESMA regra do pedido único e da agenda, resolvidas para o
     // condomínio do cliente (override ?? padrão global): dia da semana bloqueado nunca aceita
     // entrega, data/período bloqueado (feriado, obra) também não, e com limite ativo barra quando
@@ -184,7 +201,11 @@ export class MarketCheckoutService {
     }
 
     // 9. Total (recalculado no servidor) + mínimo (segue o pedido único p/ o pão).
-    const productSubtotal = round2(lines.reduce((acc, l) => acc + l.product.price * l.qty, 0))
+    // Preço COBRADO de cada linha: com o desconto da promoção quando ela está vigente NESTE
+    // instante. O checkout é a autoridade — se a promoção venceu entre montar o carrinho e
+    // finalizar, o cliente paga o cheio e vê o total correto antes de confirmar.
+    const priced = lines.map((l) => ({ ...l, unitPrice: effectiveProductPrice(l.product.price, l.product, now) }))
+    const productSubtotal = round2(priced.reduce((acc, l) => acc + l.unitPrice * l.qty, 0))
     const total = round2(productSubtotal + breadQty * avulsoUnit)
     const hasProducts = lines.length > 0
     // Pão Francês: quantidade mínima herdada do pedido único (já resolvida no passo 4).
@@ -222,11 +243,14 @@ export class MarketCheckoutService {
     }
 
     const orderStatus = moneyAmount > 0 ? 'PENDING_PAYMENT' : 'SCHEDULED'
-    const itemsSnapshot = lines.map((l) => ({
+    // SNAPSHOT — grava o preço COBRADO, nunca o de tabela. É deste número que saem o estorno, o
+    // relatório de receita e a conferência do pedido: gravar o cheio numa venda promocional
+    // inflaria a receita para sempre, e o histórico não tem como ser corrigido depois.
+    const itemsSnapshot = priced.map((l) => ({
       productId: l.product.id,
       name: l.product.name,
       qty: l.qty,
-      unitPrice: l.product.price,
+      unitPrice: l.unitPrice,
     }))
 
     // 11. Transação: reserva estoque → cria pedido → debita crédito.

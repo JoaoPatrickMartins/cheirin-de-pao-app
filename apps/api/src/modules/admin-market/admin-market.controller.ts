@@ -6,6 +6,8 @@ import {
   UpdateProductSchema,
   CreateCategorySchema,
   UpdateCategorySchema,
+  PauseProductSchema,
+  ReorderProductsSchema,
 } from '@cheirin-de-pao/shared'
 import {
   SetStockSchema,
@@ -107,6 +109,50 @@ export class AdminMarketController {
     try {
       await this.service.removeProduct(id)
       return reply.status(200).send({ ok: true })
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  async pauseProduct(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    const { id } = request.params as { id: string }
+    let body: ReturnType<typeof PauseProductSchema.parse>
+    try {
+      body = PauseProductSchema.parse(request.body ?? {})
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      // Quem pausou vem do JWT, nunca do body — é auditoria.
+      return reply.status(200).send(await this.service.pauseProduct(id, request.user!.id, body))
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  async resumeProduct(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    const { id } = request.params as { id: string }
+    try {
+      return reply.status(200).send(await this.service.resumeProduct(id))
+    } catch (err) {
+      return this.handleError(reply, err)
+    }
+  }
+
+  async reorderProducts(request: FastifyRequest, reply: FastifyReply) {
+    if (this.denyNonAdmin(request, reply)) return
+    let body: ReturnType<typeof ReorderProductsSchema.parse>
+    try {
+      body = ReorderProductsSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      return reply.status(200).send(await this.service.reorderProducts(body))
     } catch (err) {
       return this.handleError(reply, err)
     }

@@ -36,7 +36,13 @@ export interface MarketProduct {
   photoUrl?: string | null
   /** Dias da semana em que o produto está disponível; [] = sempre. */
   availableDays: string[]
-  /** Estoque FIXO zerado — visível no catálogo, não adicionável. */
+  /**
+   * Não dá para comprar agora — visível no catálogo, não adicionável ("Esgotado").
+   *
+   * UNIÃO de três causas resolvidas no servidor: sem estoque, pausado pelo admin, ou fora do
+   * prazo de pedido do ciclo de entrega. O cliente lê todas como a mesma coisa, de propósito —
+   * o motivo real só vai para o admin.
+   */
   soldOut: boolean
   /** Estoque FIXO baixo — selo "Últimas". */
   limited: boolean
@@ -44,6 +50,12 @@ export interface MarketProduct {
   stockType?: 'DAILY' | 'FIXED'
   /** Teto de quantidade por pedido (DAILY = capacidade/dia; FIXED = estoque). null = sem teto (pão). */
   maxQty?: number | null
+  /** Selo "✦ NOVIDADE" — o servidor já leva o prazo de expiração em conta. */
+  isNew?: boolean
+  /** Promoção valendo — o servidor já leva o prazo em conta. `price` JÁ vem com desconto. */
+  isPromo?: boolean
+  /** Preço cheio, para o riscado. `null` quando não há promoção descontando. */
+  priceBefore?: number | null
   /** Pão Francês (produto fixo) — compra via breadQty, preço = avulso, mínimo do pedido único. */
   isBread?: boolean
 }
@@ -61,6 +73,8 @@ export interface CartLine {
   price: number
   photoUrl: string | null
   categoryId: string
+  /** Preço cheio da linha, para o riscado. `null` sem promoção. */
+  priceBefore?: number | null
   lineTotal: number
   soldOut: boolean
   /** Teto por pedido (capacidade diária / estoque) — limita o stepper na Cestinha. */
