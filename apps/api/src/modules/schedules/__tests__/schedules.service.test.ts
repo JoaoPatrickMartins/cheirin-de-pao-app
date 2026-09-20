@@ -218,6 +218,49 @@ describe('SchedulesService', () => {
       })
       expect(fastify.prisma.schedule.upsert).toHaveBeenCalledOnce()
     })
+
+    it('usa o mínimo DO CONDOMÍNIO, ignorando o padrão global', async () => {
+      const fastify = createMockFastify({
+        // Padrão global permissivo...
+        agendaMinimoRow: {
+          key: 'pedidoMinimoAgenda',
+          value: JSON.stringify({ seg: 1, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }),
+        },
+      })
+      // ...mas o condomínio exige 5 na segunda.
+      fastify.prisma.condominium.findUnique = vi.fn().mockResolvedValue({
+        pedidoMinimoAgendaOverride: { seg: 5 },
+      })
+      const service = new SchedulesService(fastify)
+
+      await expect(
+        service.upsertSchedule('user-1', 'condo-1', {
+          days: { manha: { seg: 3, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 } },
+          notifyReconfigure: false,
+        }),
+      ).rejects.toMatchObject({ statusCode: 422 })
+      expect(fastify.prisma.schedule.upsert).not.toHaveBeenCalled()
+    })
+
+    it('override do condomínio pode AFROUXAR o mínimo global', async () => {
+      const fastify = createMockFastify({
+        agendaMinimoRow: {
+          key: 'pedidoMinimoAgenda',
+          value: JSON.stringify({ seg: 5, ter: 5, qua: 5, qui: 5, sex: 5, sab: 5, dom: 5 }),
+        },
+      })
+      // Override substitui o mapa inteiro: sem seg definido, o dia fica sem mínimo.
+      fastify.prisma.condominium.findUnique = vi.fn().mockResolvedValue({
+        pedidoMinimoAgendaOverride: { seg: 1 },
+      })
+      const service = new SchedulesService(fastify)
+
+      await service.upsertSchedule('user-1', 'condo-1', {
+        days: { manha: { seg: 2, ter: 0, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 } },
+        notifyReconfigure: false,
+      })
+      expect(fastify.prisma.schedule.upsert).toHaveBeenCalledOnce()
+    })
   })
 
   describe('findAgendaMinimoError (helper puro)', () => {

@@ -4,6 +4,8 @@ import { useMarketCatalog } from '../../hooks/useMarketCatalog'
 import { ProdCard } from '../../components/client/ProdCard'
 import { BreadCard } from '../../components/client/BreadCard'
 import { CartButton } from '../../components/client/CartButton'
+import { MarketBannerList } from '../../components/client/MarketBannerList'
+import { useBanners } from '../../contexts/BannerContext'
 import { Icon } from '../../components/brand/Icon'
 
 // Termos que fazem o card do Pão Francês aparecer na busca.
@@ -18,6 +20,11 @@ export function MarketCatalog() {
   const navigate = useNavigate()
   const { categories, products, avulsoUnit, maxEconomyPercent, isLoading, error, reload } =
     useMarketCatalog()
+  // O banner institucional de pagamento é o CONTEÚDO DE RESERVA do topo da vitrine: sai de cena
+  // quando o admin tem algo a dizer ali. Esperar `carregado` evita ele piscar e sumir quando
+  // existe banner — antes da resposta, "sem banner" significa "ainda não sei".
+  const { banners: pecas, carregado: pecasCarregadas } = useBanners()
+  const mostrarFormasDePagar = pecasCarregadas && pecas.market.length === 0
 
   const [activeCat, setActiveCat] = useState<string>('all')
   const [query, setQuery] = useState('')
@@ -120,7 +127,12 @@ export function MarketCatalog() {
         <CartButton />
       </div>
 
-      {/* Banner "Duas formas de pagar" */}
+      {/* Peças de comunicação do admin — antes do banner fixo de pagamento, que é institucional */}
+      <MarketBannerList />
+
+      {/* Banner "Duas formas de pagar" — só quando NÃO há peça do admin no topo. Os dois juntos
+          empilhariam dois blocos de comunicação antes do primeiro produto. */}
+      {mostrarFormasDePagar && (
       <div style={{ padding: '0 20px' }}>
         <div
           style={{
@@ -146,6 +158,7 @@ export function MarketCatalog() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Busca */}
       <div style={{ padding: '14px 20px 0' }}>

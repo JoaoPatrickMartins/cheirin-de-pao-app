@@ -215,6 +215,37 @@ enum MarketOrderStatus {
   CANCELLED
 }
 
+// ===== BANNERS, AVISOS E PROMOÇÕES =====
+
+// Onde a peça aparece no app do cliente. Cada formato tem regras próprias de conteúdo
+// (ver o superRefine em packages/shared/src/schemas/banner.ts):
+//   POPUP  — modal sobre a Home, ao abrir. Arte 4:5 obrigatória.
+//   STRIP  — faixa fina de aviso no topo da Home. SÓ texto + cor, nunca imagem.
+//   MARKET — peça larga (3:1) dentro da vitrine do "Além do Pãozin".
+enum BannerPlacement {
+  POPUP
+  STRIP
+  MARKET
+}
+
+// O que acontece ao tocar na peça. NONE é o padrão — aviso que só informa e fecha.
+// O admin nunca digita rota: SCREEN vem de allowlist, PRODUCT/COMBO de seletores da lista real,
+// e só EXTERNAL tem campo livre (restrito a https://).
+enum BannerActionType {
+  NONE
+  SCREEN
+  PRODUCT
+  COMBO
+  EXTERNAL
+}
+
+// Com que frequência um POPUP volta a aparecer para o MESMO cliente. Lido contra BannerView.
+enum BannerFrequency {
+  ONCE   // uma vez na vida
+  DAILY  // uma vez por dia BRT (padrão)
+  ALWAYS // toda abertura da Home — usar com parcimônia
+}
+
 // ===== MODELS (15 collections) =====
 
 // 1. User — clientes, entregadores e admins
@@ -307,6 +338,12 @@ model Condominium {
   // `where: { blockedDaysOverride: null }`, que não encontra documento sem a chave.
   blockedDaysOverride Json?
   dayLimitOverride    Json?
+  // Overrides do PEDIDO MÍNIMO — mesma semântica e mesma armadilha do Mongo dos dois acima:
+  // AUSENTE/null = herda o padrão global (Setting `pedidoMinimoUnico` / `pedidoMinimoAgenda` /
+  // `marketMinimoCestinha`), resolução SEMPRE em código (`lib/order-minimums.ts`).
+  pedidoMinimoUnicoOverride    Int?   // pães por pedido único, 1..20
+  pedidoMinimoAgendaOverride   Json?  // mapa completo {seg..dom}, 0..12 (por turno)
+  marketMinimoCestinhaOverride Float? // valor mínimo da Cestinha em R$, >= 0 (0 = sem mínimo)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -683,6 +720,46 @@ model Product {
   availableDays Json?     // null/ausente = sempre; senão lista de dias ["seg","qua",...]
   isActive      Boolean   @default(true)
   sortOrder     Int       @default(0)
+
+  // ── Janela diária de PEDIDO (BRT "HH:MM") ──────────────────────────────────
+  // MESMA FAMÍLIA de `availableDays`: é relativo à DATA DE ENTREGA, não ao relógio da loja.
+  // O horário do produto entra no lugar do `cutoffTime` do slot — é um corte PRÓPRIO, que só
+  // ANTECIPA o corte do turno, nunca o estende (corteEfetivo = min(corte do slot, corte do produto)).
+  // Depois dele o produto para de aceitar pedido para o ciclo em curso e volta SOZINHO quando o
+  // ciclo vira — sem cron: o estado é derivado de `now` na leitura (ver lib/product-availability.ts).
+  // null = sem restrição de horário. Não cruza meia-noite (from < until, validado no schema Zod).
+  availableFrom  String?
+  availableUntil String?
+
+  // ── Pausa de VITRINE (bloqueia AGORA, para qualquer data de entrega) ───────
+  // Outro mecanismo, não confundir com a janela acima: aqui o admin derruba o item na hora.
+  // Os dois compõem por OR — quando a pausa temporária expira, a janela volta a mandar.
+  isPaused    Boolean?  // sem prazo — o admin religa na mão
+  pausedUntil DateTime? // com prazo — despausa sozinha ao passar do instante
+  pauseReason String?   // motivo; só o admin vê (o cliente lê sempre "Esgotado")
+  pausedBy    String?   @db.ObjectId
+  pausedAt    DateTime?
+
+  // ── Novidade ───────────────────────────────────────────────────────────────
+  // Sobe o produto para a frente da grade (atrás só do Pão Francês, que tem card próprio).
+  // `newUntil` é derivado como o resto: null com isNew=true = "até eu remover".
+  isNew    Boolean?
+  newUntil DateTime?
+
+  // ── Promoção (PREÇO, não enfeite) ──────────────────────────────────────────
+  // Espelha a promoção de combo (model Promotion + effectiveComboPrice): mesmo enum DiscountType,
+  // mesma conta (lib/discount.ts), mesmo "antes" riscado no card. Derivada de `now` na leitura,
+  // sem cron — igual isNew/isPaused.
+  // O preço efetivo NUNCA chega a zero (validado na escrita): zero quebraria a conversão em
+  // pãezinhos e liberaria item grátis no carrinho.
+  isPromo    Boolean?
+  promoType  DiscountType?
+  promoValue Float?
+  promoUntil DateTime?
+  // Furar fila é decisão SEPARADA do desconto — dá para ter o selo sem destaque. Escrito só pela
+  // tela de ordenar; o desconto, só pelo formulário.
+  promoPriority Boolean?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -781,4 +858,72 @@ model DeliveryBlock {
 
   @@index([condominiumId, startDate])
   @@index([startDate, endDate])
+}
+
+// 27. Banner — peça de comunicação criada pelo admin (promoção, aviso ou recado).
+//
+// A janela de exibição é DERIVADA de `now` na leitura (lib/banner-visibility.ts), nunca gravada:
+// mesma família de `Product.availableFrom/Until` e `DeliveryBlock`. Sem cron, sem flag a virar —
+// o banner de Natal para de aparecer às 00:00 de 26/12 porque a conta passa a dar false.
+//
+// Coleção NOVA: todo documento nasce com todas as chaves, então aqui NÃO vale a armadilha do Mongo
+// que assombra `Condominium`/`User` (campo ausente ≠ null). Pode consultar por campo normalmente.
+model Banner {
+  id        String          @id @default(auto()) @map("_id") @db.ObjectId
+  name      String          // nome interno, para o admin se achar na lista; o cliente nunca vê
+  placement BannerPlacement
+
+  // Arte — obrigatória em POPUP (4:5) e MARKET (3:1); proibida em STRIP.
+  imageUrl String?
+  alt      String? // texto alternativo; obrigatório quando há imagem
+
+  // Texto — a faixa (STRIP) é feita só disto.
+  title   String?
+  body    String?
+  bgColor String? // faixa: cor de fundo (hex)
+
+  ctaLabel        String? // rótulo do botão ("Peça agora")
+  actionType      BannerActionType @default(NONE)
+  actionScreen    String? // chave da allowlist em lib/banner-visibility.ts, nunca rota livre
+  actionProductId String?          @db.ObjectId
+  actionComboId   String?          @db.ObjectId
+  actionUrl       String? // https:// apenas
+
+  frequency BannerFrequency @default(DAILY) // só POPUP usa
+  startsAt  DateTime? // null = já vale
+  endsAt    DateTime? // null = não expira
+  isActive  Boolean         @default(true)
+  priority  Int             @default(0) // maior aparece primeiro / ganha o desempate
+
+  // Vazio = todos os clientes. Com IDs = só clientes desses condomínios.
+  condominiumIds String[] @db.ObjectId
+
+  createdById String?  @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([placement, isActive])
+}
+
+// 28. BannerView — um documento por par (banner, cliente).
+//
+// Resolve DUAS perguntas com o mesmo registro, que é o motivo de existir:
+//   1. frequência — "já mostrei este pop-up para este cliente hoje?" (lastSeenAt / clickedAt)
+//   2. métrica    — alcance = nº de documentos; impressões = soma de seenCount;
+//                   cliques e dispensas = os campos abaixo; CTR = cliques ÷ alcance.
+//
+// Um documento POR PAR (e não por impressão) mantém a coleção limitada a clientes × banners:
+// um stream de eventos cresceria sem teto para entregar a mesma resposta.
+model BannerView {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  bannerId    String    @db.ObjectId
+  userId      String    @db.ObjectId
+  seenCount   Int       @default(0)
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  clickedAt   DateTime?
+  dismissedAt DateTime?
+
+  @@unique([bannerId, userId])
+  @@index([bannerId])
 }

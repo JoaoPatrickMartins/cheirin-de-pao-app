@@ -11,6 +11,8 @@ import { NotifProvider } from '../../contexts/NotifContext'
 import { OnboardingOverlay } from '../../components/client/OnboardingOverlay'
 import { AppTour } from '../../components/client/AppTour'
 import { GanchoConsentModal } from '../../components/client/GanchoConsentModal'
+import { BannerProvider } from '../../contexts/BannerContext'
+import { BannerPopupHost } from '../../components/client/BannerPopupHost'
 import { hasSeenOnboarding, slidesDone, markSlidesDone, markOnboardingSeen } from '../../lib/onboarding'
 import { apiFetch } from '../../lib/apiFetch'
 
@@ -128,16 +130,20 @@ export function ClientLayout() {
     >
       <NotifProvider>
         <CartProvider>
-          <Outlet />
-          <FloatingCart />
-          <ClientTabBar />
-          {phase === 'slides' && <OnboardingOverlay onFinish={finishSlides} />}
-          {phase === 'tour' && <AppTour onFinish={finishTour} />}
-          {/* Gancho: só depois do onboarding (fase 'done') e enquanto não confirmado. */}
-          <GanchoConsentModal
-            isOpen={phase === 'done' && needsHookConsent}
-            onConfirmed={() => setNeedsHookConsent(false)}
-          />
+          <BannerProvider>
+            <Outlet />
+            <FloatingCart />
+            <ClientTabBar />
+            {phase === 'slides' && <OnboardingOverlay onFinish={finishSlides} />}
+            {phase === 'tour' && <AppTour onFinish={finishTour} />}
+            {/* Gancho: só depois do onboarding (fase 'done') e enquanto não confirmado. */}
+            <GanchoConsentModal
+              isOpen={phase === 'done' && needsHookConsent}
+              onConfirmed={() => setNeedsHookConsent(false)}
+            />
+            {/* Banner é o ÚLTIMO da fila: nunca sobre o tutorial nem sobre o gancho. */}
+            <BannerPopupHost enabled={phase === 'done' && !needsHookConsent} />
+          </BannerProvider>
         </CartProvider>
       </NotifProvider>
     </div>

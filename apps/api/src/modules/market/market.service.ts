@@ -1,15 +1,15 @@
 import { FastifyInstance } from 'fastify'
 import type { UpdateCartInput } from '@cheirin-de-pao/shared'
 import { MARKET_CARTAO_MIN_KEY, parseCartaoMinimo } from '../../lib/market-card-policy.js'
+import { getMinimumsForUser } from '../../lib/order-minimums.js'
+import { isNovidadeVigente, isUnavailableForClient, sortVitrine } from '../../lib/product-availability.js'
+import { isPromoVigente, priceView } from '../../lib/product-pricing.js'
 import { MarketRepository } from './market.repository.js'
 
 // Abaixo disso, um produto FIXO exibe "Últimas unidades" no catálogo.
 const LOW_STOCK_THRESHOLD = 5
 const AVULSO_KEY = 'avulsoUnit'
-const MIN_CESTINHA_KEY = 'marketMinimoCestinha'
-const DEFAULT_MIN_CESTINHA = 15
 const BREAD_PRODUCT_KEY = 'breadProductId'
-const PEDIDO_MINIMO_UNICO_KEY = 'pedidoMinimoUnico'
 
 // Linha da Cestinha com snapshot do produto (nome/preço/foto no momento da leitura).
 export interface CartLineView {
@@ -19,7 +19,14 @@ export interface CartLineView {
   price: number
   photoUrl: string | null
   categoryId: string
+  /** Preço cheio, para o riscado. `null` quando não há promoção descontando. */
+  priceBefore: number | null
   lineTotal: number
+  /**
+   * Não dá para comprar agora. UNIÃO de três causas — sem estoque, pausado pelo admin, ou fora do
+   * horário de venda. O cliente lê as três como "Esgotado" e nunca sabe a diferença (o motivo real
+   * só vai para o admin).
+   */
   soldOut: boolean
   /** Teto por pedido (DAILY = capacidade/dia; FIXED = estoque). O front limita o stepper por isso. */
   maxQty: number
@@ -54,10 +61,15 @@ export interface CartView {
 export class MarketService {
   private repo: MarketRepository
 
-  constructor(fastify: FastifyInstance) {
+  constructor(private fastify: FastifyInstance) {
     this.repo = new MarketRepository(fastify)
   }
 
+  /**
+   * Catálogo do cliente. Cada produto é avaliado contra o estoque, a pausa manual e o HORÁRIO DE
+   * VENDA (relógio de loja) — nenhum dos três depende da data de entrega, que só é escolhida no
+   * checkout. É o que permite a vitrine dizer "Esgotado" sem precisar perguntar nada ao cliente.
+   */
   async getCatalog() {
     const [products, categories, avulsoUnit, breadRow] = await Promise.all([
       this.repo.listActiveProducts(),
@@ -66,6 +78,7 @@ export class MarketService {
       this.repo.getSetting(BREAD_PRODUCT_KEY),
     ])
     const breadId = breadRow?.value ?? null
+    const now = new Date()
 
     return {
       categories: categories.map((c) => ({
@@ -74,22 +87,30 @@ export class MarketService {
         emoji: c.emoji,
         sortOrder: c.sortOrder,
       })),
-      products: products.map((p) => {
+      // Três degraus: novidades → promoções destacadas → resto (atrás só do Pão Francês, que tem
+      // card próprio). Precisa ser aqui e não no `orderBy`: o banco não sabe que um `newUntil` ou
+      // um `promoUntil` venceu.
+      products: sortVitrine(products, now).map((p) => {
         const isBread = p.id === breadId
         // Teto por pedido: FIXED = estoque atual; DAILY = capacidade por dia. Um único pedido
         // nunca pode passar do teto (independe da data), então o front limita o stepper por ele.
         const maxQty = p.stockType === 'FIXED' ? Math.max(0, p.stock ?? 0) : Math.max(0, p.dailyCapacity ?? 0)
-        // Indisponível: FIXED sem inventário OU DAILY sem capacidade (cap <= 0).
-        const soldOut = maxQty <= 0
+        // Indisponível: sem estoque OU pausado pelo admin OU fora do horário de venda.
+        // As três causas colapsam numa palavra só — o cliente lê "Esgotado" e pronto.
+        const soldOut = isUnavailableForClient(p, { outOfStock: maxQty <= 0 }, now)
         const limited =
           p.stockType === 'FIXED' && p.stock != null && p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD
+        // Preço já COM desconto + o cheio para o riscado. Tudo que deriva de preço (pãezinhos,
+        // subtotal, mínimo, gancho grátis) acompanha sozinho, porque todos leem `price`.
+        const view = priceView(p.price, p, now)
         return {
           id: p.id,
           name: p.name,
           description: p.description,
           categoryId: p.categoryId,
           // Pão Francês: preço SEMPRE = avulso (o pão do pedido único), ignora o preço salvo.
-          price: isBread ? avulsoUnit : p.price,
+          price: isBread ? avulsoUnit : view.price,
+          priceBefore: isBread ? null : view.priceBefore,
           photoUrl: p.photoUrl,
           availableDays: (p.availableDays as string[] | null) ?? [],
           stockType: p.stockType,
@@ -97,6 +118,10 @@ export class MarketService {
           maxQty: isBread ? null : maxQty,
           soldOut: isBread ? false : soldOut,
           limited: isBread ? false : limited,
+          // O pão tem card próprio fora da grade — nunca recebe selo nenhum.
+          // Os dois flags vão HONESTOS; qual selo aparece é decisão do card (novidade ganha).
+          isNew: isBread ? false : isNovidadeVigente(p, now),
+          isPromo: isBread ? false : isPromoVigente(p, now),
           isBread,
         }
       }),
@@ -110,23 +135,10 @@ export class MarketService {
     return Number.isFinite(v) ? v : 0
   }
 
-  private async getMinimo(): Promise<number> {
-    const s = await this.repo.getSetting(MIN_CESTINHA_KEY)
-    const v = s ? parseFloat(s.value) : DEFAULT_MIN_CESTINHA
-    return Number.isFinite(v) ? v : DEFAULT_MIN_CESTINHA
-  }
-
   /** Mínimo (R$) da parte em dinheiro para liberar cartão; 0 = sempre liberado (regra desligada). */
   private async getCartaoMinimo(): Promise<number> {
     const s = await this.repo.getSetting(MARKET_CARTAO_MIN_KEY)
     return parseCartaoMinimo(s?.value)
-  }
-
-  /** Mínimo em quantidade de pães do Pão Francês — herdado do pedido único. */
-  private async getBreadMin(): Promise<number> {
-    const s = await this.repo.getSetting(PEDIDO_MINIMO_UNICO_KEY)
-    const v = s ? parseInt(s.value, 10) : 1
-    return Number.isFinite(v) && v >= 1 ? v : 1
   }
 
   /** Id do produto fixo "Pão Francês" — ele só pode existir como breadQty, nunca como item. */
@@ -142,16 +154,21 @@ export class MarketService {
   // ── Cestinha ────────────────────────────────────────────────────────────────
   /** Monta a visão da Cestinha juntando itens persistidos + Product (snapshot + subtotal). */
   private async buildCartView(
+    userId: string,
     rawItems: { productId: string; qty: number }[],
     breadQty: number,
   ): Promise<CartView> {
-    const [avulsoUnit, minimo, breadMin, breadId, cartaoMinimo] = await Promise.all([
+    const [avulsoUnit, minimos, breadId, cartaoMinimo] = await Promise.all([
       this.getAvulsoUnit(),
-      this.getMinimo(),
-      this.getBreadMin(),
+      // Mínimos resolvidos para o condomínio do cliente (override ?? padrão global): o valor em
+      // R$ da Cestinha e a quantidade mínima de pães, que segue o mínimo do pedido único.
+      getMinimumsForUser(this.fastify.prisma, userId),
       this.getBreadProductId(),
       this.getCartaoMinimo(),
     ])
+    const minimo = minimos.cestinha
+    const breadMin = minimos.unico
+    const now = new Date()
 
     // O produto-pão só pode existir como breadQty — se aparecer em items[], é ignorado
     // (auto-cura carrinhos antigos que o tenham como item separado).
@@ -170,15 +187,21 @@ export class MarketService {
       const maxQty = p.stockType === 'FIXED' ? Math.max(0, p.stock ?? 0) : Math.max(0, p.dailyCapacity ?? 0)
       let qty = Math.max(1, Math.min(99, it.qty))
       if (maxQty > 0) qty = Math.min(qty, maxQty)
-      const lineTotal = this.round2(p.price * qty)
-      const soldOut = maxQty <= 0
+      // Preço COM desconto quando há promoção vigente — o subtotal, o mínimo da Cestinha e o
+      // gatilho do gancho grátis passam todos por aqui e ficam corretos sem saber de promoção.
+      const view = priceView(p.price, p, now)
+      const lineTotal = this.round2(view.price * qty)
+      // Mesma união do catálogo. `maxQty` e `qty` NÃO são zerados: a linha fica marcada e o
+      // cliente decide remover — pausar um produto não pode esvaziar carrinho alheio em silêncio.
+      const soldOut = isUnavailableForClient(p, { outOfStock: maxQty <= 0 }, now)
       items.push({
         productId: p.id,
         qty,
         name: p.name,
-        price: p.price,
+        price: view.price,
         photoUrl: p.photoUrl ?? null,
         categoryId: p.categoryId,
+        priceBefore: view.priceBefore,
         lineTotal,
         soldOut,
         maxQty,
@@ -216,7 +239,7 @@ export class MarketService {
   async getCart(userId: string): Promise<CartView> {
     const cart = await this.repo.getCart(userId)
     const rawItems = (cart?.items ?? []).map((i) => ({ productId: i.productId, qty: i.qty }))
-    return this.buildCartView(rawItems, cart?.breadQty ?? 0)
+    return this.buildCartView(userId, rawItems, cart?.breadQty ?? 0)
   }
 
   /**
@@ -262,6 +285,6 @@ export class MarketService {
     breadQty = Math.max(0, Math.min(100, breadQty))
 
     await this.repo.upsertCart(userId, normalized, breadQty)
-    return this.buildCartView(normalized, breadQty)
+    return this.buildCartView(userId, normalized, breadQty)
   }
 }

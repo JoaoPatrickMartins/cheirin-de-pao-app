@@ -72,6 +72,15 @@ export function ProdCard({ product, emoji, categoryName, avulsoUnit, economyPerc
           emojiSize={38}
           dimmed={product.soldOut}
         />
+        {/* Canto ESQUERDO: um selo só. Novidade ganha de promoção — o "de/por" logo abaixo já
+            denuncia a promoção, e duas pills empilhadas pesam demais numa grade de 2 colunas.
+            O canto direito é do estoque, então nunca colidem. */}
+        {product.isNew ? (
+          <span style={novidadeBadge()}>✦ NOVIDADE</span>
+        ) : product.isPromo ? (
+          <span style={novidadeBadge()}>🏷 PROMO</span>
+        ) : null}
+
         {/* Estado de estoque no canto superior direito */}
         {product.soldOut ? (
           <span style={cornerBadge('var(--color-text-sec)', '#fff')}>Esgotado</span>
@@ -119,12 +128,20 @@ export function ProdCard({ product, emoji, categoryName, avulsoUnit, economyPerc
         {product.name}
       </p>
 
-      {/* Preço à vista */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
-          {formatBRL(product.price)}
-        </span>
-        <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: 'var(--color-text-ter)' }}>à vista</span>
+      {/* Preço à vista — com o riscado do preço cheio quando há promoção (mesmo tratamento do
+          ComboCard, para as duas promoções do app lerem igual). */}
+      <div>
+        {product.priceBefore != null && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', textDecoration: 'line-through', margin: '0 0 1px' }}>
+            {formatBRL(product.priceBefore)}
+          </p>
+        )}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 19, fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
+            {formatBRL(product.price)}
+          </span>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 600, color: 'var(--color-text-ter)' }}>à vista</span>
+        </div>
       </div>
 
       {/* Faixa: pague com pãezinhos (N pães · −X%) */}
@@ -278,6 +295,28 @@ function cornerBadge(bg: string, color: string): React.CSSProperties {
     borderRadius: 999,
     padding: '3px 8px',
     letterSpacing: '0.01em',
+    zIndex: 2,
+  }
+}
+
+/**
+ * Selo de novidade — espresso com texto ouro. O espresso já é a cor de autoridade do app
+ * (AppBar, botões primários), e o ouro sobre ele lê como selo editorial em vez de etiqueta de
+ * promoção — que é o registro errado para um lançamento.
+ */
+function novidadeBadge(): React.CSSProperties {
+  return {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    background: 'var(--color-espresso)',
+    color: 'var(--color-gold)',
+    fontFamily: 'var(--font-body)',
+    fontSize: 10,
+    fontWeight: 800,
+    borderRadius: 999,
+    padding: '3px 8px',
+    letterSpacing: '0.06em',
     zIndex: 2,
   }
 }

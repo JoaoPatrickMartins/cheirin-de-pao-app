@@ -224,6 +224,48 @@ describe('OrdersService', () => {
     expect(txOrder.create).toHaveBeenCalled()
   })
 
+  it('createSingleOrder usa o pedido mínimo DO CONDOMÍNIO, ignorando o padrão global', async () => {
+    const { fastify } = makeFastifyMock({
+      creditMilli: 10000,
+      condominiumId: 'condo-01',
+      pedidoMinimoUnico: 2, // padrão global permissivo
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prisma = (fastify as any).prisma
+    prisma.condominium.findUnique = vi.fn().mockResolvedValue({
+      deliverySlots: [],
+      pedidoMinimoUnicoOverride: 6, // o condomínio exige mais
+    })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await expect(
+      service.createSingleOrder('user-01', { quantity: 4, scheduledDate: makeFutureDateStr(2) }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Pedido mínimo de 6 pães' })
+  })
+
+  it('createSingleOrder herda o padrão global quando o condomínio não personalizou', async () => {
+    const { fastify } = makeFastifyMock({
+      creditMilli: 10000,
+      condominiumId: 'condo-01',
+      pedidoMinimoUnico: 5,
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prisma = (fastify as any).prisma
+    // Documento sem a chave de override — no Mongo é assim que "herda" aparece.
+    prisma.condominium.findUnique = vi.fn().mockResolvedValue({ deliverySlots: [] })
+
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new OrdersService(fastify as any)
+
+    await expect(
+      service.createSingleOrder('user-01', { quantity: 3, scheduledDate: makeFutureDateStr(2) }),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Pedido mínimo de 5 pães' })
+  })
+
   it('createSingleOrder rejeita scheduledDate no passado', async () => {
     const { fastify } = makeFastifyMock({ creditMilli: 10000 })
 
