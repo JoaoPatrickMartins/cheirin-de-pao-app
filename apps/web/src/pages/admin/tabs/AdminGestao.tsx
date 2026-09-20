@@ -5,6 +5,7 @@ import { Icon } from '../../../components/brand/Icon'
 import { useAuth } from '../../../hooks/useAuth'
 import { AdminCombos } from '../gestao/AdminCombos'
 import { AdminMarket } from '../gestao/AdminMarket'
+import { AdminBanners } from '../gestao/AdminBanners'
 import { AdminAvulso } from '../gestao/AdminAvulso'
 import { AdminPedidoMinimo } from '../gestao/AdminPedidoMinimo'
 import { AdminBloqueiosLimites } from '../gestao/AdminBloqueiosLimites'
@@ -23,6 +24,7 @@ import { AdminRelatorios } from '../gestao/AdminRelatorios'
 type AdminGestaoSub =
   | null
   | 'combos'
+  | 'banners'
   | 'market'
   | 'avulso'
   | 'pedido-minimo'
@@ -47,6 +49,7 @@ interface HubItem {
 
 const HUB_ITEMS: HubItem[] = [
   { key: 'combos', icon: 'bag', titulo: 'Combos e promoções', descricao: 'Criar, editar, descontos' },
+  { key: 'banners', icon: 'spark', titulo: 'Banners e avisos', descricao: 'Pop-up, faixa de aviso e banner do mercadinho' },
   { key: 'market', icon: 'bag', titulo: 'Além do Pãozin', descricao: 'Mini market: produtos, categorias, estoque' },
   { key: 'avulso', icon: 'coin', titulo: 'Compra personalizada', descricao: 'Limite e preço por pão' },
   { key: 'pedido-minimo', icon: 'bag', titulo: 'Pedido mínimo', descricao: 'Pedido único, agenda e Cestinha — geral ou por condomínio' },
@@ -73,6 +76,7 @@ export function AdminGestao() {
   const onBack = () => setSub(null)
 
   if (sub === 'combos') return <AdminCombos onBack={onBack} />
+  if (sub === 'banners') return <AdminBanners onBack={onBack} />
   if (sub === 'market') return <AdminMarket onBack={onBack} />
   if (sub === 'avulso') return <AdminAvulso onBack={onBack} />
   if (sub === 'pedido-minimo') return <AdminPedidoMinimo onBack={onBack} />

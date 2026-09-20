@@ -2,12 +2,16 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { randomUUID } from 'node:crypto'
 
 /**
- * Armazenamento de imagens de produto do mini market ("Além do Pãozin") no S3.
+ * Armazenamento de imagens no S3 — fotos de produto do mini market ("Além do Pãozin") e artes
+ * de banner.
  *
  * Configuração via env (S3_REGION / S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY,
  * + S3_PUBLIC_BASE_URL opcional). TODAS opcionais no boot: sem elas a API sobe normalmente
- * e `uploadProductImage` lança um erro claro — o upload só funciona quando o bucket estiver
+ * e `uploadImage` lança um erro claro — o upload só funciona quando o bucket estiver
  * configurado. Use `isStorageConfigured()` para checar antes de expor o recurso na UI.
+ *
+ * As pastas são um conjunto FECHADO (`UploadFolder`): o prefixo entra na chave do objeto, e
+ * aceitar string livre aí seria deixar o chamador escrever onde quisesse no bucket.
  */
 
 const MAX_BYTES = 5 * 1024 * 1024 // 5 MB — casa com o limite do @fastify/multipart
@@ -59,12 +63,19 @@ function getClient(cfg: S3Config): S3Client {
   return cachedClient
 }
 
+/** Pastas permitidas no bucket. Conjunto fechado de propósito (ver o cabeçalho). */
+export type UploadFolder = 'products' | 'banners'
+
 /**
- * Faz upload de uma imagem de produto e retorna a URL pública.
+ * Faz upload de uma imagem e retorna a URL pública.
  * Valida tipo (JPG/PNG/WebP) e tamanho (≤ 5 MB). Lança {@link StorageError} em qualquer falha
  * de validação/configuração.
  */
-export async function uploadProductImage(body: Buffer, contentType: string): Promise<string> {
+export async function uploadImage(
+  body: Buffer,
+  contentType: string,
+  folder: UploadFolder = 'products',
+): Promise<string> {
   const cfg = getConfig()
   if (!cfg) throw new StorageError('Armazenamento de imagens não configurado.')
 
@@ -72,7 +83,7 @@ export async function uploadProductImage(body: Buffer, contentType: string): Pro
   if (!ext) throw new StorageError('Formato inválido. Envie uma imagem JPG, PNG ou WebP.')
   if (body.length > MAX_BYTES) throw new StorageError('Imagem acima do limite de 5 MB.')
 
-  const key = `products/${randomUUID()}.${ext}`
+  const key = `${folder}/${randomUUID()}.${ext}`
   await getClient(cfg).send(
     new PutObjectCommand({
       Bucket: cfg.bucket,
@@ -87,4 +98,9 @@ export async function uploadProductImage(body: Buffer, contentType: string): Pro
     process.env.S3_PUBLIC_BASE_URL?.replace(/\/$/, '') ||
     `https://${cfg.bucket}.s3.${cfg.region}.amazonaws.com`
   return `${base}/${key}`
+}
+
+/** Atalho histórico — a foto de produto sempre vai para `products/`. */
+export function uploadProductImage(body: Buffer, contentType: string): Promise<string> {
+  return uploadImage(body, contentType, 'products')
 }

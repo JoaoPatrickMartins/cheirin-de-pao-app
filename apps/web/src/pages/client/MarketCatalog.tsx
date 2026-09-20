@@ -4,6 +4,7 @@ import { useMarketCatalog } from '../../hooks/useMarketCatalog'
 import { ProdCard } from '../../components/client/ProdCard'
 import { BreadCard } from '../../components/client/BreadCard'
 import { CartButton } from '../../components/client/CartButton'
+import { MarketBannerList } from '../../components/client/MarketBannerList'
 import { Icon } from '../../components/brand/Icon'
 
 // Termos que fazem o card do Pão Francês aparecer na busca.
@@ -119,6 +120,9 @@ export function MarketCatalog() {
         </div>
         <CartButton />
       </div>
+
+      {/* Peças de comunicação do admin — antes do banner fixo de pagamento, que é institucional */}
+      <MarketBannerList />
 
       {/* Banner "Duas formas de pagar" */}
       <div style={{ padding: '0 20px' }}>

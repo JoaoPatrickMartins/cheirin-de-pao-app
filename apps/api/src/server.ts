@@ -25,6 +25,8 @@ import { adminCondominiumsRoute } from './modules/admin-condominiums/admin-condo
 import { adminCombosRoute } from './modules/admin-combos/admin-combos.route.js'
 import { adminMarketRoute } from './modules/admin-market/admin-market.route.js'
 import { marketRoute } from './modules/market/market.route.js'
+import { adminBannersRoute } from './modules/admin-banners/admin-banners.route.js'
+import { bannersRoute } from './modules/banners/banners.route.js'
 import { adminSuppliersRoute } from './modules/admin-suppliers/admin-suppliers.route.js'
 import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.route.js'
 import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
@@ -256,6 +258,8 @@ const start = async () => {
     await fastify.register(adminCombosRoute)         // Phase 7 — CRUD /admin/combos + /promotion (07-02)
     await fastify.register(adminMarketRoute)         // Mini market — CRUD produtos/categorias/estoque/upload/config
     await fastify.register(marketRoute)              // Mini market — catálogo do cliente
+    await fastify.register(adminBannersRoute)        // Banners e avisos — CRUD + upload da arte
+    await fastify.register(bannersRoute)             // Banners e avisos — peças do cliente + telemetria
     await fastify.register(adminSuppliersRoute)      // Phase 7 — CRUD /admin/suppliers (07-03)
     await fastify.register(adminCouriersRoute)       // Phase 7 — CRUD /admin/couriers (07-03)
     await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)
