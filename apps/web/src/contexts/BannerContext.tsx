@@ -13,6 +13,12 @@ import { fetchBanners, trackBanner, NO_BANNERS, type ClientBanner, type ClientBa
 
 interface BannerContextValue {
   banners: ClientBanners
+  /**
+   * A busca já respondeu. Quem decide layout a partir de "tem banner ou não" precisa esperar
+   * isso: antes da resposta, `banners` é vazio por não saber, não por não haver — e tratar as
+   * duas coisas como iguais faz o conteúdo alternativo piscar na tela e sumir.
+   */
+  carregado: boolean
   /** O cliente fechou no X: esconde pelo resto da sessão E conta como dispensa. */
   dismiss: (placement: 'popup' | 'strip', id: string) => void
   /**
@@ -24,17 +30,21 @@ interface BannerContextValue {
 
 export const BannerContext = createContext<BannerContextValue>({
   banners: NO_BANNERS,
+  carregado: false,
   dismiss: () => {},
   hide: () => {},
 })
 
 export function BannerProvider({ children }: { children: React.ReactNode }) {
   const [banners, setBanners] = useState<ClientBanners>(NO_BANNERS)
+  const [carregado, setCarregado] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     void fetchBanners().then((b) => {
-      if (!cancelled) setBanners(b)
+      if (cancelled) return
+      setBanners(b)
+      setCarregado(true)
     })
     return () => {
       cancelled = true
@@ -53,7 +63,9 @@ export function BannerProvider({ children }: { children: React.ReactNode }) {
     [hide],
   )
 
-  return <BannerContext.Provider value={{ banners, dismiss, hide }}>{children}</BannerContext.Provider>
+  return (
+    <BannerContext.Provider value={{ banners, carregado, dismiss, hide }}>{children}</BannerContext.Provider>
+  )
 }
 
 export function useBanners(): BannerContextValue {

@@ -66,7 +66,10 @@ export interface BannerViewFields {
 export const BANNER_LIMITS: Record<BannerFields['placement'], number> = {
   POPUP: 1,
   STRIP: 1,
-  MARKET: 3,
+  // O mercadinho vira carrossel sozinho a partir da segunda peça. Cinco é o teto: o bastante
+  // para variar, pouco o bastante para as últimas ainda serem vistas e para a vitrine não
+  // carregar meia dúzia de imagens grandes antes dos produtos.
+  MARKET: 5,
 }
 
 // ── 1. Janela de exibição ───────────────────────────────────────────────────

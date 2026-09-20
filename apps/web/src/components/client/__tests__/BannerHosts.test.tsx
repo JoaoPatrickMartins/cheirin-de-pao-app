@@ -76,7 +76,9 @@ describe('BannerPopupHost', () => {
     renderWith(<BannerPopupHost enabled />)
     await screen.findByRole('img', { name: 'Arte' })
 
-    expect(tracker.track).toHaveBeenCalledWith('b1', 'seen')
+    // `waitFor` e não um expect direto: a imagem entrar no DOM e o efeito que conta a impressão
+    // rodar são dois momentos distintos, e afirmar entre os dois deixava o teste instável.
+    await waitFor(() => expect(tracker.track).toHaveBeenCalledWith('b1', 'seen'))
   })
 
   it('fechar no X conta dispensa e some', async () => {

@@ -268,14 +268,14 @@ describe('banner-visibility', () => {
       expect(out.map((b) => b.id)).toEqual(['b'])
     })
 
-    it('mercadinho entrega até 3', () => {
-      const lista = [1, 2, 3, 4, 5].map((n) => comId(`b${n}`, { placement: 'MARKET', priority: n }))
+    it('mercadinho entrega até 5, em ordem de prioridade', () => {
+      const lista = [1, 2, 3, 4, 5, 6, 7].map((n) => comId(`b${n}`, { placement: 'MARKET', priority: n }))
       const out = selectForClient(lista, {
         placement: 'MARKET',
         condominiumId: CONDO_A,
         idOf: (b) => b.id,
       }, AGORA)
-      expect(out.map((b) => b.id)).toEqual(['b5', 'b4', 'b3'])
+      expect(out.map((b) => b.id)).toEqual(['b7', 'b6', 'b5', 'b4', 'b3'])
       expect(out).toHaveLength(BANNER_LIMITS.MARKET)
     })
 

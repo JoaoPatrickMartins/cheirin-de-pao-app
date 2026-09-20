@@ -35,13 +35,16 @@ export function MarketBanner({
         display: 'block',
         width: '100%',
         padding: 0,
-        marginBottom: 12,
+        // Sem margem própria: quem empilha define o espaçamento. Dentro do carrossel uma margem
+        // aqui empurraria os dots para fora da arte.
         border: 'none',
         borderRadius: 16,
         overflow: 'hidden',
         background: 'var(--color-surface-2)',
         cursor: clicavel ? 'pointer' : 'default',
-        boxShadow: 'var(--shadow-soft)',
+        // Fio de contorno por dentro, além da sombra: numa arte clara a peça se dissolveria no
+        // creme do fundo sem ele. `inset` para não ocupar layout nem brigar com o raio da borda.
+        boxShadow: 'var(--shadow-soft), inset 0 0 0 1px rgba(30,18,7,0.06)',
       }}
     >
       <img
