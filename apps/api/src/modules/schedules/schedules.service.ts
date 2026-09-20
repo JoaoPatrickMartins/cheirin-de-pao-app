@@ -3,8 +3,7 @@ import * as OneSignal from '@onesignal/node-onesignal'
 import { toMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { SchedulesRepository } from './schedules.repository.js'
 import { ScheduleBody, WeeklyQty } from './schedules.schema.js'
-import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
-import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
+import { getMinimumsForCondo, type WeekdayMinimums } from '../../lib/order-minimums.js'
 import {
   isDayBlocked,
   nextDateForWeekday,
@@ -191,9 +190,9 @@ export class SchedulesService {
   }
 
   async upsertSchedule(userId: string, condominiumId: string, data: ScheduleBody) {
-    // Pedido mínimo por dia (global) — piso dinâmico do admin, aplicado por turno.
-    const minRow = await this.prisma.setting.findUnique({ where: { key: 'pedidoMinimoAgenda' } })
-    const minimos = parseAgendaMinimos(minRow?.value)
+    // Pedido mínimo por dia RESOLVIDO para o condomínio do cliente (override ?? padrão global)
+    // — piso dinâmico do admin, aplicado por turno.
+    const { agenda: minimos } = await getMinimumsForCondo(this.prisma, condominiumId)
     const erro = findAgendaMinimoError(data, minimos)
     if (erro) {
       throw { statusCode: 422, message: erro }

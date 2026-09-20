@@ -2,8 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { fromMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { CreditsRepository } from './credits.repository.js'
 import { effectiveComboPrice, comboEconomy } from '../../lib/combo-pricing.js'
-import { parseAgendaMinimos } from '../admin-settings/admin-settings.service.js'
-import type { WeekdayMinimums } from '../admin-settings/admin-settings.schema.js'
+import { getMinimumsForCondo, type WeekdayMinimums } from '../../lib/order-minimums.js'
 import type { DiasBloqueados, LimitePedidosDia } from '../../lib/agenda-restrictions.js'
 import { getRulesForCondo } from '../../lib/delivery-rules.js'
 
@@ -68,34 +67,28 @@ export class CreditsService {
     diasBloqueados: DiasBloqueados
     limitePedidosDia: LimitePedidosDia
   }> {
-    const settings = await this.repo.getSettingsByKeys([
-      'avulsoLimite',
-      'avulsoUnit',
-      'pedidoMinimoUnico',
-      'pedidoMinimoAgenda',
-    ])
+    const settings = await this.repo.getSettingsByKeys(['avulsoLimite', 'avulsoUnit'])
     const limiteEntry = settings.find((s) => s.key === 'avulsoLimite')
     const unitEntry = settings.find((s) => s.key === 'avulsoUnit')
-    const minUnicoEntry = settings.find((s) => s.key === 'pedidoMinimoUnico')
-    const minAgendaEntry = settings.find((s) => s.key === 'pedidoMinimoAgenda')
 
-    const minUnicoParsed = minUnicoEntry ? parseInt(minUnicoEntry.value, 10) : 1
-
-    // Restrições por dia da semana — o cliente usa para desabilitar dias na agenda/pedido único.
-    // Resolvidas no escopo do condomínio dele (ver doc do método).
+    // Restrições e mínimos — o cliente usa para desabilitar dias e travar os steppers.
+    // Resolvidos no escopo do condomínio dele (ver doc do método).
     const user = userId
       ? await this.fastify.prisma.user.findUnique({
           where: { id: userId },
           select: { condominiumId: true },
         })
       : null
-    const { blocked, limits } = await getRulesForCondo(this.fastify.prisma, user?.condominiumId)
+    const [{ blocked, limits }, minimos] = await Promise.all([
+      getRulesForCondo(this.fastify.prisma, user?.condominiumId),
+      getMinimumsForCondo(this.fastify.prisma, user?.condominiumId),
+    ])
 
     return {
       avulsoLimite: limiteEntry ? parseFloat(limiteEntry.value) : 0,
       avulsoUnit: unitEntry ? parseFloat(unitEntry.value) : 0,
-      pedidoMinimoUnico: Number.isFinite(minUnicoParsed) && minUnicoParsed >= 1 ? minUnicoParsed : 1,
-      pedidoMinimoAgenda: parseAgendaMinimos(minAgendaEntry?.value),
+      pedidoMinimoUnico: minimos.unico,
+      pedidoMinimoAgenda: minimos.agenda,
       diasBloqueados: blocked,
       limitePedidosDia: limits,
     }

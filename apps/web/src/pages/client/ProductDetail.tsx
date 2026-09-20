@@ -80,6 +80,9 @@ export function ProductDetail() {
             availableDays={product.availableDays}
             soldOut={product.soldOut}
             limited={product.limited}
+            isNew={!!product.isNew}
+            isPromo={!!product.isPromo}
+            priceBefore={product.priceBefore ?? null}
             avulsoUnit={avulsoUnit}
             maxEconomyPercent={maxEconomyPercent}
           />
@@ -193,6 +196,9 @@ interface ProductBodyProps {
   categoryEmoji: string | null
   availableDays: string[]
   soldOut: boolean
+  isNew: boolean
+  isPromo: boolean
+  priceBefore: number | null
   limited: boolean
   avulsoUnit: number
   maxEconomyPercent: number
@@ -208,6 +214,9 @@ function ProductBody({
   categoryEmoji,
   availableDays,
   soldOut,
+  isNew,
+  isPromo,
+  priceBefore,
   limited,
   avulsoUnit,
   maxEconomyPercent,
@@ -237,6 +246,13 @@ function ProductBody({
           <span style={heroBadge('var(--color-text-sec)', '#fff')}>Esgotado</span>
         ) : limited ? (
           <span style={heroBadge('var(--color-gold)', 'var(--color-espresso)')}>Últimas unidades</span>
+        ) : null}
+        {/* No herói o selo de estoque já ocupa a esquerda, então a novidade vai para a direita —
+            invertido em relação ao card da grade, mas é o único canto livre aqui. */}
+        {isNew ? (
+          <span style={heroNovidadeBadge()}>✦ NOVIDADE</span>
+        ) : isPromo ? (
+          <span style={heroNovidadeBadge()}>🏷 PROMO</span>
         ) : null}
       </div>
 
@@ -287,6 +303,11 @@ function ProductBody({
             <Icon name="card" size={15} color="var(--color-text-ter)" stroke={2} />
             <span style={priceLabel}>À vista</span>
           </span>
+          {priceBefore != null && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)', textDecoration: 'line-through', margin: '2px 0 0' }}>
+              {formatBRL(priceBefore)}
+            </p>
+          )}
           <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--color-text)', letterSpacing: '-0.02em', margin: '2px 0 0' }}>
             {formatBRL(price)}
           </p>
@@ -412,6 +433,23 @@ function heroBadge(bg: string, color: string): React.CSSProperties {
     borderRadius: 999,
     padding: '5px 12px',
     letterSpacing: '0.01em',
+  }
+}
+
+/** Selo de novidade do herói — mesma dupla espresso/ouro, na escala do topo da tela. */
+function heroNovidadeBadge(): React.CSSProperties {
+  return {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    background: 'var(--color-espresso)',
+    color: 'var(--color-gold)',
+    fontFamily: 'var(--font-body)',
+    fontSize: 11,
+    fontWeight: 800,
+    borderRadius: 999,
+    padding: '5px 12px',
+    letterSpacing: '0.06em',
   }
 }
 

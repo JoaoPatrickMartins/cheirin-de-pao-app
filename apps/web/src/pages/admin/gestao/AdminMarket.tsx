@@ -13,19 +13,19 @@ import { MarketPreparo } from './MarketPreparo'
 type Section = 'cestinhas' | 'preparo' | 'produtos' | 'reposicao' | 'categorias' | 'config'
 
 const SECTIONS: { key: Section; label: string }[] = [
-  // Pedidos primeiro: é o que o admin abre no dia a dia (produtos/config são cadastro).
-  { key: 'cestinhas', label: 'Cestinhas' },
-  // Preparo (G1) vem logo depois porque é a pergunta da manhã: o que separar/produzir por dia.
-  { key: 'preparo', label: 'Preparo' },
+  // Produtos primeiro: é a seção mais usada do hub no dia a dia.
   { key: 'produtos', label: 'Produtos' },
   // Reposição fica ao lado de Produtos porque é a ação que o alerta de estoque baixo pede (F5).
   { key: 'reposicao', label: 'Reposição' },
+  { key: 'cestinhas', label: 'Cestinhas' },
+  // Preparo (G1) vem logo depois dos pedidos porque é a pergunta da manhã: o que separar/produzir por dia.
+  { key: 'preparo', label: 'Preparo' },
   { key: 'categorias', label: 'Categorias' },
   { key: 'config', label: 'Config' },
 ]
 
 export function AdminMarket({ onBack }: { onBack: () => void }) {
-  const [section, setSection] = useState<Section>('cestinhas')
+  const [section, setSection] = useState<Section>('produtos')
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -70,10 +70,10 @@ export function AdminMarket({ onBack }: { onBack: () => void }) {
 
       {/* Conteúdo da seção */}
       <div style={{ flex: 1, overflow: 'auto', paddingTop: 12 }}>
-        {section === 'cestinhas' && <MarketCestinhas />}
-        {section === 'preparo' && <MarketPreparo />}
         {section === 'produtos' && <MarketProdutos />}
         {section === 'reposicao' && <MarketReposicao />}
+        {section === 'cestinhas' && <MarketCestinhas />}
+        {section === 'preparo' && <MarketPreparo />}
         {section === 'categorias' && <MarketCategorias />}
         {section === 'config' && <MarketConfig />}
       </div>

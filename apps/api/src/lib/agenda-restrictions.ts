@@ -38,8 +38,11 @@ export interface AgendaRestrictions {
   limits: LimitePedidosDia
 }
 
-/** Objeto `{seg..dom}` a partir de um objeto já desserializado, aplicando `map` (ausente → default). */
-function coerceWeekdayMap<T>(obj: unknown, map: (v: unknown) => T): Record<DayKey, T> {
+/**
+ * Objeto `{seg..dom}` a partir de um objeto já desserializado, aplicando `map` (ausente → default).
+ * Exportado para o `order-minimums.ts` reusar a mesma coerção com outro clamp.
+ */
+export function coerceWeekdayMap<T>(obj: unknown, map: (v: unknown) => T): Record<DayKey, T> {
   const parsed: Record<string, unknown> =
     obj && typeof obj === 'object' ? (obj as Record<string, unknown>) : {}
   return {
@@ -54,7 +57,7 @@ function coerceWeekdayMap<T>(obj: unknown, map: (v: unknown) => T): Record<DayKe
 }
 
 /** Objeto `{seg..dom}` a partir de um raw JSON (string), aplicando `map` a cada valor. */
-function parseWeekdayMap<T>(raw: string | null | undefined, map: (v: unknown) => T): Record<DayKey, T> {
+export function parseWeekdayMap<T>(raw: string | null | undefined, map: (v: unknown) => T): Record<DayKey, T> {
   let obj: unknown = null
   if (raw) {
     try {

@@ -177,8 +177,9 @@ export class AdminSettingsController {
   }
 
   /**
-   * GET /admin/settings/pedido-minimo
-   * Retorna os pedidos mínimos (agenda por dia + pedido único).
+   * GET /admin/settings/pedido-minimo?condominiumId=
+   * Pedidos mínimos (pedido único + agenda por dia + Cestinha em R$) RESOLVIDOS: sem
+   * `condominiumId` devolve o padrão global; com, o efetivo daquele condomínio + `source`.
    */
   async getPedidoMinimo(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
@@ -186,8 +187,9 @@ export class AdminSettingsController {
     }
 
     try {
-      const config = await this.service.getPedidoMinimoConfig()
-      return reply.status(200).send(config)
+      const condominiumId = condoIdFromQuery(request.query)
+      const { unico, agenda, cestinha, source } = await this.service.getPedidoMinimoConfig(condominiumId)
+      return reply.status(200).send({ unico, agenda, cestinha, source, condominiumId })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
@@ -196,7 +198,11 @@ export class AdminSettingsController {
 
   /**
    * PATCH /admin/settings/pedido-minimo
-   * Atualiza os pedidos mínimos. Body: { unico: number, agenda: {seg..dom: number} }
+   *
+   * Body: { condominiumId?, unico: number|null, agenda: {seg..dom} | null, cestinha: number|null }
+   *
+   * Sem `condominiumId` grava o padrão global (os três são obrigatórios). Com `condominiumId`,
+   * `null` em qualquer um significa "voltar a herdar o padrão".
    */
   async setPedidoMinimo(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'ADMIN') {
@@ -214,9 +220,23 @@ export class AdminSettingsController {
     }
 
     try {
-      await this.service.setPedidoMinimoConfig(body.unico, body.agenda)
-      return reply.status(200).send({ ok: true, unico: body.unico, agenda: body.agenda })
+      const { unico, agenda, cestinha, source } = await this.service.setPedidoMinimoConfig(
+        body.unico,
+        body.agenda,
+        body.cestinha,
+        body.condominiumId,
+      )
+      return reply.status(200).send({
+        ok: true,
+        unico,
+        agenda,
+        cestinha,
+        source,
+        condominiumId: body.condominiumId ?? null,
+      })
     } catch (err) {
+      const domain = domainError(err)
+      if (domain) return reply.status(domain.statusCode).send({ error: domain.message })
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }

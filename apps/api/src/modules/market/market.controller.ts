@@ -35,6 +35,8 @@ export class MarketController {
 
   async catalog(_request: FastifyRequest, reply: FastifyReply) {
     try {
+      // O catálogo é igual para todo cliente: estoque, pausa e horário de venda são globais do
+      // produto. A rota segue autenticada por política, não por conteúdo.
       return reply.status(200).send(await this.service.getCatalog())
     } catch (err) {
       return this.handleError(reply, err)

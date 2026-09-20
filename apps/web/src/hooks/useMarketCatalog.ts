@@ -86,5 +86,17 @@ export function useMarketCatalog(): MarketCatalogData {
     }
   }, [nonce])
 
+  // A disponibilidade é DERIVADA no servidor (pausa vence, corte por horário fecha) e nada avisa
+  // o app: uma aba esquecida aberta atravessa o corte mostrando "Adicionar". Refazer a leitura
+  // quando o app volta ao primeiro plano cobre o caso comum sem nenhum dado extra no payload —
+  // e o servidor segue sendo a autoridade no checkout para todo o resto.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reload()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [reload])
+
   return { categories, products, avulsoUnit, maxEconomyPercent, isLoading, error, reload }
 }

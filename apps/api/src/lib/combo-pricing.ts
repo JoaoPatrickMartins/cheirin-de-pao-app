@@ -8,19 +8,23 @@
  * Promoção é a Promotion com isActive=true mais recente do combo
  * (discountType PERCENT|FIXED, discountValue). null = sem promoção.
  */
+import { applyDiscount } from './discount.js'
+
 export type PromotionLike = {
   discountType: 'PERCENT' | 'FIXED'
   discountValue: number
 } | null
 
-/** Preço com desconto aplicado, arredondado a 2 casas e nunca negativo. */
+/**
+ * Preço com desconto aplicado, arredondado a 2 casas e nunca negativo.
+ *
+ * A aritmética mora em `lib/discount.ts`, compartilhada com a promoção de PRODUTO da Cestinha —
+ * são a mesma conta e não podem divergir. O piso de zero é daqui: o combo pode chegar a grátis,
+ * o produto não.
+ */
 export function effectiveComboPrice(price: number, promotion: PromotionLike): number {
   if (!promotion) return price
-  const discounted =
-    promotion.discountType === 'PERCENT'
-      ? price * (1 - promotion.discountValue / 100)
-      : price - promotion.discountValue
-  return Math.max(0, Math.round(discounted * 100) / 100)
+  return Math.max(0, applyDiscount(price, promotion.discountType, promotion.discountValue))
 }
 
 /**

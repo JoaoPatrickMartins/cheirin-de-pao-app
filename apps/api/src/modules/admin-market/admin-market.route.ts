@@ -50,6 +50,44 @@ export const adminMarketRoute: FastifyPluginAsync = async (fastify) => {
     schema: { tags: [tag], summary: 'Ajustar estoque do produto (admin)', security: [{ bearerAuth: [] }], params: idParams },
   }, ctrl.setStock.bind(ctrl))
 
+  // Ordem da vitrine + selo de novidade numa gravação só. ANTES das rotas com `:id` não seria
+  // necessário (o path é fixo e não colide), mas fica junto das demais de produto por coesão.
+  fastify.put('/admin/market/products/order', {
+    ...auth,
+    schema: {
+      tags: [tag],
+      summary: 'Definir ordem da vitrine e novidades (admin)',
+      description:
+        'Recebe { novidades, catalogo } — as duas listas ordenadas. Grava sortOrder e isNew numa transação só: arrastar um produto entre as seções é o que liga/desliga o selo de novidade.',
+      security: [{ bearerAuth: [] }],
+    },
+  }, ctrl.reorderProducts.bind(ctrl))
+
+  // Pausa de VITRINE (bloqueia agora, qualquer data) — não confundir com a janela de horário do
+  // produto (availableFrom/availableUntil), que é corte por ciclo de entrega e vive no PATCH.
+  fastify.post('/admin/market/products/:id/pause', {
+    ...auth,
+    schema: {
+      tags: [tag],
+      summary: 'Pausar produto (admin)',
+      description:
+        'Pausa imediata. { minutes } define o prazo (despausa sozinho ao vencer); sem minutes, pausa até o admin religar. O cliente vê o produto como "Esgotado", nunca como pausado.',
+      security: [{ bearerAuth: [] }],
+      params: idParams,
+    },
+  }, ctrl.pauseProduct.bind(ctrl))
+
+  fastify.post('/admin/market/products/:id/resume', {
+    ...auth,
+    schema: {
+      tags: [tag],
+      summary: 'Despausar produto (admin)',
+      description: 'Religa o produto. A janela de horário (corte por ciclo) continua valendo.',
+      security: [{ bearerAuth: [] }],
+      params: idParams,
+    },
+  }, ctrl.resumeProduct.bind(ctrl))
+
   // Upload de foto (multipart/form-data) → { url }
   fastify.post('/admin/market/upload', {
     ...auth,
@@ -78,14 +116,16 @@ export const adminMarketRoute: FastifyPluginAsync = async (fastify) => {
   }, ctrl.removeCategory.bind(ctrl))
 
   // ── Config ──
+  // Só o mínimo do CARTÃO. O mínimo da Cestinha (R$) é configurável por condomínio em
+  // GET/PATCH /admin/settings/pedido-minimo, junto com os mínimos do pedido único e da agenda.
   fastify.get('/admin/market/config', {
     ...auth,
-    schema: { tags: [tag], summary: 'Config do mini market (admin)', security: [{ bearerAuth: [] }] },
+    schema: { tags: [tag], summary: 'Config do mini market — mínimo do cartão (admin)', security: [{ bearerAuth: [] }] },
   }, ctrl.getConfig.bind(ctrl))
 
   fastify.patch('/admin/market/config', {
     ...auth,
-    schema: { tags: [tag], summary: 'Atualizar config do mini market (admin)', security: [{ bearerAuth: [] }] },
+    schema: { tags: [tag], summary: 'Atualizar mínimo do cartão da Cestinha (admin)', security: [{ bearerAuth: [] }] },
   }, ctrl.setConfig.bind(ctrl))
 
   // ── Cestinhas (MarketOrder) ──

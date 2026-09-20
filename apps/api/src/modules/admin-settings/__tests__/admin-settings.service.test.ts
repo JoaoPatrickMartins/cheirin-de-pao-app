@@ -26,8 +26,19 @@ function makeFastifyMock(overrides: {
   users?: Array<{ id: string; oneSignalPlayerId: string | null }>
   orders?: Array<{ id: string; userId: string; scheduledDate: Date }>
   condominiums?: Array<{ id: string; name: string; isActive: boolean; deliverySlots: Array<{ slotId?: string; name: string; label?: string; emoji?: string; time: string; cutoffTime: string; isActive: boolean }> }>
-  /** O que `condominium.findUnique` devolve — os overrides de restrições daquele condomínio. */
-  condoOverrides?: { id?: string; blockedDaysOverride?: unknown; dayLimitOverride?: unknown } | null
+  /** O que `condominium.findUnique` devolve — os overrides daquele condomínio. */
+  condoOverrides?: {
+    id?: string
+    blockedDaysOverride?: unknown
+    dayLimitOverride?: unknown
+    pedidoMinimoUnicoOverride?: unknown
+    pedidoMinimoAgendaOverride?: unknown
+    marketMinimoCestinhaOverride?: unknown
+  } | null
+  /** Settings do PADRÃO global dos pedidos mínimos (lidos em lote por `getGlobalMinimums`). */
+  minimoSettings?: Array<{ key: string; value: string }>
+  /** Agendas ativas — base do aviso "ajuste sua agenda" quando um mínimo sobe. */
+  schedules?: Array<{ userId: string; condominiumId: string; days?: unknown; weeklyQty?: unknown }>
 } = {}) {
   const {
     setting = { key: 'cutoffTime', value: '20:00' },
@@ -46,6 +57,9 @@ function makeFastifyMock(overrides: {
     if (where.key === 'avulsoUnit') return Promise.resolve(settingAvulsoUnit)
     if (where.key === 'ganchoRecorrenciaMin') return Promise.resolve(overrides.settingGanchoRecorrenciaMin ?? null)
     if (where.key === 'ganchoRecorrenciaDesde') return Promise.resolve(overrides.settingGanchoRecorrenciaDesde ?? null)
+    // Padrão global dos pedidos mínimos (pedidoMinimoUnico / pedidoMinimoAgenda / marketMinimoCestinha).
+    const minimo = (overrides.minimoSettings ?? []).find((s) => s.key === where.key)
+    if (minimo) return Promise.resolve(minimo)
     return Promise.resolve(null)
   })
 
@@ -58,6 +72,8 @@ function makeFastifyMock(overrides: {
     },
     user: {
       findMany: vi.fn().mockResolvedValue(users),
+      // `NotificationsService.notifyUser` lê o playerId do OneSignal antes de gravar o aviso.
+      findUnique: vi.fn().mockResolvedValue({ oneSignalPlayerId: null }),
     },
     order: {
       findMany: vi.fn().mockResolvedValue(orders),
@@ -69,7 +85,7 @@ function makeFastifyMock(overrides: {
       update: vi.fn().mockResolvedValue({}),
     },
     schedule: {
-      findMany: vi.fn().mockResolvedValue([]),
+      findMany: vi.fn().mockResolvedValue(overrides.schedules ?? []),
     },
     notification: {
       create: vi.fn().mockResolvedValue({ id: 'notif-1' }),
@@ -310,31 +326,144 @@ describe('AdminSettingsService', () => {
   })
 
   describe('getPedidoMinimoConfig', () => {
-    it('retorna defaults (unico=1, agenda zerada) quando as chaves não existem', async () => {
+    it('retorna defaults (unico=1, agenda zerada, cestinha=15) quando as chaves não existem', async () => {
       const { fastify } = makeFastifyMock()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSettingsService(fastify as any)
       const config = await service.getPedidoMinimoConfig()
       expect(config.unico).toBe(1)
       expect(config.agenda.seg).toBe(0)
+      expect(config.cestinha).toBe(15)
+      expect(config.source).toEqual({ unico: 'global', agenda: 'global', cestinha: 'global' })
+    })
+
+    it('com condomínio, devolve o efetivo (override ?? global) marcando o source', async () => {
+      const { fastify } = makeFastifyMock({
+        minimoSettings: [
+          { key: 'pedidoMinimoUnico', value: '2' },
+          { key: 'pedidoMinimoAgenda', value: JSON.stringify({ seg: 2, ter: 2, qua: 2, qui: 2, sex: 2, sab: 2, dom: 2 }) },
+          { key: 'marketMinimoCestinha', value: '15.00' },
+        ],
+        // O condomínio personalizou só o pedido único e a Cestinha.
+        condoOverrides: { pedidoMinimoUnicoOverride: 5, marketMinimoCestinhaOverride: 30 },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      const config = await service.getPedidoMinimoConfig('a'.repeat(24))
+
+      expect(config.unico).toBe(5)
+      expect(config.cestinha).toBe(30)
+      expect(config.agenda.seg).toBe(2) // herdado
+      expect(config.source).toEqual({ unico: 'condo', agenda: 'global', cestinha: 'condo' })
     })
   })
 
   describe('setPedidoMinimoConfig', () => {
-    it('faz upsert das duas chaves (pedidoMinimoUnico + pedidoMinimoAgenda)', async () => {
+    const AGENDA = { seg: 3, ter: 2, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
+
+    it('sem condomínio, faz upsert das três chaves globais', async () => {
       const { fastify, prisma } = makeFastifyMock()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const service = new AdminSettingsService(fastify as any)
-      const agenda = { seg: 3, ter: 2, qua: 0, qui: 0, sex: 0, sab: 0, dom: 0 }
-      await service.setPedidoMinimoConfig(4, agenda)
+      await service.setPedidoMinimoConfig(4, AGENDA, 25)
 
-      expect(prisma.setting.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { key: 'pedidoMinimoUnico' } }),
-      )
       const calls = prisma.setting.upsert.mock.calls as Array<[{ where: { key: string }; create: { value: string } }]>
-      const agendaCall = calls.find((c) => c[0].where.key === 'pedidoMinimoAgenda')
-      expect(agendaCall).toBeDefined()
-      expect(JSON.parse(agendaCall![0].create.value)).toEqual(agenda)
+      const byKey = (k: string) => calls.find((c) => c[0].where.key === k)
+      expect(byKey('pedidoMinimoUnico')![0].create.value).toBe('4')
+      expect(JSON.parse(byKey('pedidoMinimoAgenda')![0].create.value)).toEqual(AGENDA)
+      expect(byKey('marketMinimoCestinha')![0].create.value).toBe('25')
+      expect(prisma.condominium.update).not.toHaveBeenCalled()
+    })
+
+    it('com condomínio, grava os overrides sem tocar no Setting global', async () => {
+      const condoId = 'a'.repeat(24)
+      const { fastify, prisma } = makeFastifyMock({ condoOverrides: { id: condoId } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setPedidoMinimoConfig(5, AGENDA, 30, condoId)
+
+      expect(prisma.setting.upsert).not.toHaveBeenCalled()
+      expect(prisma.condominium.update).toHaveBeenCalledWith({
+        where: { id: condoId },
+        data: {
+          pedidoMinimoUnicoOverride: 5,
+          pedidoMinimoAgendaOverride: AGENDA,
+          marketMinimoCestinhaOverride: 30,
+        },
+      })
+    })
+
+    it('null em um mínimo grava null no condomínio (volta a herdar)', async () => {
+      const condoId = 'a'.repeat(24)
+      const { fastify, prisma } = makeFastifyMock({ condoOverrides: { id: condoId } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setPedidoMinimoConfig(null, AGENDA, null, condoId)
+
+      expect(prisma.condominium.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            pedidoMinimoUnicoOverride: null,
+            marketMinimoCestinhaOverride: null,
+          }),
+        }),
+      )
+    })
+
+    it('404 em condomínio inexistente, sem gravar nada', async () => {
+      const { fastify, prisma } = makeFastifyMock({ condoOverrides: null })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await expect(service.setPedidoMinimoConfig(5, AGENDA, 30, 'b'.repeat(24))).rejects.toMatchObject({
+        statusCode: 404,
+      })
+      expect(prisma.condominium.update).not.toHaveBeenCalled()
+      expect(prisma.setting.upsert).not.toHaveBeenCalled()
+    })
+
+    it('avisa só quem tem agenda ABAIXO do novo mínimo quando ele sobe', async () => {
+      const condoId = 'a'.repeat(24)
+      const { fastify, prisma } = makeFastifyMock({
+        condoOverrides: { id: condoId },
+        schedules: [
+          // abaixo do novo mínimo de segunda (5) → avisado
+          { userId: 'u-abaixo', condominiumId: condoId, days: { manha: { seg: 3 } } },
+          // já acima → não avisado
+          { userId: 'u-ok', condominiumId: condoId, days: { manha: { seg: 8 } } },
+          // folga (0) segue válida → não avisado
+          { userId: 'u-folga', condominiumId: condoId, days: { manha: { seg: 0 } } },
+        ],
+      })
+      // O `after` é lido do condomínio já atualizado — simula o override recém-gravado.
+      prisma.condominium.findUnique
+        .mockResolvedValueOnce({ id: condoId }) // before (sem override)
+        .mockResolvedValueOnce({ id: condoId }) // guarda de existência
+        .mockResolvedValue({ id: condoId, pedidoMinimoAgendaOverride: { seg: 5 } }) // after
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setPedidoMinimoConfig(1, { ...AGENDA, seg: 5 }, 15, condoId)
+
+      const createCalls = prisma.notification.create.mock.calls as Array<[{ data: { userId: string } }]>
+      const notified = createCalls.map((c) => c[0].data.userId)
+      expect(notified).toEqual(['u-abaixo'])
+    })
+
+    it('não avisa ninguém quando o mínimo CAI', async () => {
+      const condoId = 'a'.repeat(24)
+      const { fastify, prisma } = makeFastifyMock({
+        schedules: [{ userId: 'u-1', condominiumId: condoId, days: { manha: { seg: 3 } } }],
+      })
+      prisma.condominium.findUnique
+        .mockResolvedValueOnce({ id: condoId, pedidoMinimoAgendaOverride: { seg: 5 } }) // before
+        .mockResolvedValueOnce({ id: condoId }) // guarda de existência
+        .mockResolvedValue({ id: condoId, pedidoMinimoAgendaOverride: { seg: 2 } }) // after
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSettingsService(fastify as any)
+      await service.setPedidoMinimoConfig(1, { ...AGENDA, seg: 2 }, 15, condoId)
+
+      expect(prisma.notification.create).not.toHaveBeenCalled()
     })
   })
 

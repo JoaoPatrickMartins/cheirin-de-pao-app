@@ -225,6 +225,17 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
     },
   }
 
+  // De onde veio cada mínimo — a UI usa para o badge "herdado do padrão" / "personalizado".
+  const minimosSourceSchema = {
+    type: 'object',
+    description: 'Origem de cada mínimo: "global" (padrão) ou "condo" (personalizado).',
+    properties: {
+      unico: { type: 'string', enum: ['global', 'condo'] },
+      agenda: { type: 'string', enum: ['global', 'condo'] },
+      cestinha: { type: 'string', enum: ['global', 'condo'] },
+    },
+  }
+
   fastify.get(
     '/admin/settings/pedido-minimo',
     {
@@ -233,8 +244,18 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — settings'],
         summary: 'Consultar pedidos mínimos (admin)',
         description:
-          'Retorna o pedido mínimo do pedido único e o mínimo por dia da semana da agenda (aplica-se por turno). Restrito a ADMIN.',
+          'Retorna os pedidos mínimos: do pedido único, por dia da semana da agenda (aplica-se por turno) e o valor mínimo da Cestinha em R$. Sem condominiumId devolve o padrão global; com, devolve o efetivo daquele condomínio (override ?? padrão) mais o source de cada um. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
+        querystring: {
+          type: 'object',
+          properties: {
+            condominiumId: {
+              type: 'string',
+              pattern: '^[0-9a-fA-F]{24}$',
+              description: 'Ausente = padrão global; presente = mínimos efetivos daquele condomínio.',
+            },
+          },
+        },
         response: {
           200: {
             type: 'object',
@@ -242,6 +263,9 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               unico: { type: 'integer', description: 'Quantidade mínima de pães por pedido único.' },
               agenda: agendaMinSchema,
+              cestinha: { type: 'number', description: 'Valor mínimo da Cestinha em reais (0 = sem mínimo).' },
+              source: minimosSourceSchema,
+              condominiumId: { type: ['string', 'null'] },
             },
           },
         },
@@ -258,15 +282,26 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
         tags: ['admin — settings'],
         summary: 'Atualizar pedidos mínimos (admin)',
         description:
-          'Atualiza o pedido mínimo do pedido único (1..20) e o mínimo por dia da agenda (0..12 por dia). Restrito a ADMIN.',
+          'Atualiza o pedido mínimo do pedido único (1..20), o mínimo por dia da agenda (0..12 por dia) e o valor mínimo da Cestinha em R$. Sem condominiumId grava o padrão global (os três são obrigatórios); com condominiumId, null em qualquer um significa voltar a herdar o padrão. Restrito a ADMIN.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['unico', 'agenda'],
+          required: ['unico', 'agenda', 'cestinha'],
           properties: {
-            unico: { type: 'integer', minimum: 1, maximum: 20, description: 'Novo mínimo do pedido único.' },
+            condominiumId: {
+              type: 'string',
+              pattern: '^[0-9a-fA-F]{24}$',
+              description: 'Ausente = grava o padrão global; presente = grava o override daquele condomínio.',
+            },
+            unico: {
+              type: ['integer', 'null'],
+              minimum: 1,
+              maximum: 20,
+              description: 'Novo mínimo do pedido único. null (só com condominiumId) = voltar a herdar.',
+            },
             agenda: {
-              type: 'object',
+              type: ['object', 'null'],
+              description: 'null (só com condominiumId) = voltar a herdar o padrão global.',
               required: ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'],
               properties: {
                 seg: { type: 'integer', minimum: 0, maximum: 12 },
@@ -278,16 +313,24 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
                 dom: { type: 'integer', minimum: 0, maximum: 12 },
               },
             },
+            cestinha: {
+              type: ['number', 'null'],
+              minimum: 0,
+              description: 'Valor mínimo da Cestinha em reais (0 = sem mínimo). null (só com condominiumId) = voltar a herdar.',
+            },
           },
         },
         response: {
           200: {
             type: 'object',
-            description: 'Configuração de pedido mínimo atualizada.',
+            description: 'Configuração de pedido mínimo atualizada (valores efetivos após a edição).',
             properties: {
               ok: { type: 'boolean' },
               unico: { type: 'integer' },
               agenda: agendaMinSchema,
+              cestinha: { type: 'number' },
+              source: minimosSourceSchema,
+              condominiumId: { type: ['string', 'null'] },
             },
           },
         },

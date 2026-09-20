@@ -5,6 +5,7 @@ import { wholeBreadsOf } from '@cheirin-de-pao/shared'
 import { useAuth } from '../../hooks/useAuth'
 import { CreditBalanceCard } from '../../components/client/CreditBalanceCard'
 import { PushNudge } from '../../components/client/PushNudge'
+import { AvisoStripHost } from '../../components/client/AvisoStripHost'
 import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
 import { DeliveryBannerCarousel } from '../../components/client/DeliveryBannerCarousel'
@@ -398,6 +399,9 @@ export function HomeScreen() {
         />
 
         <motion.div variants={containerV} style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Faixa de aviso do admin (feriado, mudança de horário) — o recado mais urgente vem antes de tudo */}
+          <AvisoStripHost />
+
           {/* Aviso dispensável para ativar push — topo, logo abaixo do header */}
           <PushNudge />
 

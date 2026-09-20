@@ -76,6 +76,14 @@ export function MarketMiniCard({
           dimmed={product.soldOut}
         />
 
+        {/* Selo de novidade à esquerda — o canto direito é do estoque / botão de adicionar.
+            Na faixa (150px) o rótulo encolhe para caber sem quebrar linha. */}
+        {product.isNew ? (
+          <span style={novidadeBadge()}>✦ NOVO</span>
+        ) : product.isPromo ? (
+          <span style={novidadeBadge()}>🏷 PROMO</span>
+        ) : null}
+
         {/* Estado de estoque / botão de adicionar. */}
         {product.soldOut ? (
           <span style={cornerBadge('var(--color-text-sec)', '#fff')}>Esgotado</span>
@@ -106,12 +114,19 @@ export function MarketMiniCard({
         {product.name}
       </p>
 
-      {/* Preço à vista */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
-          {formatBRL(product.price)}
-        </span>
-        <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-ter)' }}>à vista</span>
+      {/* Preço à vista, com o riscado do cheio quando há promoção */}
+      <div>
+        {product.priceBefore != null && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', textDecoration: 'line-through', margin: '0 0 1px' }}>
+            {formatBRL(product.priceBefore)}
+          </p>
+        )}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
+            {formatBRL(product.price)}
+          </span>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, fontWeight: 600, color: 'var(--color-text-ter)' }}>à vista</span>
+        </div>
       </div>
 
       {/* Rodapé: pague com pãezinhos (N pães · −X%) */}
@@ -139,6 +154,28 @@ export function MarketMiniCard({
       )}
     </button>
   )
+}
+
+/** Selo de novidade da faixa — mesmo par espresso/ouro do card do catálogo, em escala menor. */
+function novidadeBadge(): React.CSSProperties {
+  return {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    height: 20,
+    padding: '0 7px',
+    borderRadius: 999,
+    background: 'var(--color-espresso)',
+    color: 'var(--color-gold)',
+    fontFamily: 'var(--font-body)',
+    fontSize: 9.5,
+    fontWeight: 800,
+    letterSpacing: '0.06em',
+    display: 'grid',
+    placeItems: 'center',
+    lineHeight: 1,
+    zIndex: 2,
+  }
 }
 
 function cornerBadge(bg: string, color: string): React.CSSProperties {

@@ -21,6 +21,10 @@ export function CestinhaScreen() {
   const emojiOf = (categoryId: string) => categories.find((c) => c.id === categoryId)?.emoji ?? null
 
   const isEmpty = cart.items.length === 0 && cart.breadQty === 0
+  // Linha esgotada trava o checkout. O backend já recusa com 409, mas até aqui o cliente só
+  // descobria isso depois de tocar em "Ir para pagamento" — a mensagem por linha não travava nada.
+  const hasSoldOut = cart.items.some((l) => l.soldOut)
+  const canCheckout = cart.meetsMinimum && !hasSoldOut
   const breadValue = cart.breadQty * cart.avulsoUnit
   const faltam = Math.max(0, cart.minimo - cart.subtotal)
   // Mensagens de mínimo: pão só de pão respeita a quantidade (breadMin); com produtos, o R$.
@@ -207,9 +211,14 @@ export function CestinhaScreen() {
               {formatBRL(cart.subtotal)}
             </span>
           </div>
+          {hasSoldOut && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-accent)', margin: '0 0 8px', lineHeight: 1.4 }}>
+              Remova os itens esgotados para continuar.
+            </p>
+          )}
           <button
-            onClick={() => cart.meetsMinimum && navigate('/client/market/checkout')}
-            disabled={!cart.meetsMinimum}
+            onClick={() => canCheckout && navigate('/client/market/checkout')}
+            disabled={!canCheckout}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -224,8 +233,8 @@ export function CestinhaScreen() {
               fontFamily: 'var(--font-display)',
               fontWeight: 700,
               fontSize: 16,
-              cursor: cart.meetsMinimum ? 'pointer' : 'default',
-              opacity: cart.meetsMinimum ? 1 : 0.45,
+              cursor: canCheckout ? 'pointer' : 'default',
+              opacity: canCheckout ? 1 : 0.45,
             }}
           >
             <Icon name="chevR" size={18} color="var(--color-primary-btn-text)" stroke={2.4} />
@@ -273,7 +282,13 @@ function CartItemRow({
           </span>
         </div>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
-          {formatBRL(line.price)} · un
+          {line.priceBefore != null && (
+            <span style={{ textDecoration: 'line-through', marginRight: 5 }}>{formatBRL(line.priceBefore)}</span>
+          )}
+          <span style={line.priceBefore != null ? { color: 'var(--color-accent)', fontWeight: 700 } : undefined}>
+            {formatBRL(line.price)}
+          </span>{' '}
+          · un
         </p>
         {line.stockType === 'DAILY' && line.maxQty != null && line.maxQty < 99 && (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>

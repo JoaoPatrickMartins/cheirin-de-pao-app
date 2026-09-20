@@ -1,6 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
+import { CondoScopeSelector, InheritBadge } from './CondoScopeSelector'
+
+/**
+ * AdminPedidoMinimo — os três pedidos mínimos da operação num lugar só: pedido único (pães),
+ * agenda semanal (pães por dia/turno) e Cestinha (R$).
+ *
+ * Cada um pode valer para todo mundo (o PADRÃO) ou ser personalizado por condomínio. O modelo é
+ * herança e vale por seção: um condomínio pode personalizar só a Cestinha e seguir herdando o
+ * resto. `null` no PATCH = voltar a herdar.
+ *
+ * Mudar um mínimo NÃO mexe em nada já agendado — vale do próximo pedido/salvamento em diante.
+ * Quem tem agenda abaixo do novo piso recebe um aviso para ajustar (o backend cuida disso).
+ */
 
 // ------------------------------------------------------------------ tipos
 type WeekdayMinimums = {
@@ -13,9 +26,19 @@ type WeekdayMinimums = {
   dom: number
 }
 
+type Origem = 'global' | 'condo'
+
+interface MinimosSource {
+  unico: Origem
+  agenda: Origem
+  cestinha: Origem
+}
+
 interface PedidoMinimoSettings {
   unico: number
   agenda: WeekdayMinimums
+  cestinha: number
+  source?: MinimosSource
 }
 
 interface AdminPedidoMinimoProps {
@@ -33,49 +56,89 @@ const DAYS: Array<{ label: string; key: keyof WeekdayMinimums }> = [
 ]
 
 const DEFAULT_AGENDA: WeekdayMinimums = { seg: 1, ter: 1, qua: 1, qui: 1, sex: 1, sab: 1, dom: 1 }
+const DEFAULT_SOURCE: MinimosSource = { unico: 'global', agenda: 'global', cestinha: 'global' }
+
+/** Qual seção voltar a herdar — `null` naquele campo do PATCH. */
+type Secao = 'unico' | 'agenda' | 'cestinha'
+
+/** "15,00" e "15.00" viram 15. Campo vazio/inválido → null (o chamador decide o que fazer). */
+function parseReais(raw: string): number | null {
+  const n = Number(raw.trim().replace(',', '.'))
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
 
 // ------------------------------------------------------------------ componente
 export function AdminPedidoMinimo({ onBack }: AdminPedidoMinimoProps) {
+  // null = padrão global (vale para todo condomínio que não personalizou).
+  const [scope, setScope] = useState<string | null>(null)
   const [unico, setUnico] = useState(1)
   const [agenda, setAgenda] = useState<WeekdayMinimums>(DEFAULT_AGENDA)
+  const [cestinha, setCestinha] = useState('15.00')
+  const [source, setSource] = useState<MinimosSource>(DEFAULT_SOURCE)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await apiFetch('/admin/settings/pedido-minimo')
-        if (res.ok) {
-          const data = (await res.json()) as PedidoMinimoSettings
-          if (typeof data.unico === 'number' && data.unico >= 1) setUnico(data.unico)
-          if (data.agenda && typeof data.agenda === 'object') {
-            setAgenda({ ...DEFAULT_AGENDA, ...data.agenda })
-          }
-        }
-      } catch {
-        // falha silenciosa
-      } finally {
-        setIsLoading(false)
-      }
+  const applySettings = (data: PedidoMinimoSettings) => {
+    if (typeof data.unico === 'number' && data.unico >= 1) setUnico(data.unico)
+    if (data.agenda && typeof data.agenda === 'object') {
+      setAgenda({ ...DEFAULT_AGENDA, ...data.agenda })
     }
-    void fetchSettings()
-  }, [])
+    if (typeof data.cestinha === 'number') setCestinha(data.cestinha.toFixed(2))
+    setSource(data.source ?? DEFAULT_SOURCE)
+  }
 
-  const handleSalvar = async () => {
+  const fetchSettings = useCallback(async () => {
+    setIsLoading(true)
+    setSaved(false)
+    setError(null)
+    try {
+      const qs = scope ? `?condominiumId=${scope}` : ''
+      const res = await apiFetch(`/admin/settings/pedido-minimo${qs}`)
+      if (res.ok) applySettings((await res.json()) as PedidoMinimoSettings)
+    } catch {
+      // falha silenciosa
+    } finally {
+      setIsLoading(false)
+    }
+  }, [scope])
+
+  useEffect(() => {
+    void fetchSettings()
+  }, [fetchSettings])
+
+  /**
+   * Grava no escopo atual. `inherit` faz aquela seção voltar a herdar o padrão (só com escopo
+   * de condomínio — no global os três são obrigatórios).
+   */
+  const salvar = async (inherit?: Secao) => {
     setError(null)
     setSaved(false)
+
+    const cestinhaNum = parseReais(cestinha)
+    if (inherit !== 'cestinha' && cestinhaNum === null) {
+      setError('Informe um valor válido para o mínimo da Cestinha.')
+      return
+    }
+
     setIsSaving(true)
     try {
       const res = await apiFetch('/admin/settings/pedido-minimo', {
         method: 'PATCH',
-        body: JSON.stringify({ unico, agenda }),
+        body: JSON.stringify({
+          ...(scope ? { condominiumId: scope } : {}),
+          unico: inherit === 'unico' ? null : unico,
+          agenda: inherit === 'agenda' ? null : agenda,
+          cestinha: inherit === 'cestinha' ? null : cestinhaNum,
+        }),
       })
       if (res.ok) {
+        applySettings((await res.json()) as PedidoMinimoSettings)
         setSaved(true)
       } else {
-        setError('Não foi possível salvar. Tente novamente.')
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        setError(body?.error ?? 'Não foi possível salvar. Tente novamente.')
       }
     } catch {
       setError('Erro de conexão. Tente novamente.')
@@ -88,6 +151,15 @@ export function AdminPedidoMinimo({ onBack }: AdminPedidoMinimoProps) {
     setSaved(false)
     setAgenda((prev) => ({ ...prev, [key]: v }))
   }
+
+  /** O badge de herança só faz sentido no escopo de um condomínio. */
+  const badge = (secao: Secao) =>
+    scope === null ? null : (
+      <InheritBadge
+        custom={source[secao] === 'condo'}
+        onReset={() => void salvar(secao)}
+      />
+    )
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -137,6 +209,8 @@ export function AdminPedidoMinimo({ onBack }: AdminPedidoMinimoProps) {
           gap: 16,
         }}
       >
+        <CondoScopeSelector value={scope} onChange={setScope} disabled={isSaving} />
+
         {isLoading ? (
           <div style={{ textAlign: 'center', paddingTop: 32 }}>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)' }}>
@@ -147,12 +221,15 @@ export function AdminPedidoMinimo({ onBack }: AdminPedidoMinimoProps) {
           <>
             {/* ---------------- Pedido único ---------------- */}
             <div>
-              <p style={sectionTitle}>Pedido único</p>
+              <div style={sectionHeader}>
+                <p style={sectionTitle}>Pedido único</p>
+                {badge('unico')}
+              </div>
               <div style={cardStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                   <div>
                     <p style={rowTitle}>Mínimo por pedido</p>
-                    <p style={rowHint}>Menos que isso não é aceito no pedido único</p>
+                    <p style={rowHint}>Vale também para os pães dentro da Cestinha</p>
                   </div>
                   <NumberStepper
                     value={unico}
@@ -169,16 +246,11 @@ export function AdminPedidoMinimo({ onBack }: AdminPedidoMinimoProps) {
 
             {/* ---------------- Agenda semanal ---------------- */}
             <div>
-              <p style={sectionTitle}>Agenda semanal</p>
-              <p
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 12.5,
-                  color: 'var(--color-text-ter)',
-                  lineHeight: 1.5,
-                  margin: '0 0 10px',
-                }}
-              >
+              <div style={sectionHeader}>
+                <p style={sectionTitle}>Agenda semanal</p>
+                {badge('agenda')}
+              </div>
+              <p style={sectionHint}>
                 Mínimo por dia da semana. Vale por turno: se o cliente pedir naquele dia, precisa ser
                 pelo menos esse valor. Use 0 para não exigir mínimo no dia.
               </p>
@@ -195,6 +267,50 @@ export function AdminPedidoMinimo({ onBack }: AdminPedidoMinimoProps) {
               </div>
             </div>
 
+            {/* ---------------- Cestinha ---------------- */}
+            <div>
+              <div style={sectionHeader}>
+                <p style={sectionTitle}>Cestinha</p>
+                {badge('cestinha')}
+              </div>
+              <p style={sectionHint}>
+                Valor mínimo da Cestinha quando ela tem produtos. Cestinha só de pão é isenta —
+                nela vale o mínimo do pedido único. Use 0 para não exigir mínimo.
+              </p>
+              <div style={cardStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div>
+                    <p style={rowTitle}>Mínimo da Cestinha (R$)</p>
+                    <p style={rowHint}>Ex.: 15,00</p>
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={cestinha}
+                    onChange={(e) => {
+                      setSaved(false)
+                      setCestinha(e.target.value)
+                    }}
+                    aria-label="Mínimo da Cestinha em reais"
+                    style={{
+                      width: 96,
+                      minHeight: 40,
+                      textAlign: 'right',
+                      padding: '0 12px',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 12,
+                      background: 'var(--color-surface)',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 15,
+                      fontWeight: 700,
+                      color: 'var(--color-text)',
+                      flexShrink: 0,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Erro */}
             {error && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--color-accent)', margin: 0 }}>
@@ -205,14 +321,14 @@ export function AdminPedidoMinimo({ onBack }: AdminPedidoMinimoProps) {
             {/* Sucesso */}
             {saved && !error && (
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: 'var(--color-text-sec)', margin: 0 }}>
-                Configuração salva e aplicada aos novos pedidos.
+                Configuração salva. Vale para os novos pedidos — nada já agendado muda.
               </p>
             )}
 
             {/* Botão salvar */}
             <button
               type="button"
-              onClick={() => void handleSalvar()}
+              onClick={() => void salvar()}
               disabled={isSaving}
               style={{
                 display: 'flex',
@@ -250,7 +366,24 @@ const sectionTitle: React.CSSProperties = {
   color: 'var(--color-text-sec)',
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
+  margin: 0,
+}
+
+const sectionHeader: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  flexWrap: 'wrap',
   margin: '0 0 9px',
+}
+
+const sectionHint: React.CSSProperties = {
+  fontFamily: 'var(--font-body)',
+  fontSize: 12.5,
+  color: 'var(--color-text-ter)',
+  lineHeight: 1.5,
+  margin: '0 0 10px',
 }
 
 const cardStyle: React.CSSProperties = {
