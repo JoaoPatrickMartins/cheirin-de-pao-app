@@ -5,12 +5,36 @@ import { AdminHooksController } from './admin-hooks.controller.js'
  * adminHooksRoute — gestão dos ganchos de porta pelo Admin.
  *
  * Rotas:
+ *   GET   /admin/hook-requests/summary     — quantos ganchos aguardam entrega (badge de Gestão)
  *   GET   /admin/hook-requests             — lista (busca, filtro status/tipo, paginação)
  *   PATCH /admin/hook-requests/:id/deliver — marca a entrega de um gancho (por id do HookRequest)
  *   POST  /admin/hook-requests/grant       — concede um gancho de bonificação a um cliente
  */
 export const adminHooksRoute: FastifyPluginAsync = async (fastify) => {
   const ctrl = new AdminHooksController(fastify)
+
+  fastify.get(
+    '/admin/hook-requests/summary',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — hooks'],
+        summary: 'Contagem de ganchos pendentes (admin)',
+        description:
+          'Retorna quantos ganchos estão na fila de entrega (status REQUESTED). Consulta leve, feita a cada entrada no hub de Gestão para alimentar o badge de pendências. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              pending: { type: 'integer', description: 'Ganchos aguardando entrega (REQUESTED).' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.summary.bind(ctrl),
+  )
 
   fastify.get(
     '/admin/hook-requests',

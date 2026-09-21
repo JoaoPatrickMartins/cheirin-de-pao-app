@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
+import { HOOK_TYPE_BADGE, type HookStatus, type HookType } from '../../../lib/hookLabels'
 import { Icon } from '../../../components/brand/Icon'
 import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
+import { usePrintQueue } from '../../../components/admin/coupon/CouponShell'
+import { HookCouponSheet, type HookCouponData } from '../../../components/admin/coupon/HookCoupon'
 
 // ------------------------------------------------------------------ tipos
-type HookType = 'FREE' | 'PAID' | 'BONUS'
-type HookStatus = 'REQUESTED' | 'DELIVERED'
-
 interface HookItem {
   id: string
   userId: string
@@ -41,13 +41,6 @@ const TIPO_OPCOES: { id: TipoFiltro; label: string }[] = [
   { id: 'bonus', label: 'Bônus' },
 ]
 
-/** Rótulo + cores da pílula de tipo do gancho. */
-const TYPE_BADGE: Record<HookType, { label: string; bg: string; fg: string }> = {
-  FREE: { label: 'Grátis', bg: 'var(--color-good-soft)', fg: 'var(--color-good)' },
-  PAID: { label: 'Pago', bg: 'var(--color-gold-soft)', fg: 'var(--color-accent)' },
-  BONUS: { label: 'Bônus', bg: 'var(--color-surface-2)', fg: 'var(--color-text-sec)' },
-}
-
 const PAGE_SIZE = 20
 
 interface AdminGanchosProps {
@@ -60,6 +53,29 @@ function formatDate(iso: string | null): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+
+/** "12/06" para o cupom — data curta com barra, que é como a térmica costuma ser lida. */
+function formatDateShort(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+/** HookItem → cupom impresso. O endereço sai do mesmo `formatUnit` da rota do entregador. */
+function toCoupon(item: HookItem): HookCouponData {
+  return {
+    hookRequestId: item.id,
+    clientName: item.name,
+    condominiumName: item.condominiumName ?? '',
+    block: item.block ?? '',
+    complement: item.complement ?? '',
+    apartment: item.apartment ?? '',
+    typeLabel: HOOK_TYPE_BADGE[item.type].label,
+    reason: item.reason ?? '',
+    dateLabel: item.requestedAt ? `Solicitado em ${formatDateShort(item.requestedAt)}` : '',
+  }
 }
 
 /** Local do cliente: "Bloco B · Lado A · Apto 302" / "Apto 12" / condomínio. */
@@ -115,9 +131,17 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
 
+  // Quantos ganchos aguardam entrega — independe do filtro na tela, por isso vem de /summary
+  // e não do `total` da listagem (que muda quando o admin olha "Entregues" ou filtra por tipo).
+  const [pendingCount, setPendingCount] = useState<number | null>(null)
+
   // ação de entrega
   const [confirmItem, setConfirmItem] = useState<HookItem | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
+
+  // seleção para impressão em lote + fila de impressão
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const { queue: coupons, print } = usePrintQueue<HookCouponData>()
 
   // debounce da busca (300ms)
   useEffect(() => {
@@ -141,11 +165,30 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
     [debouncedQ, status, tipo],
   )
 
-  // refetch quando busca/filtro mudam (volta para página 1)
+  const refreshPending = useCallback(async () => {
+    try {
+      const res = await apiFetch('/admin/hook-requests/summary')
+      if (res.ok) {
+        const data = (await res.json()) as { pending: number }
+        setPendingCount(data.pending)
+      }
+    } catch {
+      // falha silenciosa — o contador some, a fila continua funcionando
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshPending()
+  }, [refreshPending])
+
+  // refetch quando busca/filtro mudam (volta para página 1). A seleção é limpa junto: os ids
+  // marcados podem nem estar na nova lista, e um lote que imprime cupom fora do filtro visível
+  // seria impossível de conferir antes de mandar para a térmica.
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
     setPage(1)
+    setSelected(new Set())
     ;(async () => {
       try {
         const res = await apiFetch(buildUrl(1))
@@ -192,6 +235,10 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
         const data = (await res.json()) as { items: HookItem[]; total: number }
         setItems(data.items)
         setTotal(data.total)
+        // Poda a seleção: o gancho recém-entregue sai da lista "Pendentes" e não pode
+        // continuar contando na barra de impressão.
+        const visiveis = new Set(data.items.map((i) => i.id))
+        setSelected((prev) => new Set([...prev].filter((id) => visiveis.has(id))))
       }
     } catch {
       // falha silenciosa
@@ -205,7 +252,7 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
       const res = await apiFetch(`/admin/hook-requests/${confirmItem.id}/deliver`, { method: 'PATCH' })
       if (res.ok) {
         setConfirmItem(null)
-        await refetch()
+        await Promise.all([refetch(), refreshPending()])
       }
     } catch {
       // falha silenciosa
@@ -216,10 +263,35 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
 
   const hasMore = items.length < total
 
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const allSelected = items.length > 0 && items.every((i) => selected.has(i.id))
+
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(items.map((i) => i.id)))
+  }
+
+  // Ordem de impressão = ordem da tela (condomínio → bloco → apartamento), para o lote sair da
+  // térmica na mesma sequência em que os ganchos são separados.
+  const selectedCoupons = useMemo(
+    () => items.filter((i) => selected.has(i.id)).map(toCoupon),
+    [items, selected],
+  )
+
   const renderCard = (item: HookItem) => (
     <HookCard
       key={item.id}
       item={item}
+      selected={selected.has(item.id)}
+      onToggleSelect={() => toggleSelected(item.id)}
+      onPrint={() => print([toCoupon(item)])}
       onDeliver={() => setConfirmItem(item)}
       onViewClient={() =>
         window.dispatchEvent(new CustomEvent('cdp:open-admin-client', { detail: { clientId: item.userId } }))
@@ -267,6 +339,31 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
             Entregas de gancho de porta
           </p>
         </div>
+
+        {/* Pendências — o número que o admin veio ver, antes de qualquer filtro. */}
+        {pendingCount !== null && pendingCount > 0 && (
+          <div
+            style={{
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 54,
+              padding: '6px 10px',
+              borderRadius: 12,
+              background: 'var(--color-gold-soft)',
+              border: '1px solid var(--color-accent)',
+            }}
+          >
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: 'var(--color-accent)', lineHeight: 1 }}>
+              {pendingCount}
+            </span>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 10, fontWeight: 700, color: 'var(--color-accent)', letterSpacing: '0.02em', marginTop: 2 }}>
+              {pendingCount === 1 ? 'pendente' : 'pendentes'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Busca */}
@@ -317,6 +414,8 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '0 20px 4px', scrollbarWidth: 'none' }}>
         {STATUS_OPCOES.map((opt) => {
           const ativo = status === opt.id
+          // Só o chip "Pendentes" carrega número: é o único cuja contagem o admin usa para decidir.
+          const contagem = opt.id === 'pending' && pendingCount !== null && pendingCount > 0 ? pendingCount : null
           return (
             <button
               key={opt.id}
@@ -336,9 +435,30 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
                 minHeight: 40,
                 display: 'flex',
                 alignItems: 'center',
+                gap: 6,
               }}
             >
               {opt.label}
+              {contagem !== null && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: 20,
+                    height: 20,
+                    padding: '0 6px',
+                    borderRadius: 999,
+                    background: ativo ? 'var(--color-accent)' : 'var(--color-gold-soft)',
+                    color: ativo ? '#FAF5EC' : 'var(--color-accent)',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}
+                >
+                  {contagem}
+                </span>
+              )}
             </button>
           )
         })}
@@ -375,8 +495,18 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
         })}
       </div>
 
-      {/* Lista */}
-      <div style={{ overflow: 'auto', flex: 1, padding: '12px 20px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Lista — o rodapé cresce quando a barra de seleção está no ar, para o último card
+          não ficar embaixo dela. */}
+      <div
+        style={{
+          overflow: 'auto',
+          flex: 1,
+          padding: selected.size > 0 ? '12px 20px 104px' : '12px 20px 24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
         {isLoading ? (
           <div style={{ paddingTop: 32, textAlign: 'center' }}>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)' }}>Carregando...</span>
@@ -394,6 +524,33 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
           </div>
         ) : (
           <>
+            {/* Seleção em massa — opera só sobre o que já foi carregado; com a lista paginada,
+                prometer "todos" seria mentira na hora de imprimir. */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 600, color: 'var(--color-text-ter)' }}>
+                {items.length} de {total} {total === 1 ? 'solicitação' : 'solicitações'}
+              </span>
+              <button
+                onClick={toggleAll}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  minHeight: 34,
+                  padding: '0 12px',
+                  borderRadius: 999,
+                  border: '1.5px solid var(--color-border)',
+                  background: 'transparent',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  color: 'var(--color-text-sec)',
+                  cursor: 'pointer',
+                }}
+              >
+                {allSelected ? 'Limpar seleção' : `Selecionar ${items.length === 1 ? 'o item' : `os ${items.length} carregados`}`}
+              </button>
+            </div>
             {groupByCondo(items).map((condo) => {
               const hasBlocks = condo.items.some((i) => i.block && i.block.trim())
               return (
@@ -460,6 +617,76 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
         )}
       </div>
 
+      {/* Barra da seleção — fixa acima da nav do admin (56px + safe area), como na Separação:
+          o botão precisa estar ao alcance sem rolar até o fim de uma fila longa.
+          zIndex abaixo da nav (50) e das folhas de confirmação (100+). */}
+      {selected.size > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))',
+            zIndex: 40,
+            background: 'var(--color-app-bg)',
+            borderTop: '1px solid var(--color-border-2)',
+            boxShadow: '0 -8px 24px rgba(30, 18, 7, 0.08)',
+            padding: '12px 20px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+            {selected.size} {selected.size === 1 ? 'selecionado' : 'selecionados'}
+          </span>
+          <button
+            onClick={() => setSelected(new Set())}
+            style={{
+              minHeight: 46,
+              padding: '0 14px',
+              borderRadius: 16,
+              border: '1.5px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 14,
+              fontWeight: 700,
+              color: 'var(--color-text-sec)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Limpar
+          </button>
+          <button
+            onClick={() => print(selectedCoupons)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              minHeight: 46,
+              padding: '0 18px',
+              borderRadius: 16,
+              border: 'none',
+              background: 'var(--color-espresso)',
+              color: '#FAF5EC',
+              fontFamily: 'var(--font-body)',
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Icon name="doc" size={16} stroke={2} color="#FAF5EC" />
+            Imprimir {selected.size === 1 ? 'cupom' : `${selected.size} cupons`}
+          </button>
+        </div>
+      )}
+
+      {/* Folha de cupons (oculta na tela; impressa via window.print) */}
+      <HookCouponSheet coupons={coupons} />
+
       <ConfirmSheet
         open={confirmItem !== null}
         title="Marcar gancho como entregue?"
@@ -481,21 +708,27 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
 // ------------------------------------------------------------------ HookCard
 function HookCard({
   item,
+  selected,
+  onToggleSelect,
+  onPrint,
   onDeliver,
   onViewClient,
 }: {
   item: HookItem
+  selected: boolean
+  onToggleSelect: () => void
+  onPrint: () => void
   onDeliver: () => void
   onViewClient: () => void
 }) {
   const entregue = item.status === 'DELIVERED'
-  const badge = TYPE_BADGE[item.type]
+  const badge = HOOK_TYPE_BADGE[item.type]
 
   return (
     <div
       style={{
         background: 'var(--color-surface)',
-        border: '1px solid var(--color-border-2)',
+        border: selected ? '1.5px solid var(--color-accent)' : '1px solid var(--color-border-2)',
         borderRadius: 16,
         padding: 16,
         display: 'flex',
@@ -504,21 +737,34 @@ function HookCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div
+        {/* A caixa de seleção ocupa o lugar do avatar: é a coluna que o olho varre ao montar
+            o lote, e o avatar genérico não informava nada que o nome já não dissesse. */}
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={`Selecionar gancho de ${item.name}`}
+          onClick={onToggleSelect}
           style={{
             width: 44,
             height: 44,
-            borderRadius: '50%',
-            background: 'var(--color-surface-2)',
+            borderRadius: 12,
+            border: selected ? 'none' : '1.5px solid var(--color-border)',
+            background: selected ? 'var(--color-accent)' : 'var(--color-surface-2)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
-            color: 'var(--color-accent)',
+            cursor: 'pointer',
+            padding: 0,
           }}
         >
-          <Icon name="user" size={22} color="var(--color-accent)" />
-        </div>
+          {selected ? (
+            <Icon name="check" size={22} stroke={2.6} color="#FAF5EC" />
+          ) : (
+            <Icon name="user" size={22} color="var(--color-accent)" />
+          )}
+        </button>
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.3 }}>
@@ -620,6 +866,31 @@ function HookCard({
           >
             <Icon name="user" size={16} color="var(--color-text-sec)" />
             Ver cliente
+          </button>
+
+          {/* Impressão avulsa — imprimir NÃO registra entrega: o cupom sai na montagem, a
+              entrega é marcada quando o gancho chega na porta. */}
+          <button
+            onClick={onPrint}
+            aria-label={`Imprimir cupom do gancho de ${item.name}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              minHeight: 38,
+              padding: '0 14px',
+              borderRadius: 12,
+              border: '1.5px solid var(--color-border)',
+              background: 'transparent',
+              color: 'var(--color-text-sec)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            <Icon name="doc" size={16} stroke={2} color="var(--color-text-sec)" />
+            Cupom
           </button>
 
           {!entregue && (

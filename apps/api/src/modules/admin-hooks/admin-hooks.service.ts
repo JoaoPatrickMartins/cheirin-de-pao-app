@@ -148,6 +148,18 @@ export class AdminHooksService {
   }
 
   /**
+   * Quantos ganchos estão na fila de entrega (REQUESTED) — o número do badge de Gestão.
+   *
+   * Contagem crua no índice `[status, requestedAt]`, sem `enrich`: o contador é buscado em
+   * toda entrada no hub e não pode custar o mesmo que a listagem. Pagamentos ainda pendentes
+   * (PENDING_PAYMENT) não são pendência operacional — ninguém tem gancho a entregar por eles.
+   */
+  async countPending() {
+    const pending = await this.prisma.hookRequest.count({ where: { status: 'REQUESTED' } })
+    return { pending }
+  }
+
+  /**
    * Resolve nome/local do cliente e nome do condomínio em queries batch (evita N+1)
    * e monta os itens de saída da listagem a partir dos HookRequest crus.
    */

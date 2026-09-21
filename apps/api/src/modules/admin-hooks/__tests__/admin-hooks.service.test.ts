@@ -143,6 +143,24 @@ describe('AdminHooksService.markDelivered', () => {
   })
 })
 
+describe('AdminHooksService.countPending', () => {
+  it('conta apenas os ganchos na fila (REQUESTED)', async () => {
+    const { fastify, prisma } = makeFastify({ count: 7 })
+    const res = await new AdminHooksService(fastify).countPending()
+    expect(res).toEqual({ pending: 7 })
+    expect((prisma.hookRequest.count as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({
+      where: { status: 'REQUESTED' },
+    })
+  })
+
+  it('não carrega os ganchos para contar (nada de enrich)', async () => {
+    const { fastify, prisma } = makeFastify({ count: 3 })
+    await new AdminHooksService(fastify).countPending()
+    expect(prisma.hookRequest.findMany).not.toHaveBeenCalled()
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+})
+
 describe('AdminHooksService.grant (bonificação)', () => {
   it('cria um HookRequest BONUS na fila quando o cliente não tem gancho em andamento', async () => {
     const { fastify, hookCreate } = makeFastify({ user: { role: 'CLIENT' }, count: 0 })

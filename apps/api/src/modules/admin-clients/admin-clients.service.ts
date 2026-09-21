@@ -520,6 +520,61 @@ export class AdminClientsService {
   }
 
   /**
+   * Ganchos de porta do cliente (HookRequest) — histórico completo, para o card "Ganchos"
+   * e a timeline do detalhe do cliente.
+   *
+   * Traz TODOS os status, inclusive PENDING_PAYMENT e CANCELLED: um gancho pago que nunca
+   * foi confirmado é exatamente o que o atendimento precisa ver ao ouvir "paguei e não chegou".
+   * Admins (concessão/entrega) e valor do gancho pago são resolvidos em queries batch.
+   */
+  async getHooks(id: string) {
+    await this.assertClient(id)
+
+    const hooks = await this.prisma.hookRequest.findMany({
+      where: { userId: id },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (hooks.length === 0) return []
+
+    const adminIds = [
+      ...new Set(
+        hooks.flatMap((h) => [h.grantedById, h.deliveredById]).filter((v): v is string => !!v),
+      ),
+    ]
+    const adminMap = new Map<string, string>()
+    if (adminIds.length > 0) {
+      const admins = await this.prisma.user.findMany({
+        where: { id: { in: adminIds } },
+        select: { id: true, name: true },
+      })
+      for (const a of admins) adminMap.set(a.id, a.name)
+    }
+
+    const paymentIds = [...new Set(hooks.map((h) => h.paymentId).filter((v): v is string => !!v))]
+    const paymentMap = new Map<string, number>()
+    if (paymentIds.length > 0) {
+      const payments = await this.prisma.payment.findMany({
+        where: { id: { in: paymentIds } },
+        select: { id: true, amount: true },
+      })
+      for (const p of payments) paymentMap.set(p.id, p.amount)
+    }
+
+    return hooks.map((h) => ({
+      id: h.id,
+      type: h.type,
+      status: h.status,
+      reason: h.reason ?? null,
+      amount: h.paymentId ? paymentMap.get(h.paymentId) ?? null : null,
+      grantedByName: h.grantedById ? adminMap.get(h.grantedById) ?? null : null,
+      deliveredByName: h.deliveredById ? adminMap.get(h.deliveredById) ?? null : null,
+      requestedAt: h.requestedAt,
+      deliveredAt: h.deliveredAt,
+      createdAt: h.createdAt,
+    }))
+  }
+
+  /**
    * Métodos de pagamento do cliente: cartões salvos (read-only) + configuração
    * de auto-recarga (com nome do combo, se houver).
    */

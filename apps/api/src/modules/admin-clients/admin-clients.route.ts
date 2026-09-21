@@ -499,6 +499,47 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
   )
 
   fastify.get(
+    '/admin/clients/:id/hooks',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — clients'],
+        summary: 'Ganchos de porta do cliente (admin)',
+        description:
+          'Retorna o histórico de ganchos do cliente (grátis, pagos e bonificações), com status, motivo, valor pago e os admins que concederam/entregaram. Inclui ganchos aguardando pagamento e cancelados. Ordenado do mais recente. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do cliente (MongoDB ObjectId).' } },
+        },
+        response: {
+          200: {
+            type: 'array',
+            description: 'Ganchos do cliente (mais recentes primeiro).',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'ID do gancho (HookRequest).' },
+                type: { type: 'string', description: 'FREE | PAID | BONUS.' },
+                status: { type: 'string', description: 'PENDING_PAYMENT | REQUESTED | DELIVERED | CANCELLED.' },
+                reason: { type: 'string', nullable: true, description: 'Motivo (defeito/perda no pago; texto da bonificação no bônus).' },
+                amount: { type: 'number', nullable: true, description: 'Valor pago (R$), apenas em ganchos com pagamento.' },
+                grantedByName: { type: 'string', nullable: true, description: 'Admin que concedeu (bonificação).' },
+                deliveredByName: { type: 'string', nullable: true, description: 'Admin que registrou a entrega.' },
+                requestedAt: { type: 'string', nullable: true, description: 'Quando entrou na fila (ISO 8601).' },
+                deliveredAt: { type: 'string', nullable: true, description: 'Quando foi entregue (ISO 8601).' },
+                createdAt: { type: 'string', description: 'Quando o registro nasceu (ISO 8601).' },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.hooks.bind(ctrl),
+  )
+
+  fastify.get(
     '/admin/clients/:id/payment-methods',
     {
       preHandler: [fastify.authenticate],

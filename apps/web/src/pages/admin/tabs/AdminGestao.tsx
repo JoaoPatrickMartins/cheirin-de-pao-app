@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { Icon } from '../../../components/brand/Icon'
+import { apiFetch } from '../../../lib/apiFetch'
 import { useAuth } from '../../../hooks/useAuth'
 import { AdminCombos } from '../gestao/AdminCombos'
 import { AdminMarket } from '../gestao/AdminMarket'
@@ -72,6 +73,29 @@ export function AdminGestao() {
   const { logout } = useAuth()
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
   const navigate = useNavigate()
+  // Ganchos aguardando entrega — badge no card da fila.
+  const [pendingHooks, setPendingHooks] = useState(0)
+
+  // Depende de `sub`: este componente NÃO desmonta ao entrar numa subtela (só troca o que
+  // renderiza), então um efeito de mount deixaria o número congelado no que era ao abrir Gestão.
+  // Refazendo a contagem ao voltar (`sub === null`), o badge reflete as entregas recém-marcadas.
+  useEffect(() => {
+    if (sub !== null) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch('/admin/hook-requests/summary')
+        if (!res.ok || cancelled) return
+        const data = (await res.json()) as { pending: number }
+        if (!cancelled) setPendingHooks(data.pending)
+      } catch {
+        // falha silenciosa — sem badge, o hub continua navegável
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [sub])
 
   const onBack = () => setSub(null)
 
@@ -111,6 +135,7 @@ export function AdminGestao() {
             icon={item.icon}
             titulo={item.titulo}
             descricao={item.descricao}
+            badge={item.key === 'ganchos' ? pendingHooks : 0}
             onClick={() => setSub(item.key)}
           />
         ))}
@@ -240,10 +265,12 @@ interface HubCardProps {
   icon: string
   titulo: string
   descricao: string
+  /** Pendências do item; 0 (ou ausente) não desenha nada. */
+  badge?: number
   onClick: () => void
 }
 
-function HubCard({ icon, titulo, descricao, onClick }: HubCardProps) {
+function HubCard({ icon, titulo, descricao, badge = 0, onClick }: HubCardProps) {
   return (
     <button
       type="button"
@@ -305,6 +332,30 @@ function HubCard({ icon, titulo, descricao, onClick }: HubCardProps) {
           {descricao}
         </p>
       </div>
+
+      {/* Pendências — pílula antes do chevron. */}
+      {badge > 0 && (
+        <span
+          aria-label={`${badge} ${badge === 1 ? 'pendente' : 'pendentes'}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minWidth: 24,
+            height: 24,
+            padding: '0 8px',
+            borderRadius: 999,
+            background: 'var(--color-accent)',
+            color: '#FAF5EC',
+            fontFamily: 'var(--font-body)',
+            fontSize: 12,
+            fontWeight: 800,
+            flexShrink: 0,
+          }}
+        >
+          {badge}
+        </span>
+      )}
 
       {/* Chevron */}
       <Icon name="chevR" size={18} color="var(--color-text-ter)" />

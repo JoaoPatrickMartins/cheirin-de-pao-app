@@ -9,6 +9,12 @@ import {
 import { useState, useEffect } from 'react'
 import type { CSSProperties, ReactNode, ComponentProps } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
+import {
+  HOOK_STATUS_BADGE,
+  HOOK_TYPE_BADGE,
+  type HookFullStatus,
+  type HookType,
+} from '../../lib/hookLabels'
 import { Icon } from '../brand/Icon'
 import { ConfirmSheet } from './ConfirmSheet'
 import { FirstOrderChip } from './FirstOrderChip'
@@ -266,6 +272,8 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
   const [showHookModal, setShowHookModal] = useState(false)
   const [hookReason, setHookReason] = useState('')
   const [hookLoading, setHookLoading] = useState(false)
+  /** Bump após conceder um gancho — o card de histórico busca de novo. */
+  const [hooksReloadKey, setHooksReloadKey] = useState(0)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
 
   // código de acesso manual (fallback quando o e-mail/Resend falha)
@@ -392,6 +400,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
       if (res.ok) {
         setShowHookModal(false)
         setHookReason('')
+        setHooksReloadKey((k) => k + 1)
         showToast(`Gancho de bonificação liberado para ${cliente.name}`)
       } else {
         const err = (await res.json().catch(() => null)) as { error?: string } | null
@@ -925,6 +934,10 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               </span>
             </div>
           </div>
+
+          {/* Ganchos — logo abaixo do botão que concede: quem vai bonificar precisa ver antes
+              se o cliente já tem gancho entregue (ou um pago sem confirmar). */}
+          <GanchosCard clienteId={cliente.id} reloadKey={hooksReloadKey} />
 
           {/* Agenda */}
           {(() => {
@@ -2501,8 +2514,116 @@ function SessoesCard({ clienteId, showToast }: { clienteId: string; showToast: (
   )
 }
 
+// ------------------------------------------------------------------ Ganchos do cliente
+interface ClienteHook {
+  id: string
+  type: HookType
+  status: HookFullStatus
+  reason: string | null
+  amount: number | null
+  grantedByName: string | null
+  deliveredByName: string | null
+  requestedAt: string | null
+  deliveredAt: string | null
+  createdAt: string
+}
+
+/**
+ * Histórico de ganchos do cliente. Cada linha responde "que gancho foi esse, em que pé está e
+ * quem mexeu" — as três perguntas do atendimento quando alguém liga dizendo que o gancho
+ * não chegou. Entregue tem data de entrega; o resto se apoia na data de solicitação.
+ */
+function GanchosCard({ clienteId, reloadKey }: { clienteId: string; reloadKey: number }) {
+  const [hooks, setHooks] = useState<ClienteHook[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch(`/admin/clients/${clienteId}/hooks`)
+        if (res.ok && !cancelled) setHooks((await res.json()) as ClienteHook[])
+      } catch {
+        /* silencioso */
+      } finally {
+        if (!cancelled) setLoaded(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [clienteId, reloadKey])
+
+  // Antes da primeira resposta o card não aparece — piscar "Nenhum gancho" para quem tem
+  // três seria pior que esperar.
+  if (!loaded) return null
+
+  const entregues = hooks.filter((h) => h.status === 'DELIVERED').length
+
+  return (
+    <div style={{ ...cardStyle, padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Icon name="pin" size={18} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
+          Ganchos
+        </span>
+        {hooks.length > 0 && (
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)' }}>
+            {entregues} {entregues === 1 ? 'entregue' : 'entregues'} de {hooks.length}
+          </span>
+        )}
+      </div>
+
+      {hooks.length === 0 ? (
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)', margin: '10px 0 0' }}>
+          Nenhum gancho registrado.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', marginTop: 8 }}>
+          {hooks.map((h, i) => {
+            const tipo = HOOK_TYPE_BADGE[h.type]
+            const st = HOOK_STATUS_BADGE[h.status]
+            const entregue = h.status === 'DELIVERED'
+            const quando = entregue
+              ? `Entregue ${formatDataCurta(h.deliveredAt)}`
+              : h.requestedAt
+                ? `Solicitado ${formatDataCurta(h.requestedAt)}`
+                : formatDataCurta(h.createdAt)
+            const autor = entregue ? h.deliveredByName : h.grantedByName
+            return (
+              <div key={h.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ padding: '2px 8px', borderRadius: 999, fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, background: tipo.bg, color: tipo.fg }}>
+                      {tipo.label}
+                    </span>
+                    <span style={{ padding: '2px 8px', borderRadius: 999, fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, background: st.bg, color: st.fg }}>
+                      {st.label}
+                    </span>
+                  </div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', margin: '4px 0 0' }}>
+                    {[quando, autor].filter(Boolean).join(' · ')}
+                  </p>
+                  {h.reason && (
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-sec)', margin: '4px 0 0', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                      {h.reason}
+                    </p>
+                  )}
+                </div>
+                {h.amount != null && (
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 13.5, fontWeight: 800, color: 'var(--color-text)', flexShrink: 0 }}>
+                    {formatCurrency(h.amount)}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ------------------------------------------------------------------ Timeline unificada
-interface TimelineEvent { date: string; kind: 'credit' | 'payment' | 'order'; icon: IconName; title: string; sub: string; value: string | null; valueColor: string }
+interface TimelineEvent { date: string; kind: 'credit' | 'payment' | 'order' | 'hook'; icon: IconName; title: string; sub: string; value: string | null; valueColor: string }
 
 function TimelinePanel({ clienteId }: { clienteId: string }) {
   const [events, setEvents] = useState<TimelineEvent[]>([])
@@ -2513,10 +2634,11 @@ function TimelinePanel({ clienteId }: { clienteId: string }) {
     setLoading(true)
     void (async () => {
       try {
-        const [h, p, o] = await Promise.all([
+        const [h, p, o, g] = await Promise.all([
           apiFetch(`/admin/clients/${clienteId}/credit-history`),
           apiFetch(`/admin/clients/${clienteId}/payments`),
           apiFetch(`/admin/clients/${clienteId}/orders`),
+          apiFetch(`/admin/clients/${clienteId}/hooks`),
         ])
         if (cancelled) return
         const evs: TimelineEvent[] = []
@@ -2554,6 +2676,22 @@ function TimelinePanel({ clienteId }: { clienteId: string }) {
               title: `${cestinha ? '🧺 Cestinha' : 'Pedido'}${carga ? ` · ${carga}` : ''}`,
               sub: STATUS_LABEL[ord.status] ?? ord.status,
               value: cestinha && ord.totalValue != null ? formatCurrency(ord.totalValue) : null,
+              valueColor: 'var(--color-text)',
+            })
+          }
+        }
+        if (g.ok) {
+          // O gancho entra na timeline pela data do DESFECHO (entrega) quando existe — é o
+          // evento que o cliente viveu; sem ela, pela entrada na fila.
+          for (const hook of (await g.json()) as ClienteHook[]) {
+            evs.push({
+              date: hook.deliveredAt ?? hook.requestedAt ?? hook.createdAt,
+              kind: 'hook', icon: 'pin',
+              title: `Gancho · ${HOOK_TYPE_BADGE[hook.type].label}`,
+              sub: [HOOK_STATUS_BADGE[hook.status].label, hook.reason, hook.deliveredByName ?? hook.grantedByName]
+                .filter(Boolean)
+                .join(' · '),
+              value: hook.amount != null ? formatCurrency(hook.amount) : null,
               valueColor: 'var(--color-text)',
             })
           }
