@@ -3,6 +3,7 @@ import * as OneSignal from '@onesignal/node-onesignal'
 import { Prisma, TransactionType, NotificationType } from '@prisma/client'
 import { CREDIT_SCALE, formatCredits, fromMilli, toMilli } from '@cheirin-de-pao/shared'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { firstDeliveryDayByUser, isFirstDelivery } from '../../lib/first-delivery.js'
 import { excludeNonCreditPurpose } from '../../lib/revenue.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthService } from '../auth/auth.service.js'
@@ -599,6 +600,9 @@ export class AdminClientsService {
     ]
     const marketIds = marketOrders.map((o) => o.id)
 
+    // Estreia do cliente: um `userId` só, então uma chamada resolve a lista inteira.
+    const firstDay = (await firstDeliveryDayByUser(this.prisma, [id])).get(id)
+
     const [deliveries, couriers, refunds] = await Promise.all([
       orderIds.length > 0
         ? this.prisma.delivery.findMany({
@@ -651,6 +655,7 @@ export class AdminClientsService {
         creditsApplied: null as number | null,
         moneyAmount: null as number | null,
         refundedCredits: null as number | null,
+        isFirstOrder: isFirstDelivery(firstDay, o.scheduledDate),
       }
     })
 
@@ -677,6 +682,7 @@ export class AdminClientsService {
       creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)) as number | null,
       moneyAmount: o.moneyAmount as number | null,
       refundedCredits: refundedById.get(o.id) ?? 0,
+      isFirstOrder: isFirstDelivery(firstDay, o.scheduledDate),
     }))
 
     return [...breadRows, ...marketRows]

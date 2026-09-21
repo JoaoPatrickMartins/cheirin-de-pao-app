@@ -11,6 +11,9 @@ import type { CSSProperties, ReactNode, ComponentProps } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
 import { ConfirmSheet } from './ConfirmSheet'
+import { FirstOrderChip } from './FirstOrderChip'
+import { ManualCouponComposer } from './ManualCouponComposer'
+import { OrderDetailSheet, type LedgerRow } from './OrderDetailSheet'
 
 type IconName = ComponentProps<typeof Icon>['name']
 
@@ -283,8 +286,15 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
 
   // segmento Geral / Pedidos / Financeiro / Atividade
   const [aba, setAba] = useState<'geral' | 'pedidos' | 'financeiro' | 'atividade'>('geral')
+  const [showCupom, setShowCupom] = useState(false)
   const [scheduleToggling, setScheduleToggling] = useState(false)
   const [blockReasonInput, setBlockReasonInput] = useState('')
+  /**
+   * Recarrega o cliente sem trocar de tela. Um desfecho dado no resumo do pedido (entregue a
+   * posteriori, não entregue com devolução, estorno) mexe em saldo e métricas por caminhos que
+   * esta tela não sabe quantificar — buscar de novo é mais honesto que aplicar um delta chutado.
+   */
+  const [clienteReloadKey, setClienteReloadKey] = useState(0)
 
   useEffect(() => {
     const fetchCliente = async () => {
@@ -300,7 +310,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
       }
     }
     void fetchCliente()
-  }, [clienteId])
+  }, [clienteId, clienteReloadKey])
 
   function showToast(message: string, ok = true) {
     setToast({ message, ok })
@@ -720,6 +730,7 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               onCreditChange={(delta) =>
                 setCliente((prev) => (prev ? { ...prev, creditBalance: Math.max(0, prev.creditBalance + delta) } : prev))
               }
+              onOrderResolved={() => setClienteReloadKey((k) => k + 1)}
             />
           ) : aba === 'atividade' ? (
             <TimelinePanel clienteId={cliente.id} />
@@ -767,19 +778,35 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }}>
                 Cadastro
               </span>
-              <button
-                onClick={openEdit}
-                aria-label="Editar cadastro"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, background: 'none',
-                  border: '1.5px solid var(--color-border)', borderRadius: 999, padding: '6px 12px',
-                  fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)',
-                  cursor: 'pointer', minHeight: 36,
-                }}
-              >
-                <Icon name="edit" size={15} stroke={2} color="var(--color-text)" />
-                Editar
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {/* Cupom avulso com o endereço do cadastro — brinde, reposição, bilhete. */}
+                <button
+                  onClick={() => setShowCupom(true)}
+                  aria-label="Imprimir cupom manual"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, background: 'none',
+                    border: '1.5px solid var(--color-border)', borderRadius: 999, padding: '6px 12px',
+                    fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)',
+                    cursor: 'pointer', minHeight: 36,
+                  }}
+                >
+                  <Icon name="doc" size={15} stroke={2} color="var(--color-text)" />
+                  Cupom
+                </button>
+                <button
+                  onClick={openEdit}
+                  aria-label="Editar cadastro"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, background: 'none',
+                    border: '1.5px solid var(--color-border)', borderRadius: 999, padding: '6px 12px',
+                    fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)',
+                    cursor: 'pointer', minHeight: 36,
+                  }}
+                >
+                  <Icon name="edit" size={15} stroke={2} color="var(--color-text)" />
+                  Editar
+                </button>
+              </div>
             </div>
 
             {/* Telefone */}
@@ -1320,6 +1347,20 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
             </div>
           </div>
         </>
+      )}
+
+      {/* Cupom manual — cabeçalho do cadastro + miolo escrito na hora */}
+      {showCupom && cliente && (
+        <ManualCouponComposer
+          cliente={{
+            name: cliente.name,
+            condominiumName: cliente.condominiumName,
+            block: cliente.block,
+            complement: cliente.complement,
+            apartment: cliente.apartment,
+          }}
+          onClose={() => setShowCupom(false)}
+        />
       )}
 
       {/* Confirmação de remoção — ação sensível, exige confirmação explícita */}
@@ -2010,6 +2051,8 @@ interface OrderRow {
   creditsApplied?: number | null
   moneyAmount?: number | null
   refundedCredits?: number | null
+  /** Estreia do cliente — o pedido cai no dia da primeira entrega dele. */
+  isFirstOrder?: boolean
 }
 
 /** Estados em que uma Cestinha ainda pode ser cancelada pelo admin (entregue não se cancela). */
@@ -2023,17 +2066,24 @@ function orderStatusColor(status: string): string {
 }
 
 function PedidosPanel({
-  clienteId, showToast, onCreditChange,
+  clienteId, showToast, onCreditChange, onOrderResolved,
 }: {
   clienteId: string
   showToast: (message: string, ok?: boolean) => void
   onCreditChange: (delta: number) => void
+  /** Desfecho dado no resumo do pedido — o cliente precisa ser relido (saldo/métricas). */
+  onOrderResolved: () => void
 }) {
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)
   const [cancelTarget, setCancelTarget] = useState<OrderRow | null>(null)
   const [refundOnCancel, setRefundOnCancel] = useState(true)
   const [cancelling, setCancelling] = useState(false)
+  // Resumo completo do pedido — o MESMO sheet da aba Entregas, alimentado por GET /admin/orders/:id.
+  // Reusar em vez de escrever um resumo próprio mantém uma versão só da verdade sobre um pedido.
+  const [detail, setDetail] = useState<LedgerRow | null>(null)
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -2049,7 +2099,21 @@ function PedidosPanel({
       }
     })()
     return () => { cancelled = true }
-  }, [clienteId])
+  }, [clienteId, reloadKey])
+
+  async function openDetail(o: OrderRow) {
+    if (detailLoadingId) return
+    setDetailLoadingId(o.id)
+    try {
+      const res = await apiFetch(`/admin/orders/${o.id}?kind=${o.kind ?? 'BREAD'}`)
+      if (res.ok) setDetail((await res.json()) as LedgerRow)
+      else showToast('Não foi possível abrir o pedido', false)
+    } catch {
+      showToast('Falha na conexão', false)
+    } finally {
+      setDetailLoadingId(null)
+    }
+  }
 
   function openCancel(o: OrderRow) {
     setRefundOnCancel(true)
@@ -2142,16 +2206,26 @@ function PedidosPanel({
             return (
               <div
                 key={`${o.kind ?? 'BREAD'}-${o.id}`}
+                onClick={() => { void openDetail(o) }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Ver resumo do pedido de ${formatDataCurta(o.scheduledDate)}`}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void openDetail(o) } }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0',
                   borderTop: i === 0 ? 'none' : '1px solid var(--color-border-2)',
+                  cursor: detailLoadingId ? 'wait' : 'pointer',
+                  opacity: detailLoadingId === o.id ? 0.55 : 1,
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                    {cestinha && <span style={{ marginRight: 4 }} title="Cestinha — Além do Pãozin">🧺</span>}
-                    {formatDataCurta(o.scheduledDate)} · {carga || 'sem itens'}
-                    {cestinha && o.totalValue != null ? ` · ${formatCurrency(o.totalValue)}` : ''}
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)', margin: 0, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    <span>
+                      {cestinha && <span style={{ marginRight: 4 }} title="Cestinha — Além do Pãozin">🧺</span>}
+                      {formatDataCurta(o.scheduledDate)} · {carga || 'sem itens'}
+                      {cestinha && o.totalValue != null ? ` · ${formatCurrency(o.totalValue)}` : ''}
+                    </span>
+                    {o.isFirstOrder && <FirstOrderChip compact />}
                   </p>
                   {sub && (
                     <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2171,7 +2245,11 @@ function PedidosPanel({
                   {STATUS_LABEL[o.status] ?? o.status}
                 </span>
                 {cancelavel && (
-                  <button onClick={() => openCancel(o)} style={{ ...miniBtnStyle, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}>
+                  // stopPropagation: a linha inteira abre o resumo; cancelar é ação própria.
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openCancel(o) }}
+                    style={{ ...miniBtnStyle, color: 'var(--color-warn)', borderColor: 'var(--color-warn)' }}
+                  >
                     Cancelar
                   </button>
                 )}
@@ -2180,6 +2258,21 @@ function PedidosPanel({
           })}
         </div>
       </div>
+
+      {/* Resumo completo do pedido (mesmo sheet da aba Entregas) */}
+      {detail && (
+        <OrderDetailSheet
+          row={detail}
+          onClose={() => setDetail(null)}
+          onChanged={() => {
+            // Um desfecho aqui mexe em status e pode devolver pães: recarrega a lista E o cliente.
+            setDetail(null)
+            setReloadKey((k) => k + 1)
+            onOrderResolved()
+            showToast('Pedido atualizado')
+          }}
+        />
+      )}
 
       {/* Dialog de cancelamento de pedido */}
       {cancelTarget && (

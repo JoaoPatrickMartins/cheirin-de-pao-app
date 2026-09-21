@@ -17,6 +17,9 @@ interface MockOpts {
   order?: unknown
   count?: number
   finalizedSlots?: string[]
+  /** Linhas de `groupBy` do selo de estreia: `{ userId, _min: { scheduledDate } }`. */
+  firstBreadDays?: unknown[]
+  firstMarketDays?: unknown[]
 }
 
 function makeMock(opts: MockOpts = {}) {
@@ -31,11 +34,15 @@ function makeMock(opts: MockOpts = {}) {
       findUnique: vi.fn().mockResolvedValue(opts.order ?? null),
       update: vi.fn().mockResolvedValue({}),
       updateMany: vi.fn().mockResolvedValue({ count: opts.count ?? 0 }),
+      // Selo de estreia (`lib/first-delivery.ts`). Vazio por padrão = ninguém estreia, então as
+      // asserções que não falam de primeiro pedido seguem valendo.
+      groupBy: vi.fn().mockResolvedValue(opts.firstBreadDays ?? []),
     },
     // Cestinha pega carona na separação — sem market nestes testes.
     marketOrder: {
       findMany: vi.fn().mockResolvedValue(opts.marketOrders ?? []),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      groupBy: vi.fn().mockResolvedValue(opts.firstMarketDays ?? []),
     },
     user: {
       findMany: vi.fn().mockResolvedValue(opts.users ?? []),
@@ -90,6 +97,64 @@ describe('AdminSeparationService', () => {
       expect(manha.separatedDeliveries).toBe(1)
       expect(manha.concluded).toBe(false)
       expect(manha.orders.map((o) => o.orderId)).toEqual(['o1', 'o2']) // bloco A, ap 101 antes de 102
+    })
+
+    // Selo de estreia: o board é UM dia, então marca quem tem a primeira entrega nesse dia.
+    describe('selo de primeiro pedido', () => {
+      const orders = [
+        { id: 'o1', userId: 'u1', quantity: 4, slotId: 'manha', type: 'SCHEDULED', condominiumId: 'c1', status: 'SCHEDULED' },
+        { id: 'o2', userId: 'u2', quantity: 2, slotId: 'manha', type: 'SCHEDULED', condominiumId: 'c1', status: 'SCHEDULED' },
+      ]
+      const users = [
+        { id: 'u1', name: 'Ana', apartment: '101', block: 'A' },
+        { id: 'u2', name: 'Bia', apartment: '102', block: 'A' },
+      ]
+      const condos = [{ id: 'c1', name: 'Cond 1', deliverySlots: SLOTS }]
+      /** Meio-dia BRT de um dia — a convenção de `scheduledDate`. */
+      const brtNoon = (d: string) => new Date(`${d}T15:00:00.000Z`)
+
+      it('marca só o cliente cuja primeira entrega é o dia do board', async () => {
+        const { fastify } = makeMock({
+          orders,
+          users,
+          condos,
+          firstBreadDays: [
+            { userId: 'u1', _min: { scheduledDate: brtNoon('2026-06-26') } }, // estreia hoje
+            { userId: 'u2', _min: { scheduledDate: brtNoon('2026-05-02') } }, // cliente antigo
+          ],
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const board = await new AdminSeparationService(fastify as any).getBoard('2026-06-26')
+
+        const manha = board.condominiums[0].slots.find((s) => s.slotId === 'manha')!
+        expect(manha.orders.find((o) => o.orderId === 'o1')!.isFirstOrder).toBe(true)
+        expect(manha.orders.find((o) => o.orderId === 'o2')!.isFirstOrder).toBe(false)
+      })
+
+      it('cliente sem histórico de entrega não é marcado', async () => {
+        const { fastify } = makeMock({ orders, users, condos })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const board = await new AdminSeparationService(fastify as any).getBoard('2026-06-26')
+
+        const manha = board.condominiums[0].slots.find((s) => s.slotId === 'manha')!
+        expect(manha.orders.every((o) => o.isFirstOrder === false)).toBe(true)
+      })
+
+      // A Cestinha mais antiga que o pão manda: quem já recebeu cestinha antes não estreia hoje.
+      it('a Cestinha anterior tira o selo do pedido de pão de hoje', async () => {
+        const { fastify } = makeMock({
+          orders: [orders[0]],
+          users: [users[0]],
+          condos,
+          firstBreadDays: [{ userId: 'u1', _min: { scheduledDate: brtNoon('2026-06-26') } }],
+          firstMarketDays: [{ userId: 'u1', _min: { scheduledDate: brtNoon('2026-06-01') } }],
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const board = await new AdminSeparationService(fastify as any).getBoard('2026-06-26')
+
+        const manha = board.condominiums[0].slots.find((s) => s.slotId === 'manha')!
+        expect(manha.orders[0].isFirstOrder).toBe(false)
+      })
     })
 
     it('leva o complemento até a linha do pedido e ordena por ele antes do apartamento', async () => {

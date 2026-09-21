@@ -1,12 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
-import { NotificationType, OrderStatus, MarketOrderStatus, PaymentStatus, Prisma } from '@prisma/client'
+import { NotificationType, OrderStatus, MarketOrderStatus, PaymentStatus, TransactionType, Prisma } from '@prisma/client'
 import { fromMilli, toMilli } from '@cheirin-de-pao/shared'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
 import { excludeNonCreditPurpose } from '../../lib/revenue.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { firstDeliveryDayByUser, isFirstDelivery } from '../../lib/first-delivery.js'
 import { reverseMarketOrder } from '../../lib/market-reversal.js'
 import { propagateMarketStatusForOrder, dispatchMarketForOrders, assignMarketByCondoDay } from '../../lib/market-pipeline.js'
 import { notifyMarketCancelled, notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
@@ -15,6 +16,17 @@ import { clientLabel } from '../../lib/client-label.js'
 
 /** Centavos, sem lixo de ponto flutuante em somas de R$. */
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+/** Código curto do pedido — o mesmo impresso no cupom, por onde o operador chama o pedido. */
+const shortOrderCode = (id: string) => id.slice(-4).toUpperCase()
+
+/**
+ * Soma movimentos de crédito em MILÉSIMOS e converte no fim, em valor absoluto.
+ * Somar decimais acumularia erro de float; o `abs` é porque débito é negativo e a tela mostra
+ * "quanto voltou", não o sinal.
+ */
+const sumMilliAbs = (rows: { quantityMilli: number | null }[]) =>
+  Math.abs(fromMilli(rows.reduce((acc, r) => acc + (r.quantityMilli ?? 0), 0)))
 
 /**
  * Mapa de transições de estado válidas para pedidos.
@@ -182,6 +194,47 @@ export interface LedgerRow {
   moneyAmount: number
   /** Valor total da Cestinha em R$ (0 em `BREAD`). */
   totalValue: number
+  /**
+   * Estreia do cliente — a linha cai no dia da primeira entrega dele (`lib/first-delivery.ts`).
+   * Retroativo por construção: em histórico, o cliente antigo aparece marcado na primeira
+   * entrega DELE, que é o que a auditoria quer ver.
+   */
+  isFirstOrder: boolean
+}
+
+/** Pagamento vinculado a um pedido — o que a conciliação precisa ver. */
+export interface OrderPayment {
+  id: string
+  amount: number
+  method: string
+  status: string
+  /** CREDITS | HOOK | MARKET. Documento antigo sem o campo lê CREDITS. */
+  purpose: string
+  createdAt: string
+  /** Id no gateway (Stripe ou Mercado Pago) — a tela só quer o que colar na conciliação. */
+  gatewayId: string
+  comboName: string
+  quantity: number
+}
+
+/**
+ * Um pedido com o detalhe completo: a linha do ledger MAIS o que não cabe numa lista.
+ * Alimenta o resumo do pedido no admin (Entregas e Clientes).
+ */
+export interface OrderDetail extends LedgerRow {
+  createdAt: string
+  /** 4 últimos do id, como no cupom — é por ele que o operador chama o pedido. */
+  code: string
+  /** Pãezinhos debitados na criação do pedido (split aplicado, na Cestinha). */
+  creditsDebited: number
+  /**
+   * `creditsDebited` veio da regra, não do extrato — pedido do corte da agenda anterior ao
+   * vínculo `referenceId`. A tela avisa, para ninguém tratar o número como linha auditada.
+   */
+  creditsDebitedDerived: boolean
+  /** Pãezinhos já devolvidos deste pedido. */
+  refundedCredits: number
+  payment: OrderPayment | null
 }
 
 /** Filtros do ledger de pedidos. */
@@ -1248,7 +1301,7 @@ export class AdminOrdersService {
     const paymentIds = [...new Set(orders.map((o) => o.paymentId).filter((p): p is string => !!p))]
     const orderIds = orders.map((o) => o.id)
 
-    const [users, condos, couriers, refunds, payments] = await Promise.all([
+    const [users, condos, couriers, refunds, payments, firstDayByUser] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, apartment: true, block: true, complement: true },
@@ -1270,6 +1323,7 @@ export class AdminOrdersService {
             select: { id: true, amount: true, status: true },
           })
         : Promise.resolve([] as { id: string; amount: number; status: PaymentStatus }[]),
+      firstDeliveryDayByUser(this.prisma, userIds),
     ])
 
     const userById = new Map(users.map((u) => [u.id, u]))
@@ -1321,6 +1375,7 @@ export class AdminOrdersService {
         creditsApplied: 0,
         moneyAmount: 0,
         totalValue: 0,
+        isFirstOrder: isFirstDelivery(firstDayByUser.get(o.userId), o.scheduledDate),
       }
     })
   }
@@ -1361,7 +1416,7 @@ export class AdminOrdersService {
     const paymentIds = [...new Set(orders.map((o) => o.paymentId).filter((p): p is string => !!p))]
     const orderIds = orders.map((o) => o.id)
 
-    const [users, condos, refunds, payments] = await Promise.all([
+    const [users, condos, refunds, payments, firstDayByUser] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, apartment: true, block: true, complement: true },
@@ -1380,6 +1435,7 @@ export class AdminOrdersService {
             select: { id: true, amount: true, status: true },
           })
         : Promise.resolve([] as { id: string; amount: number; status: PaymentStatus }[]),
+      firstDeliveryDayByUser(this.prisma, userIds),
     ])
 
     const userById = new Map(users.map((u) => [u.id, u]))
@@ -1435,6 +1491,7 @@ export class AdminOrdersService {
         creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)),
         moneyAmount: o.moneyAmount,
         totalValue: o.totalValue,
+        isFirstOrder: isFirstDelivery(firstDayByUser.get(o.userId), o.scheduledDate),
       }
     })
   }
@@ -1615,6 +1672,113 @@ export class AdminOrdersService {
     // Mais antigo primeiro — o pedido esquecido há mais tempo é o mais urgente.
     const rows = [...breadRows, ...marketRows].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
     return { rows, count: count + marketCount }
+  }
+
+  /**
+   * getOrderDetail — um pedido (pão ou Cestinha) com TUDO que o admin precisa para responder
+   * "o que aconteceu com este pedido e como ele foi pago".
+   *
+   * Reusa `_enrich*` de propósito: o detalhe e a linha da lista têm de contar a mesma história.
+   * O que se acrescenta é o que não cabe numa lista — o pagamento inteiro (método, gateway,
+   * combo), os créditos movimentados e quando o pedido nasceu.
+   *
+   * `kind` é uma dica, não uma exigência: sem ele tentamos `Order` e caímos em `MarketOrder`.
+   * A tela de Clientes tem o `kind` na mão; um link colado no navegador não tem.
+   */
+  async getOrderDetail(id: string, kind?: 'BREAD' | 'CESTINHA'): Promise<OrderDetail> {
+    const order =
+      kind === 'CESTINHA'
+        ? null
+        : await this.prisma.order.findUnique({
+            where: { id },
+            select: { ...this._ledgerSelect, createdAt: true },
+          })
+
+    if (order) {
+      const [row] = await this._enrichOrders([order])
+      // Débito do pedido de pão. O avulso sempre amarrou a transação ao pedido; o corte da agenda
+      // só passou a amarrar depois — em pedido antigo não há linha, e aí o valor é DERIVADO da
+      // quantidade (1 pão = 1 crédito na criação). Derivar é honesto: é exatamente a regra que
+      // debitou. Ver o comentário no corte, em schedules.service.ts.
+      const [debit, refund, payment] = await Promise.all([
+        this.prisma.creditTransaction.findFirst({
+          where: { type: TransactionType.DELIVERY, referenceId: id },
+          select: { quantityMilli: true },
+        }),
+        this.prisma.creditTransaction.findMany({
+          where: { type: TransactionType.REFUND, referenceId: id },
+          select: { quantityMilli: true },
+        }),
+        this._loadPayment(order.paymentId),
+      ])
+
+      return {
+        ...row,
+        createdAt: order.createdAt.toISOString(),
+        code: shortOrderCode(id),
+        creditsDebited: debit ? Math.abs(fromMilli(debit.quantityMilli ?? 0)) : order.quantity,
+        creditsDebitedDerived: !debit,
+        refundedCredits: sumMilliAbs(refund),
+        payment,
+      }
+    }
+
+    const marketOrder =
+      kind === 'BREAD'
+        ? null
+        : await this.prisma.marketOrder.findUnique({
+            where: { id },
+            select: { ...this._marketLedgerSelect, createdAt: true },
+          })
+
+    if (!marketOrder) {
+      throw { statusCode: 404, message: 'Pedido não encontrado' }
+    }
+
+    const [row] = await this._enrichMarketOrders([marketOrder])
+    const [refund, payment] = await Promise.all([
+      this.prisma.creditTransaction.findMany({
+        where: { type: TransactionType.MARKET_REFUND, referenceId: id },
+        select: { quantityMilli: true },
+      }),
+      this._loadPayment(marketOrder.paymentId),
+    ])
+
+    return {
+      ...row,
+      createdAt: marketOrder.createdAt.toISOString(),
+      code: shortOrderCode(id),
+      // Na Cestinha o débito é o split — já veio do pedido, não precisa de derivação.
+      creditsDebited: row.creditsApplied,
+      creditsDebitedDerived: false,
+      refundedCredits: sumMilliAbs(refund),
+      payment,
+    }
+  }
+
+  /** Pagamento vinculado, com o nome do combo resolvido. `null` quando pago só com saldo. */
+  private async _loadPayment(paymentId: string | null): Promise<OrderPayment | null> {
+    if (!paymentId) return null
+    const p = await this.prisma.payment.findUnique({ where: { id: paymentId } })
+    if (!p) return null
+
+    const combo = p.comboId
+      ? await this.prisma.combo.findUnique({ where: { id: p.comboId }, select: { name: true, quantity: true } })
+      : null
+
+    return {
+      id: p.id,
+      amount: p.amount,
+      method: p.method,
+      status: p.status,
+      // Ausente/null = CREDITS (compra de créditos) — ver o enum no schema.
+      purpose: p.purpose ?? 'CREDITS',
+      createdAt: p.createdAt.toISOString(),
+      // Um campo só: a tela não se importa com QUAL gateway, só quer o id para conciliar.
+      gatewayId: p.stripePaymentIntentId ?? p.mercadoPagoId ?? '',
+      comboName: combo?.name ?? '',
+      quantity: combo?.quantity ?? p.customQuantity ?? 0,
+    }
   }
 
   /**

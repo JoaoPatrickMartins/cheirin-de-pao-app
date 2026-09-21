@@ -10,6 +10,7 @@ import {
   type DeliveryUnit,
 } from '../../../components/admin/DeliveryDivisionCard'
 import { Icon } from '../../../components/brand/Icon'
+import { FirstOrderChip } from '../../../components/admin/FirstOrderChip'
 import { OrderDetailSheet, STATUS_META, type LedgerRow } from '../../../components/admin/OrderDetailSheet'
 import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
 
@@ -471,6 +472,7 @@ function LedgerRowButton({ r, showDate = true, onSelect }: { r: LedgerRow; showD
           {/* D-4: a lista é unificada, então o tipo tem de ser óbvio na linha. */}
           {r.kind === 'CESTINHA' && <span style={{ fontSize: 12 }}>🧺</span>}
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.clientName}</span>
+          {r.isFirstOrder && <FirstOrderChip compact />}
         </p>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
           {r.condominiumName} · {formatUnit(r, { block: 'compact' })}{showDate ? ` · ${formatDateLong(r.scheduledDate)}` : ''}

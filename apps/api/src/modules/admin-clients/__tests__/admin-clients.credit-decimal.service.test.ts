@@ -136,8 +136,10 @@ function makeDetailFastify(user: { creditMilli?: number | null; creditBalance?: 
       findMany: vi.fn().mockResolvedValue([]),
       aggregate: vi.fn().mockResolvedValue({ _sum: { quantity: 0 }, _count: 0 }),
       count: vi.fn().mockResolvedValue(0),
+      // Selo de estreia (`lib/first-delivery.ts`) — vazio = ninguém estreia.
+      groupBy: vi.fn().mockResolvedValue([]),
     },
-    marketOrder: { findMany: vi.fn().mockResolvedValue([]) },
+    marketOrder: { findMany: vi.fn().mockResolvedValue([]), groupBy: vi.fn().mockResolvedValue([]) },
     payment: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }) },
   }
   return { prisma, fastify: { prisma, log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } } as unknown as FastifyInstance }

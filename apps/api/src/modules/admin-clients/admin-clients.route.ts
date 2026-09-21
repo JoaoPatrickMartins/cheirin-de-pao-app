@@ -603,6 +603,7 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
                 creditsApplied: { type: 'number', nullable: true, description: 'Pãezinhos usados no pagamento (decimal). null em BREAD.' },
                 moneyAmount: { type: 'number', nullable: true, description: 'Parte paga em dinheiro (R$). null em BREAD.' },
                 refundedCredits: { type: 'number', nullable: true, description: 'Pãezinhos já estornados desta Cestinha (decimal). null em BREAD.' },
+                isFirstOrder: { type: 'boolean', description: 'Estreia do cliente — o pedido cai no dia da primeira entrega dele.' },
               },
             },
           },

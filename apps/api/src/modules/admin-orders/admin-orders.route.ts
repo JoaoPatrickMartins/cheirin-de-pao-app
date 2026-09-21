@@ -139,6 +139,10 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
     creditsApplied: { type: 'number', description: 'Pãezinhos aplicados na Cestinha, decimal (0 em BREAD).' },
     moneyAmount: { type: 'number', description: 'R$ cobrado no gateway pela Cestinha (0 em BREAD).' },
     totalValue: { type: 'number', description: 'Valor total da Cestinha em R$ (0 em BREAD).' },
+    isFirstOrder: {
+      type: 'boolean',
+      description: 'Estreia do cliente — a linha cai no dia da primeira entrega dele. Retroativo por construção.',
+    },
   }
 
   // GET /admin/orders — ledger de pedidos (verificação geral + histórico)
@@ -549,5 +553,71 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.updateOrderStatus.bind(ctrl),
+  )
+
+  // GET /admin/orders/:id — resumo completo de um pedido.
+  // Rota dinâmica: fica DEPOIS das estáticas (/stuck, /delivery-status, /division-suggestion),
+  // mantendo o padrão do arquivo.
+  fastify.get(
+    '/admin/orders/:id',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Resumo completo de um pedido',
+        description:
+          'Retorna um pedido de pão OU uma Cestinha com a linha do ledger completa MAIS o que não cabe numa lista: pagamento vinculado (método, status, gateway, combo), pãezinhos debitados e estornados, data de criação e código curto. Base do resumo do pedido no admin e da reimpressão do cupom. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', description: 'ID do pedido ou da Cestinha (MongoDB ObjectId).' } },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            kind: {
+              type: 'string',
+              enum: ['BREAD', 'CESTINHA'],
+              description: 'Dica de qual coleção consultar. Omitido: tenta Order e cai para MarketOrder.',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Pedido com detalhe completo.',
+            properties: {
+              ...ledgerRowProps,
+              createdAt: { type: 'string', description: 'Quando o pedido nasceu (ISO 8601).' },
+              code: { type: 'string', description: 'Código curto (4 últimos do id) — o mesmo impresso no cupom.' },
+              creditsDebited: { type: 'number', description: 'Pãezinhos debitados na criação (decimal). Na Cestinha, o split aplicado.' },
+              creditsDebitedDerived: {
+                type: 'boolean',
+                description: 'true quando o valor veio da regra e não do extrato (pedido do corte anterior ao vínculo por referenceId).',
+              },
+              refundedCredits: { type: 'number', description: 'Pãezinhos já devolvidos deste pedido (decimal).' },
+              payment: {
+                type: 'object',
+                nullable: true,
+                description: 'Pagamento vinculado. null quando o pedido foi pago só com saldo.',
+                properties: {
+                  id: { type: 'string' },
+                  amount: { type: 'number', description: 'Valor em reais.' },
+                  method: { type: 'string', description: 'PIX | CREDIT_CARD | DEBIT_CARD.' },
+                  status: { type: 'string', description: 'PENDING | PAID | FAILED | REFUNDED.' },
+                  purpose: { type: 'string', description: 'CREDITS | HOOK | MARKET.' },
+                  createdAt: { type: 'string', description: 'ISO 8601.' },
+                  gatewayId: { type: 'string', description: 'Id no Stripe ou no Mercado Pago (vazio se não houver).' },
+                  comboName: { type: 'string', description: 'Combo comprado (vazio em compra avulsa).' },
+                  quantity: { type: 'integer', description: 'Pãezinhos que o pagamento creditou.' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    ctrl.orderDetail.bind(ctrl),
   )
 }

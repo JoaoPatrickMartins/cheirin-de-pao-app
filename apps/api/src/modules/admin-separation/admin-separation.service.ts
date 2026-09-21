@@ -11,6 +11,7 @@ import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { separateMarketOrders } from '../../lib/market-pipeline.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { firstDeliveryDayByUser } from '../../lib/first-delivery.js'
 
 const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 
@@ -44,6 +45,12 @@ export interface SeparationOrder {
   marketOrderIds: string[]
   marketItems: { name: string; qty: number }[]
   marketItemCount: number
+  /**
+   * Estreia do cliente — esta parada cai no dia da primeira entrega dele. Vai para a tela E para
+   * o cupom impresso, que é o que acompanha o saquinho (bilhete de boas-vindas, gancho, capricho).
+   * Ver `lib/first-delivery.ts`.
+   */
+  isFirstOrder: boolean
 }
 
 /**
@@ -189,7 +196,7 @@ export class AdminSeparationService {
       ),
     ]
 
-    const [users, condos] = await Promise.all([
+    const [users, condos, firstDayByUser] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, apartment: true, block: true, complement: true },
@@ -198,9 +205,14 @@ export class AdminSeparationService {
         where: { id: { in: condoIds } },
         select: { id: true, name: true, deliverySlots: true },
       }),
+      firstDeliveryDayByUser(this.prisma, userIds),
     ])
     const userById = new Map(users.map((u) => [u.id, u]))
     const condoById = new Map(condos.map((c) => [c.id, c]))
+
+    // O board inteiro é UM dia BRT (`date`), então a estreia se resolve comparando o dia do
+    // cliente com o do board — não precisa olhar o `scheduledDate` de cada pedido.
+    const isFirstOrderFor = (userId: string): boolean => firstDayByUser.get(userId) === date
 
     const slotLabelFor = (condoId: string, slotId: string): string => {
       const condo = condoById.get(condoId)
@@ -255,6 +267,7 @@ export class AdminSeparationService {
         marketOrderIds: [],
         marketItems: [],
         marketItemCount: 0,
+        isFirstOrder: isFirstOrderFor(o.userId),
       })
       slot.totalDeliveries += 1
       slot.totalBreads += o.quantity
@@ -335,6 +348,7 @@ export class AdminSeparationService {
           separated,
           marketItems: items,
           marketItemCount: itemCount,
+          isFirstOrder: isFirstOrderFor(mo.userId),
         })
         slot.totalDeliveries += 1
         slot.totalBreads += mo.breadQty

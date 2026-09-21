@@ -5,7 +5,9 @@ import { AdminHead } from '../../../components/admin/AdminHead'
 import { ProgressBar } from '../../../components/admin/ProgressBar'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
 import { Icon } from '../../../components/brand/Icon'
-import { SeparationCouponSheet, type CouponData } from '../../../components/admin/SeparationCoupon'
+import { FirstOrderChip } from '../../../components/admin/FirstOrderChip'
+import { OrderCouponSheet, type CouponData } from '../../../components/admin/coupon/OrderCoupon'
+import { usePrintQueue } from '../../../components/admin/coupon/CouponShell'
 import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
 
 function localDateStr(d: Date): string {
@@ -45,6 +47,8 @@ interface BoardOrder {
   marketOrderIds?: string[]
   marketItems: MarketItem[]
   marketItemCount: number
+  /** Estreia do cliente — a parada cai no dia da primeira entrega dele. */
+  isFirstOrder?: boolean
 }
 interface BoardSlot {
   slotId: string
@@ -113,7 +117,8 @@ export function AdminSeparacao() {
   const [board, setBoard] = useState<Board | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [busyKey, setBusyKey] = useState<string | null>(null)
-  const [coupons, setCoupons] = useState<CouponData[]>([])
+  // Fila + disparo + limpeza de impressão vivem no shell do cupom (usados também na reimpressão).
+  const { queue: coupons, print: setCoupons } = usePrintQueue<CouponData>()
   const [slots, setSlots] = useState<SlotOption[]>([])
   const [slotId, setSlotId] = useState<string>('')
   // Só busca o quadro depois que os turnos carregaram: assim o fetch já sai com o
@@ -162,18 +167,6 @@ export function AdminSeparacao() {
     void fetchBoard()
   }, [fetchBoard, slotsReady])
 
-  // Dispara a impressão quando há cupons na fila; limpa ao terminar.
-  useEffect(() => {
-    if (coupons.length === 0) return
-    const t = setTimeout(() => window.print(), 60)
-    const clear = () => setCoupons([])
-    window.addEventListener('afterprint', clear)
-    return () => {
-      clearTimeout(t)
-      window.removeEventListener('afterprint', clear)
-    }
-  }, [coupons])
-
   const dateLabel = board ? formatDateLabel(board.date) : ''
   const turnoLabel = slots.find((s) => s.slotId === slotId)?.label ?? ''
   const dayLabel = 'hoje'
@@ -193,6 +186,7 @@ export function AdminSeparacao() {
         slotLabel: o.slotLabel,
         dateLabel,
         marketItems: o.marketItems,
+        isFirstOrder: o.isFirstOrder,
       }
     })
   }
@@ -464,7 +458,7 @@ export function AdminSeparacao() {
       </div>
 
       {/* Folha de cupons (oculta na tela; impressa via window.print) */}
-      <SeparationCouponSheet coupons={coupons} />
+      <OrderCouponSheet coupons={coupons} />
 
       <style>{spinKeyframes}</style>
     </div>
@@ -606,8 +600,9 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
       </button>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {order.name}
+        <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{order.name}</span>
+          {order.isFirstOrder && <FirstOrderChip compact />}
         </p>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
           {location}

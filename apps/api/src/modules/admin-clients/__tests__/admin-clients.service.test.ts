@@ -51,6 +51,9 @@ function makeFastifyMock(overrides: {
     type: string
     createdAt: Date
   } | null
+  /** Linhas de `groupBy` do selo de estreia: `{ userId, _min: { scheduledDate } }`. */
+  firstBreadDays?: Array<{ userId: string; _min: { scheduledDate: Date | null } }>
+  firstMarketDays?: Array<{ userId: string; _min: { scheduledDate: Date | null } }>
 } = {}) {
   const defaultClient = {
     id: 'user-01',
@@ -73,6 +76,9 @@ function makeFastifyMock(overrides: {
     orders = [],
     marketOrders = [],
     lastTransaction = { id: 'tx-01', userId: 'user-01', type: 'PURCHASE', createdAt: new Date('2024-06-01') },
+    // Linhas de `groupBy` do selo de estreia: `{ userId, _min: { scheduledDate } }`.
+    firstBreadDays = [],
+    firstMarketDays = [],
   } = overrides
 
   const prisma = {
@@ -92,6 +98,8 @@ function makeFastifyMock(overrides: {
       update: vi.fn().mockResolvedValue({ id: 'ord-1', status: 'CANCELLED' }),
       aggregate: vi.fn().mockResolvedValue({ _sum: { quantity: 0 }, _count: 0 }),
       count: vi.fn().mockResolvedValue(0),
+      // Selo de estreia (`lib/first-delivery.ts`) — vazio = ninguém estreia.
+      groupBy: vi.fn().mockResolvedValue(firstBreadDays),
     },
     delivery: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -112,6 +120,7 @@ function makeFastifyMock(overrides: {
         }
         return Promise.resolve(rows)
       }),
+      groupBy: vi.fn().mockResolvedValue(firstMarketDays),
     },
     payment: {
       aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }),

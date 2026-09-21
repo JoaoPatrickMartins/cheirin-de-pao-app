@@ -57,6 +57,10 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
     marketOrderIds: { type: 'array', items: { type: 'string' } },
     marketItems: marketItemProps,
     marketItemCount: { type: 'integer' },
+    isFirstOrder: {
+      type: 'boolean',
+      description: 'Estreia do cliente — a parada cai no dia da primeira entrega dele. Selo na tela e no cupom.',
+    },
   }
 
   const slotProps = {
