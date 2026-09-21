@@ -17,11 +17,13 @@ export interface DaySlot {
   deliveryDate: string
   /** Pães já pagos (o que será pedido) — inclui o pão vendido dentro da Cestinha. */
   breads: number
-  /** Previstos pela agenda (ainda não materializados) — contexto. */
+  /** Previstos pela agenda SEM risco (ainda não materializados) — contexto. */
   projectedBreads: number
   /** Paradas do turno (pão + Cestinha do mesmo cliente = 1). */
   deliveries: number
   riskCount: number
+  /** Pães previstos em risco — fora de `breads` e de `projectedBreads`. */
+  riskBreads: number
   generated: boolean
   pastCutoff: boolean
   /** true também quando o turno tem só Cestinha (0 pães, N itens). */
@@ -456,6 +458,9 @@ function UrgentHero({
           <div style={{ fontSize: 11.5, color: '#cdb893', marginTop: 4, lineHeight: 1.4 }}>
             Entrega {dayTitle(day.date).toLowerCase()} {slot.label.toLowerCase()} · corte {slot.cutoffTime}
             {slot.projectedBreads > 0 ? ` · +${slot.projectedBreads} previstos` : ''}
+            {/* Em risco fica fora do número grande — dizer quantos são evita a impressão
+                de que a demanda encolheu sozinha. */}
+            {slot.riskBreads > 0 ? ` · ${slot.riskBreads} em risco (fora)` : ''}
           </div>
         </div>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 42, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1, textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -552,6 +557,8 @@ function DayCard({ day, onOpen }: { day: UpcomingDay; onOpen: () => void }) {
   const orderedSlots = day.slots.filter((s) => s.hasOrders)
   const risk = orderedSlots.reduce((a, s) => a + s.riskCount, 0)
   const projectedTotal = orderedSlots.reduce((a, s) => a + s.projectedBreads, 0)
+  // Pães em risco: nunca entram no número grande nem no caption de previstos.
+  const riskBreadsTotal = orderedSlots.reduce((a, s) => a + s.riskBreads, 0)
   // Risco a D+2 ou mais é estimativa (saldo é point-in-time).
   const riskEstimated = diff >= 2
   // Número grande = confirmados; se ainda não há confirmado, mostra os previstos.
@@ -559,12 +566,16 @@ function DayCard({ day, onOpen }: { day: UpcomingDay; onOpen: () => void }) {
   // Itens do mercadinho — métrica PARALELA aos pães (D-1), nunca somada ao número de pães.
   // Um dia pode ter 0 pães e N itens (Cestinha só de produtos): sem esta linha ele parecia vazio.
   const items = day.totalItems
+  // Dia inteiro em risco (0 confirmado, 0 previsto contável) mostraria só um "0" mudo — o
+  // caption explica de onde veio o zero.
   const caption =
     day.totalBreads > 0 && projectedTotal > 0
       ? `+${projectedTotal} prev.`
       : day.totalBreads === 0 && projectedTotal > 0
         ? 'previsto'
-        : ''
+        : day.totalBreads === 0 && riskBreadsTotal > 0
+          ? `${riskBreadsTotal} em risco`
+          : ''
 
   return (
     <button
@@ -636,7 +647,16 @@ function DayCard({ day, onOpen }: { day: UpcomingDay; onOpen: () => void }) {
               }}
             >
               <i style={{ width: 7, height: 7, borderRadius: 2, background: slotColor(s.slotId), display: 'inline-block' }} />
-              {s.label} {s.breads || s.projectedBreads}
+              {/* Turno só com previstos em risco: o número contável é 0, então mostra o
+                  em risco marcado, em vez de um "0" que parece turno vazio. */}
+              {s.label}{' '}
+              {s.breads || s.projectedBreads ? (
+                s.breads || s.projectedBreads
+              ) : s.riskBreads > 0 ? (
+                <span style={{ color: 'var(--color-warn)' }}>{s.riskBreads} risco</span>
+              ) : (
+                0
+              )}
               {/* Itens do mercadinho do turno, ao lado dos pães (nunca somados a eles — D-1). */}
               {s.items > 0 && <span style={{ color: 'var(--color-accent)' }}>· {s.items} 🧺</span>}
               {s.generated && <span style={{ color: 'var(--color-good)', fontWeight: 900 }}>✓</span>}

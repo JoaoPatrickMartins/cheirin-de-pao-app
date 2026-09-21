@@ -145,6 +145,29 @@ describe('AdminSupplierOrdersService', () => {
       expect(condo.totalBreads).toBe(30)
       expect(condo.deliveryCount).toBe(1)
     })
+
+    it('mantém o previsto em risco FORA dos totais de pães do condomínio', async () => {
+      const { fastify } = makeFastifyMock({
+        // ord-01 (50, manhã) confirmado + user-03 previsto sem saldo (risco) no mesmo turno.
+        schedule: [
+          { userId: 'user-03', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+        ],
+        users: [
+          { id: 'user-01', name: 'Ana Lima', apartment: '102', block: 'A', creditBalance: 100, isBlocked: false },
+          { id: 'user-03', name: 'Rafael Pinto', apartment: '301', block: 'A', creditBalance: 0, isBlocked: false },
+        ],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminSupplierOrdersService(fastify as any)
+      const condo = (await service.getDraft('manha')).find((c) => c.condominiumId === 'condo-01')!
+
+      expect(condo.totalBreads).toBe(50) // só o confirmado
+      expect(condo.projectedBreads).toBe(0) // os 8 previstos estão em risco
+      expect(condo.riskBreads).toBe(8)
+      expect(condo.riskCount).toBe(1)
+      // O chip do turno também não pode inflar com o em risco.
+      expect(condo.bySlot.find((s) => s.slotId === 'manha')).toMatchObject({ breads: 50, atRisk: 8 })
+    })
   })
 
   describe('getCondominiumDetail (por turno)', () => {
@@ -173,11 +196,20 @@ describe('AdminSupplierOrdersService', () => {
       const service = new AdminSupplierOrdersService(fastify as any)
       const detail = await service.getCondominiumDetail('condo-01', 'manha')
 
-      expect(detail.projectedBreads).toBe(8)
+      // Em risco NÃO conta: sai de projectedBreads/totalBreads e vive só em riskBreads.
+      expect(detail.projectedBreads).toBe(0)
+      expect(detail.riskBreads).toBe(8)
+      expect(detail.totalBreads).toBe(0)
       expect(detail.riskCount).toBe(1)
       const raf = detail.deliveries.find((d) => d.name === 'Rafael Pinto')!
       expect(raf.source).toBe('projected')
       expect(raf.risk).toBe('no-credit')
+      expect(raf.quantity).toBe(0)
+      expect(raf.breadAtRisk).toBe(8)
+      // A parada continua sendo da agenda — o risco tira o pão da conta, não o rótulo.
+      expect(raf.type).toBe('SCHEDULED')
+      // A quebra por turno também não pode carregar o em risco.
+      expect(detail.bySlot.find((s) => s.slotId === 'manha')).toMatchObject({ breads: 0, atRisk: 8 })
     })
 
     it('NÃO marca risco no-credit quando o cliente tem recarga automática ativa', async () => {
@@ -193,11 +225,16 @@ describe('AdminSupplierOrdersService', () => {
       const service = new AdminSupplierOrdersService(fastify as any)
       const detail = await service.getCondominiumDetail('condo-01', 'manha')
 
+      // Sem risco → o previsto CONTA normalmente (par discriminante do teste acima).
       expect(detail.projectedBreads).toBe(8)
+      expect(detail.riskBreads).toBe(0)
+      expect(detail.totalBreads).toBe(8)
       expect(detail.riskCount).toBe(0)
       const raf = detail.deliveries.find((d) => d.name === 'Rafael Pinto')!
       expect(raf.source).toBe('projected')
       expect(raf.risk).toBe('')
+      expect(raf.quantity).toBe(8)
+      expect(raf.breadAtRisk).toBe(0)
     })
 
     it('marca risco blocked mesmo com recarga automática ativa (bloqueio prevalece)', async () => {
@@ -215,6 +252,11 @@ describe('AdminSupplierOrdersService', () => {
       const lia = detail.deliveries.find((d) => d.name === 'Lia Souza')!
       expect(lia.risk).toBe('blocked')
       expect(detail.riskCount).toBe(1)
+      // Bloqueado também sai da conta — a recarga automática não salva quem não pode comprar.
+      expect(lia.quantity).toBe(0)
+      expect(lia.breadAtRisk).toBe(8)
+      expect(detail.totalBreads).toBe(0)
+      expect(detail.riskBreads).toBe(8)
     })
 
     it('marca risco blocked para cliente bloqueado (turno tarde)', async () => {
@@ -246,6 +288,48 @@ describe('AdminSupplierOrdersService', () => {
       expect(manha.generated).toBe(false) // nenhuma compra finalizada (findFirst → null)
       expect(typeof manha.deliveryDate).toBe('string')
       expect(manha.deliveryDate.length).toBeGreaterThan(0)
+    })
+
+    it('não soma o previsto em risco em totalBreads (aba Compra)', async () => {
+      const { fastify } = makeFastifyMock({
+        schedule: [
+          { userId: 'user-03', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+        ],
+        users: [
+          { id: 'user-01', name: 'Ana Lima', apartment: '102', block: 'A', creditBalance: 100, isBlocked: false },
+          { id: 'user-03', name: 'Rafael Pinto', apartment: '301', block: 'A', creditBalance: 0, isBlocked: false },
+        ],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const slots = await new AdminSupplierOrdersService(fastify as any).getSlotsStatus()
+      const manha = slots.find((s) => s.slotId === 'manha')!
+      expect(manha.totalBreads).toBe(50)
+      expect(manha.riskBreads).toBe(8)
+    })
+  })
+
+  describe('getUpcomingDays', () => {
+    it('separa previsto em risco de previsto contável nos turnos do dia', async () => {
+      const { fastify } = makeFastifyMock({
+        order: [],
+        schedule: [
+          // user-03 sem saldo → risco; user-06 com recarga automática → previsto que conta.
+          { userId: 'user-03', condominiumId: 'condo-01', days: { manha: { seg: 8, ter: 8, qua: 8, qui: 8, sex: 8, sab: 8, dom: 8 } } },
+          { userId: 'user-06', condominiumId: 'condo-01', days: { manha: { seg: 3, ter: 3, qua: 3, qui: 3, sex: 3, sab: 3, dom: 3 } } },
+        ],
+        users: [
+          { id: 'user-03', name: 'Rafael Pinto', apartment: '301', block: 'A', creditBalance: 0, isBlocked: false },
+          { id: 'user-06', name: 'Nina Rocha', apartment: '601', block: 'A', creditBalance: 0, isBlocked: false, autoRecharge: { active: true } },
+        ],
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const days = await new AdminSupplierOrdersService(fastify as any).getUpcomingDays(1)
+      const manha = days[0].slots.find((s) => s.slotId === 'manha')!
+
+      expect(manha.breads).toBe(0) // nada confirmado
+      expect(manha.projectedBreads).toBe(3) // só o previsto sem risco
+      expect(manha.riskBreads).toBe(8)
+      expect(manha.riskCount).toBe(1)
     })
   })
 

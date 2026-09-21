@@ -52,10 +52,13 @@ export type RiskFlag = '' | 'no-credit' | 'blocked'
 /**
  * Uma PARADA de entrega para o dia — pedido de pão, Cestinha, previsto da agenda, ou a combinação.
  *
- * Uma linha = uma visita física `(userId, slotId)` (D-5). `quantity` é o total de PÃES da parada
- * (pedido + Cestinha + previsto); os produtos do mercadinho ficam em `marketItems`, contados em
- * paralelo (D-1). `source` continua sendo o rótulo grosso ('order' = tem algo pago) para manter a
- * compatibilidade das telas; os números precisos vivem nos campos `bread*`.
+ * Uma linha = uma visita física `(userId, slotId)` (D-5). `quantity` é o total de PÃES CONTÁVEIS da
+ * parada (pedido + Cestinha + previsto SEM risco); os produtos do mercadinho ficam em `marketItems`,
+ * contados em paralelo (D-1). `source` continua sendo o rótulo grosso ('order' = tem algo pago) para
+ * manter a compatibilidade das telas; os números precisos vivem nos campos `bread*`.
+ *
+ * **Invariante dos pães da parada:** `breadConfirmed + breadProjected + breadAtRisk` = demanda bruta
+ * da agenda + pedidos. `quantity` deliberadamente NÃO inclui `breadAtRisk` (ver `_buildDeliveryRows`).
  */
 export interface DeliveryRow {
   condominiumId: string
@@ -66,7 +69,7 @@ export interface DeliveryRow {
   block: string
   /** Complemento do bloco ("Lado A"); '' quando não há. */
   complement: string
-  /** Total de PÃES da parada = confirmados (pedido + Cestinha) + previstos. */
+  /** Pães CONTÁVEIS da parada = confirmados (pedido + Cestinha) + previstos sem risco. */
   quantity: number
   slotId: string
   slotLabel: string
@@ -75,8 +78,10 @@ export interface DeliveryRow {
   risk: RiskFlag
   /** Pães já pagos — é o que entra no pedido ao fornecedor. */
   breadConfirmed: number
-  /** Pães previstos pela agenda, ainda não materializados. */
+  /** Pães previstos pela agenda que devem se materializar (SEM risco) — contam nos totais. */
   breadProjected: number
+  /** Pães previstos EM RISCO — ficam fora de todo total (só viram número quando confirmarem). */
+  breadAtRisk: number
   /** Recorte de `breadConfirmed` vindo da Cestinha (`MarketOrder.breadQty`). */
   breadFromMarket: number
   /** Pães confirmados de pedido avulso. */
@@ -94,10 +99,13 @@ export interface DeliveryRow {
 export interface SlotBreakdown {
   slotId: string
   label: string
+  /** Pães contáveis do turno (confirmados + previstos sem risco). Não inclui `atRisk`. */
   breads: number
   deliveries: number
   /** Itens do mercadinho do turno — métrica paralela aos pães (D-1). */
   items: number
+  /** Pães previstos em risco do turno — exibidos à parte, fora de `breads`. */
+  atRisk: number
 }
 
 const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
@@ -174,6 +182,12 @@ export class AdminSupplierOrdersService {
    * - 'blocked'  → cliente bloqueado
    * - 'no-credit'→ total previsto do cliente > saldo de créditos atual E SEM recarga automática
    *               ativa (com autoRecharge.active o sistema cobra/recarrega antes do corte → não é risco)
+   *
+   * **Previsto em risco NÃO entra em contador de pães nenhum.** Ele sai de `breadProjected` e vai
+   * para `breadAtRisk`, que nunca soma em `quantity`. Só volta a existir como número quando
+   * materializar no corte (aí já é `breadConfirmed`). Sem isso, a tela prometia pão de cliente
+   * bloqueado/sem saldo — pão que o `buildProductDemand` jamais compraria, porque ele só olha
+   * demanda confirmada. O total exibido passa a reconciliar com o que a compra de fato pede.
    */
   private async _buildDeliveryRows(slotId: string, deliveryDate: Date, condominiumId?: string): Promise<DeliveryRow[]> {
     const stops = await buildBreadDemand(this.prisma, slotId, deliveryDate, { condominiumId })
@@ -227,6 +241,11 @@ export class AdminSupplierOrdersService {
                 (projTotalByUser.get(s.userId) ?? 0) > wholeBreads((u?.creditMilli ?? 0))
               ? 'no-credit'
               : ''
+      // O previsto em risco sai dos contadores e vive sozinho em `breadAtRisk`. Os rótulos abaixo
+      // (`type`, `source`) seguem lendo `s.breadProjected` CRU: a parada continua sendo uma parada
+      // prevista da agenda — ela só não conta pão.
+      const breadProjected = risk === '' ? s.breadProjected : 0
+      const breadAtRisk = risk === '' ? 0 : s.breadProjected
       return {
         condominiumId: s.condominiumId,
         condominiumName: condoById.get(s.condominiumId)?.name ?? s.condominiumId,
@@ -235,7 +254,7 @@ export class AdminSupplierOrdersService {
         apartment: u?.apartment ?? '',
         block: u?.block ?? '',
         complement: u?.complement ?? '',
-        quantity: s.breadConfirmed + s.breadProjected,
+        quantity: s.breadConfirmed + breadProjected,
         slotId: s.slotId,
         slotLabel: slotLabelFor(s.condominiumId, s.slotId),
         // Rótulo de exibição da parada: agenda quando há pão de agenda; senão avulso
@@ -244,7 +263,8 @@ export class AdminSupplierOrdersService {
         source: s.hasConfirmed ? 'order' : 'projected',
         risk,
         breadConfirmed: s.breadConfirmed,
-        breadProjected: s.breadProjected,
+        breadProjected,
+        breadAtRisk,
         breadFromMarket: s.breadFromMarket,
         breadSingle: s.breadSingle,
         breadScheduled: s.breadScheduled,
@@ -257,17 +277,20 @@ export class AdminSupplierOrdersService {
   }
 
   /**
-   * Agrega paradas em quebra por turno, ordenada por label. `breads` é o total de pães
-   * (confirmados + previstos) e `deliveries` conta PARADAS (D-5) — um cliente com pão + Cestinha
-   * no mesmo turno conta 1. `items` é a métrica paralela dos produtos do mercadinho (D-1).
+   * Agrega paradas em quebra por turno, ordenada por label. `breads` é o total de pães CONTÁVEIS
+   * (confirmados + previstos sem risco — `r.quantity` já exclui o em risco) e `deliveries` conta
+   * PARADAS (D-5) — um cliente com pão + Cestinha no mesmo turno conta 1. `items` é a métrica
+   * paralela dos produtos do mercadinho (D-1) e `atRisk` o previsto em risco, exibido à parte.
    */
   private _slotBreakdown(rows: DeliveryRow[]): SlotBreakdown[] {
     const map = new Map<string, SlotBreakdown>()
     for (const r of rows) {
-      const cur = map.get(r.slotId) ?? { slotId: r.slotId, label: r.slotLabel, breads: 0, deliveries: 0, items: 0 }
+      const cur =
+        map.get(r.slotId) ?? { slotId: r.slotId, label: r.slotLabel, breads: 0, deliveries: 0, items: 0, atRisk: 0 }
       cur.breads += r.quantity
       cur.deliveries += 1
       cur.items += r.marketItemCount
+      cur.atRisk += r.breadAtRisk
       map.set(r.slotId, cur)
     }
     return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
@@ -289,6 +312,7 @@ export class AdminSupplierOrdersService {
       projectedDeliveries: number
       bySlot: SlotBreakdown[]
       riskCount: number
+      riskBreads: number
       marketItemCount: number
       marketBreads: number
     }>
@@ -314,10 +338,12 @@ export class AdminSupplierOrdersService {
         deliveryCount: confirmed.length,
         // Pães já pagos — inclui o pão vendido dentro da Cestinha (D-1).
         totalBreads: condoRows.reduce((s, r) => s + r.breadConfirmed, 0),
+        // Previstos que contam — o em risco vive em `riskBreads` e não soma em lugar nenhum.
         projectedBreads: condoRows.reduce((s, r) => s + r.breadProjected, 0),
         projectedDeliveries: condoRows.length - confirmed.length,
         bySlot: this._slotBreakdown(condoRows),
         riskCount: riskUsers.size,
+        riskBreads: condoRows.reduce((s, r) => s + r.breadAtRisk, 0),
         // Métricas paralelas da Cestinha (D-1) — nunca somadas aos pães.
         marketItemCount: condoRows.reduce((s, r) => s + r.marketItemCount, 0),
         marketBreads: condoRows.reduce((s, r) => s + r.breadFromMarket, 0),
@@ -343,6 +369,7 @@ export class AdminSupplierOrdersService {
     deliveryCount: number
     projectedDeliveries: number
     riskCount: number
+    riskBreads: number
     bySlot: SlotBreakdown[]
     byType: { single: number; scheduled: number; cestinha: number }
     marketItemCount: number
@@ -358,6 +385,7 @@ export class AdminSupplierOrdersService {
       type: 'SINGLE' | 'SCHEDULED'
       source: 'order' | 'projected'
       risk: RiskFlag
+      breadAtRisk: number
       marketItems: MarketItemLine[]
       marketItemCount: number
       breadFromMarket: number
@@ -386,12 +414,14 @@ export class AdminSupplierOrdersService {
     return {
       condominiumId,
       name,
+      // `quantity` já exclui o previsto em risco — o total do detalhe reconcilia com a compra.
       totalBreads: rows.reduce((s, r) => s + r.quantity, 0),
       materializedBreads: rows.reduce((s, r) => s + r.breadConfirmed, 0),
       projectedBreads: rows.reduce((s, r) => s + r.breadProjected, 0),
       deliveryCount: confirmed.length,
       projectedDeliveries: rows.length - confirmed.length,
       riskCount: riskUsers.size,
+      riskBreads: rows.reduce((s, r) => s + r.breadAtRisk, 0),
       bySlot: this._slotBreakdown(rows),
       // Quebra dos PÃES por origem — single + scheduled + cestinha = pães confirmados (D-1).
       // (previstos ficam fora: ainda não são pão de ninguém.)
@@ -413,6 +443,7 @@ export class AdminSupplierOrdersService {
         type: r.type,
         source: r.source,
         risk: r.risk,
+        breadAtRisk: r.breadAtRisk,
         marketItems: r.marketItems,
         marketItemCount: r.marketItemCount,
         breadFromMarket: r.breadFromMarket,
@@ -736,6 +767,7 @@ export class AdminSupplierOrdersService {
       generated: boolean
       totalBreads: number
       totalItems: number
+      riskBreads: number
     }>
   > {
     const slots = (await getGlobalDeliverySlots(this.prisma)).filter((s) => s.isActive)
@@ -744,8 +776,10 @@ export class AdminSupplierOrdersService {
         const deliveryDate = targetDeliveryDate(slot.time, slot.cutoffTime)
         const { start, end } = brtDayRange(deliveryDate)
         const rows = await this._buildDeliveryRows(slot.slotId, deliveryDate)
+        // `quantity` exclui o previsto em risco; ele sai separado em `riskBreads`.
         const totalBreads = rows.reduce((s, r) => s + r.quantity, 0)
         const totalItems = rows.reduce((s, r) => s + r.marketItemCount, 0)
+        const riskBreads = rows.reduce((s, r) => s + r.breadAtRisk, 0)
         const po = await this.prisma.purchaseOrder.findFirst({
           where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
           select: { id: true },
@@ -761,6 +795,7 @@ export class AdminSupplierOrdersService {
           generated: !!po,
           totalBreads,
           totalItems,
+          riskBreads,
         }
       }),
     )
@@ -771,8 +806,9 @@ export class AdminSupplierOrdersService {
   /**
    * getUpcomingDays — próximos N dias de entrega (BRT), cada um com seus turnos e estado.
    *
-   * Para cada dia (hoje..hoje+N-1) × cada slot ativo: total de pães (confirmados + previstos),
-   * entregas, clientes em risco, se a compra já foi gerada (FINALIZED) e se o corte já passou.
+   * Para cada dia (hoje..hoje+N-1) × cada slot ativo: pães confirmados, previstos SEM risco,
+   * previstos em risco (fora dos totais), entregas, clientes em risco, se a compra já foi gerada
+   * (FINALIZED) e se o corte já passou.
    * Alimenta a pré-tela "Dias em aberto". O front decide colapsar dias vazios / passados.
    *
    * Nota de performance: reexecuta a projeção da agenda por dia (refetch de schedules).
@@ -796,6 +832,7 @@ export class AdminSupplierOrdersService {
         projectedBreads: number
         deliveries: number
         riskCount: number
+        riskBreads: number
         generated: boolean
         pastCutoff: boolean
         hasOrders: boolean
@@ -821,9 +858,10 @@ export class AdminSupplierOrdersService {
           slots.map(async (slot) => {
             const rows = await this._buildDeliveryRows(slot.slotId, deliveryDate)
             // breads = confirmados (o que será pedido, JÁ incluindo o pão da Cestinha — D-1);
-            // projectedBreads = previstos (contexto).
+            // projectedBreads = previstos SEM risco (contexto); riskBreads = o que não conta.
             const breads = rows.reduce((s, r) => s + r.breadConfirmed, 0)
             const projectedBreads = rows.reduce((s, r) => s + r.breadProjected, 0)
+            const riskBreads = rows.reduce((s, r) => s + r.breadAtRisk, 0)
             const riskUsers = new Set(rows.filter((r) => r.risk !== '').map((r) => r.userId))
             const po = await this.prisma.purchaseOrder.findFirst({
               where: { status: 'FINALIZED', slotId: slot.slotId, date: { gte: start, lte: end } },
@@ -841,6 +879,7 @@ export class AdminSupplierOrdersService {
               projectedBreads,
               deliveries: rows.length,
               riskCount: riskUsers.size,
+              riskBreads,
               generated: !!po,
               pastCutoff: isPastCutoffForDelivery(slot.time, slot.cutoffTime, dateStr, now),
               // Um turno com SÓ Cestinha (0 pães, N itens) tem entrega a fazer e precisa aparecer.

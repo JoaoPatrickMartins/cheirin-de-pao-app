@@ -18,10 +18,13 @@ import { cutoffInstantForDelivery } from '../../../lib/cutoff'
 interface SlotBreakdown {
   slotId: string
   label: string
+  /** Pães contáveis do turno (pagos + previstos sem risco). Não inclui `atRisk`. */
   breads: number
   deliveries: number
   /** Itens do mercadinho do turno — métrica paralela aos pães (D-1). */
   items: number
+  /** Pães previstos em risco do turno — fora de `breads`. */
+  atRisk: number
 }
 
 interface CondoDraft {
@@ -31,10 +34,13 @@ interface CondoDraft {
   deliveryCount: number
   /** Pães já pagos — INCLUI o pão vendido dentro da Cestinha. */
   totalBreads: number
+  /** Previstos que devem materializar (SEM risco) — o em risco fica em `riskBreads`. */
   projectedBreads: number
   projectedDeliveries: number
   bySlot: SlotBreakdown[]
   riskCount: number
+  /** Pães previstos em risco — não somam em nenhum total; só contam quando confirmarem. */
+  riskBreads: number
   /** Itens do mercadinho do condomínio — nunca somados aos pães (D-1). */
   marketItemCount: number
   /** Recorte de `totalBreads` que vem da Cestinha. */
@@ -513,6 +519,9 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     const projected = condos.reduce((s, c) => s + c.projectedBreads, 0)
     const deliveries = condos.reduce((s, c) => s + c.deliveryCount + c.projectedDeliveries, 0)
     const risk = condos.reduce((s, c) => s + c.riskCount, 0)
+    // Pães em risco: mostrados à parte, nunca somados em `confirmed`/`projected` (o corte só
+    // materializa quem tiver saldo, então prometê-los na tela seria comprar pão que não existe).
+    const riskBreads = condos.reduce((s, c) => s + c.riskBreads, 0)
     // Itens do mercadinho — métrica paralela aos pães (D-1), exibida ao lado, nunca somada.
     const items = condos.reduce((s, c) => s + c.marketItemCount, 0)
     const marketBreads = condos.reduce((s, c) => s + c.marketBreads, 0)
@@ -531,6 +540,7 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
       projected,
       deliveries,
       risk,
+      riskBreads,
       items,
       marketBreads,
       condoCount: condos.length,
@@ -1101,6 +1111,13 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                                 <i style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--color-accent)' }} />
                                 em risco
                                 <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{summary.risk}</strong>
+                                {/* Os pães em risco NÃO entram nos KPIs acima — dizer quantos são
+                                    evita a leitura de que "sumiram" da conta. */}
+                                {summary.riskBreads > 0 && (
+                                  <span style={{ fontWeight: 600 }}>
+                                    ({summary.riskBreads} 🥖 fora)
+                                  </span>
+                                )}
                               </span>
                             )}
                           </div>
@@ -1294,6 +1311,7 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                               >
                                 <Icon name="alert" size={11} color="var(--color-accent)" stroke={2.2} />
                                 {condo.riskCount} risco
+                                {condo.riskBreads > 0 && ` · ${condo.riskBreads} 🥖 fora`}
                               </span>
                             )}
                           </div>
