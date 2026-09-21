@@ -17,6 +17,33 @@ vi.mock('../../notifications/notifications.service.js', () => ({
   },
 }))
 
+/**
+ * O GATEWAY NÃO ENTRA NO TESTE.
+ *
+ * Um checkout que chega ao fim com `moneyAmount > 0` cai no passo 13 e chama o Mercado Pago de
+ * verdade — e `@prisma/client`, ao ser importado, carrega o `.env` do projeto, então o
+ * `MP_ACCESS_TOKEN` de PRODUÇÃO fica visível dentro do teste. Sem este mock, `npm test` bate na
+ * API de pagamento com a credencial real; hoje só não cria cobrança porque o usuário do mock não
+ * tem e-mail nem CPF e o MP recusa por `payer_cannot_be_nil`.
+ *
+ * Era isso também que pendurava os dois testes de promoção: com os timers falsos do
+ * `beforeEach`, o cliente HTTP do SDK esperava por um timer que nunca avançava, e o teste
+ * estourava em 5s em vez de falhar.
+ */
+vi.mock('../../payments/payments.service.js', () => ({
+  PaymentsService: class {
+    constructor(_f: unknown) {}
+    createMarketPix = vi.fn().mockResolvedValue({
+      paymentId: 'pay-fake',
+      status: 'pending' as const,
+      pixCopyPaste: '00020126',
+      pixQrCodeUrl: '',
+      expiresAt: null,
+    })
+    createMarketCard = vi.fn().mockResolvedValue({ paymentId: 'pay-fake', status: 'pending' as const })
+  },
+}))
+
 import { MarketService } from '../market.service.js'
 import { MarketCheckoutService } from '../market-checkout.service.js'
 
@@ -114,8 +141,10 @@ function mockFastify(products: ProductSeed[], cartItems: { productId: string; qt
     condominium: {
       findUnique: vi.fn().mockResolvedValue({ deliverySlots: [SLOT_MANHA] }),
     },
-    // Só o checkout usa daqui para baixo. Ele é barrado no passo 7.1 antes de tocar em estoque,
-    // pagamento ou transação — por isso estes mocks podem ser mínimos.
+    // Só o checkout usa daqui para baixo. A maioria dos casos é barrada no passo 7.1, antes de
+    // tocar em estoque ou transação — mas os testes de promoção vão até o fim (criam o pedido e
+    // chegam ao gateway, que está mockado acima), então estes mocks precisam cobrir o caminho
+    // completo, não só o começo.
     marketOrder: { findUnique: vi.fn().mockResolvedValue(null) },
     productDailyStock: { findUnique: vi.fn().mockResolvedValue(null) },
     deliveryBlock: { findMany: vi.fn().mockResolvedValue([]) },
@@ -131,6 +160,11 @@ function mockFastify(products: ProductSeed[], cartItems: { productId: string; qt
   Object.assign(prisma.product, {
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     update: vi.fn().mockResolvedValue({}),
+    // Releitura do estoque após a reserva (alertStockAfterReserve). É best-effort no serviço,
+    // então sem isto o teste passava mascarando um TypeError engolido pelo try/catch.
+    findUnique: vi.fn().mockImplementation(({ where }: { where: { id: string } }) =>
+      Promise.resolve(rows.find((r) => r.id === where.id) ?? null),
+    ),
   })
   Object.assign(prisma.productDailyStock, {
     upsert: vi.fn().mockResolvedValue({}),
@@ -153,7 +187,10 @@ const at = (hhmm: string) => vi.setSystemTime(brt('2026-09-20', hhmm))
 describe('disponibilidade do catálogo e da Cestinha', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.useFakeTimers()
+    // Só o RELÓGIO é falso. Falsificar `setTimeout` junto pendura qualquer cliente HTTP que
+    // entre no caminho (foi o que travou os testes de promoção por 5s), e este arquivo nunca
+    // precisou avançar timer — só congelar a hora para testar horário de venda e promoção.
+    vi.useFakeTimers({ toFake: ['Date'] })
   })
   afterEach(() => vi.useRealTimers())
 
