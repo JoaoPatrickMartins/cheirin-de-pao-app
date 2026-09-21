@@ -1,4 +1,11 @@
-import { formatCredits, toMilli, wholeBreadsOf, formatUnit, COMPLEMENT_MAX_LENGTH } from '@cheirin-de-pao/shared'
+import {
+  formatCredits,
+  toMilli,
+  wholeBreadsOf,
+  formatUnit,
+  COMPLEMENT_MAX_LENGTH,
+  apartmentFieldLabel,
+} from '@cheirin-de-pao/shared'
 import { useState, useEffect } from 'react'
 import type { CSSProperties, ReactNode, ComponentProps } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
@@ -90,6 +97,8 @@ interface ClienteDetalhe {
 interface Condo {
   id: string
   name: string
+  /** Define o rótulo do campo de apartamento (entrada única aceita casa/lote). */
+  type?: string
 }
 
 interface ClientDetailViewProps {
@@ -561,6 +570,11 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
 
   const entradas = agendaEntries(cliente?.schedule)
   const wa = whatsappLink(cliente?.phone)
+
+  // A lista de condomínios só é buscada quando o sheet abre — até lá o tipo é desconhecido e
+  // o helper devolve "Apartamento", que é o rótulo certo para o caso majoritário.
+  const editCondoType = condominios.find((c) => c.id === editForm.condominiumId)?.type
+  const editAptLabel = apartmentFieldLabel(editCondoType)
 
   return (
     <div
@@ -1128,9 +1142,11 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               ))}
             </select>
 
-            <div style={{ display: 'flex', gap: 12 }}>
+            {/* flex-end: "Apartamento ou número" quebra em duas linhas em tela estreita —
+                alinhar pela base mantém os dois inputs na mesma altura. */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
-                <EditField label="Apartamento" value={editForm.apartment} onChange={(v) => setEditForm((f) => ({ ...f, apartment: v }))} />
+                <EditField label={editAptLabel} value={editForm.apartment} onChange={(v) => setEditForm((f) => ({ ...f, apartment: v }))} />
               </div>
               <div style={{ flex: 1 }}>
                 <EditField label="Bloco" value={editForm.block} onChange={(v) => setEditForm((f) => ({ ...f, block: v }))} />

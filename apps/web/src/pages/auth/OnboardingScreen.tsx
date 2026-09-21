@@ -8,7 +8,13 @@ import { ResendTimer } from '../../components/auth/ResendTimer'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { PasswordCriteria, isPasswordStrong } from '../../components/auth/AuthUI'
-import { isValidCpf, isValidBrMobile, COMPLEMENT_MAX_LENGTH } from '@cheirin-de-pao/shared'
+import {
+  isValidCpf,
+  isValidBrMobile,
+  COMPLEMENT_MAX_LENGTH,
+  apartmentFieldLabel,
+  apartmentFieldPlaceholder,
+} from '@cheirin-de-pao/shared'
 
 interface Condo {
   id: string
@@ -657,13 +663,14 @@ export function OnboardingScreen() {
             />
           )}
 
+          {/* Em entrada única o endereço pode ser casa/lote ("25A"), então o campo aceita
+              texto — teclado numérico travaria a letra no celular. */}
           <FieldRow
-            label="Apartamento"
+            label={apartmentFieldLabel(selectedCondo?.type)}
             icon="pin"
             value={apto}
             onChange={setApto}
-            placeholder="Ex.: 102"
-            type="tel"
+            placeholder={apartmentFieldPlaceholder(selectedCondo?.type)}
           />
 
           <div style={{ flex: 1 }} />

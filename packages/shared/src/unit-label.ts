@@ -13,6 +13,25 @@
 /** Limite do complemento. Curto porque é subbloco ("Lado A"), não endereço livre. */
 export const COMPLEMENT_MAX_LENGTH = 10
 
+/**
+ * Rótulo do campo de apartamento nos formulários, conforme o tipo do condomínio.
+ *
+ * Em entrada única o endereço nem sempre é um apartamento — pode ser casa/lote com número
+ * próprio —, então o campo se chama "Apartamento ou número".
+ *
+ * O teste é POSITIVO (`=== 'SINGLE_ENTRANCE'`) de propósito: as telas montam o condomínio
+ * selecionado antes de a lista chegar da API, e nesse intervalo o tipo é desconhecido. Com
+ * `!== 'BLOCKS'` o rótulo piscaria "ou número" para quem mora em condomínio com blocos.
+ */
+export function apartmentFieldLabel(condoType: string | null | undefined): string {
+  return condoType === 'SINGLE_ENTRANCE' ? 'Apartamento ou número' : 'Apartamento'
+}
+
+/** Placeholder do campo de apartamento — pareado com `apartmentFieldLabel`. */
+export function apartmentFieldPlaceholder(condoType: string | null | undefined): string {
+  return condoType === 'SINGLE_ENTRANCE' ? 'Ex.: 102 ou 25A' : 'Ex.: 102'
+}
+
 export interface UnitParts {
   block?: string | null
   complement?: string | null

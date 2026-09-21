@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { COMPLEMENT_MAX_LENGTH } from '@cheirin-de-pao/shared'
+import { COMPLEMENT_MAX_LENGTH, apartmentFieldLabel, apartmentFieldPlaceholder } from '@cheirin-de-pao/shared'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { CondoSearch } from '../../components/auth/CondoSearch'
@@ -166,6 +166,9 @@ export function AccountScreen() {
   }
 
   const isBlocksCondo = selectedCondo?.type === 'BLOCKS'
+  // `selectedCondo` nasce com type '' (vem do user, antes de /condominiums responder); o
+  // helper trata o desconhecido como "Apartamento" para o rótulo não piscar.
+  const aptLabel = apartmentFieldLabel(selectedCondo?.type)
 
   return (
     <div
@@ -356,12 +359,12 @@ export function AccountScreen() {
               />
               <div style={{ height: 16 }} />
 
-              <FieldLabel>Apartamento</FieldLabel>
+              <FieldLabel>{aptLabel}</FieldLabel>
               <input
                 type="text"
                 value={apartment}
                 onChange={(e) => setApartment(e.target.value)}
-                placeholder="Ex: 101"
+                placeholder={apartmentFieldPlaceholder(selectedCondo?.type)}
                 style={inputStyle}
               />
 
@@ -401,7 +404,7 @@ export function AccountScreen() {
           ) : (
             <>
               <ReadRow label="Condomínio" value={user?.condominiumName} />
-              <ReadRow label="Apartamento" value={user?.apartment} />
+              <ReadRow label={aptLabel} value={user?.apartment} />
               <ReadRow label="Bloco / Torre" value={user?.block} />
               <ReadRow label="Complemento" value={user?.complement} last />
             </>
