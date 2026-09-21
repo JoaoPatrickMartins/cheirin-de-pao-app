@@ -10,7 +10,7 @@ import { AdminSeparationController } from './admin-separation.controller.js'
  *   GET   /admin/separation/board            — pedidos do dia agrupados por condomínio → turno → cliente
  *   PATCH /admin/separation/orders/:id       — marca/desmarca um pedido como separado
  *   PATCH /admin/separation/market-orders    — marca/desmarca uma parada só-Cestinha
- *   PATCH /admin/separation/conclude         — conclui um lote (condomínio + turno) → libera p/ entrega
+ *   PATCH /admin/separation/conclude         — conclui um ou mais lotes (condomínio + turno) → libera p/ entrega
  *
  * IMPORTANTE: a rota estática /conclude fica ANTES da dinâmica /orders/:id (não há
  * conflito real, mas mantém o padrão das demais rotas admin).
@@ -135,16 +135,29 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
       preHandler: [fastify.authenticate],
       schema: {
         tags: ['admin — separation'],
-        summary: 'Concluir separação de um lote',
+        summary: 'Concluir separação de um ou mais lotes',
         description:
-          'Conclui a separação de um lote físico (condomínio + turno) de uma data: move todos os pedidos SCHEDULED do escopo para SEPARATED, liberando-os para a divisão de entregas. Idempotente.',
+          'Conclui a separação de lotes físicos (condomínio + turno) de uma data: move todos os pedidos SCHEDULED dos escopos para SEPARATED, liberando-os para a divisão de entregas. Aceita `scopes` (vários lotes numa tacada, usado pela seleção múltipla de condomínios) ou `condominiumId` + `slotId` (um lote só). Idempotente.',
         security: [{ bearerAuth: [] }],
         body: {
           type: 'object',
-          required: ['condominiumId', 'slotId'],
           properties: {
-            condominiumId: { type: 'string', description: 'ID do condomínio.' },
-            slotId: { type: 'string', description: "ID do turno; '' para pedidos sem turno." },
+            condominiumId: { type: 'string', description: 'ID do condomínio (forma de lote único).' },
+            slotId: { type: 'string', description: "ID do turno; '' para pedidos sem turno (forma de lote único)." },
+            scopes: {
+              type: 'array',
+              minItems: 1,
+              description:
+                'Lotes a concluir, como pares explícitos (condomínio, turno). Pares — e não listas cruzadas — porque o quadro esconde turno cuja compra não foi finalizada.',
+              items: {
+                type: 'object',
+                required: ['condominiumId', 'slotId'],
+                properties: {
+                  condominiumId: { type: 'string' },
+                  slotId: { type: 'string' },
+                },
+              },
+            },
             date: { type: 'string', description: 'Data de entrega (YYYY-MM-DD, BRT). Default: hoje.' },
           },
         },
@@ -154,6 +167,7 @@ export const adminSeparationRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               ok: { type: 'boolean' },
               count: { type: 'integer', description: 'Quantos pedidos foram movidos para SEPARATED.' },
+              scopes: { type: 'integer', description: 'Quantos lotes (condomínio + turno) foram concluídos.' },
             },
           },
         },

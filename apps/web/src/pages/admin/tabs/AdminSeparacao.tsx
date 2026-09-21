@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { ProgressBar } from '../../../components/admin/ProgressBar'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
+import { Toast, useToast } from '../../../components/admin/Toast'
 import { Icon } from '../../../components/brand/Icon'
 import { FirstOrderChip } from '../../../components/admin/FirstOrderChip'
 import { OrderCouponSheet, type CouponData } from '../../../components/admin/coupon/OrderCoupon'
@@ -96,7 +98,51 @@ function formatDateLabel(dateStr: string): string {
 
 const shortCode = (orderId: string) => orderId.slice(-4).toUpperCase()
 
-const countSep = (orders: BoardOrder[]) => orders.filter((o) => o.separated).length
+const countSep = (orders: { separated: boolean }[]) => orders.filter((o) => o.separated).length
+
+/** Um lote físico (condomínio + turno) — a unidade de conclusão da separação na API. */
+export interface SeparationScope {
+  condominiumId: string
+  slotId: string
+}
+
+/** O mínimo que `buildScopes` precisa de um condomínio do quadro. */
+export interface ScopeCondo {
+  condominiumId: string
+  slots: { slotId: string; orders: { separated: boolean }[] }[]
+}
+
+/**
+ * Um turno está pronto quando todas as suas paradas estão marcadas. Calculado na tela (e não
+ * pelo `concluded` do backend) porque o toggle de cada parada é otimista — o quadro só volta
+ * do servidor depois.
+ */
+export function slotDone(slot: { orders: { separated: boolean }[] }): boolean {
+  return slot.orders.length > 0 && countSep(slot.orders) === slot.orders.length
+}
+
+/**
+ * Deriva os lotes a concluir a partir dos condomínios marcados.
+ *
+ * Só entram os turnos iguais ao EXIBIDO (`activeSlotId`): cada turno é aprovado separadamente,
+ * então a seleção múltipla nunca atravessa Manhã → Tarde. Turno já todo marcado fica fora — não
+ * há nada a mover, e mantê-lo inflaria a contagem de lotes mostrada ao operador.
+ */
+export function buildScopes(
+  condos: ScopeCondo[],
+  selected: ReadonlySet<string>,
+  activeSlotId: string,
+): SeparationScope[] {
+  const scopes: SeparationScope[] = []
+  for (const condo of condos) {
+    if (!selected.has(condo.condominiumId)) continue
+    for (const slot of condo.slots) {
+      if (slot.slotId !== activeSlotId || slotDone(slot)) continue
+      scopes.push({ condominiumId: condo.condominiumId, slotId: slot.slotId })
+    }
+  }
+  return scopes
+}
 
 /**
  * Agrupa os pedidos de um turno por bloco, preservando a ordem já recebida (o backend
@@ -127,6 +173,10 @@ export function AdminSeparacao() {
   // Sequência de requisições: só aplicamos a resposta da busca mais recente, evitando
   // que uma chamada antiga (sem filtro) resolva depois e sobrescreva o turno selecionado.
   const reqSeq = useRef(0)
+  // Seleção múltipla de condomínios (concluir/imprimir em lote) — ids de condomínio.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const { toast, showToast } = useToast()
 
   // Carrega os turnos e define o padrão (automático pelo horário de corte)
   useEffect(() => {
@@ -167,6 +217,9 @@ export function AdminSeparacao() {
     void fetchBoard()
   }, [fetchBoard, slotsReady])
 
+  // Trocar de turno zera a seleção: ela vale sempre para o turno em tela.
+  useEffect(() => setSelected(new Set()), [slotId])
+
   const dateLabel = board ? formatDateLabel(board.date) : ''
   const turnoLabel = slots.find((s) => s.slotId === slotId)?.label ?? ''
   const dayLabel = 'hoje'
@@ -189,6 +242,84 @@ export function AdminSeparacao() {
         isFirstOrder: o.isFirstOrder,
       }
     })
+  }
+
+  // ── Seleção múltipla de condomínios ─────────────────────────────────────────
+  // Cada turno é aprovado separadamente, então a seleção opera sempre num único turno: o do
+  // SegmentedControl. Sem turnos configurados o quadro traz um turno só ('' = sem horário) e é
+  // ele o ativo. Se ainda assim vierem vários turnos à vista, a seleção some — concluir dois
+  // turnos numa tacada é exatamente o que não pode acontecer.
+  const boardSlotIds = useMemo(
+    () => [...new Set((board?.condominiums ?? []).flatMap((c) => c.slots.map((s) => s.slotId)))],
+    [board],
+  )
+  const activeSlotId: string | null = slotId || (boardSlotIds.length === 1 ? boardSlotIds[0] : null)
+  const canSelect = activeSlotId !== null
+
+  /** Condomínios com algo pendente no turno exibido — os únicos marcáveis. */
+  const selectableIds = useMemo(() => {
+    if (activeSlotId === null) return []
+    return (board?.condominiums ?? [])
+      .filter((c) => c.slots.some((s) => s.slotId === activeSlotId && !slotDone(s)))
+      .map((c) => c.condominiumId)
+  }, [board, activeSlotId])
+
+  /** Lotes que a conclusão em massa vai mover (já sem os turnos prontos). */
+  const scopes = useMemo(
+    () => (activeSlotId === null ? [] : buildScopes(board?.condominiums ?? [], selected, activeSlotId)),
+    [board, selected, activeSlotId],
+  )
+
+  /** Paradas dos condomínios marcados, no turno exibido — base da impressão e das contagens. */
+  const selectedStops = useMemo(() => {
+    if (activeSlotId === null) return []
+    const stops: { condoName: string; orders: BoardOrder[] }[] = []
+    for (const condo of board?.condominiums ?? []) {
+      if (!selected.has(condo.condominiumId)) continue
+      const orders = condo.slots.filter((s) => s.slotId === activeSlotId).flatMap((s) => s.orders)
+      if (orders.length > 0) stops.push({ condoName: condo.name, orders })
+    }
+    return stops
+  }, [board, selected, activeSlotId])
+
+  const selectedTotal = selectedStops.reduce((n, s) => n + s.orders.length, 0)
+  const selectedPending = selectedStops.reduce((n, s) => n + (s.orders.length - countSep(s.orders)), 0)
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id))
+  const barVisible = canSelect && selected.size > 0
+
+  function toggleCondoSelection(condominiumId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(condominiumId)) next.delete(condominiumId)
+      else next.add(condominiumId)
+      return next
+    })
+  }
+
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds))
+
+  /** Conclui todos os lotes marcados numa única chamada (o backend agrupa por turno). */
+  async function concludeSelected() {
+    if (!board || scopes.length === 0) return
+    const count = scopes.length
+    setBusyKey('selection')
+    try {
+      const res = await apiFetch('/admin/separation/conclude', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scopes, date: board.date }),
+      })
+      if (!res.ok) throw new Error('falha')
+      setSelected(new Set())
+      setConfirmOpen(false)
+      await fetchBoard()
+      showToast(`Separação concluída em ${count} ${count === 1 ? 'condomínio' : 'condomínios'}`)
+    } catch {
+      setConfirmOpen(false)
+      showToast('Não foi possível concluir a separação. Tente novamente.', false)
+    } finally {
+      setBusyKey(null)
+    }
   }
 
   // Toggle otimista de uma parada. Pedido de pão vai por orderId (a Cestinha da mesma parada
@@ -233,35 +364,19 @@ export function AdminSeparacao() {
     }
   }
 
-  async function concludeCondo(condo: BoardCondo) {
-    if (!board) return
-    setBusyKey(`condo:${condo.condominiumId}`)
-    try {
-      for (const slot of condo.slots) {
-        if (slot.concluded) continue
-        await apiFetch('/admin/separation/conclude', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ condominiumId: condo.condominiumId, slotId: slot.slotId, date: board.date }),
-        })
-      }
-      await fetchBoard()
-    } finally {
-      setBusyKey(null)
-    }
-  }
-
   // ── Render ──────────────────────────────────────────────────────────────────
   const isEmpty = !board || board.condominiums.length === 0
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
+    <div style={{ flex: 1, overflowY: 'auto' }}>
       <AdminHead
         sub={`Recebimento e conferência · ${dateLabel || 'Hoje'}`}
         titulo="Separação"
       />
 
-      <div style={{ padding: '0 20px' }}>
+      {/* Com a barra na tela, o respiro do rodapé abre espaço para ela: sendo fixa, ela
+          cobriria o último card. */}
+      <div style={{ padding: barVisible ? '0 20px 124px' : '0 20px 24px' }}>
         {/* Seletor de turno — a separação acontece sempre no dia da entrega (hoje),
             então só escolhemos Manhã/Tarde, igual à aba Entregas. */}
         {slots.length > 1 && (
@@ -308,12 +423,50 @@ export function AdminSeparacao() {
             {/* Resumo do dia */}
             <SummaryCard board={board!} />
 
+            {/* Seleção múltipla — marcar vários condomínios e concluir/imprimir de uma vez. */}
+            {canSelect && selectableIds.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  margin: '0 2px 12px',
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+                  {selected.size > 0
+                    ? `${selected.size} de ${selectableIds.length} ${selectableIds.length === 1 ? 'condomínio' : 'condomínios'}`
+                    : 'Marque condomínios para concluir em lote'}
+                </span>
+                <button
+                  onClick={toggleAll}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 999,
+                    border: '1.5px solid var(--color-border)',
+                    background: 'none',
+                    fontFamily: 'var(--font-body)',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    color: 'var(--color-text)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {allSelected ? 'Limpar' : 'Selecionar todos'}
+                </button>
+              </div>
+            )}
+
             {board!.condominiums.map((condo) => {
               const condoSep = condo.slots.reduce((n, s) => n + countSep(s.orders), 0)
               const condoTotal = condo.slots.reduce((n, s) => n + s.orders.length, 0)
               const allOrders = condo.slots.flatMap((s) => s.orders)
-              const busyCondo = busyKey === `condo:${condo.condominiumId}`
-              const fullyConcluded = condoSep === condoTotal && condoTotal > 0
+              // Marcável só se houver lote pendente no turno exibido; sem isso o quadrado
+              // aparece apenas como selo de "já separado".
+              const isSelectable = selectableIds.includes(condo.condominiumId)
+              const isSelected = selected.has(condo.condominiumId)
 
               return (
                 <div
@@ -327,7 +480,20 @@ export function AdminSeparacao() {
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <div style={{ minWidth: 0 }}>
+                    {canSelect && (
+                      <CheckSquare
+                        checked={isSelectable ? isSelected : true}
+                        disabled={!isSelectable}
+                        tone={isSelectable ? 'brand' : 'good'}
+                        ariaLabel={
+                          isSelectable
+                            ? `Selecionar ${condo.name}`
+                            : `${condo.name} já separado`
+                        }
+                        onClick={() => toggleCondoSelection(condo.condominiumId)}
+                      />
+                    )}
+                    <div style={{ minWidth: 0, flex: 1 }}>
                       <p style={{ fontFamily: 'var(--font-body)', fontSize: 15.5, fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>
                         {condo.name}
                       </p>
@@ -356,22 +522,32 @@ export function AdminSeparacao() {
                               {slot.slotLabel} · {sep}/{total}
                             </span>
                             <div style={{ display: 'flex', gap: 8 }}>
-                              <PrintButton label="Cupons" small onClick={() => setCoupons(toCoupons(slot.orders, condo.name))} />
-                              <button
-                                onClick={() => concludeSlot(condo.condominiumId, slot.slotId)}
-                                disabled={concluded || busySlot}
-                                style={concludeBtnStyle(concluded)}
-                              >
-                                {concluded ? (
-                                  <>
-                                    <Icon name="check" size={13} stroke={2.6} color="var(--color-good)" /> Concluído
-                                  </>
-                                ) : busySlot ? (
-                                  '...'
-                                ) : (
-                                  'Concluir'
-                                )}
-                              </button>
+                              {/* Com um turno por card (o normal, já que a tela filtra por turno)
+                                  isto imprimiria a mesma pilha do "Imprimir" do cabeçalho. Só
+                                  aparece quando há mais de um turno, onde o recorte é diferente. */}
+                              {condo.slots.length > 1 && (
+                                <PrintButton label="Cupons" small onClick={() => setCoupons(toCoupons(slot.orders, condo.name))} />
+                              )}
+                              {/* Concluir o lote solto também só faz sentido com vários turnos no
+                                  card: com um turno é o que a seleção já faz (marque o condomínio
+                                  e conclua na barra, com confirmação). Concluído, sobra o selo. */}
+                              {(condo.slots.length > 1 || concluded) && (
+                                <button
+                                  onClick={() => concludeSlot(condo.condominiumId, slot.slotId)}
+                                  disabled={concluded || busySlot}
+                                  style={concludeBtnStyle(concluded)}
+                                >
+                                  {concluded ? (
+                                    <>
+                                      <Icon name="check" size={13} stroke={2.6} color="var(--color-good)" /> Concluído
+                                    </>
+                                  ) : busySlot ? (
+                                    '...'
+                                  ) : (
+                                    'Concluir'
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </div>
 
@@ -428,28 +604,6 @@ export function AdminSeparacao() {
                       )
                     })}
                   </div>
-
-                  {/* Concluir condomínio inteiro */}
-                  <button
-                    onClick={() => concludeCondo(condo)}
-                    disabled={fullyConcluded || busyCondo}
-                    style={{
-                      marginTop: 14,
-                      width: '100%',
-                      minHeight: 42,
-                      borderRadius: 999,
-                      border: 'none',
-                      background: fullyConcluded ? 'var(--color-good-soft)' : 'var(--color-espresso)',
-                      color: fullyConcluded ? 'var(--color-good)' : '#fff',
-                      fontFamily: 'var(--font-body)',
-                      fontWeight: 700,
-                      fontSize: 14,
-                      cursor: fullyConcluded ? 'default' : 'pointer',
-                      opacity: busyCondo ? 0.7 : 1,
-                    }}
-                  >
-                    {fullyConcluded ? 'Condomínio separado ✓' : busyCondo ? 'Concluindo...' : 'Concluir condomínio'}
-                  </button>
                 </div>
               )
             })}
@@ -457,9 +611,108 @@ export function AdminSeparacao() {
         )}
       </div>
 
+      {/* Barra da seleção — fixa na viewport, logo acima da nav (56px + safe area), para concluir
+          ou imprimir sem rolar até o fim da lista. Fixa e não `sticky` de propósito: quando o
+          conteúdo é alto quem rola é a página, e o container do tab — mesmo com `overflow: auto` —
+          fica do tamanho do conteúdo, sem nunca rolar. O sticky ficava preso lá embaixo.
+          zIndex abaixo da nav (50) e das folhas de confirmação/cupom (100+). */}
+      {barVisible && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))',
+            zIndex: 40,
+            background: 'var(--color-app-bg)',
+            borderTop: '1px solid var(--color-border-2)',
+            boxShadow: '0 -8px 24px rgba(30, 18, 7, 0.08)',
+            padding: '12px 20px 16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+              {selected.size} {selected.size === 1 ? 'condomínio' : 'condomínios'} · {selectedTotal}{' '}
+              {selectedTotal === 1 ? 'entrega' : 'entregas'}
+            </span>
+            {selectedPending > 0 && (
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#8A6A00', whiteSpace: 'nowrap' }}>
+                {selectedPending} a conferir
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setCoupons(selectedStops.flatMap((s) => toCoupons(s.orders, s.condoName)))}
+              disabled={selectedTotal === 0}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                minHeight: 46,
+                padding: '0 16px',
+                borderRadius: 16,
+                border: '1.5px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 14,
+                color: 'var(--color-text)',
+                cursor: selectedTotal === 0 ? 'default' : 'pointer',
+                opacity: selectedTotal === 0 ? 0.6 : 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <Icon name="doc" size={16} stroke={2} color="var(--color-text-sec)" />
+              Cupons
+            </button>
+            <button
+              onClick={() => setConfirmOpen(true)}
+              disabled={scopes.length === 0 || busyKey === 'selection'}
+              style={{
+                flex: 1,
+                minHeight: 46,
+                borderRadius: 16,
+                border: 'none',
+                background: 'var(--color-espresso)',
+                color: '#FAF5EC',
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 15,
+                cursor: scopes.length === 0 ? 'default' : 'pointer',
+                opacity: scopes.length === 0 || busyKey === 'selection' ? 0.6 : 1,
+              }}
+            >
+              {busyKey === 'selection'
+                ? 'Concluindo...'
+                : scopes.length === 0
+                  ? 'Nada a concluir'
+                  : `Concluir ${scopes.length} ${scopes.length === 1 ? 'condomínio' : 'condomínios'}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação — concluir marca como separado até o que ainda não foi conferido. */}
+      <ConfirmSheet
+        open={confirmOpen}
+        title={`Concluir ${scopes.length} ${scopes.length === 1 ? 'condomínio' : 'condomínios'}?`}
+        description={
+          selectedPending > 0
+            ? `${selectedPending} de ${selectedTotal} ${selectedTotal === 1 ? 'entrega' : 'entregas'} ainda não ${selectedPending === 1 ? 'foi conferida' : 'foram conferidas'} e ${selectedPending === 1 ? 'será marcada' : 'serão marcadas'} como separada${selectedPending === 1 ? '' : 's'}. Os pedidos seguem para a divisão de entregas.`
+            : 'Os pedidos seguem para a divisão de entregas.'
+        }
+        confirmLabel="Concluir separação"
+        busy={busyKey === 'selection'}
+        onConfirm={() => void concludeSelected()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+
       {/* Folha de cupons (oculta na tela; impressa via window.print) */}
       <OrderCouponSheet coupons={coupons} />
 
+      <Toast toast={toast} />
       <style>{spinKeyframes}</style>
     </div>
   )
@@ -558,6 +811,52 @@ function MarketPicklist({ items, title, compact = false }: { items: MarketPickIt
   )
 }
 
+/**
+ * Quadrado de marcação — o mesmo gesto para "parada separada" (na linha do cliente) e para
+ * "condomínio selecionado" (no cabeçalho do card). Desabilitado e marcado = selo de concluído.
+ *
+ * O `tone` existe para os dois não se confundirem: verde é o "separado" de toda a tela, então
+ * a seleção usa o espresso da marca. Um condomínio 0/3 marcado de verde parecia já conferido.
+ */
+function CheckSquare({
+  checked,
+  onClick,
+  disabled = false,
+  ariaLabel,
+  tone = 'good',
+}: {
+  checked: boolean
+  onClick: () => void
+  disabled?: boolean
+  ariaLabel: string
+  tone?: 'good' | 'brand'
+}) {
+  const fill = tone === 'brand' ? 'var(--color-espresso)' : 'var(--color-good)'
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-pressed={checked}
+      style={{
+        width: 26,
+        height: 26,
+        flexShrink: 0,
+        borderRadius: 8,
+        border: checked ? 'none' : '1.5px solid var(--color-border)',
+        background: checked ? fill : 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled && !checked ? 0.5 : 1,
+      }}
+    >
+      {checked && <Icon name="check" size={15} stroke={3} color="#fff" />}
+    </button>
+  )
+}
+
 function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: BoardOrder; onToggle: () => void; onPrint: () => void; showBlock?: boolean }) {
   // Quando a lista já está agrupada por bloco, o rótulo do grupo diz o bloco — mas o
   // complemento varia dentro do mesmo bloco, então ele continua na linha.
@@ -577,27 +876,12 @@ function OrderRow({ order, onToggle, onPrint, showBlock = true }: { order: Board
         background: order.separated ? 'var(--color-good-soft)' : 'var(--color-surface-2)',
       }}
     >
-      <button
-        onClick={canToggle ? onToggle : undefined}
+      <CheckSquare
+        checked={order.separated}
         disabled={!canToggle}
-        aria-label={order.separated ? 'Separado' : 'Marcar separado'}
-        aria-pressed={order.separated}
-        style={{
-          width: 26,
-          height: 26,
-          flexShrink: 0,
-          borderRadius: 8,
-          border: order.separated ? 'none' : '1.5px solid var(--color-border)',
-          background: order.separated ? 'var(--color-good)' : 'transparent',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: canToggle ? 'pointer' : 'default',
-          opacity: !canToggle && !order.separated ? 0.5 : 1,
-        }}
-      >
-        {order.separated && <Icon name="check" size={15} stroke={3} color="#fff" />}
-      </button>
+        ariaLabel={order.separated ? 'Separado' : 'Marcar separado'}
+        onClick={onToggle}
+      />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 5 }}>

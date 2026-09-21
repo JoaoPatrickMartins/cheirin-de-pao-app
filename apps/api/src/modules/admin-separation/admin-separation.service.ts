@@ -91,6 +91,12 @@ export interface SeparationCondo {
   slots: SeparationSlot[]
 }
 
+/** Um lote físico a concluir: condomínio + turno ('' = sem turno). */
+export interface SeparationScope {
+  condominiumId: string
+  slotId: string
+}
+
 export interface SeparationBoard {
   date: string
   totalDeliveries: number
@@ -502,24 +508,59 @@ export class AdminSeparationService {
   }
 
   /**
-   * conclude — conclui a separação de um lote (condomínio + turno) de uma data.
+   * conclude — conclui a separação de UM lote (condomínio + turno) de uma data.
    * Move todos os pedidos SCHEDULED do escopo para SEPARATED (idempotente: ignora os
    * que já estão separados). A partir daqui eles entram na divisão de entregas.
    */
   async conclude(condominiumId: string, slotId: string, dateStr?: string): Promise<{ count: number }> {
+    return this.concludeMany([{ condominiumId, slotId }], dateStr)
+  }
+
+  /**
+   * concludeMany — conclui vários lotes de uma vez (seleção múltipla de condomínios na tela).
+   *
+   * Recebe PARES (condomínio, turno), não listas cruzadas: o quadro esconde turno cuja compra
+   * não foi finalizada, então um produto cartesiano concluiria lote invisível para o operador.
+   *
+   * Agrupa por turno e roda um `updateMany` por turno com `condominiumId: { in: [...] }` — 2
+   * queries por turno (pão + Cestinha) em vez de 2 por lote. Idempotente pelo guard de status.
+   */
+  async concludeMany(
+    scopes: SeparationScope[],
+    dateStr?: string,
+  ): Promise<{ count: number; scopes: number }> {
     const { start, end } = this.resolveDate(dateStr)
-    const result = await this.prisma.order.updateMany({
-      where: {
-        condominiumId,
-        // '' representa "sem turno" → casa com slotId nulo
-        slotId: slotId === '' ? null : slotId,
-        scheduledDate: { gte: start, lte: end },
-        status: 'SCHEDULED',
-      },
-      data: { status: 'SEPARATED', separatedAt: new Date() },
-    })
-    // A Cestinha pega carona: separa também os MarketOrder do mesmo (condo, slot, dia).
-    const marketCount = await separateMarketOrders(this.prisma, condominiumId, slotId, start, end)
-    return { count: result.count + marketCount }
+
+    // Dedup por par: a tela pode mandar o mesmo (condo, turno) mais de uma vez.
+    const condosBySlot = new Map<string, Set<string>>()
+    for (const s of scopes) {
+      if (!s.condominiumId) continue
+      const ids = condosBySlot.get(s.slotId) ?? new Set<string>()
+      ids.add(s.condominiumId)
+      condosBySlot.set(s.slotId, ids)
+    }
+
+    let count = 0
+    let pairs = 0
+    for (const [slotId, idSet] of condosBySlot) {
+      const condominiumIds = [...idSet]
+      pairs += condominiumIds.length
+
+      const result = await this.prisma.order.updateMany({
+        where: {
+          condominiumId: { in: condominiumIds },
+          // '' representa "sem turno" → casa com slotId nulo
+          slotId: slotId === '' ? null : slotId,
+          scheduledDate: { gte: start, lte: end },
+          status: 'SCHEDULED',
+        },
+        data: { status: 'SEPARATED', separatedAt: new Date() },
+      })
+      // A Cestinha pega carona: separa também os MarketOrder do mesmo (condo, slot, dia).
+      const marketCount = await separateMarketOrders(this.prisma, condominiumIds, slotId, start, end)
+      count += result.count + marketCount
+    }
+
+    return { count, scopes: pairs }
   }
 }

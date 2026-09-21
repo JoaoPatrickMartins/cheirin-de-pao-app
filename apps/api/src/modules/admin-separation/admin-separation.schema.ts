@@ -28,13 +28,36 @@ export const SetMarketSeparatedSchema = z.object({
 
 export type SetMarketSeparatedBody = z.infer<typeof SetMarketSeparatedSchema>
 
-/** Conclui a separação de um lote físico (condomínio + turno) de uma data. */
-export const ConcludeSeparationSchema = z.object({
+/** Um lote físico: condomínio + turno ('' = pedidos sem turno definido). */
+export const SeparationScopeSchema = z.object({
   condominiumId: z.string().min(1, 'condominiumId é obrigatório'),
-  // slotId do turno; '' representa pedidos sem turno definido
   slotId: z.string(),
-  // data de entrega (YYYY-MM-DD, BRT); default = hoje
-  date: z.string().optional(),
 })
+
+export type SeparationScopeInput = z.infer<typeof SeparationScopeSchema>
+
+/**
+ * Conclui a separação de um ou mais lotes físicos (condomínio + turno) de uma data.
+ *
+ * Duas formas aceitas:
+ *  - `scopes: [{ condominiumId, slotId }]` — vários lotes numa tacada (seleção múltipla da tela).
+ *  - `condominiumId` + `slotId` — um lote só (forma original, ainda usada pelos botões por lote).
+ *
+ * `scopes` é uma lista de PARES explícitos, nunca `condominiumIds × slotIds`: o quadro esconde
+ * turno cuja compra não foi finalizada (gate progressivo em `getBoard`), e um produto cartesiano
+ * concluiria lote que o operador nem viu na tela.
+ */
+export const ConcludeSeparationSchema = z
+  .object({
+    condominiumId: z.string().min(1).optional(),
+    // slotId do turno; '' representa pedidos sem turno definido
+    slotId: z.string().optional(),
+    scopes: z.array(SeparationScopeSchema).min(1).optional(),
+    // data de entrega (YYYY-MM-DD, BRT); default = hoje
+    date: z.string().optional(),
+  })
+  .refine((b) => (b.scopes?.length ?? 0) > 0 || (!!b.condominiumId && b.slotId !== undefined), {
+    message: 'informe scopes ou condominiumId + slotId',
+  })
 
 export type ConcludeSeparationBody = z.infer<typeof ConcludeSeparationSchema>

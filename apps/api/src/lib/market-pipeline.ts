@@ -21,17 +21,29 @@ type Prisma = PrismaClient
  */
 export const PRE_DELIVERY = ['SCHEDULED', 'SEPARATED', 'OUT_FOR_DELIVERY'] as const
 
-/** Separação concluída de um lote (condo, slot, dia): SCHEDULED → SEPARATED. */
+/**
+ * Separação concluída de um lote (condo, slot, dia): SCHEDULED → SEPARATED.
+ *
+ * Aceita vários condomínios do MESMO turno — a tela de Separação conclui em lote os
+ * condomínios marcados, e um `in` resolve todos numa query em vez de uma por condomínio.
+ */
 export async function separateMarketOrders(
   prisma: Prisma,
-  condominiumId: string,
+  condominiumId: string | string[],
   slotId: string,
   start: Date,
   end: Date,
 ): Promise<number> {
   if (!slotId) return 0
+  const ids = Array.isArray(condominiumId) ? condominiumId : [condominiumId]
+  if (ids.length === 0) return 0
   const r = await prisma.marketOrder.updateMany({
-    where: { condominiumId, slotId, scheduledDate: { gte: start, lte: end }, status: 'SCHEDULED' },
+    where: {
+      condominiumId: { in: ids },
+      slotId,
+      scheduledDate: { gte: start, lte: end },
+      status: 'SCHEDULED',
+    },
     data: { status: 'SEPARATED', separatedAt: new Date() },
   })
   return r.count

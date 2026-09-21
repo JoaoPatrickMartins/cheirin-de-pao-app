@@ -375,7 +375,11 @@ describe('AdminSeparationService', () => {
       expect(r.count).toBe(5)
       expect(prisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ condominiumId: 'c1', slotId: 'manha', status: 'SCHEDULED' }),
+          where: expect.objectContaining({
+            condominiumId: { in: ['c1'] },
+            slotId: 'manha',
+            status: 'SCHEDULED',
+          }),
           data: { status: 'SEPARATED', separatedAt: expect.any(Date) },
         }),
       )
@@ -388,6 +392,105 @@ describe('AdminSeparationService', () => {
       expect(prisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ slotId: null }) }),
       )
+    })
+  })
+
+  // Seleção múltipla de condomínios na tela → um pedido só, vários lotes.
+  describe('concludeMany', () => {
+    it('agrupa os condomínios do mesmo turno num único updateMany', async () => {
+      const { fastify, prisma } = makeMock({ count: 4 })
+      const r = await new AdminSeparationService(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fastify as any,
+      ).concludeMany(
+        [
+          { condominiumId: 'c1', slotId: 'manha' },
+          { condominiumId: 'c2', slotId: 'manha' },
+          { condominiumId: 'c3', slotId: 'manha' },
+        ],
+        '2026-06-26',
+      )
+      expect(prisma.order.updateMany).toHaveBeenCalledTimes(1)
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            condominiumId: { in: ['c1', 'c2', 'c3'] },
+            slotId: 'manha',
+            status: 'SCHEDULED',
+          }),
+        }),
+      )
+      expect(r.scopes).toBe(3)
+      expect(r.count).toBe(4)
+    })
+
+    it('separa a Cestinha dos mesmos condomínios e soma no total', async () => {
+      const { fastify, prisma } = makeMock({ count: 2 })
+      prisma.marketOrder.updateMany.mockResolvedValue({ count: 3 })
+      const r = await new AdminSeparationService(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fastify as any,
+      ).concludeMany(
+        [
+          { condominiumId: 'c1', slotId: 'manha' },
+          { condominiumId: 'c2', slotId: 'manha' },
+        ],
+        '2026-06-26',
+      )
+      expect(prisma.marketOrder.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ condominiumId: { in: ['c1', 'c2'] }, slotId: 'manha', status: 'SCHEDULED' }),
+        }),
+      )
+      // 2 pedidos de pão + 3 Cestinhas
+      expect(r.count).toBe(5)
+    })
+
+    it('um updateMany por turno — turnos nunca se misturam num só where', async () => {
+      const { fastify, prisma } = makeMock({ count: 1 })
+      await new AdminSeparationService(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fastify as any,
+      ).concludeMany(
+        [
+          { condominiumId: 'c1', slotId: 'manha' },
+          { condominiumId: 'c2', slotId: 'tarde' },
+        ],
+        '2026-06-26',
+      )
+      expect(prisma.order.updateMany).toHaveBeenCalledTimes(2)
+      const slots = prisma.order.updateMany.mock.calls.map(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c: any[]) => c[0].where.slotId,
+      )
+      expect(slots).toEqual(['manha', 'tarde'])
+    })
+
+    it('deduplica o mesmo lote repetido', async () => {
+      const { fastify, prisma } = makeMock({ count: 1 })
+      const r = await new AdminSeparationService(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fastify as any,
+      ).concludeMany(
+        [
+          { condominiumId: 'c1', slotId: 'manha' },
+          { condominiumId: 'c1', slotId: 'manha' },
+        ],
+        '2026-06-26',
+      )
+      expect(r.scopes).toBe(1)
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ condominiumId: { in: ['c1'] } }) }),
+      )
+    })
+
+    it('não toca no banco quando não há escopo', async () => {
+      const { fastify, prisma } = makeMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await new AdminSeparationService(fastify as any).concludeMany([], '2026-06-26')
+      expect(r).toEqual({ count: 0, scopes: 0 })
+      expect(prisma.order.updateMany).not.toHaveBeenCalled()
+      expect(prisma.marketOrder.updateMany).not.toHaveBeenCalled()
     })
   })
 })
