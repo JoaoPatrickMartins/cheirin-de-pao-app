@@ -7,6 +7,7 @@ import StepperInline from '../../../components/client/StepperInline'
 import { CondominiumOrderDetail } from '../../../components/admin/CondominiumOrderDetail'
 import { SupplierOrderHistory } from '../../../components/admin/SupplierOrderHistory'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import { DaySalesSheet } from '../../../components/admin/DaySalesSheet'
 import { slotTabLabel } from '../../../lib/slots'
 import { cutoffInstantForDelivery } from '../../../lib/cutoff'
 
@@ -377,6 +378,8 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
   const dateQuery = deliveryDate ? `&date=${deliveryDate}` : ''
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
   const [showHistory, setShowHistory] = useState(false)
+  /** Relatório de itens vendidos do dia (sheet) — só no modo dia, que é onde há uma data. */
+  const [showReport, setShowReport] = useState(false)
   const [slotId, setSlotId] = useState<string>('')
   const [generated, setGenerated] = useState<{ generated: boolean; orderId: string; totalQuantity: number } | null>(null)
 
@@ -765,6 +768,33 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
               Compra
             </h1>
           </div>
+          {/* Relatório de vendas do DIA — geral, somando todos os turnos e condomínios. O resto
+              desta tela é por condomínio (é o que a compra precisa); esta é a visão que responde
+              "o que saiu hoje" sem obrigar a somar condomínio por condomínio. */}
+          <button
+            onClick={() => setShowReport(true)}
+            aria-label="Relatório de itens vendidos do dia"
+            title="Itens vendidos no dia"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 13px',
+              borderRadius: 999,
+              border: '1px solid var(--color-border-2)',
+              background: 'var(--color-surface)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 700,
+              fontSize: 12.5,
+              color: 'var(--color-text)',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-soft)',
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="doc" size={15} color="var(--color-accent)" stroke={2} />
+            Relatório
+          </button>
         </div>
       ) : (
         <AdminHead
@@ -1668,6 +1698,11 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
             Voltar ao início
           </button>
         </div>
+      )}
+
+      {/* Relatório de itens vendidos do dia — geral, não por condomínio. */}
+      {showReport && deliveryDate && (
+        <DaySalesSheet date={deliveryDate} onClose={() => setShowReport(false)} />
       )}
 
       {/* CSS para spinner */}

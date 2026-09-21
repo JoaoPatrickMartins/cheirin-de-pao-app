@@ -32,6 +32,7 @@ import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.rout
 import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
 import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-supplier-orders.route.js'
 import { adminSeparationRoute } from './modules/admin-separation/admin-separation.route.js'
+import { adminDaySalesRoute } from './modules/admin-day-sales/admin-day-sales.route.js'
 import { ensureIndexes } from './lib/ensure-indexes.js'
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
 import { adminReportsRoute } from './modules/admin-reports/admin-reports.route.js'
@@ -265,6 +266,7 @@ const start = async () => {
     await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)
     await fastify.register(adminSupplierOrdersRoute)  // Phase 7 — GET/POST /admin/supplier-orders + PDF/Excel (ADMO-05..09)
     await fastify.register(adminSeparationRoute)      // Separação — GET board + PATCH conclude/orders (gate da entrega)
+    await fastify.register(adminDaySalesRoute)        // Aba Pedidos — GET /admin/day-sales (+ PDF/Excel): itens vendidos do dia
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
     await fastify.register(adminReportsRoute)   // GET /admin/reports/access — acesso/login/conversão
     await fastify.register(analyticsRoute)      // POST /analytics/event — ingestão pública de acesso/login
