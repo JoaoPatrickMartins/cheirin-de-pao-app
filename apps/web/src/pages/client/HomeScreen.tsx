@@ -31,7 +31,7 @@ const DAY_KEY_MAP: Record<number, keyof ReturnType<typeof useSchedule>['weeklyQt
   6: 'sab',
 }
 
-// Abreviações exibidas nos cards de próximas entregas
+// Abreviações exibidas nos cards da agenda automática
 const DAY_ABBR: Record<string, string> = {
   seg: 'Seg',
   ter: 'Ter',
@@ -218,19 +218,25 @@ function QuickActions({ onGo }: { onGo: (path: string) => void }) {
 
 interface NextDay {
   abbr: string
-  dayNum: number
   qty: number
   key: string
   isToday: boolean
 }
 
-// ---------- Próximas entregas (faixa de dias, dados reais) ----------
+// ---------- Agenda automática (configuração semanal, não entregas confirmadas) ----------
+// Mostra só o dia da semana (sem data): é o padrão que se repete, não uma promessa de entrega —
+// pausa, feriados e falta de saldo podem impedir um dia específico.
 function NextDays({ days, loading, hasSchedule, onEdit }: { days: NextDay[]; loading: boolean; hasSchedule: boolean; onEdit: () => void }) {
   return (
     <motion.div variants={containerV}>
       <motion.div variants={itemV} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '4px 2px 10px' }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--color-text)', letterSpacing: '-0.02em' }}>
-          Próximas entregas
+        <div>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: 'var(--color-text)', letterSpacing: '-0.02em' }}>
+            Sua agenda automática
+          </div>
+          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', marginTop: 2 }}>
+            Repete toda semana enquanto houver saldo
+          </div>
         </div>
         <motion.button
           whileTap={{ scale: 0.95 }}
@@ -258,7 +264,7 @@ function NextDays({ days, loading, hasSchedule, onEdit }: { days: NextDay[]; loa
         </div>
       ) : !hasSchedule ? (
         <motion.p variants={itemV} style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-sec)', margin: '2px 2px 0' }}>
-          Configure sua agenda para ver as próximas entregas
+          Monte sua agenda e receba pãezinhos todo dia, sem precisar pedir
         </motion.p>
       ) : (
         <div style={{ position: 'relative' }}>
@@ -272,7 +278,7 @@ function NextDays({ days, loading, hasSchedule, onEdit }: { days: NextDay[]; loa
               const today = d.isToday
               const highlight = today || active
               return (
-                <motion.div key={d.key + d.dayNum} variants={itemV} style={{ flexShrink: 0, width: 60, scrollSnapAlign: 'start' }}>
+                <motion.div key={d.key} variants={itemV} style={{ flexShrink: 0, width: 60, scrollSnapAlign: 'start' }}>
                   <div
                     style={{
                       position: 'relative',
@@ -294,10 +300,10 @@ function NextDays({ days, loading, hasSchedule, onEdit }: { days: NextDay[]; loa
                         fontWeight: today ? 700 : 600,
                       }}
                     >
-                      {today ? 'Hoje' : d.abbr}
+                      {today ? 'Hoje' : ' '}
                     </div>
-                    <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20, color: 'var(--color-text)', margin: '2px 0' }}>
-                      {d.dayNum}
+                    <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 18, color: 'var(--color-text)', margin: '2px 0 4px' }}>
+                      {d.abbr}
                     </div>
                     {active ? (
                       <Pill tone="gold" style={{ padding: '3px 8px', fontSize: 10.5, gap: 3 }}>
@@ -361,7 +367,6 @@ export function HomeScreen() {
     const key = DAY_KEY_MAP[d.getDay()]
     return {
       abbr: DAY_ABBR[key],
-      dayNum: d.getDate(),
       qty: dailyQty?.[key] ?? 0,
       key,
       isToday: i === 0,
@@ -476,7 +481,7 @@ export function HomeScreen() {
               para que, ao retornar null (catálogo vazio), não sobre um gap fantasma na coluna. */}
           <MarketHomeBlock />
 
-          {/* Próximas entregas */}
+          {/* Agenda automática (configuração semanal) */}
           <NextDays
             days={nextDays}
             loading={scheduleLoading}
