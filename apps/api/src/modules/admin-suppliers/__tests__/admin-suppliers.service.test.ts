@@ -37,6 +37,7 @@ function makeFastifyMock(overrides: {
     email: 'padaria@email.com',
     pricePerUnit: 1.5,
     isPrincipal: false,
+    isSelfSupply: false,
     isActive: true,
     address: {
       street: 'Rua das Flores',
@@ -138,6 +139,7 @@ describe('AdminSuppliersService', () => {
         cnpj: '12345678000190',
         pricePerUnit: 1.5,
         isPrincipal: false,
+        isSelfSupply: false,
         address: { street: 'Rua das Flores', number: '100', city: 'SP', state: 'SP', zip: '01310-100' },
       })
 
@@ -155,6 +157,7 @@ describe('AdminSuppliersService', () => {
         cnpj: '98765432000100',
         pricePerUnit: 2.0,
         isPrincipal: true,
+        isSelfSupply: false,
         address: { street: 'Av. Paulista', number: '1000', city: 'SP', state: 'SP', zip: '01310-100' },
       })
 
@@ -205,6 +208,7 @@ describe('AdminSuppliersService', () => {
         email: null,
         pricePerUnit: 1.5,
         isPrincipal: true,
+        isSelfSupply: false,
         isActive: true,
         address: { street: 'R', number: '1', city: 'SP', state: 'SP', zip: '01310-100' },
       }

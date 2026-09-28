@@ -23,13 +23,13 @@ type Address {
 }
 
 type DeliverySlot {
-  slotId      String? // identificador estável interno (ex.: "manha" | "tarde") — chave de referência futura
-  name        String  // legado/identidade atual; mantido igual ao slotId
-  label       String? // rótulo de exibição (ex.: "Manhã") — editável
-  emoji       String? // emoji de exibição (ex.: "☀️") — editável
-  time        String  // "06:30" — horário de ENTREGA; personalizável por condomínio (timeCustom)
-  cutoffTime  String  // "22:00" — horário de CORTE; SEMPRE global (propagado por cima)
-  isActive    Boolean
+  slotId       String? // identificador estável interno (ex.: "manha" | "tarde") — chave de referência futura
+  name         String // legado/identidade atual; mantido igual ao slotId
+  label        String? // rótulo de exibição (ex.: "Manhã") — editável
+  emoji        String? // emoji de exibição (ex.: "☀️") — editável
+  time         String // "06:30" — horário de ENTREGA; personalizável por condomínio (timeCustom)
+  cutoffTime   String // "22:00" — horário de CORTE; SEMPRE global (propagado por cima)
+  isActive     Boolean
   // Flags de personalização por condomínio (Etapa C). Ausente/false = herda o global e a
   // propagação sobrescreve; true = valor definido naquele condomínio e a propagação PRESERVA.
   // Só `time` e `isActive` são personalizáveis — `cutoffTime`, `label` e `emoji` seguem globais.
@@ -42,7 +42,7 @@ type MarketOrderItem {
   productId String // referência ao Product (hex ObjectId como string)
   name      String // snapshot do nome no momento da compra
   qty       Int
-  unitPrice Float  // snapshot do preço unitário (R$)
+  unitPrice Float // snapshot do preço unitário (R$)
 }
 
 // Item do carrinho persistente ("Cestinha") — referência viva ao produto + quantidade.
@@ -77,7 +77,7 @@ enum TransactionType {
   ADMIN_GRANT
   ADMIN_DEBIT
   MARKET_PURCHASE // débito ao pagar produtos do mini market com pãezinhos
-  MARKET_REFUND   // crédito no cancelamento de um MarketOrder (inclui a parte paga em dinheiro)
+  MARKET_REFUND // crédito no cancelamento de um MarketOrder (inclui a parte paga em dinheiro)
 }
 
 enum OrderType {
@@ -147,17 +147,17 @@ enum PaymentPurpose {
 
 // Tipo do gancho de porta concedido ao cliente (ver model HookRequest).
 enum HookRequestType {
-  FREE  // 1º gancho gratuito — ao comprar um combo OU pedido único >= mínimo configurado
-  PAID  // gancho adicional pago (Pix) — reposição por defeito/perda
+  FREE // 1º gancho gratuito — ao comprar um combo OU pedido único >= mínimo configurado
+  PAID // gancho adicional pago (Pix) — reposição por defeito/perda
   BONUS // gancho concedido pelo admin como bonificação (sem custo)
 }
 
 // Estado do ciclo de vida de um gancho.
 enum HookRequestStatus {
   PENDING_PAYMENT // PAID aguardando confirmação do pagamento (ainda não entra na fila)
-  REQUESTED       // na fila — aguardando a entrega física pelo admin
-  DELIVERED       // entregue ao cliente (auditável)
-  CANCELLED       // pagamento falhou/expirou (PAID que nunca confirmou)
+  REQUESTED // na fila — aguardando a entrega física pelo admin
+  DELIVERED // entregue ao cliente (auditável)
+  CANCELLED // pagamento falhou/expirou (PAID que nunca confirmou)
 }
 
 enum NotificationType {
@@ -173,7 +173,7 @@ enum NotificationType {
   // Cliente — Cestinha ("Além do Pãozin"). A entrega reusa DELIVERY_DONE (paridade com o pão);
   // estes dois não têm equivalente no pão e por isso são tipos próprios.
   MARKET_ORDER_CANCELLED // Cestinha cancelada sem ação do cliente (sweep de pagamento / admin)
-  MARKET_NOT_DELIVERED   // Cestinha não entregue (cliente ausente, endereço, etc.)
+  MARKET_NOT_DELIVERED // Cestinha não entregue (cliente ausente, endereço, etc.)
   // Admin — avisos operacionais (cada um com toggle individual em adminNotificationPrefs)
   ADMIN_ORDER_PLACED
   ADMIN_HOOK_REQUESTED
@@ -186,6 +186,16 @@ enum NotificationType {
   ADMIN_AUTOGEN_WARNING
   ADMIN_AUTOGEN_DONE
   ADMIN_LOW_STOCK // produto do mercadinho com estoque baixo / esgotado
+
+  // ── Alertas FINANCEIROS (C1 · escopo firmado da Fase 5) ────────────────────
+  // O encanamento já existia inteiro — push, toggle por tipo, tela de preferências. O que faltava
+  // era o financeiro ter voz nele: o dono só descobria um mês ruim abrindo o DRE por conta própria.
+  ADMIN_EXPENSE_DUE // conta a pagar vence amanhã ou já venceu — evita multa e juros
+  ADMIN_EXPENSE_ANOMALY // categoria muito acima da média dos meses anteriores — pega vazamento cedo
+  ADMIN_MARGIN_DROP // margem bruta caiu em relação ao período anterior
+  ADMIN_RESULT_NEGATIVE // o mês em curso está dando prejuízo — ainda dá tempo de reagir
+  ADMIN_GOAL_AT_RISK // receita abaixo do ritmo necessário para bater a meta do mês
+
   // Entregador — avisos automáticos (sem toggle)
   COURIER_NEW_ORDERS
   COURIER_PENDING_REMINDER
@@ -193,7 +203,7 @@ enum NotificationType {
 
 enum AnalyticsEventType {
   ACCESS // abertura do app / carga da PWA por um visitante (anônimo)
-  LOGIN  // verificação de OTP bem-sucedida que cria uma sessão
+  LOGIN // verificação de OTP bem-sucedida que cria uma sessão
 }
 
 // Tipo de estoque de um Product do mini market.
@@ -241,8 +251,8 @@ enum BannerActionType {
 
 // Com que frequência um POPUP volta a aparecer para o MESMO cliente. Lido contra BannerView.
 enum BannerFrequency {
-  ONCE   // uma vez na vida
-  DAILY  // uma vez por dia BRT (padrão)
+  ONCE // uma vez na vida
+  DAILY // uma vez por dia BRT (padrão)
   ALWAYS // toda abertura da Home — usar com parcimônia
 }
 
@@ -250,29 +260,29 @@ enum BannerFrequency {
 
 // 1. User — clientes, entregadores e admins
 model User {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
-  email         String?   @unique
-  phone         String?   @unique
-  role          UserRole
-  name          String
-  cpf           String    @unique
-  birthDate     DateTime?
+  id                     String    @id @default(auto()) @map("_id") @db.ObjectId
+  email                  String?   @unique
+  phone                  String?   @unique
+  role                   UserRole
+  name                   String
+  cpf                    String    @unique
+  birthDate              DateTime?
   // Auth por senha (bcrypt). null = ainda não definiu — força definição no 1º acesso via OTP.
   // Nunca expor este campo em respostas/selects públicos.
-  passwordHash  String?
-  passwordSetAt DateTime?
-  isBlocked     Boolean   @default(false)
+  passwordHash           String?
+  passwordSetAt          DateTime?
+  isBlocked              Boolean   @default(false)
   // Contexto do bloqueio atual (auditoria) — preenchido ao bloquear, limpo ao desbloquear
-  blockReason   String?
-  blockedAt     DateTime?
-  blockedById   String?   @db.ObjectId
-  condominiumId String?   @db.ObjectId
-  apartment     String?
-  block         String?
+  blockReason            String?
+  blockedAt              DateTime?
+  blockedById            String?   @db.ObjectId
+  condominiumId          String?   @db.ObjectId
+  apartment              String?
+  block                  String?
   // Complemento curto do endereço (máx. 10 chars) — subdivisão do bloco, ex.: "Lado A".
   // Só é coletado em condomínio do tipo BLOCKS. Opcional: em documento antigo a chave nem
   // existe, então toda leitura é via `select` + `?? null` (nunca `where: { complement: null }`).
-  complement    String?
+  complement             String?
   // LEGADO — nada em runtime lê nem escreve este campo desde a limpeza (31/07/2026). Continua
   // declarado só porque é a FONTE do backfill do boot. Num cliente ativo hoje o valor está
   // CONGELADO no momento da limpeza: não use para nada.
@@ -282,89 +292,89 @@ model User {
   // o mesmo cliente. Com o campo chamando-se `creditBalanceLegacy`, nenhum spread acidental volta
   // a produzir a chave `creditBalance`, e o allowlist do response schema a descarta sozinho.
   // O `@map` mantém o nome original no Mongo — o banco não muda.
-  creditBalanceLegacy Int      @default(0) @map("creditBalance")
+  creditBalanceLegacy    Int       @default(0) @map("creditBalance")
   // Saldo CANÔNICO em milésimos de pãozinho (1 pão = 1000) — **é o único saldo da aplicação**.
   // Inteiro de propósito: `Float` em dinheiro acumula drift, e trocar o tipo de um campo `Int` já
   // gravado quebra a leitura no Prisma + MongoDB. Nullable porque `@default` não cria a chave em
   // documento pré-existente; o backfill do boot garante que toda chave exista antes do tráfego.
-  creditMilli        Int?
-  autoRecharge       Json?
+  creditMilli            Int?
+  autoRecharge           Json?
   // Preferências de notificação do ADMIN — mapa { [NotificationType]: boolean }.
   // Ausência/null = todos os tipos ligados; só grava as chaves DESLIGADAS (false).
   adminNotificationPrefs Json?
-  cardTokenMp        String?
-  oneSignalPlayerId  String?
-  mpCustomerId       String?
-  stripeCustomerId   String?
+  cardTokenMp            String?
+  oneSignalPlayerId      String?
+  mpCustomerId           String?
+  stripeCustomerId       String?
   // Consentimento explícito para cobranças sem CVV (off_session / card-on-file)
-  offSessionConsentAt DateTime?
+  offSessionConsentAt    DateTime?
   // LEGADO — gancho de porta. Migrado para a coleção HookRequest (um doc por gancho).
   // Mantidos apenas para o backfill (scripts/backfill-hook-requests.ts) ler o estado antigo.
   // NÃO escrever mais aqui: a fonte da verdade agora é HookRequest. Podem ser removidos
   // após o backfill rodar em produção.
-  hookRequestedAt    DateTime?
-  hookDeliveredAt    DateTime?
-  hookDeliveredById  String?   @db.ObjectId
+  hookRequestedAt        DateTime?
+  hookDeliveredAt        DateTime?
+  hookDeliveredById      String?   @db.ObjectId
   // Tutorial de primeiro acesso — momento em que o cliente concluiu/pulou o onboarding.
   // FONTE DE VERDADE de "já viu o tutorial": null/ausente = ainda não concluiu (mostra
   // automaticamente no 1º acesso). Lido em GET /client/onboarding, gravado uma única
   // vez em POST /client/onboarding/complete.
-  onboardingCompletedAt DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  onboardingCompletedAt  DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
 
 // 2. Condominium — condomínios cadastrados
 model Condominium {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
-  name          String
-  address       Address
+  id                           String         @id @default(auto()) @map("_id") @db.ObjectId
+  name                         String
+  address                      Address
   // Coordenadas usadas pela rota do entregador (OSRM). Definidas manualmente pelo admin
   // ou geocodificadas (Nominatim) ao criar/editar. Nulas enquanto não localizado.
-  lat           Float?
-  lng           Float?
+  lat                          Float?
+  lng                          Float?
   // true quando a geocodificação só resolveu a nível de cidade (centro) — impreciso.
-  approxLocation Boolean @default(false)
-  type          CondoType
+  approxLocation               Boolean        @default(false)
+  type                         CondoType
   // Número de blocos/torres — usado apenas quando type == BLOCKS. Nulo em SINGLE_ENTRANCE.
-  numBlocks     Int?
-  isActive      Boolean   @default(true)
-  deliverySlots DeliverySlot[]
+  numBlocks                    Int?
+  isActive                     Boolean        @default(true)
+  deliverySlots                DeliverySlot[]
   // Overrides das restrições por dia da semana (Etapa C). AUSENTE = herda o padrão global
   // (Setting `diasBloqueados` / `limitePedidosDia`). Presente = mapa completo `{seg..dom}` que
   // substitui o global naquele condomínio.
   //
   // ATENÇÃO (Mongo): a resolução é feita EM CÓDIGO (`override ?? global`) — nunca consultar
   // `where: { blockedDaysOverride: null }`, que não encontra documento sem a chave.
-  blockedDaysOverride Json?
-  dayLimitOverride    Json?
+  blockedDaysOverride          Json?
+  dayLimitOverride             Json?
   // Overrides do PEDIDO MÍNIMO — mesma semântica e mesma armadilha do Mongo dos dois acima:
   // AUSENTE/null = herda o padrão global (Setting `pedidoMinimoUnico` / `pedidoMinimoAgenda` /
   // `marketMinimoCestinha`), resolução SEMPRE em código (`lib/order-minimums.ts`).
-  pedidoMinimoUnicoOverride    Int?   // pães por pedido único, 1..20
-  pedidoMinimoAgendaOverride   Json?  // mapa completo {seg..dom}, 0..12 (por turno)
+  pedidoMinimoUnicoOverride    Int? // pães por pedido único, 1..20
+  pedidoMinimoAgendaOverride   Json? // mapa completo {seg..dom}, 0..12 (por turno)
   marketMinimoCestinhaOverride Float? // valor mínimo da Cestinha em R$, >= 0 (0 = sem mínimo)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt                    DateTime       @default(now())
+  updatedAt                    DateTime       @updatedAt
 }
 
 // 3. Combo — pacotes de créditos de pãezinhos
 model Combo {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  name           String
-  quantity       Int
-  price          Float
-  tag            String?
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  quantity    Int
+  price       Float
+  tag         String?
   // Subtítulo curto exibido no card (ex.: "O equilíbrio da casa")
-  description    String?
+  description String?
   // Liga/desliga a tag de economia no card. A economia é calculada automaticamente
   // comparando o preço do combo com comprar a mesma quantidade no avulso (avulsoUnit).
   // Nullable de propósito: combos criados antes deste campo leem null no Mongo (o
   // @default só vale na criação) — o código trata null/ausente como "ligada".
-  showEconomy    Boolean? @default(true)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  showEconomy Boolean? @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // 4. Promotion — promoções e descontos temporários por combo
@@ -391,39 +401,39 @@ model Setting {
 
 // 6. CreditTransaction — movimentação de créditos (imutável — sem updatedAt)
 model CreditTransaction {
-  id          String          @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String          @db.ObjectId
-  type        TransactionType
+  id            String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String          @db.ObjectId
+  type          TransactionType
   // LEGADO — nada em runtime lê nem escreve este campo desde a limpeza (31/07/2026). Continua
   // declarado só porque é a FONTE do backfill do boot (`credit-milli-backfill.ts`), que preenche
   // `quantityMilli` em linhas antigas. Opcional porque linhas novas não o gravam.
-  quantity    Int?
+  quantity      Int?
   // Movimento CANÔNICO em milésimos de pãozinho (negativo = débito). É o único que a aplicação lê.
   quantityMilli Int?
-  referenceId String?
-  description String?
-  adminId     String?         @db.ObjectId
-  reason      String?
-  createdAt   DateTime        @default(now())
+  referenceId   String?
+  description   String?
+  adminId       String?         @db.ObjectId
+  reason        String?
+  createdAt     DateTime        @default(now())
 }
 
 // 7. Schedule — agendamento semanal personalizado por cliente
 model Schedule {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId            String   @db.ObjectId
-  condominiumId     String   @db.ObjectId
-  weeklyQty         Json?
-  deliveryTime      String?
-  notifyReconfigure Boolean  @default(false)
-  isActive          Boolean  @default(true)
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId              String    @db.ObjectId
+  condominiumId       String    @db.ObjectId
+  weeklyQty           Json?
+  deliveryTime        String?
+  notifyReconfigure   Boolean   @default(false)
+  isActive            Boolean   @default(true)
   // Pausa da agenda pelo próprio cliente. null = não pausada; preenchido = pausada desde então.
   // Gate no corte é feito em código (if schedule.pausedAt) — evita null-vs-unset do Mongo.
-  pausedAt          DateTime?
+  pausedAt            DateTime?
   // Último lembrete "pausada há muito tempo" enviado — controla a cadência semanal.
   lastPauseReminderAt DateTime?
-  days              Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  days                Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@unique([userId, condominiumId])
 }
@@ -439,17 +449,17 @@ model Order {
   deliveryListId String?     @db.ObjectId
   courierId      String?     @db.ObjectId
   condominiumId  String?     @db.ObjectId
-  slotId         String?     // identificador estável do slot (chave de junção; Etapa B)
-  deliveryTime   String?     // snapshot do horário de entrega no momento do pedido (exibição)
+  slotId         String? // identificador estável do slot (chave de junção; Etapa B)
+  deliveryTime   String? // snapshot do horário de entrega no momento do pedido (exibição)
   paymentId      String?     @db.ObjectId // vínculo leve ao Payment que financiou o avulso (só quando houve pagamento; nulo quando pago via saldo). Base do estorno de dinheiro a partir de um pedido parado.
   // Marcos do ciclo de vida (rastreabilidade ponta-a-ponta — evita pedido "no limbo")
-  separatedAt    DateTime?   // quando foi separado/conferido (entra na divisão de entregas)
-  deliveredAt    DateTime?   // quando foi confirmado como entregue
-  failedAt       DateTime?   // quando foi marcado como NÃO entregue
-  failureReason  String?     // motivo da não-entrega (cliente ausente, endereço, etc.)
-  cancelledAt    DateTime?   // quando foi cancelado
-  cancelReason   String?     // motivo do cancelamento
-  deliveryNote   String?     // nota da entrega manual/retroativa (resolução de pedido parado marcado como entregue)
+  separatedAt    DateTime? // quando foi separado/conferido (entra na divisão de entregas)
+  deliveredAt    DateTime? // quando foi confirmado como entregue
+  failedAt       DateTime? // quando foi marcado como NÃO entregue
+  failureReason  String? // motivo da não-entrega (cliente ausente, endereço, etc.)
+  cancelledAt    DateTime? // quando foi cancelado
+  cancelReason   String? // motivo do cancelamento
+  deliveryNote   String? // nota da entrega manual/retroativa (resolução de pedido parado marcado como entregue)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -495,6 +505,22 @@ model Supplier {
   isActive     Boolean  @default(true)
   // LEGADO (D-10) — "principal global". Virou a semente do `isPreferred` do pão na matriz.
   isPrincipal  Boolean  @default(false)
+  /// FORNECIMENTO PRÓPRIO — este "fornecedor" é a própria casa (o Cheirin de Pão produzindo).
+  ///
+  /// Existe porque produção própria e compra de terceiro são coisas contabilmente diferentes que
+  /// usam a MESMA mecânica de pedido: a matriz de fornecimento precisa de um custo unitário para
+  /// precificar e calcular margem, então a casa entra como fornecedor — mas não há ninguém a
+  /// quem pagar. O custo real dela já entra pelas DESPESAS (farinha, gás, mão de obra).
+  ///
+  /// Consequência direta: compra deste fornecedor NÃO vira conta a pagar. Sem a flag, cada lote
+  /// diário de produção própria virava uma "conta" de centavos na fila do que pagar — ruído que
+  /// esconde a conta de verdade.
+  ///
+  /// NULLABLE de propósito, como todo campo novo em coleção que já tem dado: `@default` só vale na
+  /// CRIAÇÃO, então os fornecedores já cadastrados não ganham a chave e um campo obrigatório
+  /// quebraria a leitura deles. `null`/ausente = não é fornecimento próprio. Nunca filtrar por
+  /// `isSelfSupply: false` — só `true` casa com chave presente.
+  isSelfSupply Boolean? @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -509,14 +535,14 @@ model SupplierProduct {
   id              String   @id @default(auto()) @map("_id") @db.ObjectId
   supplierId      String   @db.ObjectId
   productId       String   @db.ObjectId
-  unitCost        Float    // custo unitário DESTE produto NESTE fornecedor (R$)
+  unitCost        Float // custo unitário DESTE produto NESTE fornecedor (R$)
   // Fatia padrão da demanda deste produto neste fornecedor (0..100). A soma por produto deve ser
   // 0 (sem rateio definido → 100% no `isPreferred`) ou 100. Cobre "tudo no X" (100/0) e
   // "parte no X, parte no Y" (75/25) — preservando o split 75/25 histórico do pão.
   defaultSharePct Int      @default(0)
   // Fornecedor padrão do produto: desempata o arredondamento do rateio e recebe o resto.
   isPreferred     Boolean  @default(false)
-  minOrderQty     Int?     // pedido mínimo do fornecedor para este produto (aviso, não bloqueio)
+  minOrderQty     Int? // pedido mínimo do fornecedor para este produto (aviso, não bloqueio)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -531,17 +557,24 @@ model SupplierProduct {
 model PurchaseOrder {
   id            String              @id @default(auto()) @map("_id") @db.ObjectId
   date          DateTime
-  slotId        String?             // turno do pedido (manha/tarde) — nulo em RESTOCK
-  slotLabel     String?             // rótulo de exibição do turno (ex.: "Manhã")
+  slotId        String? // turno do pedido (manha/tarde) — nulo em RESTOCK
+  slotLabel     String? // rótulo de exibição do turno (ex.: "Manhã")
   // ATENÇÃO: `totalQuantity` continua significando **só PÃES**. `getWasteReport` compara este
   // campo com os pães entregues; se ele passasse a somar bolos e geleias, o desperdício explodiria.
   // Os totais dos outros produtos vivem em `totalItems`/`totalValue`.
   totalQuantity Int
-  totalItems    Int?                // unidades de produtos NÃO-pão neste pedido
-  totalValue    Float?              // custo total do pedido (R$)
-  kind          PurchaseOrderKind?  // null/ausente = DELIVERY_BATCH (compat com docs antigos)
+  totalItems    Int? // unidades de produtos NÃO-pão neste pedido
+  totalValue    Float? // custo total do pedido (R$)
+  kind          PurchaseOrderKind? // null/ausente = DELIVERY_BATCH (compat com docs antigos)
   cutoffTime    DateTime
   status        PurchaseOrderStatus
+  // Quando a compra foi PAGA ao fornecedor (B5). Nulo/ausente = ainda em aberto — aparece em
+  // contas a pagar.
+  //
+  // Compatibilidade: pedido antigo não tem a chave, e o fluxo de caixa usa `paidAt ?? date`. Sem
+  // esse fallback, toda compra anterior a este campo sumiria do caixa de uma vez — e o histórico
+  // mudaria sozinho, que é exatamente o defeito que o fechamento de mês existe para impedir.
+  paidAt        DateTime?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 }
@@ -553,32 +586,46 @@ model PurchaseOrderItem {
   supplierId      String   @db.ObjectId
   // null/ausente = pão (itens criados antes da matriz de fornecimento). Novos itens sempre gravam.
   productId       String?  @db.ObjectId
-  productName     String?  // snapshot do nome no momento da compra
+  productName     String? // snapshot do nome no momento da compra
   quantity        Int
-  unitPrice       Float    // snapshot de SupplierProduct.unitCost
+  unitPrice       Float // snapshot de SupplierProduct.unitCost
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
 
 // 14. Payment — pagamentos via Mercado Pago (Pix/cartão)
 model Payment {
-  id            String        @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String        @db.ObjectId
-  amount        Float
-  method        PaymentMethod
-  status        PaymentStatus
+  id                    String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId                String          @db.ObjectId
+  amount                Float
+  method                PaymentMethod
+  status                PaymentStatus
   // Legados/Stripe: SEM @unique — índice único do Mongo rejeita múltiplos nulls
   // (todo pagamento Stripe tem mercadoPagoId null; pagamentos MP antigos têm
   // stripePaymentIntentId ausente). Idempotência é garantida na aplicação.
-  mercadoPagoId  String?
+  mercadoPagoId         String?
   stripePaymentIntentId String?
-  comboId        String?       @db.ObjectId
-  customQuantity Int?
+  comboId               String?         @db.ObjectId
+  customQuantity        Int?
   // Finalidade do pagamento. Ausente/null = CREDITS (compra de créditos). HOOK = gancho
   // adicional pago — o fulfillment (credit-payment.ts) NÃO credita pães; marca o HookRequest.
-  purpose        PaymentPurpose?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  purpose               PaymentPurpose?
+
+  // ── Taxa do gateway (onda Financeiro/DRE) ─────────────────────────────────
+  // `amount` é o BRUTO — foi sempre. A taxa retida pelo provedor (≈0,99% Pix, ≈4,98% cartão)
+  // não era gravada em lugar nenhum, então a receita líquida não existia e a maior dedução do
+  // DRE ficava invisível num negócio de ticket baixo e volume alto.
+  //
+  // Preenchidos SÓ quando o provedor informa o número real (MP `fee_details`, Stripe
+  // `balance_transaction.fee`), na borda do webhook. Pagamento antigo, ou provedor que não
+  // reportou, fica com os três nulos e a taxa é ESTIMADA na leitura a partir dos Settings
+  // (`lib/gateway-fee.ts`). Gravar estimativa aqui congelaria uma alíquota que muda com o tempo.
+  gatewayFee Float?
+  netAmount  Float? // amount − gatewayFee
+  feeBasis   String? // 'GATEWAY' (real). A estimativa nunca é persistida.
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // 20. HookRequest — cada gancho de porta que um cliente obtém ao longo do tempo.
@@ -589,11 +636,11 @@ model HookRequest {
   userId        String            @db.ObjectId
   type          HookRequestType
   status        HookRequestStatus
-  reason        String?           // motivo (defeito/perda no PAID; texto da bonificação no BONUS)
+  reason        String? // motivo (defeito/perda no PAID; texto da bonificação no BONUS)
   paymentId     String?           @db.ObjectId // vínculo ao Payment (apenas PAID)
   grantedById   String?           @db.ObjectId // admin que concedeu (apenas BONUS)
-  requestedAt   DateTime?         // quando entrou na fila de entrega (status REQUESTED)
-  deliveredAt   DateTime?         // quando o admin registrou a entrega
+  requestedAt   DateTime? // quando entrou na fila de entrega (status REQUESTED)
+  deliveredAt   DateTime? // quando o admin registrou a entrega
   deliveredById String?           @db.ObjectId // admin que entregou (auditoria)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
@@ -611,7 +658,14 @@ model Notification {
   body        String
   isRead      Boolean          @default(false)
   actionRoute String?
+  // Chave de deduplicação dos alertas automáticos (C1). Campo PRÓPRIO, e não um marcador escondido
+  // dentro de `body`: o corpo é texto que o admin lê na tela e recebe no push, e enfiar
+  // "#goal:2026-09" nele vazaria para os dois. Nulo em toda notificação que não é gerada por regra.
+  dedupeKey   String?
   createdAt   DateTime         @default(now())
+
+  // Consultado pelo job de alertas para saber se o mesmo aviso já saiu na janela de silêncio.
+  @@index([type, dedupeKey, createdAt])
 }
 
 // 16. Session — persistent device sessions
@@ -649,15 +703,15 @@ model OtpCode {
 
 // 18. SavedCard — cartões salvos do cliente (Stripe PaymentMethod; mpCardId legado)
 model SavedCard {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  mpCardId  String?
+  id                    String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId                String   @db.ObjectId
+  mpCardId              String?
   stripePaymentMethodId String?
-  brand     String
-  lastFour  String
-  expiresAt String
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
+  brand                 String
+  lastFour              String
+  expiresAt             String
+  isDefault             Boolean  @default(false)
+  createdAt             DateTime @default(now())
 }
 
 // MaterializedCycle — marca persistida de que o ciclo de corte de um (condomínio, slot, dia de
@@ -680,13 +734,13 @@ model MaterializedCycle {
 model AnalyticsEvent {
   id        String             @id @default(auto()) @map("_id") @db.ObjectId
   type      AnalyticsEventType
-  visitorId String             // ID anônimo do dispositivo (device_id do cliente)
+  visitorId String // ID anônimo do dispositivo (device_id do cliente)
   userId    String?            @db.ObjectId // preenchido apenas em LOGIN
-  role      String?            // CLIENT | COURIER | ADMIN (em LOGIN)
-  path      String?            // rota/tela inicial no momento do evento
+  role      String? // CLIENT | COURIER | ADMIN (em LOGIN)
+  path      String? // rota/tela inicial no momento do evento
   referrer  String?
-  platform  String?            // 'pwa' | 'browser'
-  userAgent String?            // para breakdown de SO/dispositivo
+  platform  String? // 'pwa' | 'browser'
+  userAgent String? // para breakdown de SO/dispositivo
   createdAt DateTime           @default(now())
 
   @@index([type, createdAt])
@@ -712,12 +766,12 @@ model Product {
   name          String
   description   String?
   categoryId    String    @db.ObjectId
-  price         Float     // preço em R$
-  photoUrl      String?   // URL no S3; ausente → ícone/cor da categoria no front
+  price         Float // preço em R$
+  photoUrl      String? // URL no S3; ausente → ícone/cor da categoria no front
   stockType     StockType
-  stock         Int?      // FIXED: inventário atual (null quando DAILY)
-  dailyCapacity Int?      // DAILY: capacidade por dia (null quando FIXED)
-  availableDays Json?     // null/ausente = sempre; senão lista de dias ["seg","qua",...]
+  stock         Int? // FIXED: inventário atual (null quando DAILY)
+  dailyCapacity Int? // DAILY: capacidade por dia (null quando FIXED)
+  availableDays Json? // null/ausente = sempre; senão lista de dias ["seg","qua",...]
   isActive      Boolean   @default(true)
   sortOrder     Int       @default(0)
 
@@ -734,9 +788,9 @@ model Product {
   // ── Pausa de VITRINE (bloqueia AGORA, para qualquer data de entrega) ───────
   // Outro mecanismo, não confundir com a janela acima: aqui o admin derruba o item na hora.
   // Os dois compõem por OR — quando a pausa temporária expira, a janela volta a mandar.
-  isPaused    Boolean?  // sem prazo — o admin religa na mão
+  isPaused    Boolean? // sem prazo — o admin religa na mão
   pausedUntil DateTime? // com prazo — despausa sozinha ao passar do instante
-  pauseReason String?   // motivo; só o admin vê (o cliente lê sempre "Esgotado")
+  pauseReason String? // motivo; só o admin vê (o cliente lê sempre "Esgotado")
   pausedBy    String?   @db.ObjectId
   pausedAt    DateTime?
 
@@ -752,16 +806,16 @@ model Product {
   // sem cron — igual isNew/isPaused.
   // O preço efetivo NUNCA chega a zero (validado na escrita): zero quebraria a conversão em
   // pãezinhos e liberaria item grátis no carrinho.
-  isPromo    Boolean?
-  promoType  DiscountType?
-  promoValue Float?
-  promoUntil DateTime?
+  isPromo       Boolean?
+  promoType     DiscountType?
+  promoValue    Float?
+  promoUntil    DateTime?
   // Furar fila é decisão SEPARADA do desconto — dá para ter o selo sem destaque. Escrito só pela
   // tela de ordenar; o desconto, só pelo formulário.
   promoPriority Boolean?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([categoryId, isActive])
 }
@@ -779,41 +833,41 @@ model Cart {
 // 24. MarketOrder — pedido do mini market. Pega carona na esteira do Order (mesma tripla
 // condominiumId+scheduledDate+slotId) SEM refatorar o Order. breadQty = pães da cestinha.
 model MarketOrder {
-  id             String            @id @default(auto()) @map("_id") @db.ObjectId
-  userId         String            @db.ObjectId
-  condominiumId  String            @db.ObjectId
-  scheduledDate  DateTime          // meio-dia BRT do dia de entrega (mesma convenção do Order)
-  slotId         String
-  deliveryTime   String?           // snapshot do horário (exibição)
-  status         MarketOrderStatus
-  courierId      String?           @db.ObjectId
-  breadQty       Int               @default(0) // pães da cestinha — somam no total de pães da parada
-  items          MarketOrderItem[]
-  totalValue     Float             // R$ total (produtos + breadQty*avulsoUnit)
+  id                  String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId              String            @db.ObjectId
+  condominiumId       String            @db.ObjectId
+  scheduledDate       DateTime // meio-dia BRT do dia de entrega (mesma convenção do Order)
+  slotId              String
+  deliveryTime        String? // snapshot do horário (exibição)
+  status              MarketOrderStatus
+  courierId           String?           @db.ObjectId
+  breadQty            Int               @default(0) // pães da cestinha — somam no total de pães da parada
+  items               MarketOrderItem[]
+  totalValue          Float // R$ total (produtos + breadQty*avulsoUnit)
   // LEGADO — não lido nem escrito em runtime; só fonte do backfill do boot. Pedido novo fica 0.
-  creditsApplied Int               @default(0)
+  creditsApplied      Int               @default(0)
   // Pãezinhos aplicados em milésimos (CANÔNICO) — o único lido pela aplicação. É o que permite
   // pagar 100% com pãezinhos um item de R$ 1,80 (1,5 🥖). Nullable: ver `creditMilli`.
   creditsAppliedMilli Int?
-  moneyAmount    Float             @default(0) // R$ cobrado no gateway (0 = 100% crédito)
-  paymentId      String?           @db.ObjectId
-  idempotencyKey String            @unique     // trava anti-duplo-clique do checkout
-  separatedAt    DateTime?
-  deliveredAt    DateTime?
-  failedAt       DateTime?
-  failureReason  String?
-  cancelledAt    DateTime?
-  cancelReason   String?
+  moneyAmount         Float             @default(0) // R$ cobrado no gateway (0 = 100% crédito)
+  paymentId           String?           @db.ObjectId
+  idempotencyKey      String            @unique // trava anti-duplo-clique do checkout
+  separatedAt         DateTime?
+  deliveredAt         DateTime?
+  failedAt            DateTime?
+  failureReason       String?
+  cancelledAt         DateTime?
+  cancelReason        String?
   // Desfecho FÍSICO de uma Cestinha NOT_DELIVERED (Onda G2). O status terminal diz que a entrega
   // falhou; estes campos dizem o que aconteceu com a mercadoria e com o crédito — coisas que só
   // quem recebeu o entregador de volta sabe. `lossResolvedAt: null` numa NOT_DELIVERED = PENDENTE,
   // e é isso que a torna visível no admin em vez de virar prejuízo silencioso.
-  lossResolvedAt DateTime?
-  lossResolvedBy String?           @db.ObjectId // admin que deu o desfecho (auditoria)
-  stockReturned  Boolean?          // true = itens voltaram à prateleira; false = perda real
-  lossReason     String?           // o que aconteceu (perdido, avariado, devolvido…)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  lossResolvedAt      DateTime?
+  lossResolvedBy      String?           @db.ObjectId // admin que deu o desfecho (auditoria)
+  stockReturned       Boolean? // true = itens voltaram à prateleira; false = perda real
+  lossReason          String? // o que aconteceu (perdido, avariado, devolvido…)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   @@index([condominiumId, scheduledDate])
   @@index([courierId, scheduledDate])
@@ -825,7 +879,7 @@ model MarketOrder {
 model ProductDailyStock {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   productId String   @db.ObjectId
-  date      String   // dia de entrega BRT no formato YYYY-MM-DD
+  date      String // dia de entrega BRT no formato YYYY-MM-DD
   reserved  Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -852,7 +906,7 @@ model DeliveryBlock {
   condominiumId String?  @db.ObjectId
   startDate     String
   endDate       String
-  reason        String?  // motivo exibido ao cliente (ex.: "Feriado", "Portaria em obra")
+  reason        String? // motivo exibido ao cliente (ex.: "Feriado", "Portaria em obra")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -870,7 +924,7 @@ model DeliveryBlock {
 // que assombra `Condominium`/`User` (campo ausente ≠ null). Pode consultar por campo normalmente.
 model Banner {
   id        String          @id @default(auto()) @map("_id") @db.ObjectId
-  name      String          // nome interno, para o admin se achar na lista; o cliente nunca vê
+  name      String // nome interno, para o admin se achar na lista; o cliente nunca vê
   placement BannerPlacement
 
   // Arte — obrigatória em POPUP (4:5) e MARKET (3:1); proibida em STRIP.
@@ -926,4 +980,187 @@ model BannerView {
 
   @@unique([bannerId, userId])
   @@index([bannerId])
+}
+
+// ===== FINANCEIRO: DESPESAS (onda Financeiro/DRE) =====
+//
+// Antes desta onda o sistema só conhecia UM tipo de dinheiro saindo: `PurchaseOrder` — compra de
+// mercadoria. Aluguel, combustível, entregador, taxa de gateway, energia, embalagem, marketing e
+// imposto não existiam em lugar nenhum, e por isso não existia DRE: existia "receita − CMV", que é
+// lucro bruto, não resultado.
+
+// Grupo do DRE onde a categoria entra.
+//
+// É o GRUPO — não a categoria — que define a LINHA do DRE. Essa indireção é o ponto: o admin cria
+// "Pedágio" ou "Uniforme" pela tela, sem deploy, e o DRE continua fechando sozinho porque a linha
+// dele depende só do grupo.
+enum ExpenseGroup {
+  COGS // CMV lançado à mão (exceção — o normal vem de PurchaseOrder)
+  PEOPLE // entregador, pró-labore (decisão 6: sem folha, sem encargo calculado)
+  OPERATION // combustível, embalagem, gancho físico, manutenção
+  SALES // marketing, comissão, material de divulgação
+  ADMIN // aluguel, energia, internet, software, contador
+  TAXES // DAS/Simples, tributos, tarifa bancária (decisão 9: só registra, não calcula)
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING // a pagar — é o que alimenta contas a pagar e o alerta de vencimento
+  PAID
+  CANCELLED
+}
+
+// 27. ExpenseCategory — categorias de despesa, cadastráveis pelo admin (decisão 4).
+model ExpenseCategory {
+  id        String       @id @default(auto()) @map("_id") @db.ObjectId
+  name      String       @unique
+  group     ExpenseGroup
+  // Fixa = existe mesmo com venda zero. É o que torna o ponto de equilíbrio calculável; sem esta
+  // flag, break-even não sai de jeito nenhum.
+  isFixed   Boolean      @default(false)
+  emoji     String?
+  sortOrder Int          @default(0)
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+// 28. Expense — o lançamento de despesa.
+model Expense {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  categoryId      String        @db.ObjectId
+  description     String
+  amount          Float
+  // DUAS datas, porque os dois regimes do DRE precisam de uma cada (decisão 1).
+  // Sem as duas, o DRE de competência e o fluxo de caixa dariam o mesmo número — e aí um dos dois
+  // estaria errado. `competenceDate` é o mês a que a despesa PERTENCE; `paidAt`, quando o dinheiro
+  // saiu de fato.
+  competenceDate  DateTime
+  dueDate         DateTime?
+  paidAt          DateTime?
+  status          ExpenseStatus
+  // Quem recebeu: fornecedor cadastrado OU texto livre (o entregador não é Supplier).
+  supplierId      String?       @db.ObjectId
+  payee           String?
+  // Texto livre de propósito: NÃO é `PaymentMethod` (aquele enum é do gateway do cliente; aqui
+  // cabem "dinheiro", "boleto", "débito automático").
+  paymentMethod   String?
+  // Centro de custo opcional (decisão 5). Preenchido = custo exato do condomínio; vazio = entra
+  // no rateio por pães entregues.
+  condominiumId   String?       @db.ObjectId
+  receiptUrl      String? // comprovante no S3 (lib/storage.ts)
+  notes           String?
+  // Parcela gerada por uma recorrência. Nulo/ausente = lançamento avulso.
+  recurrenceId    String?       @db.ObjectId
+  // Mês de competência da parcela ("YYYY-MM", BRT). Existe SÓ para a trava de idempotência abaixo:
+  // é o índice único que impede a recorrência de gerar o aluguel duas vezes no mesmo mês.
+  recurrenceMonth String?
+  createdById     String        @db.ObjectId
+  // Auditoria (A4): quem mexeu por último e qual era o valor antes. Despesa editada depois do
+  // fechamento é o vetor clássico de número que não bate.
+  updatedById     String?       @db.ObjectId
+  previousAmount  Float?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([recurrenceId, recurrenceMonth])
+  @@index([competenceDate])
+  @@index([status, dueDate])
+  @@index([categoryId, competenceDate])
+}
+
+// 29. ExpenseRecurrence — a despesa fixa que se repete todo mês.
+//
+// As parcelas são materializadas de forma PREGUIÇOSA, ao abrir o mês (decisão 11), não por cron:
+// o `plugins/cron.ts` já tem 3 jobs críticos, e um cron que falha em silêncio deixaria o mês sem
+// despesa fixa — com o DRE exibindo lucro inflado e ninguém percebendo.
+model ExpenseRecurrence {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  categoryId    String    @db.ObjectId
+  description   String
+  amount        Float
+  // 1..28 apenas. 29/30/31 não existem em todo mês, e clampar seria uma surpresa silenciosa
+  // (aluguel "dia 31" vencendo dia 28 em fevereiro sem ninguém pedir).
+  dayOfMonth    Int
+  supplierId    String?   @db.ObjectId
+  payee         String?
+  condominiumId String?   @db.ObjectId
+  startsAt      DateTime
+  endsAt        DateTime? // null/ausente = sem fim
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([isActive])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Budget — metas mensais de receita e de despesa (F11 · Fase 7).
+//
+// O conceito não existia no sistema: o admin sabia o que aconteceu (DRE, relatórios) e nunca o que
+// DEVERIA ter acontecido. Sem meta não há "realizado × previsto", e sem isso um mês ruim só é
+// reconhecido no fim, quando já não dá para reagir.
+//
+// Um documento por (mês, tipo, categoria). `categoryId` NULO é a meta do tipo inteiro: a meta de
+// RECEITA do mês, ou o teto TOTAL de despesa. Com `categoryId`, é a meta daquela categoria.
+model Budget {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  // "YYYY-MM" no calendário BRT — a mesma chave de competência que `Expense.recurrenceMonth` usa.
+  month       String
+  // 'REVENUE' | 'EXPENSE'. String, não enum: são dois valores e um enum novo no Mongo custa uma
+  // migração de schema para não ganhar nada.
+  kind        String
+  // Nulo/ausente = meta do tipo INTEIRO (receita do mês, ou teto total de despesa).
+  categoryId  String?  @db.ObjectId
+  amount      Float
+  notes       String?
+  createdById String?  @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // A trava contra meta duplicada é do BANCO, não da aplicação — mesma disciplina de
+  // `@@unique([recurrenceId, recurrenceMonth])` em Expense: duas metas para a mesma categoria no
+  // mesmo mês dariam um "previsto" silenciosamente dobrado.
+  //
+  // ATENÇÃO (Mongo): índice único com campo nulável só funciona porque a aplicação SEMPRE grava a
+  // chave `categoryId` (com valor ou com null explícito). Documento sem a chave não é encontrado
+  // por `categoryId: null` — a armadilha já documentada em Condominium.*Override.
+  @@unique([month, kind, categoryId])
+  @@index([month])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FinancialClose — fechamento de mês com snapshot do DRE (A1 · achado do §16).
+//
+// Conserta o defeito que tornava todo o módulo financeiro não-auditável:
+//
+//   > **O DRE de agosto muda sozinho quando o fornecedor sobe o preço em setembro.**
+//
+// `loadUnitCosts()` lê `SupplierProduct.unitCost` de AGORA — a função não tem dimensão histórica.
+// Então o CMV da Cestinha (e, por tabela, a margem e o ponto de equilíbrio) é recalculado com o
+// custo de hoje toda vez que alguém abre um mês passado. Um relatório que dá número diferente a
+// cada consulta não serve para decidir nem para entregar ao contador.
+//
+// Depois de fechado, a tela LÊ DAQUI e nunca recalcula. É isso que torna o número auditável: o que
+// foi ao contador é o que continua aparecendo, independente do que mudou no cadastro depois.
+//
+// Reabrir é permitido, mas deixa rastro (`reopenedAt`/`reopenedById`): apagar o fechamento em
+// silêncio recriaria o problema com uma camada a mais de confiança falsa.
+model FinancialClose {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  // "YYYY-MM" (BRT). Único: um mês tem um fechamento.
+  month        String    @unique
+  closedAt     DateTime
+  closedById   String    @db.ObjectId
+  // O DRE CONGELADO do mês — os dois regimes e a ponte, exatamente como foram apurados.
+  // `Json` porque é um documento imutável de leitura: nada aqui é consultado por campo.
+  snapshot     Json
+  notes        String?
+  // Rastro da reabertura mais recente. Nulos = nunca foi reaberto.
+  reopenedAt   DateTime?
+  reopenedById String?   @db.ObjectId
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }

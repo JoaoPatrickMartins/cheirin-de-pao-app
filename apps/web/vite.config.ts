@@ -32,7 +32,15 @@ export default defineConfig({
       // O OneSignal tem service worker próprio em /push/onesignal/ (escopo isolado). Fora do
       // precache do Workbox para preservar essa isolação e evitar cache redundante do SW dele.
       injectManifest: {
-        globIgnores: ['**/push/onesignal/**'],
+        globIgnores: [
+          '**/push/onesignal/**',
+          // O escritor de planilha (~930 KB) é carregado sob demanda em `lib/xlsx.ts` e só o ADMIN
+          // chega nele, ao tocar em exportar. Precachear aqui faria TODO cliente — que abre o app
+          // no celular para comprar pão — baixar quase 1 MB que ele nunca vai executar. Fica fora
+          // do precache de propósito: o navegador o busca na primeira exportação e o guarda no
+          // cache HTTP como qualquer outro asset com hash no nome.
+          '**/exceljs*.js',
+        ],
       },
       devOptions: {
         enabled: true,

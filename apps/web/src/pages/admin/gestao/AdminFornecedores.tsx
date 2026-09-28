@@ -14,6 +14,8 @@ interface Fornecedor {
   email?: string | null
   pricePerUnit: number
   isPrincipal: boolean
+  /** Fornecimento próprio: a casa produzindo. Compras dele não viram conta a pagar. */
+  isSelfSupply?: boolean
   isActive: boolean
 }
 
@@ -284,6 +286,27 @@ function FornecedorCard({ fornecedor: f, formatBRL, busy, onToggle, onEdit }: Fo
                 }}
               >
                 Principal
+              </span>
+            )}
+            {/* Fornecimento próprio muda o comportamento financeiro do fornecedor (as compras
+                saem do contas a pagar), então precisa ser visível na LISTA — sem o selo, o admin
+                teria de abrir um por um para descobrir qual está marcado. */}
+            {f.isSelfSupply && (
+              <span
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: 'var(--color-good)',
+                  background: 'var(--color-good-soft)',
+                  borderRadius: 99,
+                  padding: '2px 8px',
+                  lineHeight: 1.4,
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Próprio
               </span>
             )}
           </div>

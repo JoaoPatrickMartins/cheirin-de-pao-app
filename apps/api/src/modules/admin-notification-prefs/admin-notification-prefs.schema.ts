@@ -17,6 +17,13 @@ export const ADMIN_NOTIFICATION_TYPES = [
   'ADMIN_AUTOGEN_WARNING',
   'ADMIN_AUTOGEN_DONE',
   'ADMIN_LOW_STOCK',
+  // Alertas financeiros (⭐C1). Com toggle como todos os outros — um alerta que não se pode
+  // desligar acaba desligado no sistema operacional, e aí some junto com os que importavam.
+  'ADMIN_EXPENSE_DUE',
+  'ADMIN_EXPENSE_ANOMALY',
+  'ADMIN_MARGIN_DROP',
+  'ADMIN_RESULT_NEGATIVE',
+  'ADMIN_GOAL_AT_RISK',
 ] as const
 
 export type AdminNotificationType = (typeof ADMIN_NOTIFICATION_TYPES)[number]

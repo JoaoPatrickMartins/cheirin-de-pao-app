@@ -18,7 +18,20 @@ type Tone = 'good' | 'gold' | 'neutral'
 function getTone(type: string): Tone {
   if (['ADMIN_DELIVERY_DONE', 'ADMIN_CREDIT_PURCHASED', 'ADMIN_ORDER_PLACED', 'ADMIN_AUTOGEN_DONE'].includes(type))
     return 'good'
-  if (['ADMIN_DELIVERY_PENDING', 'ADMIN_AUTOGEN_WARNING', 'ADMIN_CUTOFF_REACHED', 'ADMIN_LOW_STOCK'].includes(type))
+  if (
+    [
+      'ADMIN_DELIVERY_PENDING',
+      'ADMIN_AUTOGEN_WARNING',
+      'ADMIN_CUTOFF_REACHED',
+      'ADMIN_LOW_STOCK',
+      // Financeiros (C1): todos são "olhe para isto", nenhum é boa notícia.
+      'ADMIN_EXPENSE_DUE',
+      'ADMIN_EXPENSE_ANOMALY',
+      'ADMIN_MARGIN_DROP',
+      'ADMIN_RESULT_NEGATIVE',
+      'ADMIN_GOAL_AT_RISK',
+    ].includes(type)
+  )
     return 'gold'
   return 'neutral'
 }
@@ -41,6 +54,15 @@ function getIcon(type: string) {
       return 'truck'
     case 'ADMIN_CREDIT_PURCHASED':
       return 'coin'
+    case 'ADMIN_EXPENSE_DUE':
+      return 'clock'
+    case 'ADMIN_EXPENSE_ANOMALY':
+      return 'wallet'
+    case 'ADMIN_MARGIN_DROP':
+    case 'ADMIN_RESULT_NEGATIVE':
+      return 'trend'
+    case 'ADMIN_GOAL_AT_RISK':
+      return 'star'
     case 'ADMIN_CUTOFF_REACHED':
       return 'bell'
     default:

@@ -22,6 +22,12 @@ export class AdminCombosRepository {
     return setting ? parseFloat(setting.value) : 0
   }
 
+  /** Id do produto FIXO "Pão Francês" (Setting breadProductId). `null` se ainda não semeado. */
+  async getBreadProductId(): Promise<string | null> {
+    const setting = await this.prisma.setting.findUnique({ where: { key: 'breadProductId' } })
+    return setting?.value ?? null
+  }
+
   findById(id: string) {
     return this.prisma.combo.findUnique({ where: { id } })
   }

@@ -46,6 +46,8 @@ export const Ic: Record<string, string> = {
   search: 'M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16ZM21 21l-4.35-4.35',
   basket: 'M4 10h16l-1.4 8.4a2 2 0 0 1-2 1.6H7.4a2 2 0 0 1-2-1.6L4 10ZM9 10l2-6M15 10l-2-6M9.5 13.5v3M14.5 13.5v3',
   trash: 'M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6',
+  // Comprovante de despesa — a foto da nota tirada na rua (E1).
+  camera: 'M3 8.5h3.5L8 6h8l1.5 2.5H21v10.5H3zM12 17a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z',
 }
 
 interface IconProps {

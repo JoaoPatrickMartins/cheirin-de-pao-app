@@ -126,23 +126,33 @@ export function ReportCard({ title, children }: { title?: string; children: Reac
   )
 }
 
-/** Linha rótulo → valor (com barra proporcional opcional). */
+/** Linha rótulo → valor (com barra proporcional e legenda opcionais). */
 export function StatRow({
   label,
   value,
   pct,
+  sub,
 }: {
   label: string
   value: string
   pct?: number // 0..1 — desenha barra dourada proporcional
+  /** Legenda abaixo do rótulo — a PROCEDÊNCIA do número (ex.: "estimada", "parcial"). */
+  sub?: string
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: 'var(--color-text-sec)' }}>
-          {label}
-        </span>
-        <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: 'var(--color-text-sec)' }}>
+            {label}
+          </span>
+          {sub && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 10.5, color: 'var(--color-text-ter)', margin: '1px 0 0', lineHeight: 1.35 }}>
+              {sub}
+            </p>
+          )}
+        </div>
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 700, color: 'var(--color-text)', whiteSpace: 'nowrap' }}>
           {value}
         </span>
       </div>

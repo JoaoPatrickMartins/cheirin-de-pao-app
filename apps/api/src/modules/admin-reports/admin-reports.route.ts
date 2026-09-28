@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify'
 import { AdminReportsController } from './admin-reports.controller.js'
+import { periodQuerystring } from '../../lib/period-query.js'
 
 /**
  * adminReportsRoute — Relatórios do admin (módulo "Relatórios").
@@ -13,16 +14,6 @@ import { AdminReportsController } from './admin-reports.controller.js'
 export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
   const ctrl = new AdminReportsController(fastify)
 
-  const periodQuerystring = {
-    type: 'object',
-    properties: {
-      period: {
-        type: 'string',
-        enum: ['day', 'week', 'month'],
-        description: 'Período de análise. Padrão: "week".',
-      },
-    },
-  }
 
   fastify.get(
     '/admin/reports/access',
@@ -149,5 +140,58 @@ export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
     ctrl.getPayments.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/reports/sales',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — reports'],
+        summary: 'Vendas & performance (admin)',
+        description:
+          'Vendas do período item a item, curva ABC, mix de canal, ticket médio, receita por combo e performance por condomínio. ' +
+          '**Duas bases que não fecham entre si, de propósito:** `sales` é apurado pelo DIA DE ENTREGA (`scheduledDate`) e mede VOLUME; ' +
+          '`channel`/`ticket`/`combos` saem da DATA DO PAGAMENTO (`Payment.createdAt`) e medem RECEITA — no modelo pré-pago o pão entregue ' +
+          'num período pode ter sido pago em outro. As ressalvas viajam em `caveats`. Comparativo LIGADO por padrão (`compare=false` desliga). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        querystring: periodQuerystring,
+      },
+    },
+    ctrl.getSales.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/reports/customers',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — reports'],
+        summary: 'Top clientes, LTV e novos × recorrentes (admin)',
+        description:
+          'Ranking de clientes por receita no período, com LTV (receita acumulada desde sempre, só para o topo), concentração nos 5/10 maiores ' +
+          'e a quebra novos × base. "Novo" é quem se CADASTROU no período — a ressalva viaja em `caveats`. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        querystring: periodQuerystring,
+      },
+    },
+    ctrl.getCustomers.bind(ctrl),
+  )
+
+  fastify.get(
+    '/admin/reports/credit-movement',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — reports'],
+        summary: 'Movimentação do passivo de crédito (admin)',
+        description:
+          'Por que o passivo mudou no período: vendido, consumido, concedido, estornado, expirado (F7). A tela de Passivo responde QUANTO se deve em pão; esta responde POR QUE mudou — e a causa muda a leitura (venda de combo é ótimo, cortesia em massa nem tanto). ' +
+          'Traz também o recorte 🚩A2: `TransactionType.EXPIRY` existe no enum e NUNCA é escrito, ou seja, crédito não expira e o passivo cresce para sempre — `inactive` mede o saldo parado há mais de 12 meses. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        querystring: periodQuerystring,
+      },
+    },
+    ctrl.getCreditMovement.bind(ctrl),
   )
 }

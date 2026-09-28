@@ -36,6 +36,8 @@ import { adminDaySalesRoute } from './modules/admin-day-sales/admin-day-sales.ro
 import { ensureIndexes } from './lib/ensure-indexes.js'
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
 import { adminReportsRoute } from './modules/admin-reports/admin-reports.route.js'
+import { adminDashboardRoute } from './modules/admin-dashboard/admin-dashboard.route.js'
+import { adminExpensesRoute } from './modules/admin-expenses/admin-expenses.route.js'
 import { analyticsRoute } from './modules/analytics/analytics.route.js'
 import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
 import { courierRoute } from './modules/courier/courier.route.js'
@@ -46,7 +48,11 @@ import { adminNotificationPrefsRoute } from './modules/admin-notification-prefs/
 import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
-import { seedDefaultsIfAbsent } from './bootstrap/defaults-seed.js'
+import {
+  seedDefaultsIfAbsent,
+  seedExpenseCategories,
+  seedGatewayFeeRates,
+} from './bootstrap/defaults-seed.js'
 import { backfillHooksIfNeeded } from './bootstrap/hooks-backfill.js'
 import { backfillSupplierProductsIfNeeded } from './bootstrap/supplier-products-backfill.js'
 import { backfillCreditMilliIfNeeded } from './bootstrap/credit-milli-backfill.js'
@@ -207,6 +213,14 @@ const start = async () => {
     // Bootstrap — garante defaults (preço avulso, limite e combo padrão) quando o admin não configurou
     await seedDefaultsIfAbsent(fastify.prisma)
 
+    // Bootstrap — categorias de despesa padrão. Sem elas o módulo de despesas abre vazio e obriga
+    // o admin a cadastrar categoria antes de lançar a primeira conta.
+    await seedExpenseCategories(fastify.prisma)
+
+    // Bootstrap — alíquotas de taxa de gateway. É o que permite a dedução do DRE funcionar
+    // retroativamente sobre o histórico; o admin ajusta a sua taxa negociada nas Configurações.
+    await seedGatewayFeeRates(fastify.prisma)
+
     // Bootstrap — migra o gancho legado do User → coleção HookRequest (execução única via flag)
     await backfillHooksIfNeeded(fastify.prisma, fastify.log)
 
@@ -269,6 +283,8 @@ const start = async () => {
     await fastify.register(adminDaySalesRoute)        // Aba Pedidos — GET /admin/day-sales (+ PDF/Excel): itens vendidos do dia
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
     await fastify.register(adminReportsRoute)   // GET /admin/reports/access — acesso/login/conversão
+    await fastify.register(adminDashboardRoute) // GET /admin/dashboard/{alerts,overview} — faixas novas do Painel
+    await fastify.register(adminExpensesRoute)  // CRUD /admin/expenses + categorias + recorrências (Fase 1 do DRE)
     await fastify.register(analyticsRoute)      // POST /analytics/event — ingestão pública de acesso/login
     await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
     await fastify.register(courierRoute)        // GET /courier/orders/today + PATCH /courier/orders/:id/confirm (COUR-01/02)

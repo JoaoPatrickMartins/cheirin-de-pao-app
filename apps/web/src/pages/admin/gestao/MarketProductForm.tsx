@@ -21,6 +21,14 @@ function formatBRL(v: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 }
 
+/**
+ * Piso de margem abaixo do qual o formulário avisa (D1 · precificação assistida).
+ *
+ * É AVISO, não bloqueio: vender no prejuízo pode ser isca deliberada (P-13). Mesmo valor do
+ * `ComboForm`, para as duas telas não darem réguas diferentes para a mesma decisão.
+ */
+const MARGIN_FLOOR_PCT = 20
+
 interface Combo {
   name: string
   quantity: number
@@ -187,6 +195,18 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
       (promoTipo === 'PERCENT' ? promoValorNum <= 90 : promoValorNum < precoNum) &&
       (promoPreco ?? 0) >= 0.01)
   const promoAbaixoDoCusto = promoPreco != null && unitCost != null && promoPreco < unitCost
+
+  // Margem ao vivo (D1) — sobre o preço CHEIO. A margem da promoção continua sendo avisada no
+  // cartão de prévia do de/por, que é onde o preço promocional é decidido.
+  const margem =
+    unitCost != null && precoNum > 0
+      ? {
+          custo: unitCost,
+          lucro: Math.round((precoNum - unitCost) * 100) / 100,
+          pct: Math.round(((precoNum - unitCost) / precoNum) * 1000) / 10,
+          abaixoDoCusto: precoNum < unitCost,
+        }
+      : null
 
   const isValid = isBread
     ? nome.trim() !== '' && categoryId !== '' && (!restrito || dias.length > 0)
@@ -426,6 +446,63 @@ export function MarketProductForm({ id, categories, onBack, onSaved }: MarketPro
               </p>
             )}
           </div>
+        )}
+
+        {/* Precificação assistida (D1). O custo já vinha do servidor, mas só aparecia no aviso da
+            PROMOÇÃO — ou seja, o admin definia o preço cheio no escuro e só via a margem se por
+            acaso ligasse um desconto. Agora ela acompanha o campo de preço. */}
+        {margem && (
+          <div
+            style={{
+              background: margem.abaixoDoCusto ? 'var(--color-gold-soft)' : 'var(--color-surface-alt, #FBF6EC)',
+              border: `1.5px solid ${margem.abaixoDoCusto ? 'var(--color-warn)' : 'var(--color-border)'}`,
+              borderRadius: 12,
+              padding: '12px 13px',
+              marginTop: 8,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 7,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: 'var(--color-text-sec)' }}>
+                Margem
+              </span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 16,
+                  fontWeight: 800,
+                  color: margem.abaixoDoCusto
+                    ? 'var(--color-warn)'
+                    : margem.pct < MARGIN_FLOOR_PCT
+                      ? '#8A6A00'
+                      : 'var(--color-good)',
+                }}
+              >
+                {formatBRL(margem.lucro)} · {margem.pct.toFixed(1).replace('.', ',')}%
+              </span>
+            </div>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, color: 'var(--color-text-ter)', fontWeight: 600 }}>
+              Custo unitário <strong style={{ color: 'var(--color-text-sec)', fontWeight: 700 }}>{formatBRL(margem.custo)}</strong>
+              {' '}· pela matriz de fornecimento
+            </span>
+            {margem.abaixoDoCusto ? (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: 'var(--color-warn)', margin: 0, lineHeight: 1.4 }}>
+                ⚠ O preço está abaixo do custo. Dá para salvar — só não passe despercebido.
+              </p>
+            ) : margem.pct < MARGIN_FLOOR_PCT ? (
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, color: '#8A6A00', margin: 0, lineHeight: 1.4 }}>
+                Margem abaixo de {MARGIN_FLOOR_PCT}%. Entrega e taxa de gateway ainda saem daqui.
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        {unitCost == null && precoNum > 0 && (
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)', margin: '8px 2px 0', lineHeight: 1.4 }}>
+            Sem custo cadastrado na matriz de fornecimento — a margem não pode ser calculada.
+          </p>
         )}
       </div>
       )}

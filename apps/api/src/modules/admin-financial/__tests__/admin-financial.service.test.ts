@@ -12,6 +12,9 @@ function makeFastifyMock(overrides: {
   runCommandRaw?: unknown
   /** Cestinha (Onda D1) — receita nova (Payment purpose=MARKET) e o pedido agregado. */
   marketRevenue?: number
+  /** Gancho de porta pago (decisão 7) — receita que antes não aparecia em lugar nenhum. */
+  hookRevenue?: number
+  hookOrders?: number
   marketOrderAgg?: { _sum: { totalValue: number; moneyAmount: number; creditsAppliedMilli: number }; _count: number }
   marketByCondo?: Array<{ condominiumId: string | null; _sum: { totalValue: number | null } }>
   /** Linhas vendidas — insumo do CMV (H9). */
@@ -36,6 +39,8 @@ function makeFastifyMock(overrides: {
     aggregateAvulso = 500.0,
     runCommandRaw = { cursor: { firstBatch: [{ _id: 'condo-01', total: 1500 }] } },
     marketRevenue = 0,
+    hookRevenue = 0,
+    hookOrders = 0,
     marketOrderAgg = { _sum: { totalValue: 0, moneyAmount: 0, creditsAppliedMilli: 0 }, _count: 0 },
     marketByCondo = [],
     soldOrders = [],
@@ -54,6 +59,7 @@ function makeFastifyMock(overrides: {
       aggregate: vi.fn().mockImplementation((args?: { where?: Record<string, unknown> }) => {
         const where = args?.where ?? {}
         if (where.purpose === 'MARKET') return Promise.resolve({ _sum: { amount: marketRevenue } })
+        if (where.purpose === 'HOOK') return Promise.resolve({ _sum: { amount: hookRevenue }, _count: hookOrders })
         if (where.comboId) return Promise.resolve({ _sum: { amount: aggregateCombos } })
         if (where.customQuantity) return Promise.resolve({ _sum: { amount: aggregateAvulso } })
         return Promise.resolve({ _sum: { amount: aggregateTotal } })
@@ -172,6 +178,62 @@ describe('AdminFinancialService', () => {
   // ── Onda D1 — a Cestinha no financeiro (D-2) ────────────────────────────────
   // Antes disto TODOS os números aplicavam excludeNonCreditPurpose: o mercadinho não existia no
   // financeiro. O ponto da onda é que receita e GMV são grandezas DIFERENTES.
+  describe('getRevenue — gancho de porta pago (decisão 7)', () => {
+    // Antes desta onda, `excludeNonCreditPurpose` tirava HOOK e MARKET de tudo. O MARKET voltava
+    // por `market.revenue`; o HOOK não voltava por caminho nenhum — era receita real, com Pix
+    // confirmado, ausente de TODO número financeiro do admin.
+    it('expõe a receita de gancho em linha própria', async () => {
+      const { fastify } = makeFastifyMock({ hookRevenue: 15, hookOrders: 3 })
+      const r = await new AdminFinancialService(fastify as any).getRevenue('month')
+
+      expect(r.hook).toEqual({ revenue: 15, orders: 3 })
+    })
+
+    it('soma o gancho no consolidado', async () => {
+      const { fastify } = makeFastifyMock({ aggregateTotal: 1000, hookRevenue: 15 })
+      const r = await new AdminFinancialService(fastify as any).getRevenue('month')
+
+      expect(r.totalConsolidated).toBe(1015)
+    })
+
+    it('NÃO contamina a receita de crédito nem a quebra por tipo', async () => {
+      // `total` e `byType` são a série histórica: quem já lia esses campos não pode ver número
+      // mudar por causa do gancho.
+      const { fastify } = makeFastifyMock({
+        aggregateTotal: 1000,
+        aggregateCombos: 700,
+        aggregateAvulso: 300,
+        hookRevenue: 15,
+      })
+      const r = await new AdminFinancialService(fastify as any).getRevenue('month')
+
+      expect(r.total).toBe(1000)
+      expect(r.byType).toEqual({ combos: 700, avulso: 300 })
+    })
+
+    it('sem gancho no período → zeros, e o consolidado não muda', async () => {
+      const { fastify } = makeFastifyMock({ aggregateTotal: 1000 })
+      const r = await new AdminFinancialService(fastify as any).getRevenue('month')
+
+      expect(r.hook).toEqual({ revenue: 0, orders: 0 })
+      expect(r.totalConsolidated).toBe(1000)
+    })
+
+    it('soma crédito + Cestinha + gancho, e nunca o GMV', async () => {
+      const { fastify } = makeFastifyMock({
+        aggregateTotal: 1000,
+        marketRevenue: 6,
+        marketOrderAgg: { _sum: { totalValue: 30, moneyAmount: 6, creditsAppliedMilli: 4000 }, _count: 1 },
+        hookRevenue: 15,
+      })
+      const r = await new AdminFinancialService(fastify as any).getRevenue('month')
+
+      expect(r.totalConsolidated).toBe(1021) // 1000 + 6 + 15
+      // O GMV de 30 fica fora: os R$ 24 pagos em pãezinhos já foram faturados na compra do combo.
+      expect(r.totalConsolidated).not.toBe(1045)
+    })
+  })
+
   describe('getRevenue — Cestinha (D-2)', () => {
     // Cestinha de R$ 30, sendo R$ 6 em dinheiro e R$ 24 em pãezinhos (4 créditos).
     const comCestinha = {

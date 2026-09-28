@@ -21,6 +21,8 @@ import {
   type WeekdayMinimums,
 } from '../../lib/order-minimums.js'
 import { getGanchoConfig, type GanchoConfig } from '../../lib/gancho-config.js'
+import { FEE_SETTING_KEYS, DEFAULT_FEE_PCT } from '../../lib/gateway-fee.js'
+import type { PaymentMethod } from '@prisma/client'
 import {
   WEEKDAY_ORDER,
   WEEKDAY_LABEL,
@@ -319,6 +321,7 @@ export class AdminSettingsService {
     pedidoUnicoMin: number,
     preco: number,
     recorrenciaMin?: number,
+    custo?: number,
   ): Promise<{ recorrenciaMin: number }> {
     await Promise.all([
       this.prisma.setting.upsert({
@@ -340,6 +343,17 @@ export class AdminSettingsService {
               update: { value: String(recorrenciaMin) },
             }),
           ]),
+      // Omitido preserva o valor vigente: `0` aqui significa "não informado" e apagaria o CAC do
+      // relatório de despesas — não é um default neutro.
+      ...(custo === undefined
+        ? []
+        : [
+            this.prisma.setting.upsert({
+              where: { key: 'ganchoCusto' },
+              create: { key: 'ganchoCusto', value: String(custo) },
+              update: { value: String(custo) },
+            }),
+          ]),
     ])
 
     if (recorrenciaMin !== undefined && recorrenciaMin > 0) {
@@ -353,6 +367,72 @@ export class AdminSettingsService {
     if (recorrenciaMin !== undefined) return { recorrenciaMin }
     const { recorrenciaMin: vigente } = await getGanchoConfig(this.prisma)
     return { recorrenciaMin: vigente }
+  }
+
+  /**
+   * Alíquotas de gateway em vigor, com o default de referência quando a chave não foi configurada.
+   *
+   * `isDefault` viaja junto porque a diferença importa: uma alíquota nunca editada é a tabela
+   * pública de referência, não a taxa NEGOCIADA daquela conta — e o DRE estima a dedução em cima
+   * dela. Sem esse sinal, a tela não teria como pedir ao admin que confira.
+   */
+  async getGatewayRates(): Promise<{
+    pix: number
+    creditCard: number
+    debitCard: number
+    isDefault: { pix: boolean; creditCard: boolean; debitCard: boolean }
+  }> {
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: Object.values(FEE_SETTING_KEYS) } },
+      select: { key: true, value: true },
+    })
+    const byKey = new Map(rows.map((r) => [r.key, r.value]))
+
+    const read = (method: PaymentMethod) => {
+      const raw = byKey.get(FEE_SETTING_KEYS[method])
+      const parsed = raw != null ? parseFloat(raw) : NaN
+      // Parse defensivo, igual ao de `gancho-config`: chave ausente OU inválida cai no default,
+      // nunca lança e nunca vira NaN dentro de uma conta de dinheiro.
+      const ok = Number.isFinite(parsed) && parsed >= 0
+      return { value: ok ? parsed : DEFAULT_FEE_PCT[method], isDefault: !ok }
+    }
+
+    const pix = read('PIX')
+    const credit = read('CREDIT_CARD')
+    const debit = read('DEBIT_CARD')
+
+    return {
+      pix: pix.value,
+      creditCard: credit.value,
+      debitCard: debit.value,
+      isDefault: { pix: pix.isDefault, creditCard: credit.isDefault, debitCard: debit.isDefault },
+    }
+  }
+
+  /**
+   * Grava as alíquotas usadas para ESTIMAR a taxa do gateway.
+   *
+   * Vale só para pagamento sem taxa real do provedor: onde o webhook gravou `gatewayFee`, o número
+   * real prevalece e mexer aqui não reescreve histórico nenhum. Em compensação, a estimativa é
+   * recalculada na LEITURA — então a mudança se reflete retroativamente em todo relatório que
+   * dependia dela, o que é exatamente o comportamento desejado (e o motivo de a estimativa nunca
+   * ser persistida em `Payment`).
+   */
+  async setGatewayRates(pix: number, creditCard: number, debitCard: number): Promise<void> {
+    const pairs: Array<[string, number]> = [
+      [FEE_SETTING_KEYS.PIX, pix],
+      [FEE_SETTING_KEYS.CREDIT_CARD, creditCard],
+      [FEE_SETTING_KEYS.DEBIT_CARD, debitCard],
+    ]
+    await Promise.all(
+      pairs.map(([key, value]) =>
+        this.prisma.setting.upsert({
+          where: { key },
+          create: { key, value: String(value) },
+          update: { value: String(value) },
+        }),
+      ),
+    )
   }
 
   /**

@@ -100,6 +100,8 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
   const [estado, setEstado] = useState('')
   const [cep, setCep] = useState('')
   const [isPrincipal, setIsPrincipal] = useState(false)
+  // Fornecimento próprio: este "fornecedor" é a própria casa produzindo.
+  const [isSelfSupply, setIsSelfSupply] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(!!id)
   const [error, setError] = useState<string | null>(null)
@@ -119,6 +121,7 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
             email?: string | null
             pricePerUnit: number
             isPrincipal: boolean
+            isSelfSupply?: boolean
             address?: {
               street?: string | null
               number?: string | null
@@ -140,6 +143,7 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
           setEstado(data.address?.state ?? '')
           setCep(maskCEP(data.address?.zip ?? ''))
           setIsPrincipal(data.isPrincipal)
+          setIsSelfSupply(!!data.isSelfSupply)
         }
       } catch {
         // falha silenciosa
@@ -186,6 +190,7 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
         ...(email.trim() ? { email: email.trim() } : {}),
         pricePerUnit: parseCurrency(precoPorPao),
         isPrincipal,
+        isSelfSupply,
         address: {
           street: rua.trim(),
           number: numero.trim(),
@@ -448,6 +453,50 @@ export function FornecedorForm({ id, onBack, onSaved }: FornecedorFormProps) {
             Fornecedor principal
           </span>
           <SwitchToggle on={isPrincipal} onChange={() => setIsPrincipal((p) => !p)} />
+        </div>
+
+        {/* Fornecimento próprio — a casa como "fornecedor" de si mesma.
+            Precisa de um subtítulo explicando a CONSEQUÊNCIA: o admin não tem como adivinhar que
+            marcar isto tira as compras do contas a pagar. */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            background: 'var(--color-surface-alt, #FBF6EC)',
+            border: `1.5px solid ${isSelfSupply ? 'var(--color-accent)' : 'var(--color-border)'}`,
+            borderRadius: 14,
+            padding: '12px 14px',
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 14.5,
+                fontWeight: 700,
+                color: 'var(--color-text)',
+              }}
+            >
+              Fornecimento próprio
+            </span>
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 11.5,
+                fontWeight: 600,
+                color: 'var(--color-text-ter)',
+                margin: '2px 0 0',
+                lineHeight: 1.4,
+              }}
+            >
+              É a própria casa produzindo. As compras dele{' '}
+              <strong>não entram em contas a pagar</strong> — o custo real já é lançado como despesa
+              (farinha, gás, mão de obra).
+            </p>
+          </div>
+          <SwitchToggle on={isSelfSupply} onChange={() => setIsSelfSupply((p) => !p)} />
         </div>
 
         {/* Matriz de fornecimento (D-7/D-8) — só ao editar: a linha precisa de um fornecedor

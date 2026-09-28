@@ -63,8 +63,8 @@ const HUB_ITEMS: HubItem[] = [
   { key: 'notificacoes', icon: 'bell', titulo: 'Notificações', descricao: 'Ative ou desative os avisos' },
   { key: 'condos', icon: 'building', titulo: 'Condomínios', descricao: 'Locais atendidos' },
   { key: 'pagamentos', icon: 'card', titulo: 'Pagamentos', descricao: 'Status e estornos' },
-  { key: 'financeiro', icon: 'trend', titulo: 'Financeiro', descricao: 'Receita por período' },
-  { key: 'relatorios', icon: 'doc', titulo: 'Relatórios', descricao: 'Acessos, login e conversão' },
+  { key: 'financeiro', icon: 'trend', titulo: 'Financeiro', descricao: 'Receita, despesas, contas a pagar e DRE' },
+  { key: 'relatorios', icon: 'doc', titulo: 'Relatórios', descricao: 'Aquisição, retenção, operação e vendas' },
 ]
 
 // ------------------------------------------------------------------ componente

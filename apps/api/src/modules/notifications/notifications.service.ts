@@ -9,6 +9,11 @@ export interface NotifyPayload {
   body: string
   /** Rota in-app para o CTA/deep-link (ex.: '/admin', '/courier'). */
   actionRoute?: string
+  /**
+   * Chave de deduplicação dos alertas automáticos (C1) — não é exibida em lugar nenhum.
+   * Ausente em toda notificação disparada por ação de usuário.
+   */
+  dedupeKey?: string
 }
 
 /**
@@ -82,6 +87,7 @@ export class NotificationsService {
     title: string
     body: string
     actionRoute?: string
+    dedupeKey?: string
   }): Promise<void> {
     await this.prisma.notification.create({
       data: { ...data, isRead: false },
@@ -166,6 +172,7 @@ export class NotificationsService {
           title: payload.title,
           body: payload.body,
           actionRoute: payload.actionRoute,
+          dedupeKey: payload.dedupeKey,
         })
         await sendPush(this.fastify, {
           playerId: admin.oneSignalPlayerId,

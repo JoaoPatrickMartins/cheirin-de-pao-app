@@ -141,9 +141,34 @@ export const UpdateGanchoSchema = z.object({
   pedidoUnicoMin: z.number().int().min(1, 'Mínimo é 1').max(50, 'Máximo é 50'),
   preco: z.number().min(0, 'Preço não pode ser negativo'),
   recorrenciaMin: z.number().int().min(0, 'Mínimo é 0').max(100, 'Máximo é 100').optional(),
+  /**
+   * Quanto um gancho CUSTA para a empresa (A3 do plano-financeiro-vendas).
+   *
+   * Opcional pelo mesmo motivo de `recorrenciaMin`: uma tela em cache sem o campo preserva o valor
+   * vigente em vez de zerá-lo — e zerar aqui não é neutro, porque `0` significa "não informado" e
+   * apagaria o CAC do relatório de despesas.
+   */
+  custo: z.number().min(0, 'Custo não pode ser negativo').optional(),
 })
 
 export type UpdateGanchoBody = z.infer<typeof UpdateGanchoSchema>
+
+/**
+ * UpdateGatewayRatesSchema — alíquotas usadas para ESTIMAR a taxa do gateway.
+ *
+ * Percentual (0,99 = 0,99%), não fração. Teto de 30% para barrar o erro de digitação que
+ * transformaria a taxa numa dedução gigantesca no DRE sem nenhum outro sinal.
+ *
+ * Só afetam pagamentos SEM taxa real do provedor: onde o webhook gravou `gatewayFee`, o número
+ * real prevalece e mexer aqui não muda nada retroativamente.
+ */
+export const UpdateGatewayRatesSchema = z.object({
+  pix: z.number().min(0, 'Alíquota não pode ser negativa').max(30, 'Máximo é 30%'),
+  creditCard: z.number().min(0, 'Alíquota não pode ser negativa').max(30, 'Máximo é 30%'),
+  debitCard: z.number().min(0, 'Alíquota não pode ser negativa').max(30, 'Máximo é 30%'),
+})
+
+export type UpdateGatewayRatesBody = z.infer<typeof UpdateGatewayRatesSchema>
 
 /**
  * UpdateRestricoesSchema — valida as restrições de agendamento por dia da semana.

@@ -636,9 +636,15 @@ export class AdminOrdersService {
     // Janela de amanhã BRT (para o card "Pedido de amanhã")
     const startOfTomorrowBrt = new Date(startOfDayBrt.getTime() + 24 * 60 * 60 * 1000)
     const endOfTomorrowBrt = new Date(startOfTomorrowBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
-    // Janela de ontem BRT (para os deltas reais dos badges)
-    const startOfYesterdayBrt = new Date(startOfDayBrt.getTime() - 24 * 60 * 60 * 1000)
-    const endOfYesterdayBrt = new Date(startOfDayBrt.getTime() - 1)
+    // Base dos deltas dos badges: o MESMO DIA DA SEMANA anterior, não ontem.
+    //
+    // Era ontem, e isso fazia os dois badges do painel mentirem por calendário: toda segunda-feira
+    // aparecia despencando contra o domingo e todo domingo subindo contra o sábado. A demanda de
+    // pão é semanal (a agenda do cliente é por dia da semana), então segunda só se compara com
+    // segunda. Os nomes dos campos seguem `*TrendPct` porque é exatamente o que eles passaram a
+    // ser — tendência, e não oscilação de um dia para o outro.
+    const startOfPrevWeekdayBrt = new Date(startOfDayBrt.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const endOfPrevWeekdayBrt = new Date(startOfPrevWeekdayBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
     // Meio-dia BRT de hoje/amanhã (seguro p/ projeção da agenda — cai dentro do dia)
     const todayNoonBrt = new Date(startOfDayBrt.getTime() + 12 * 60 * 60 * 1000)
     const tomorrowNoonBrt = new Date(todayNoonBrt.getTime() + 24 * 60 * 60 * 1000)
@@ -653,13 +659,13 @@ export class AdminOrdersService {
     const [
       orderAgg,
       orderTomorrowAgg,
-      orderYesterdayAgg,
+      orderPrevWeekdayAgg,
       marketTodayAgg,
       marketTomorrowAgg,
-      marketYesterdayAgg,
+      marketPrevWeekdayAgg,
       weekMarket,
       paymentAgg,
-      paymentYesterdayAgg,
+      paymentPrevWeekdayAgg,
       clientsCount,
       clientsNewCount,
       condominiumsCount,
@@ -684,10 +690,10 @@ export class AdminOrdersService {
         _sum: { quantity: true },
         where: { scheduledDate: { gte: startOfTomorrowBrt, lte: endOfTomorrowBrt }, status: { not: 'CANCELLED' } },
       }),
-      // breads de ontem (delta do card "Pães hoje")
+      // breads do mesmo dia da semana anterior (delta do card "Pães hoje")
       this.prisma.order.aggregate({
         _sum: { quantity: true },
-        where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { not: 'CANCELLED' } },
+        where: { scheduledDate: { gte: startOfPrevWeekdayBrt, lte: endOfPrevWeekdayBrt }, status: { not: 'CANCELLED' } },
       }),
       // Pães vendidos DENTRO da Cestinha (D-1: breadQty é pão e conta em todo contador de pães).
       // Três janelas espelhando as agregações de Order acima.
@@ -701,7 +707,7 @@ export class AdminOrdersService {
       }),
       this.prisma.marketOrder.aggregate({
         _sum: { breadQty: true },
-        where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
+        where: { scheduledDate: { gte: startOfPrevWeekdayBrt, lte: endOfPrevWeekdayBrt }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
       }),
       // Cestinhas da semana — alimenta o gráfico "Fornadas por dia" com o pão da Cestinha.
       this.prisma.marketOrder.findMany({
@@ -716,7 +722,7 @@ export class AdminOrdersService {
       // revenue de ontem (delta do card "Receita do dia")
       this.prisma.payment.aggregate({
         _sum: { amount: true },
-        where: { status: 'PAID', createdAt: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, ...excludeNonCreditPurpose },
+        where: { status: 'PAID', createdAt: { gte: startOfPrevWeekdayBrt, lte: endOfPrevWeekdayBrt }, ...excludeNonCreditPurpose },
       }),
       // clientsCount
       this.prisma.user.count({ where: { role: 'CLIENT', isBlocked: false } }),
@@ -799,11 +805,11 @@ export class AdminOrdersService {
     // Pães do dia = pedidos de pão + pão da Cestinha (D-1).
     const marketBreadsToday = (marketTodayAgg._sum?.breadQty as number | null) ?? 0
     const marketBreadsTomorrow = (marketTomorrowAgg._sum?.breadQty as number | null) ?? 0
-    const marketBreadsYesterday = (marketYesterdayAgg._sum?.breadQty as number | null) ?? 0
+    const marketBreadsPrevWeekday = (marketPrevWeekdayAgg._sum?.breadQty as number | null) ?? 0
     const breadsToday = ((orderAgg._sum?.quantity as number | null) ?? 0) + marketBreadsToday
-    const breadsYesterday = ((orderYesterdayAgg._sum?.quantity as number | null) ?? 0) + marketBreadsYesterday
+    const breadsPrevWeekday = ((orderPrevWeekdayAgg._sum?.quantity as number | null) ?? 0) + marketBreadsPrevWeekday
     const revenueToday = (paymentAgg._sum?.amount as number | null) ?? 0
-    const revenueYesterday = (paymentYesterdayAgg._sum?.amount as number | null) ?? 0
+    const revenuePrevWeekday = (paymentPrevWeekdayAgg._sum?.amount as number | null) ?? 0
     const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0)
 
     return {
@@ -814,8 +820,8 @@ export class AdminOrdersService {
       breadsByWeekday,
       itemsByWeekday,
       revenueToday,
-      breadsTodayTrendPct: pct(breadsToday, breadsYesterday),
-      revenueTrendPct: pct(revenueToday, revenueYesterday),
+      breadsTodayTrendPct: pct(breadsToday, breadsPrevWeekday),
+      revenueTrendPct: pct(revenueToday, revenuePrevWeekday),
       clientsCount,
       clientsNewCount,
       condominiumsCount,

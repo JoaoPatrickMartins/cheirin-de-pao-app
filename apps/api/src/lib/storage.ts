@@ -64,7 +64,7 @@ function getClient(cfg: S3Config): S3Client {
 }
 
 /** Pastas permitidas no bucket. Conjunto fechado de propósito (ver o cabeçalho). */
-export type UploadFolder = 'products' | 'banners'
+export type UploadFolder = 'products' | 'banners' | 'receipts'
 
 /**
  * Faz upload de uma imagem e retorna a URL pública.

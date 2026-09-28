@@ -6,6 +6,7 @@ import { AdminSettingsService } from '../modules/admin-settings/admin-settings.s
 import { AdminSupplierOrdersService } from '../modules/admin-supplier-orders/admin-supplier-orders.service.js'
 import { CourierService } from '../modules/courier/courier.service.js'
 import { MarketCheckoutService } from '../modules/market/market-checkout.service.js'
+import { FinancialAlertsService } from '../modules/admin-financial/financial-alerts.service.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -175,6 +176,25 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   )
 
   fastify.log.info('[cron] 4 cron jobs registrados (meia-noite jobs + domingo 20h + diário 21h + cutoff por minuto)')
+
+  // Cron 5 — diário 8h (America/Sao_Paulo)
+  // Alertas financeiros (⭐C1). De manhã de propósito: "sua conta vence amanhã" às 3h da manhã não
+  // é acionável, e o dono decide o dia dele cedo. A deduplicação mora no serviço — este job roda
+  // todo dia e quase todo dia não envia nada, que é o comportamento desejado.
+  const financialAlerts = new FinancialAlertsService(fastify)
+  cron.schedule(
+    '0 8 * * *',
+    async () => {
+      fastify.log.info('[cron] iniciando financialAlerts')
+      try {
+        const sent = await financialAlerts.run()
+        fastify.log.info(`[cron] financialAlerts concluído — ${sent.length} alerta(s) enviado(s)`)
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em financialAlerts — servidor mantido ativo')
+      }
+    },
+    { timezone: 'America/Sao_Paulo', name: 'financial-alerts' },
+  )
 })
 
 export default cronPlugin

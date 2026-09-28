@@ -2,8 +2,15 @@ import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionLabel,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { BarChart } from '../../../components/admin/BarChart'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 // ------------------------------------------------------------------ tipos
 type Period = 'day' | 'week' | 'month'
@@ -17,6 +24,10 @@ interface CondoRevenue {
 }
 
 interface FinancialData {
+  /** Preset usado — ausente quando a janela veio de mês/intervalo. */
+  period?: Period
+  /** Janela efetivamente apurada. `isPartial` = período ainda em curso. */
+  window?: { from: string; to: string; label: string; isPartial: boolean }
   total: number
   byType: {
     combos: number
@@ -44,20 +55,8 @@ interface FinancialData {
   byCondominium: CondoRevenue[]
 }
 
-interface AdminFinanceiroProps {
+interface FinReceitaProps {
   onBack: () => void
-}
-
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
-
-const PERIOD_LABELS: Record<Period, string> = {
-  day: 'Receita · hoje',
-  week: 'Receita · esta semana',
-  month: 'Receita · este mês',
 }
 
 // ------------------------------------------------------------------ helpers
@@ -99,9 +98,15 @@ function RevenueLine({
   )
 }
 
+/**
+ * FinReceita — a tela de receita do Financeiro.
+ *
+ * Era o `AdminFinanceiro` inteiro. Com o DRE, despesas, contas a pagar e fluxo de caixa, o
+ * Financeiro virou HUB (decisão 8 do plano-financeiro-vendas) e esta passou a ser um item dele.
+ */
 // ------------------------------------------------------------------ componente
-export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
-  const [period, setPeriod] = useState<Period>('day')
+export function FinReceita({ onBack }: FinReceitaProps) {
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'day' })
   const [data, setData] = useState<FinancialData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -109,7 +114,7 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
     const fetchData = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/financial?period=${period}`)
+        const res = await apiFetch(`/admin/financial?${periodQuery(sel)}`)
         if (res.ok) {
           setData((await res.json()) as FinancialData)
         }
@@ -120,7 +125,7 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
       }
     }
     void fetchData()
-  }, [period])
+  }, [sel])
 
   // Montar dados do BarChart a partir de byCondominium
   const condominiums = data?.byCondominium ?? []
@@ -140,6 +145,84 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
   // O card grande mostra a receita CONSOLIDADA (crédito + dinheiro novo da Cestinha). O fallback
   // para `total` cobre uma resposta antiga/sem o campo, em vez de exibir R$ 0.
   const consolidado = data?.totalConsolidated ?? data?.total ?? 0
+
+  // O rótulo vem da API (`window.label`), não de um mapa local: é o servidor que resolve a janela
+  // em BRT e sabe se ela está FECHADA ou em curso. `selectionLabel` só cobre o instante antes da
+  // primeira resposta chegar.
+  const headerLabel = `Receita · ${data?.window?.label ?? selectionLabel(sel).toLowerCase()}`
+  // Período em curso precisa se declarar: um parcial exibido sem ressalva é lido como fechamento.
+  const isPartial = data?.window?.isPartial ?? true
+
+  // A composição da Cestinha fica em aba própria porque GMV e receita NÃO podem sair na mesma
+  // coluna de uma planilha: quem somar as duas conta a mesma nota duas vezes (D-2).
+  const onExport = data
+    ? () =>
+        void downloadXlsx(`receita-${selectionSlug(sel)}.xlsx`, [
+          {
+            name: 'Receita',
+            notes: [`Receita — ${data.window?.label ?? selectionLabel(sel)}`],
+            head: ['Linha', 'Valor'],
+            rows: [
+              ['Créditos — combos', combosTotal],
+              ['Créditos — compra personalizada', avulsoTotal],
+              ['= Receita de créditos', data.total],
+              ['🧺 Cestinha — dinheiro novo', market?.revenue ?? 0],
+              ['Gancho de porta pago', (data.totalConsolidated ?? 0) - data.total - (market?.revenue ?? 0)],
+              ['= Receita consolidada', consolidado],
+            ],
+            money: [1],
+            footer: [
+              'Receita consolidada = créditos + dinheiro NOVO da Cestinha + gancho pago. O GMV da Cestinha NÃO entra.',
+              ...(isPartial ? ['Período EM CURSO — números parciais.'] : []),
+            ],
+          },
+          ...(market
+            ? [
+                {
+                  name: 'Cestinha',
+                  head: ['Linha', 'Valor'],
+                  rows: [
+                    ['Receita nova (dinheiro que entrou)', market.revenue],
+                    ['Valor movimentado (GMV)', market.gmv],
+                    ['  parte em dinheiro', market.moneyPart],
+                    ['  parte em pãezinhos', market.creditPart],
+                    ['CMV (custo do vendido)', market.cmv ?? null],
+                    ['Margem sobre o GMV', market.margin ?? null],
+                  ],
+                  money: [1],
+                  footer: [
+                    `Cestinhas confirmadas: ${market.orders} · pãezinhos usados como pagamento: ${formatCredits(toMilli(market.credits))}`,
+                    'O GMV NUNCA é somado à receita: a parte paga em pãezinhos já foi faturada na compra do combo.',
+                    ...((market.unitsWithoutCost ?? 0) > 0
+                      ? [`Margem PARCIAL: ${market.unitsWithoutCost} unidade(s) vendida(s) sem custo cadastrado.`]
+                      : []),
+                  ],
+                },
+              ]
+            : []),
+          ...(purchases
+            ? [
+                {
+                  name: 'Compras ao fornecedor',
+                  head: ['Linha', 'Valor'],
+                  rows: [
+                    ['Pão', purchases.breadCost],
+                    ['Produtos da Cestinha', purchases.itemsCost],
+                    ['= Total comprado', purchases.total],
+                  ],
+                  money: [1],
+                  footer: [`Pedidos finalizados no período: ${purchases.orders}`],
+                },
+              ]
+            : []),
+          {
+            name: 'Por condomínio',
+            head: ['Condomínio', 'Receita de créditos', 'Movimentado em Cestinhas'],
+            rows: condominiums.map((c) => [c.condominiumName ?? '—', c.total, c.cestinhaGmv ?? 0]),
+            money: [1, 2],
+          },
+        ])
+    : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -184,12 +267,33 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
         >
           Financeiro
         </h2>
+        {onExport && (
+          <button
+            type="button"
+            aria-label="Exportar planilha"
+            onClick={onExport}
+            style={{
+              background: 'var(--color-surface-2)',
+              border: 'none',
+              width: 36,
+              height: 36,
+              borderRadius: 11,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="download" size={18} color="var(--color-text)" />
+          </button>
+        )}
       </div>
 
       {/* Conteúdo */}
       <div style={{ overflow: 'auto', flex: 1, padding: '0 20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* SegmentedControl */}
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        {/* Seletor de período — presets, meses fechados e intervalo */}
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <div style={{ paddingTop: 32, textAlign: 'center' }}>
@@ -217,7 +321,24 @@ export function AdminFinanceiro({ onBack }: AdminFinanceiroProps) {
                   margin: '0 0 4px',
                 }}
               >
-                {PERIOD_LABELS[period]}
+                {headerLabel}
+                {/* Selo "em curso": distingue um mês fechado de um mês ainda correndo. Sem ele,
+                    "setembro de 2026" com 20 dias apurados parece fechamento de setembro. */}
+                {isPartial && (
+                  <span
+                    style={{
+                      marginLeft: 6,
+                      padding: '1px 6px',
+                      borderRadius: 99,
+                      background: 'var(--color-gold-soft)',
+                      color: '#8A6A00',
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                    }}
+                  >
+                    em curso
+                  </span>
+                )}
               </p>
               <p
                 style={{

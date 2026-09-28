@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { AdminCombosRepository } from './admin-combos.repository.js'
 import { CreateComboBody, UpdateComboBody } from './admin-combos.schema.js'
 import { comboEconomy } from '../../lib/combo-pricing.js'
+import { loadUnitCosts, type CostBasis } from '../../lib/product-cost.js'
 
 // Data distante para representar promoção "permanente" (endsAt não é nulável no schema)
 const FAR_FUTURE = new Date('9999-12-31T23:59:59.999Z')
@@ -67,6 +68,43 @@ export class AdminCombosService {
     const combo = await this.repository.findById(id)
     if (!combo) throw { statusCode: 404, message: 'Combo não encontrado' }
     return combo
+  }
+
+  /**
+   * Insumos da precificação assistida (D1) — o custo do pão e o preço do avulso.
+   *
+   * Existe porque o formulário de combo define `price` **sem ver a margem**: hoje o admin digita
+   * um preço no escuro, e margem se perde no cadastro, não no relatório. Com estes dois números a
+   * tela calcula custo, margem e R$ por pãozinho ao vivo, a cada tecla.
+   *
+   * `breadUnitCost` é `null` — nunca zero — quando o pão não tem fornecedor ativo na matriz. Zero
+   * apareceria no formulário como margem de 100%, e o admin precificaria em cima de uma mentira.
+   */
+  async getPricing(): Promise<{
+    avulsoUnit: number
+    breadProductId: string | null
+    breadUnitCost: number | null
+    costBasis: CostBasis | null
+    costSuppliers: number
+  }> {
+    const [avulsoUnit, breadProductId] = await Promise.all([
+      this.repository.getAvulsoUnit(),
+      this.repository.getBreadProductId(),
+    ])
+
+    if (!breadProductId) {
+      return { avulsoUnit, breadProductId: null, breadUnitCost: null, costBasis: null, costSuppliers: 0 }
+    }
+
+    const costs = await loadUnitCosts(this.fastify.prisma, [breadProductId])
+    const cost = costs.get(breadProductId)
+    return {
+      avulsoUnit,
+      breadProductId,
+      breadUnitCost: cost?.unitCost ?? null,
+      costBasis: cost?.basis ?? null,
+      costSuppliers: cost?.suppliers ?? 0,
+    }
   }
 
   /**

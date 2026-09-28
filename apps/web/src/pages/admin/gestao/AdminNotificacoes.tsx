@@ -23,6 +23,13 @@ const NOTIF_ITEMS: { key: string; titulo: string; descricao: string }[] = [
   { key: 'ADMIN_AUTOGEN_WARNING', titulo: 'Aviso de geração automática', descricao: '15 min antes de o pedido ser gerado automaticamente' },
   { key: 'ADMIN_AUTOGEN_DONE', titulo: 'Pedido gerado automaticamente', descricao: 'Quando o pedido ao fornecedor é gerado automaticamente' },
   { key: 'ADMIN_LOW_STOCK', titulo: 'Estoque do mercadinho', descricao: 'Quando um produto do Além do Pãozin fica com estoque baixo ou esgota' },
+  // Financeiros (⭐C1) — os limiares são folgados de propósito: alerta que fala toda semana vira
+  // ruído e acaba desligado, levando junto os meses em que ele importava.
+  { key: 'ADMIN_EXPENSE_DUE', titulo: 'Conta a pagar vencendo', descricao: 'Quando há conta vencendo amanhã ou já vencida' },
+  { key: 'ADMIN_EXPENSE_ANOMALY', titulo: 'Gasto fora do normal', descricao: 'Quando uma categoria passa de 40% acima da média dos meses anteriores' },
+  { key: 'ADMIN_MARGIN_DROP', titulo: 'Queda de margem', descricao: 'Quando a margem bruta cai 5 pontos percentuais em relação ao mês anterior' },
+  { key: 'ADMIN_RESULT_NEGATIVE', titulo: 'Mês no vermelho', descricao: 'Quando o resultado do mês em curso fica negativo' },
+  { key: 'ADMIN_GOAL_AT_RISK', titulo: 'Meta em risco', descricao: 'Quando a receita fica abaixo do ritmo necessário para bater a meta do mês' },
 ]
 
 export function AdminNotificacoes({ onBack }: AdminNotificacoesProps) {

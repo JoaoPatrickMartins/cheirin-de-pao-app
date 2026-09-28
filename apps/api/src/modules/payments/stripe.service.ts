@@ -179,6 +179,36 @@ export class StripeService {
     return getStripe().refunds.create({ payment_intent: paymentIntentId })
   }
 
+  /**
+   * Taxa REAL cobrada pelo Stripe num PaymentIntent, em reais (Fase 3 do plano Financeiro/DRE).
+   *
+   * O valor não vem no PaymentIntent nem no evento do webhook: mora na `BalanceTransaction` da
+   * cobrança, que precisa ser expandida numa chamada própria. Por isso a captura é um passo
+   * separado do fulfillment.
+   *
+   * Devolve `null` (e nunca lança) quando o Stripe ainda não liquidou a cobrança ou o formato
+   * mudou — aí o pagamento simplesmente segue com a taxa estimada.
+   *
+   * Converte de centavos para reais: o Stripe trabalha na menor unidade da moeda, `Payment.amount`
+   * está em reais, e somar os dois sem converter daria uma taxa 100× maior que o pagamento.
+   */
+  async getFeeForPaymentIntent(paymentIntentId: string): Promise<number | null> {
+    try {
+      const pi = await getStripe().paymentIntents.retrieve(paymentIntentId, {
+        expand: ['latest_charge.balance_transaction'],
+      })
+      const charge = pi.latest_charge
+      if (charge == null || typeof charge === 'string') return null
+
+      const txn = charge.balance_transaction
+      if (txn == null || typeof txn === 'string') return null
+
+      return typeof txn.fee === 'number' ? txn.fee / 100 : null
+    } catch {
+      return null
+    }
+  }
+
   // ── webhook ────────────────────────────────────────────────────────────────
   constructWebhookEvent(rawBody: Buffer | string, signature: string): Stripe.Event {
     const secret = process.env.STRIPE_WEBHOOK_SECRET

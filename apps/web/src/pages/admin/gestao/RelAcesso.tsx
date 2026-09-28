@@ -1,27 +1,27 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { BarChart } from '../../../components/admin/BarChart'
 import { KpiCard } from '../../../components/admin/KpiCard'
 import { ReportAppBar, ReportScroll, ReportCard, LoadingText, ErrorText, fmtInt, fmtPct } from './RelShared'
-import { buildCsv, downloadCsv } from '../../../lib/csv'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 type Period = 'day' | 'week' | 'month'
 
 interface AccessReport {
-  period: Period
+  period?: Period
+  window: { from: string; to: string; label: string; isPartial: boolean }
   access: { total: number; uniqueVisitors: number }
   logins: { total: number; uniqueClients: number }
   conversion: { rate: number; loginVisitors: number; accessVisitors: number }
   series: Array<{ day: string; accesses: number; accessVisitors: number; logins: number }>
 }
-
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
 
 function formatDay(day: string): string {
   if (day.length < 10) return day
@@ -29,7 +29,7 @@ function formatDay(day: string): string {
 }
 
 export function RelAcesso({ onBack }: { onBack: () => void }) {
-  const [period, setPeriod] = useState<Period>('week')
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'week' })
   const [data, setData] = useState<AccessReport | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -37,7 +37,7 @@ export function RelAcesso({ onBack }: { onBack: () => void }) {
     const run = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/reports/access?period=${period}`)
+        const res = await apiFetch(`/admin/reports/access?${periodQuery(sel)}`)
         setData(res.ok ? ((await res.json()) as AccessReport) : null)
       } catch {
         setData(null)
@@ -46,7 +46,7 @@ export function RelAcesso({ onBack }: { onBack: () => void }) {
       }
     }
     void run()
-  }, [period])
+  }, [sel])
 
   const series = data?.series ?? []
   const accessBars = series.map((s, i) => ({ label: formatDay(s.day), value: s.accesses, highlight: i === series.length - 1 }))
@@ -55,20 +55,42 @@ export function RelAcesso({ onBack }: { onBack: () => void }) {
 
   const onExport = data
     ? () =>
-        downloadCsv(
-          `aquisicao-${period}.csv`,
-          buildCsv(
-            ['Dia', 'Acessos', 'Visitantes únicos', 'Logins de clientes'],
-            series.map((s) => [s.day, s.accesses, s.accessVisitors, s.logins]),
-          ),
-        )
+        void downloadXlsx(`aquisicao-${selectionSlug(sel)}.xlsx`, [
+          {
+            name: 'Resumo',
+            notes: [`Aquisição — ${data.window.label}`],
+            head: ['Métrica', 'Valor'],
+            rows: [
+              ['Acessos', data.access.total],
+              ['Visitantes únicos', data.access.uniqueVisitors],
+              ['Logins de clientes', data.logins.total],
+              ['Clientes únicos', data.logins.uniqueClients],
+              ['Visitantes que logaram', data.conversion.loginVisitors],
+              ['Visitantes no período', data.conversion.accessVisitors],
+            ],
+            integer: [1],
+            footer: data.window.isPartial ? ['Período EM CURSO — números parciais.'] : [],
+          },
+          {
+            name: 'Conversão',
+            head: ['Métrica', 'Taxa'],
+            rows: [['Conversão acesso → login', data.conversion.rate]],
+            percent: [1],
+          },
+          {
+            name: 'Série diária',
+            head: ['Dia', 'Acessos', 'Visitantes únicos', 'Logins de clientes'],
+            rows: series.map((s) => [s.day, s.accesses, s.accessVisitors, s.logins]),
+            integer: [1, 2, 3],
+          },
+        ])
     : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <ReportAppBar title="Aquisição" onBack={onBack} onExport={onExport} />
       <ReportScroll>
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <LoadingText />
