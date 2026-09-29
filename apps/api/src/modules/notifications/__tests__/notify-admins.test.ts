@@ -57,4 +57,17 @@ describe('NotificationsService.notifyAdmins', () => {
     expect(notificationCreate).toHaveBeenCalledTimes(1)
     expect(notificationCreate.mock.calls[0][0].data.userId).toBe('on')
   })
+  it('tipo que nasce desligado (ADMIN_REFERRAL_REWARDED, D-14): só vai para quem ligou', async () => {
+    const { fastify, notificationCreate } = makeFastify([
+      { id: 'sem-prefs', oneSignalPlayerId: null, adminNotificationPrefs: null },
+      { id: 'ligou', oneSignalPlayerId: null, adminNotificationPrefs: { ADMIN_REFERRAL_REWARDED: true } },
+    ])
+    await new NotificationsService(fastify).notifyAdmins({
+      type: NotificationType.ADMIN_REFERRAL_REWARDED,
+      title: 'Indicação recompensada',
+      body: 'João ganhou 5 pãezins por indicar Maria.',
+    })
+    expect(notificationCreate).toHaveBeenCalledTimes(1)
+    expect(notificationCreate.mock.calls[0][0].data.userId).toBe('ligou')
+  })
 })

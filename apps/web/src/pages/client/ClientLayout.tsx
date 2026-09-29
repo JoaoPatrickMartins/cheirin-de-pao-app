@@ -15,6 +15,8 @@ import { BannerProvider } from '../../contexts/BannerContext'
 import { BannerPopupHost } from '../../components/client/BannerPopupHost'
 import { hasSeenOnboarding, slidesDone, markSlidesDone, markOnboardingSeen } from '../../lib/onboarding'
 import { apiFetch } from '../../lib/apiFetch'
+import { ReferralCelebration } from '../../components/client/ReferralCelebration'
+import { patchReferralSummary, useReferralSummary } from '../../hooks/useReferralSummary'
 
 // Fluxo de primeiro acesso: telas explicativas → tour do app → done.
 type OnboardingPhase = 'slides' | 'tour' | 'done'
@@ -25,6 +27,11 @@ export function ClientLayout() {
   const [phase, setPhase] = useState<OnboardingPhase>('done')
   // Consentimento do gancho de porta — pedido após o primeiro pedido do cliente.
   const [needsHookConsent, setNeedsHookConsent] = useState(false)
+  // A comemoração do Indique e Ganhe vem DEPOIS do gancho na fila — então espera a resposta dele.
+  const [hookChecked, setHookChecked] = useState(false)
+  // Uma comemoração por abertura: fechou, as outras pendentes esperam a próxima.
+  const [celebrationClosed, setCelebrationClosed] = useState(false)
+  const { summary: referral, loaded: referralLoaded } = useReferralSummary()
   // Registra o player_id do OneSignal no backend — executado apenas quando autenticado (JWT disponível)
   useOneSignalRegister()
   // Habilita deep link de push: navega para /client/creditos quando additionalData.screen === 'creditos'
@@ -87,6 +94,8 @@ export function ClientLayout() {
         if (!cancelled) setNeedsHookConsent(!!data.needsConsent)
       } catch {
         // silencioso — sem consentimento pendente exibido
+      } finally {
+        if (!cancelled) setHookChecked(true)
       }
     }
     void check()
@@ -96,6 +105,11 @@ export function ClientLayout() {
       window.removeEventListener('cdp:refresh-hook', check)
     }
   }, [user])
+
+  // Fila única de overlays da abertura (C5): tutorial → gancho → comemoração → pop-up de banner.
+  // Nunca dois ao mesmo tempo.
+  const celebration = referral?.celebration ?? null
+  const showCelebration = phase === 'done' && hookChecked && !needsHookConsent && !!celebration && !celebrationClosed
 
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'CLIENT') return <Navigate to="/" replace />
@@ -113,6 +127,20 @@ export function ClientLayout() {
   // Persiste no backend (fonte de verdade) + cache local para não reexibir na sessão.
   // Falha de rede não bloqueia; se a gravação não chegar, o GET no próximo acesso
   // reexibe (endpoint idempotente — repetir mantém a data original).
+  // Fechou a comemoração (CTA, "Agora não", X ou Esc): marca como vista no servidor e tira do
+  // cache — o resumo seguinte já vem sem ela.
+  function closeCelebration(to?: string) {
+    if (celebration) {
+      void apiFetch('/referrals/celebration/seen', {
+        method: 'POST',
+        body: JSON.stringify(celebration.seen),
+      }).catch(() => {})
+    }
+    patchReferralSummary((s) => ({ ...s, celebration: null }))
+    setCelebrationClosed(true)
+    if (to) navigate(to)
+  }
+
   function finishTour() {
     if (!user) return
     markOnboardingSeen(user.id) // cache local + limpa flags de retomada (slides/step)
@@ -141,8 +169,16 @@ export function ClientLayout() {
               isOpen={phase === 'done' && needsHookConsent}
               onConfirmed={() => setNeedsHookConsent(false)}
             />
-            {/* Banner é o ÚLTIMO da fila: nunca sobre o tutorial nem sobre o gancho. */}
-            <BannerPopupHost enabled={phase === 'done' && !needsHookConsent} />
+            {showCelebration && celebration && (
+              <ReferralCelebration
+                celebration={celebration}
+                onClose={() => closeCelebration()}
+                onGo={(to) => closeCelebration(to)}
+              />
+            )}
+            {/* Banner é o ÚLTIMO da fila: nunca sobre o tutorial, o gancho ou a comemoração — por
+                isso espera o resumo da indicação chegar (ou falhar) antes de abrir. */}
+            <BannerPopupHost enabled={phase === 'done' && !needsHookConsent && referralLoaded && !showCelebration} />
           </BannerProvider>
         </CartProvider>
       </NotifProvider>

@@ -15,6 +15,7 @@ import {
   buildDre,
   buildBridge,
   accrualCreditRevenue,
+  referralBonusCost,
   type DreInputs,
   type DreRegime,
   type DreResult,
@@ -121,6 +122,8 @@ export class DreService {
 
     const refunds = await this.refundsTotal(win)
     const creditAccrual = await accrualCreditRevenue(this.prisma, win, liability.estPricePerCredit)
+    // Mesmo preço médio da receita por competência: é ela que o consumo do bônus infla.
+    const referralBonus = await referralBonusCost(this.prisma, win, liability.estPricePerCredit)
 
     /** Tudo que é igual nos dois regimes (ver as simplificações declaradas em `lib/dre.ts`). */
     const shared = {
@@ -141,6 +144,7 @@ export class DreService {
       creditRevenueAccrual: creditAccrual,
       marketRevenueAccrual: marketAccrual,
       hookRevenueAccrual: hookAccrual,
+      referralBonus,
     }
 
     return {

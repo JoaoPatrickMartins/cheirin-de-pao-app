@@ -1,4 +1,5 @@
 import { PrismaClient, type ExpenseGroup } from '@prisma/client'
+import { REFERRAL_DEFAULTS, REFERRAL_SETTING_KEYS } from '../lib/referral-config.js'
 
 /**
  * seedDefaultsIfAbsent — garante valores padrão no banco quando o admin ainda não configurou.
@@ -200,6 +201,36 @@ export async function seedGatewayFeeRates(prisma: PrismaClient): Promise<void> {
       where: { key },
       update: {},
       create: { key, value },
+    })
+  }
+}
+
+/**
+ * Config do Indique e Ganhe (§6 do plano-indique-e-ganhe) — o programa nasce DESLIGADO.
+ *
+ * Os valores saem de `REFERRAL_DEFAULTS`, os mesmos que a leitura defensiva usa quando a chave falta:
+ * semente e fallback nunca divergem. Campanha e metas são JSON (`null` e `[]`).
+ *
+ * `update: {}` no upsert: cria só se ausente, nunca sobrescreve o que o admin já configurou.
+ */
+export async function seedReferralDefaults(prisma: PrismaClient): Promise<void> {
+  const d = REFERRAL_DEFAULTS
+  const values: Record<keyof typeof REFERRAL_SETTING_KEYS, string> = {
+    ativa: String(d.ativa),
+    recompensa: String(d.recompensa),
+    bonusIndicado: String(d.bonusIndicado),
+    compraMinima: String(d.compraMinima),
+    limiteMensal: String(d.limiteMensal),
+    prazoDias: String(d.prazoDias),
+    mensagem: d.mensagem,
+    campanha: JSON.stringify(d.campanha),
+    metas: JSON.stringify(d.metas),
+  }
+  for (const [field, key] of Object.entries(REFERRAL_SETTING_KEYS)) {
+    await prisma.setting.upsert({
+      where: { key },
+      update: {},
+      create: { key, value: values[field as keyof typeof values] },
     })
   }
 }

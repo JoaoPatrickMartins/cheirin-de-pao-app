@@ -141,6 +141,10 @@ export function LoginScreen() {
         const err = (await res.json()) as { error?: string }
         const errMsg = (err.error ?? '').toLowerCase()
         setError(errMsg.includes('expir') ? 'Código expirado. Solicite um novo.' : 'Código incorreto. Verifique e tente de novo.')
+      } else if (res.status === 403) {
+        // Conta bloqueada — mesma mensagem do servidor que o login por senha já exibe.
+        const err = (await res.json().catch(() => ({}))) as { error?: string }
+        setError(err.error ?? 'Conta bloqueada. Fale com o suporte.')
       } else {
         setError('Algo deu errado. Verifique sua conexão e tente novamente.')
       }

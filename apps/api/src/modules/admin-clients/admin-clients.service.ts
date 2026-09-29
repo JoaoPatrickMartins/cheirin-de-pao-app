@@ -905,7 +905,7 @@ export class AdminClientsService {
     }
 
     const willBlock = !user.isBlocked
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: willBlock
         ? { isBlocked: true, blockReason: reason ?? null, blockedAt: new Date(), blockedById: adminId ?? null }
@@ -917,6 +917,18 @@ export class AdminClientsService {
         blockedAt: true,
       },
     })
+
+    // Bloquear derruba as sessões abertas: sem isto o cliente seguia no app com o refresh de 90
+    // dias. O access token em mãos ainda vale até expirar (≤ 15 min) — o `authenticate` é stateless
+    // por escolha. Desbloquear não restaura nada: o cliente entra de novo.
+    if (willBlock) {
+      await this.prisma.session.updateMany({
+        where: { userId: id, isRevoked: false },
+        data: { isRevoked: true },
+      })
+    }
+
+    return updated
   }
 
   /**

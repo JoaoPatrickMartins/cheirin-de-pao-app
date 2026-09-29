@@ -13,6 +13,7 @@ import { addressToQuery, geocodeAddress, type AddressLike } from '../../lib/geoc
 import { nowHHMM, brtDayRange } from '../../lib/cutoff.js'
 import { notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
 import { completeMarketStop } from '../../lib/market-pipeline.js'
+import { afterDelivery } from '../../lib/referral.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import type { TodayOrdersResponse } from './courier.schema.js'
 
@@ -558,7 +559,11 @@ export class CourierService {
   async confirmMarketDelivery(marketOrderId: string, courierId: string): Promise<void> {
     const mo = await this.loadOwnMarketStop(marketOrderId, courierId, 'DELIVERED')
     const moved = await completeMarketStop(this.prisma, { ...mo, courierId }, 'DELIVERED')
-    if (moved > 0) await notifyMarketDelivered(this.fastify, mo.userId) // MKT-35
+    if (moved > 0) {
+      await notifyMarketDelivered(this.fastify, mo.userId) // MKT-35
+      // Indique e Ganhe — só quando ESTA chamada moveu a Cestinha (reexecução não reavalia). Nunca lança.
+      await afterDelivery(this.fastify, mo.userId)
+    }
   }
 
   async markMarketNotDelivered(marketOrderId: string, courierId: string, reason?: string): Promise<void> {

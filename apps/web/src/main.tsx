@@ -12,6 +12,7 @@ import ReactDOM from 'react-dom/client'
 import { RouterProvider } from 'react-router'
 import { router } from './routes/router'
 import { trackAccess } from './lib/analytics'
+import { captureReferralFromUrl } from './lib/referral'
 import { initOneSignal } from './lib/onesignal'
 
 // Stripe.js é carregado sob demanda em lib/stripe.ts (stripePromise) e usado via
@@ -21,9 +22,13 @@ import { initOneSignal } from './lib/onesignal'
 // O opt-in de push é feito por gesto do usuário (Perfil / aviso da Home) via usePushOptIn.
 initOneSignal()
 
+// Indique e Ganhe — guarda o `?ref=` do link (30 dias) e limpa a URL. ANTES do trackAccess: o
+// acesso pelo link é a 1ª etapa do funil do programa, e o código vai junto no evento.
+const refFromLink = captureReferralFromUrl()
+
 // Métrica de acesso (Relatórios) — dispara 1x por carga do app, antes do login.
 // Em escopo de módulo (não em efeito), evita disparo duplo do StrictMode.
-trackAccess()
+trackAccess(refFromLink)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

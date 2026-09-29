@@ -66,6 +66,25 @@ describe('CreditMovementService — movimentação (F7)', () => {
     expect(r.net).toBe(15)
   })
 
+  it('bônus do Indique e Ganhe entram com rótulo próprio (e não o enum cru)', async () => {
+    const r = await makeService(
+      makePrisma({
+        groups: [
+          { type: 'REFERRAL_BONUS', _sum: { quantityMilli: 10_000 }, _count: 2 },
+          { type: 'REFERRAL_WELCOME', _sum: { quantityMilli: 6_000 }, _count: 2 },
+          { type: 'REFERRAL_GOAL', _sum: { quantityMilli: 10_000 }, _count: 1 },
+        ],
+      }),
+    ).getReport(WIN(), NOW)
+
+    expect(r.rows.map((row) => [row.type, row.label, row.kind])).toEqual([
+      ['REFERRAL_BONUS', 'Bônus de indicação', 'in'],
+      ['REFERRAL_GOAL', 'Meta de indicações', 'in'],
+      ['REFERRAL_WELCOME', 'Boas-vindas de indicação', 'in'],
+    ])
+    expect(r.issued).toBe(26)
+  })
+
   it('o SINAL do dado manda, não o rótulo do tipo', async () => {
     // Uma cortesia lançada errado e corrigida vem como ADMIN_GRANT NEGATIVO. Classificar por tipo
     // a somaria como emissão e inflaria o passivo.

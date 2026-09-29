@@ -129,6 +129,12 @@ export interface DreInputs {
   expensesByGroup: Record<string, number>
   /** Despesas do período ainda NÃO pagas (só faz sentido em competência). */
   expensesUnpaid: number
+
+  /**
+   * Indique e Ganhe: pãezins de bônus CREDITADOS no período × preço médio (R$). Entra só na
+   * COMPETÊNCIA — ver {@link buildDre}. Opcional: insumo ausente (fechamento antigo, teste) = 0.
+   */
+  referralBonus?: number
 }
 
 const GROUP_LABEL: Record<string, string> = {
@@ -141,6 +147,9 @@ const GROUP_LABEL: Record<string, string> = {
 
 /** Grupos que entram em despesas OPERACIONAIS (COGS vai para o CMV; TAXES, para impostos). */
 const OPERATING_GROUPS = ['PEOPLE', 'OPERATION', 'SALES', 'ADMIN', 'OTHER'] as const
+
+/** Chave da linha das bonificações de indicação nas despesas operacionais. */
+const REFERRAL_BONUS_LINE = 'referral-bonus'
 
 /**
  * Monta a demonstração a partir dos insumos.
@@ -284,6 +293,23 @@ export function buildDre(
     isNegative: true,
   })).filter((l) => l.value > 0)
 
+  // Bonificações do Indique e Ganhe (§7.10) — junto do comercial, logo depois dele. Só na
+  // COMPETÊNCIA: lá o pão de bônus, quando consumido, vira receita (`accrualCreditRevenue` não sabe
+  // de onde veio o crédito), e esta linha compensa. No caixa o bônus não passou pelo banco — nem
+  // como receita nem como saída —, então ele simplesmente não existe ali.
+  const referralBonus = isCash ? 0 : round2(inputs.referralBonus ?? 0)
+  if (referralBonus > 0) {
+    const afterSales = opexLines.findIndex((l) => l.key === 'opex-SALES') + 1
+    const at = afterSales > 0 ? afterSales : opexLines.findIndex((l) => l.key === 'opex-ADMIN' || l.key === 'opex-OTHER')
+    opexLines.splice(at >= 0 ? at : opexLines.length, 0, {
+      key: REFERRAL_BONUS_LINE,
+      label: 'Bonificações de indicação',
+      value: referralBonus,
+      isNegative: true,
+      hint: 'pãezins de indicação creditados × preço médio',
+    })
+  }
+
   const operatingExpenses = round2(opexLines.reduce((s, l) => s + l.value, 0))
   const ebitda = round2(grossProfit - operatingExpenses)
 
@@ -383,7 +409,10 @@ export interface DreBridge {
   revenueDelta: number
   /** Despesa paga menos despesa de competência. */
   expenseDelta: number
-  /** `cashResult − accrualResult`. Igual a `revenueDelta − expenseDelta` por construção. */
+  /**
+   * `cashResult − accrualResult`. Igual a `revenueDelta − expenseDelta + bonificações de indicação`
+   * por construção (a última parcela só existe na competência — ver `buildDre`).
+   */
   difference: number
   lines: Array<{ label: string; value: number; hint: string }>
 }
@@ -398,9 +427,12 @@ export interface DreBridge {
  */
 export function buildBridge(cash: DreResult, accrual: DreResult): DreBridge {
   const revenueDelta = round2(cash.grossRevenue - accrual.grossRevenue)
+  // A bonificação de indicação é despesa só da competência e não é "despesa não paga": fica fora
+  // do Δ despesa e ganha a própria parcela, senão a ponte a explicaria com o rótulo errado.
+  const referralBonus = referralBonusOf(accrual)
   const expenseDelta = round2(
     cash.operatingExpenses + cash.taxes + cogsManualOf(cash) -
-      (accrual.operatingExpenses + accrual.taxes + cogsManualOf(accrual)),
+      (accrual.operatingExpenses - referralBonus + accrual.taxes + cogsManualOf(accrual)),
   )
 
   return {
@@ -428,9 +460,26 @@ export function buildBridge(cash: DreResult, accrual: DreResult): DreBridge {
         value: round2(-expenseDelta),
         hint: 'competência sem saída de caixa',
       },
+      ...(referralBonus > 0
+        ? [
+            {
+              label: 'Bonificações de indicação',
+              value: referralBonus,
+              hint: 'pão dado de bônus: custo na competência, sem saída de caixa',
+            },
+          ]
+        : []),
       { label: 'Resultado por caixa', value: cash.netProfit, hint: 'o que passou pelo banco' },
     ],
   }
+}
+
+/** Valor da linha de bonificações de indicação (só existe na competência). */
+function referralBonusOf(dre: DreResult): number {
+  const line = dre.sections
+    .find((s) => s.key === 'opex')
+    ?.lines.find((l) => l.key === REFERRAL_BONUS_LINE)
+  return line?.value ?? 0
 }
 
 /** Parcela de CMV que veio de despesa lançada à mão (grupo COGS). */
@@ -470,4 +519,28 @@ export async function accrualCreditRevenue(
   })
   const consumed = Math.abs(fromMilli(agg._sum.quantityMilli ?? 0))
   return round2(consumed * pricePerCredit)
+}
+
+/**
+ * Indique e Ganhe — quanto valem, em R$, os pãezins de bônus CREDITADOS no período (indicação,
+ * boas-vindas e meta), pelo mesmo preço médio histórico da receita por competência.
+ *
+ * Pela data do CRÉDITO, não do consumo: o sistema não rastreia lote de crédito, então não dá para
+ * saber quais pães consumidos eram de bônus. É a leitura de "custo de marketing no mês em que foi
+ * dado" — aproximação declarada na própria linha.
+ */
+export async function referralBonusCost(
+  prisma: PrismaClient,
+  window: DateWindow,
+  pricePerCredit: number,
+): Promise<number> {
+  const agg = await prisma.creditTransaction.aggregate({
+    _sum: { quantityMilli: true },
+    where: {
+      type: { in: ['REFERRAL_BONUS', 'REFERRAL_WELCOME', 'REFERRAL_GOAL'] },
+      createdAt: { gte: window.startDate, lte: window.endDate },
+    },
+  })
+  const granted = Math.max(0, fromMilli(agg._sum.quantityMilli ?? 0))
+  return round2(granted * pricePerCredit)
 }

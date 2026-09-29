@@ -78,6 +78,11 @@ enum TransactionType {
   ADMIN_DEBIT
   MARKET_PURCHASE // débito ao pagar produtos do mini market com pãezinhos
   MARKET_REFUND // crédito no cancelamento de um MarketOrder (inclui a parte paga em dinheiro)
+  // Indique e Ganhe — três tipos, porque o extrato mostra cada um com título e ícone próprios (D-10).
+  // `referenceId` = id do Referral (bônus e boas-vindas) ou do ReferralMilestone (meta).
+  REFERRAL_BONUS // quem indicou, por uma indicação que valeu
+  REFERRAL_WELCOME // o amigo, boas-vindas por ter vindo pela indicação
+  REFERRAL_GOAL // quem indicou, bônus extra ao cruzar uma meta de indicações
 }
 
 enum OrderType {
@@ -174,6 +179,11 @@ enum NotificationType {
   // estes dois não têm equivalente no pão e por isso são tipos próprios.
   MARKET_ORDER_CANCELLED // Cestinha cancelada sem ação do cliente (sweep de pagamento / admin)
   MARKET_NOT_DELIVERED // Cestinha não entregue (cliente ausente, endereço, etc.)
+  // Cliente — Indique e Ganhe
+  REFERRAL_SIGNUP // quem indicou: o amigo se cadastrou e entrou com o código
+  REFERRAL_REWARD // quem indicou: a indicação valeu (ganhou X pãezins)
+  REFERRAL_WELCOME // o amigo: presente de boas-vindas (ganhou Y pãezins)
+  REFERRAL_INVITE // convite para indicar, uma vez na vida, depois da 1ª entrega
   // Admin — avisos operacionais (cada um com toggle individual em adminNotificationPrefs)
   ADMIN_ORDER_PLACED
   ADMIN_HOOK_REQUESTED
@@ -186,6 +196,10 @@ enum NotificationType {
   ADMIN_AUTOGEN_WARNING
   ADMIN_AUTOGEN_DONE
   ADMIN_LOW_STOCK // produto do mercadinho com estoque baixo / esgotado
+  // Indique e Ganhe. ADMIN_REFERRAL_REWARDED nasce DESLIGADO (D-14) — os outros dois, ligados.
+  ADMIN_REFERRAL_REVIEW // indicação caiu num sinal e aguarda aprovar/recusar
+  ADMIN_REFERRAL_REWARDED // indicação recompensada (informativo)
+  ADMIN_CONDO_INTEREST // visitante pediu um condomínio que ainda não é atendido
 
   // ── Alertas FINANCEIROS (C1 · escopo firmado da Fase 5) ────────────────────
   // O encanamento já existia inteiro — push, toggle por tipo, tela de preferências. O que faltava
@@ -260,29 +274,29 @@ enum BannerFrequency {
 
 // 1. User — clientes, entregadores e admins
 model User {
-  id                     String    @id @default(auto()) @map("_id") @db.ObjectId
-  email                  String?   @unique
-  phone                  String?   @unique
-  role                   UserRole
-  name                   String
-  cpf                    String    @unique
-  birthDate              DateTime?
+  id                      String    @id @default(auto()) @map("_id") @db.ObjectId
+  email                   String?   @unique
+  phone                   String?   @unique
+  role                    UserRole
+  name                    String
+  cpf                     String    @unique
+  birthDate               DateTime?
   // Auth por senha (bcrypt). null = ainda não definiu — força definição no 1º acesso via OTP.
   // Nunca expor este campo em respostas/selects públicos.
-  passwordHash           String?
-  passwordSetAt          DateTime?
-  isBlocked              Boolean   @default(false)
+  passwordHash            String?
+  passwordSetAt           DateTime?
+  isBlocked               Boolean   @default(false)
   // Contexto do bloqueio atual (auditoria) — preenchido ao bloquear, limpo ao desbloquear
-  blockReason            String?
-  blockedAt              DateTime?
-  blockedById            String?   @db.ObjectId
-  condominiumId          String?   @db.ObjectId
-  apartment              String?
-  block                  String?
+  blockReason             String?
+  blockedAt               DateTime?
+  blockedById             String?   @db.ObjectId
+  condominiumId           String?   @db.ObjectId
+  apartment               String?
+  block                   String?
   // Complemento curto do endereço (máx. 10 chars) — subdivisão do bloco, ex.: "Lado A".
   // Só é coletado em condomínio do tipo BLOCKS. Opcional: em documento antigo a chave nem
   // existe, então toda leitura é via `select` + `?? null` (nunca `where: { complement: null }`).
-  complement             String?
+  complement              String?
   // LEGADO — nada em runtime lê nem escreve este campo desde a limpeza (31/07/2026). Continua
   // declarado só porque é a FONTE do backfill do boot. Num cliente ativo hoje o valor está
   // CONGELADO no momento da limpeza: não use para nada.
@@ -292,36 +306,50 @@ model User {
   // o mesmo cliente. Com o campo chamando-se `creditBalanceLegacy`, nenhum spread acidental volta
   // a produzir a chave `creditBalance`, e o allowlist do response schema a descarta sozinho.
   // O `@map` mantém o nome original no Mongo — o banco não muda.
-  creditBalanceLegacy    Int       @default(0) @map("creditBalance")
+  creditBalanceLegacy     Int       @default(0) @map("creditBalance")
   // Saldo CANÔNICO em milésimos de pãozinho (1 pão = 1000) — **é o único saldo da aplicação**.
   // Inteiro de propósito: `Float` em dinheiro acumula drift, e trocar o tipo de um campo `Int` já
   // gravado quebra a leitura no Prisma + MongoDB. Nullable porque `@default` não cria a chave em
   // documento pré-existente; o backfill do boot garante que toda chave exista antes do tráfego.
-  creditMilli            Int?
-  autoRecharge           Json?
+  creditMilli             Int?
+  autoRecharge            Json?
   // Preferências de notificação do ADMIN — mapa { [NotificationType]: boolean }.
   // Ausência/null = todos os tipos ligados; só grava as chaves DESLIGADAS (false).
-  adminNotificationPrefs Json?
-  cardTokenMp            String?
-  oneSignalPlayerId      String?
-  mpCustomerId           String?
-  stripeCustomerId       String?
+  adminNotificationPrefs  Json?
+  cardTokenMp             String?
+  oneSignalPlayerId       String?
+  mpCustomerId            String?
+  stripeCustomerId        String?
   // Consentimento explícito para cobranças sem CVV (off_session / card-on-file)
-  offSessionConsentAt    DateTime?
+  offSessionConsentAt     DateTime?
   // LEGADO — gancho de porta. Migrado para a coleção HookRequest (um doc por gancho).
   // Mantidos apenas para o backfill (scripts/backfill-hook-requests.ts) ler o estado antigo.
   // NÃO escrever mais aqui: a fonte da verdade agora é HookRequest. Podem ser removidos
   // após o backfill rodar em produção.
-  hookRequestedAt        DateTime?
-  hookDeliveredAt        DateTime?
-  hookDeliveredById      String?   @db.ObjectId
+  hookRequestedAt         DateTime?
+  hookDeliveredAt         DateTime?
+  hookDeliveredById       String?   @db.ObjectId
   // Tutorial de primeiro acesso — momento em que o cliente concluiu/pulou o onboarding.
   // FONTE DE VERDADE de "já viu o tutorial": null/ausente = ainda não concluiu (mostra
   // automaticamente no 1º acesso). Lido em GET /client/onboarding, gravado uma única
   // vez em POST /client/onboarding/complete.
-  onboardingCompletedAt  DateTime?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  onboardingCompletedAt   DateTime?
+  // ── Indique e Ganhe ────────────────────────────────────────────────────────
+  // Os três são ausentes em todo documento antigo: ler SEMPRE por `select` + `?? null`, nunca
+  // filtrar por `null` (a chave ausente não casa).
+  //
+  // Código de indicação do cliente (ex.: "JOAO7K2F"), gerado na primeira abertura da tela.
+  // SEM `@unique` de propósito: o `db push` do deploy criaria um índice único comum, e todos os
+  // documentos sem a chave colidiriam no mesmo "vazio". A unicidade é um índice PARCIAL em
+  // `lib/ensure-indexes.ts`, que só indexa quem tem código. NUNCA gravar `null` aqui.
+  referralCode            String?
+  // Convite "Gostou do pãozin? Indique um vizinho" já enviado — trava de uma vez na vida
+  // (claim com `isSet: false`).
+  referralInviteAt        DateTime?
+  // Card da Home fechado pelo cliente (D-11) — fica escondido por 30 dias, em qualquer aparelho.
+  referralCardDismissedAt DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 }
 
 // 2. Condominium — condomínios cadastrados
@@ -741,6 +769,8 @@ model AnalyticsEvent {
   referrer  String?
   platform  String? // 'pwa' | 'browser'
   userAgent String? // para breakdown de SO/dispositivo
+  // Código de indicação capturado do `?ref=` naquela carga (Indique e Ganhe) — 1ª etapa do funil.
+  refCode   String?
   createdAt DateTime           @default(now())
 
   @@index([type, createdAt])
@@ -1163,4 +1193,92 @@ model FinancialClose {
   reopenedById String?   @db.ObjectId
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// ===== INDIQUE E GANHE (programa de indicação) =====
+//
+// Quem indica ganha X pãezins e o amigo ganha Y quando o amigo PAGA e RECEBE a 1ª entrega. Ninguém
+// ganha pão sem dinheiro real e entrega física — é o que torna a conta falsa cara. Regras e decisões
+// em .projeto/docs/plano-indique-e-ganhe.md.
+
+enum ReferralStatus {
+  PENDING // cadastrou com código; aguardando qualificação (1ª entrega + 1 pagamento real)
+  ON_HOLD // qualificou, mas caiu num sinal (`flags`) — aguarda o admin aprovar ou recusar
+  REWARDED // recompensa creditada (quem indicou + amigo) — terminal
+  REJECTED // o admin recusou — terminal
+  EXPIRED // prazo encerrado sem qualificar — terminal
+}
+
+// 30. Referral — uma indicação: um amigo (`referredId`) veio pelo código de alguém (`referrerId`).
+//
+// Coleção NOVA: todo documento nasce com TODAS as chaves (null explícito), então aqui não vale a
+// armadilha do Mongo de `User`/`Condominium` — consultar por campo é seguro.
+//
+// Os valores são CONGELADOS no cadastro (`rewardMilli`, `welcomeMilli`, campanha): mudar a config
+// ou desligar o programa não altera nem cancela o que já foi prometido.
+model Referral {
+  id                 String         @id @default(auto()) @map("_id") @db.ObjectId
+  referrerId         String         @db.ObjectId
+  // Único: um amigo tem no máximo UM indicador. É o banco que garante, não a aplicação.
+  referredId         String         @unique @db.ObjectId
+  code               String // código usado (cópia do momento — o do indicador pode não existir mais)
+  source             String // 'LINK' | 'CODE' | 'ADMIN'
+  status             ReferralStatus
+  rewardMilli        Int // recompensa de quem indica, congelada (já com o multiplicador da campanha)
+  welcomeMilli       Int // bônus do amigo, congelado (0 = sem)
+  campaignMultiplier Int // 1 = sem campanha
+  campaignLabel      String? // rótulo congelado ("Semana em dobro") — admin e o "em dobro" da lista
+  expiresAt          DateTime? // null = sem prazo
+  verifiedAt         DateTime? // 1º login do amigo (cadastro confirmado)
+  qualifiedAt        DateTime?
+  qualifyingOrderId  String?        @db.ObjectId // Order ou MarketOrder que qualificou
+  qualifyingKind     String? // 'ORDER' | 'MARKET'
+  flags              String[] // SAME_ADDRESS | SAME_DEVICE | OVER_LIMIT | REFERRER_BLOCKED — nunca ao cliente
+  rewardedAt         DateTime?
+  reviewedById       String?        @db.ObjectId
+  reviewedAt         DateTime?
+  rejectReason       String? // SAME_RESIDENCE | SAME_DEVICE | DUPLICATE_ACCOUNT | OTHER
+  rejectDetail       String? // obrigatório na recusa; só o admin vê
+  rewardSeenAt       DateTime? // quem indicou viu a comemoração
+  welcomeSeenAt      DateTime? // o amigo viu a comemoração
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([referrerId, createdAt])
+  @@index([status, createdAt])
+  @@index([referrerId, status, rewardedAt])
+}
+
+// 31. ReferralMilestone — um documento por meta paga a quem indica.
+// O índice único é a trava de "uma vez por marco": a segunda tentativa bate em P2002 e sai.
+model ReferralMilestone {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  referrerId String    @db.ObjectId
+  threshold  Int // N-ésima indicação que valeu
+  bonusMilli Int
+  seenAt     DateTime? // viu a comemoração "Meta atingida"
+  createdAt  DateTime  @default(now())
+
+  @@unique([referrerId, threshold])
+}
+
+// 32. CondoInterest — lista de espera: visitante de um condomínio que ainda não é atendido.
+// Coleção NOVA: nasce com todas as chaves (null explícito).
+model CondoInterest {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  condoName   String
+  zip         String?
+  city        String
+  groupKey    String // nome + cidade normalizados — agrupa os pedidos do mesmo condomínio no admin
+  contactName String
+  // O campo único "E-mail ou celular" do formulário vira um dos dois (D-15).
+  email       String?
+  phone       String?
+  refCode     String? // veio por indicação? Mede a demanda que o programa gera
+  visitorId   String?
+  handledAt   DateTime? // admin marcou o grupo como tratado
+  createdAt   DateTime  @default(now())
+
+  @@index([groupKey, createdAt])
+  @@index([createdAt])
 }

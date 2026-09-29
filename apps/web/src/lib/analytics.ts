@@ -49,14 +49,20 @@ function send(body: Record<string, unknown>): void {
   }
 }
 
-/** Registra um acesso (abertura do app / carga da PWA). Chamar uma vez no boot. */
-export function trackAccess(): void {
+/**
+ * Registra um acesso (abertura do app / carga da PWA). Chamar uma vez no boot.
+ *
+ * @param ref código do `?ref=` capturado NESTA carga (Indique e Ganhe) — a 1ª etapa do funil.
+ *   Só o da carga: o guardado de outra visita já foi contado quando o link foi aberto.
+ */
+export function trackAccess(ref?: string | null): void {
   send({
     type: 'access',
     visitorId: getVisitorId(),
     path: typeof location !== 'undefined' ? location.pathname : undefined,
     referrer: typeof document !== 'undefined' ? document.referrer || undefined : undefined,
     platform: detectPlatform(),
+    ...(ref ? { ref } : {}),
   })
 }
 

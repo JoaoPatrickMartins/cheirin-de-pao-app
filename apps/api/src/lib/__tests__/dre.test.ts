@@ -7,8 +7,8 @@
 //   3. As ressalvas aparecem quando o número é parcial. Um DRE parcial exibido como fechamento é
 //      pior que um DRE ausente.
 //   4. O GMV da Cestinha nunca entra na receita (D-2).
-import { describe, it, expect } from 'vitest'
-import { buildDre, buildBridge, type DreInputs } from '../dre.js'
+import { describe, it, expect, vi } from 'vitest'
+import { buildDre, buildBridge, referralBonusCost, type DreInputs } from '../dre.js'
 import { monthWindow, presetWindow } from '../date-range.js'
 
 const AGOSTO = monthWindow('2026-08', new Date('2026-09-20T12:00:00Z'))
@@ -256,5 +256,68 @@ describe('buildDre — regras do domínio', () => {
     const dre = buildDre(cheio, 'cash', AGOSTO)
     expect(dre.window.label).toBe('agosto de 2026')
     expect(dre.window.isPartial).toBe(false)
+  })
+})
+
+describe('Indique e Ganhe — bonificações de indicação (§7.10)', () => {
+  const comBonus: DreInputs = { ...cheio, expensesByGroup: { ...cheio.expensesByGroup, SALES: 200 }, referralBonus: 60 }
+
+  it('competência: linha própria logo depois do comercial, e o resultado desce junto', () => {
+    const sem = buildDre({ ...comBonus, referralBonus: 0 }, 'accrual', AGOSTO)
+    const dre = buildDre(comBonus, 'accrual', AGOSTO)
+    const opex = dre.sections.find((s) => s.key === 'opex')!
+    expect(opex.lines.map((l) => l.key)).toEqual(['opex-PEOPLE', 'opex-OPERATION', 'opex-SALES', 'referral-bonus', 'opex-ADMIN'])
+    const line = opex.lines.find((l) => l.key === 'referral-bonus')!
+    expect(line).toMatchObject({ label: 'Bonificações de indicação', value: 60, isNegative: true })
+    expect(dre.operatingExpenses).toBe(sem.operatingExpenses + 60)
+    expect(dre.netProfit).toBe(Math.round((sem.netProfit - 60) * 100) / 100)
+  })
+
+  it('sem comercial lançado, entra antes das administrativas', () => {
+    const dre = buildDre({ ...cheio, referralBonus: 10 }, 'accrual', AGOSTO)
+    expect(dre.sections.find((s) => s.key === 'opex')!.lines.map((l) => l.key)).toEqual([
+      'opex-PEOPLE',
+      'opex-OPERATION',
+      'referral-bonus',
+      'opex-ADMIN',
+    ])
+  })
+
+  it('caixa: o bônus não passou pelo banco — a linha não existe', () => {
+    const dre = buildDre(comBonus, 'cash', AGOSTO)
+    const sem = buildDre({ ...comBonus, referralBonus: 0 }, 'cash', AGOSTO)
+    expect(dre.sections.find((s) => s.key === 'opex')!.lines.some((l) => l.key === 'referral-bonus')).toBe(false)
+    expect(dre.netProfit).toBe(sem.netProfit)
+  })
+
+  it('a ponte ganha a parcela própria e continua fechando exatamente', () => {
+    const cash = buildDre(comBonus, 'cash', AGOSTO)
+    const accrual = buildDre(comBonus, 'accrual', AGOSTO)
+    const bridge = buildBridge(cash, accrual)
+    const semBonus = buildBridge(cash, buildDre({ ...comBonus, referralBonus: 0 }, 'accrual', AGOSTO))
+
+    // O Δ despesa ("não pagas") não muda por causa do bônus — ele tem a própria linha.
+    expect(bridge.expenseDelta).toBe(semBonus.expenseDelta)
+    expect(bridge.lines.map((l) => l.label)).toContain('Bonificações de indicação')
+    expect(bridge.difference).toBe(Math.round((bridge.revenueDelta - bridge.expenseDelta + 60) * 100) / 100)
+    // Da competência ao caixa, somando as parcelas do meio.
+    const middle = bridge.lines.slice(1, -1).reduce((acc, l) => acc + l.value, 0)
+    expect(Math.round((bridge.accrualResult + middle) * 100) / 100).toBe(bridge.cashResult)
+  })
+})
+
+describe('referralBonusCost', () => {
+  it('pãezins REFERRAL_* creditados no período × preço médio', async () => {
+    const aggregate = vi.fn().mockResolvedValue({ _sum: { quantityMilli: 26_000 } })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prisma = { creditTransaction: { aggregate } } as any
+    expect(await referralBonusCost(prisma, AGOSTO, 1.2)).toBe(31.2)
+    expect(aggregate).toHaveBeenCalledWith({
+      _sum: { quantityMilli: true },
+      where: {
+        type: { in: ['REFERRAL_BONUS', 'REFERRAL_WELCOME', 'REFERRAL_GOAL'] },
+        createdAt: { gte: AGOSTO.startDate, lte: AGOSTO.endDate },
+      },
+    })
   })
 })

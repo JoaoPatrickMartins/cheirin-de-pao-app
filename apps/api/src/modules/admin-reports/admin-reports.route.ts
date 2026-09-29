@@ -194,4 +194,21 @@ export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.getCreditMovement.bind(ctrl),
   )
+
+  fastify.get(
+    '/admin/reports/referrals',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — reports'],
+        summary: 'Indique e Ganhe — relatório de indicações (admin)',
+        description:
+          'Relatório A6. COORTE (indicações cadastradas no período): funil visitas pelo link → cadastros → confirmados → recompensados, conversão e distribuição por estado. ' +
+          'FLUXO (o que aconteceu no período): pãezins creditados (quem indicou, com as metas × amigos), custo estimado (pães × preço médio pago), receita dos indicados (pagamentos reais, sem gancho) e o top 5 de indicadores. As duas leituras viajam em `caveats`. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        querystring: periodQuerystring,
+      },
+    },
+    ctrl.getReferrals.bind(ctrl),
+  )
 }

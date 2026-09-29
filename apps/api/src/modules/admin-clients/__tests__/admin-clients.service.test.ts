@@ -146,6 +146,7 @@ function makeFastifyMock(overrides: {
       findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue({ id: 'sess-01', isRevoked: true }),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     adminNote: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -642,6 +643,29 @@ describe('AdminClientsService', () => {
           data: expect.objectContaining({ isBlocked: false, blockReason: null, blockedAt: null, blockedById: null }),
         }),
       )
+    })
+
+    it('bloquear derruba todas as sessões abertas do cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', 'Uso indevido', 'admin-01')
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-01', isRevoked: false },
+        data: { isRevoked: true },
+      })
+    })
+
+    it('desbloquear não mexe nas sessões', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: true },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', undefined, 'admin-01')
+      expect(prisma.session.updateMany).not.toHaveBeenCalled()
     })
 
     it('lança { statusCode: 404 } quando cliente não existe', async () => {

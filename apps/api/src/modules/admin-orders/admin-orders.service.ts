@@ -13,6 +13,7 @@ import { propagateMarketStatusForOrder, dispatchMarketForOrders, assignMarketByC
 import { notifyMarketCancelled, notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { clientLabel } from '../../lib/client-label.js'
+import { afterDelivery } from '../../lib/referral.js'
 
 /** Centavos, sem lixo de ponto flutuante em somas de R$. */
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -337,6 +338,10 @@ export class AdminOrdersService {
       // a transição desta chamada, não o estado atual: uma Cestinha já entregue pelo fluxo
       // só-market receberia um segundo aviso quando o pedido de pão fosse concluído depois.
       if (marketMoved > 0) await notifyMarketDelivered(this.fastify, order.userId)
+      // Indique e Ganhe — a 1ª entrega paga pode qualificar a indicação do cliente. Cobre o
+      // entregador, a separação e o admin (todos passam por aqui), e a Cestinha propagada acima.
+      // Nunca lança.
+      await afterDelivery(this.fastify, order.userId)
     }
 
     // F3 — Cestinha da parada combinada não entregue. O pão não tem aviso equivalente ao cliente,
@@ -1925,6 +1930,8 @@ export class AdminOrdersService {
     if (outcome === 'DELIVERED' && brtDateStr(order.scheduledDate) === brtDateStr(now)) {
       await this.notifyAndPersist(order)
     }
+    // Indique e Ganhe — entrega confirmada depois, mas é entrega: pode qualificar. Nunca lança.
+    if (outcome === 'DELIVERED') await afterDelivery(this.fastify, order.userId)
 
     const user = await this.prisma.user.findUnique({
       where: { id: order.userId },
@@ -1998,6 +2005,8 @@ export class AdminOrdersService {
       if (brtDateStr(order.scheduledDate) === brtDateStr(new Date())) {
         await notifyMarketDelivered(this.fastify, order.userId)
       }
+      // Indique e Ganhe — Cestinha entregue também qualifica (D-1). Nunca lança.
+      await afterDelivery(this.fastify, order.userId)
     } else if (opts.outcome === 'NOT_DELIVERED') {
       await notifyMarketNotDelivered(this.fastify, order, { reason: opts.reason, refundedCredits })
     } else {

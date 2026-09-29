@@ -11,7 +11,7 @@ interface AdminNotificacoesProps {
 type PrefsMap = Record<string, boolean>
 
 /** Ordem/rótulos dos toggles — paridade com ADMIN_NOTIFICATION_TYPES do backend. */
-const NOTIF_ITEMS: { key: string; titulo: string; descricao: string }[] = [
+const NOTIF_ITEMS: { key: string; titulo: string; descricao: string; novo?: boolean }[] = [
   { key: 'ADMIN_ORDER_PLACED', titulo: 'Pedidos realizados', descricao: 'Quando um cliente faz um novo pedido' },
   { key: 'ADMIN_HOOK_REQUESTED', titulo: 'Solicitação de gancho', descricao: 'Quando um cliente pede o gancho grátis' },
   { key: 'ADMIN_DELIVERY_DONE', titulo: 'Entregas realizadas', descricao: 'Quando uma entrega é confirmada' },
@@ -30,6 +30,11 @@ const NOTIF_ITEMS: { key: string; titulo: string; descricao: string }[] = [
   { key: 'ADMIN_MARGIN_DROP', titulo: 'Queda de margem', descricao: 'Quando a margem bruta cai 5 pontos percentuais em relação ao mês anterior' },
   { key: 'ADMIN_RESULT_NEGATIVE', titulo: 'Mês no vermelho', descricao: 'Quando o resultado do mês em curso fica negativo' },
   { key: 'ADMIN_GOAL_AT_RISK', titulo: 'Meta em risco', descricao: 'Quando a receita fica abaixo do ritmo necessário para bater a meta do mês' },
+  // Indique e Ganhe (A8) — selo "novo". "Recompensada" nasce desligada (D-14): o servidor já
+  // devolve `false` para ela no mapa das preferências.
+  { key: 'ADMIN_REFERRAL_REVIEW', titulo: 'Indicação para analisar', descricao: 'Quando uma indicação cai em análise', novo: true },
+  { key: 'ADMIN_REFERRAL_REWARDED', titulo: 'Indicação recompensada', descricao: 'A cada recompensa creditada', novo: true },
+  { key: 'ADMIN_CONDO_INTEREST', titulo: 'Pedido de novo condomínio', descricao: 'Quando alguém entra na lista de espera', novo: true },
 ]
 
 export function AdminNotificacoes({ onBack }: AdminNotificacoesProps) {
@@ -168,9 +173,30 @@ export function AdminNotificacoes({ onBack }: AdminNotificacoesProps) {
                       color: 'var(--color-text)',
                       margin: 0,
                       lineHeight: 1.3,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 7,
+                      flexWrap: 'wrap',
                     }}
                   >
                     {item.titulo}
+                    {item.novo && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          background: 'var(--color-gold-soft)',
+                          color: 'var(--color-accent)',
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          letterSpacing: '0.01em',
+                        }}
+                      >
+                        novo
+                      </span>
+                    )}
                   </p>
                   <p
                     style={{

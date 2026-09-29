@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { REFERRAL_LIMITS, ReferralCampaignSchema, ReferralGoalsSchema } from '@cheirin-de-pao/shared'
 
 /**
  * UpdateSlotsSchema — valida as edições de slots, globais ou de UM condomínio.
@@ -152,6 +153,40 @@ export const UpdateGanchoSchema = z.object({
 })
 
 export type UpdateGanchoBody = z.infer<typeof UpdateGanchoSchema>
+
+/**
+ * UpdateReferralSettingsSchema — config do Indique e Ganhe (A3). Faixas da D-13, que são as dos
+ * controles do handoff; campanha e metas usam os schemas do shared (o mesmo parse da leitura).
+ *
+ * Aqui só a FORMA. As regras de negócio — ligar só com recompensa ≥ 1, mensagem com `{codigo}` ou
+ * `{link}`, campanha terminando hoje ou depois — ficam no service e respondem 422 com o texto da
+ * tela, como no gancho.
+ */
+export const UpdateReferralSettingsSchema = z.object({
+  ativa: z.boolean(),
+  recompensa: z.number().int().min(REFERRAL_LIMITS.recompensa.min).max(REFERRAL_LIMITS.recompensa.max, 'Máximo é 50'),
+  bonusIndicado: z
+    .number()
+    .int()
+    .min(REFERRAL_LIMITS.bonusIndicado.min)
+    .max(REFERRAL_LIMITS.bonusIndicado.max, 'Máximo é 50'),
+  compraMinima: z.number().min(0, 'A compra mínima não pode ser negativa').max(10000),
+  limiteMensal: z
+    .number()
+    .int()
+    .min(REFERRAL_LIMITS.limiteMensal.min)
+    .max(REFERRAL_LIMITS.limiteMensal.max, 'Máximo é 99'),
+  prazoDias: z.number().int().min(REFERRAL_LIMITS.prazoDias.min).max(REFERRAL_LIMITS.prazoDias.max, 'Máximo é 180'),
+  mensagem: z
+    .string()
+    .trim()
+    .min(REFERRAL_LIMITS.mensagem.min, 'A mensagem precisa de pelo menos 20 caracteres')
+    .max(REFERRAL_LIMITS.mensagem.max, 'A mensagem pode ter até 500 caracteres'),
+  campanha: ReferralCampaignSchema.nullable(),
+  metas: ReferralGoalsSchema,
+})
+
+export type UpdateReferralSettingsBody = z.infer<typeof UpdateReferralSettingsSchema>
 
 /**
  * UpdateGatewayRatesSchema — alíquotas usadas para ESTIMAR a taxa do gateway.

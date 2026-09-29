@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { NotificationType } from '@prisma/client'
 import { sendPush } from '../../lib/push.js'
+import { isAdminNotificationOn } from '../admin-notification-prefs/admin-notification-prefs.schema.js'
 
 /** Payload de uma notificação (in-app + push). */
 export interface NotifyPayload {
@@ -151,7 +152,8 @@ export class NotificationsService {
    * Notifica TODOS os admins, respeitando o toggle individual de cada um.
    *
    * Um admin recebe a notificação (in-app + push) a menos que ele tenha DESLIGADO esse
-   * tipo em `adminNotificationPrefs` (mapa `{ [type]: boolean }`). Ausência/`true` = ligado.
+   * tipo em `adminNotificationPrefs` (mapa `{ [type]: boolean }`). Ausência/`true` = ligado —
+   * menos os tipos que nascem desligados (D-14), que só um `true` gravado liga.
    * Best-effort por admin — falha em um não interrompe os demais.
    */
   async notifyAdmins(payload: NotifyPayload): Promise<void> {
@@ -162,8 +164,8 @@ export class NotificationsService {
 
     for (const admin of admins) {
       const prefs = (admin.adminNotificationPrefs ?? null) as Record<string, boolean> | null
-      // Só pula quando explicitamente desligado (false). Ausência = ligado (default).
-      if (prefs && prefs[payload.type] === false) continue
+      // Ausência = ligado (default), exceto os tipos que nascem desligados (D-14).
+      if (!isAdminNotificationOn(prefs, payload.type)) continue
 
       try {
         await this.createAndTrim({

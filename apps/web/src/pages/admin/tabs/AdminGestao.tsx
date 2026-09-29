@@ -20,10 +20,12 @@ import { AdminCondos } from '../gestao/AdminCondos'
 import { AdminPagamentos } from '../gestao/AdminPagamentos'
 import { AdminFinanceiro } from '../gestao/AdminFinanceiro'
 import { AdminRelatorios } from '../gestao/AdminRelatorios'
+import { AdminIndicacao } from '../gestao/AdminIndicacao'
 
 // ------------------------------------------------------------------ tipos
 type AdminGestaoSub =
   | null
+  | 'indicacao'
   | 'combos'
   | 'banners'
   | 'market'
@@ -46,9 +48,13 @@ interface HubItem {
   icon: string
   titulo: string
   descricao: string
+  /** Ícone dourado em `gold-soft` — o card do Indique e Ganhe (A1). */
+  gold?: boolean
 }
 
 const HUB_ITEMS: HubItem[] = [
+  // Primeiro do hub (A1): é onde chegam as indicações que esperam o admin.
+  { key: 'indicacao', icon: 'gift', titulo: 'Indique e Ganhe', descricao: 'Recompensas, regras e indicações', gold: true },
   { key: 'combos', icon: 'bag', titulo: 'Combos e promoções', descricao: 'Criar, editar, descontos' },
   { key: 'banners', icon: 'spark', titulo: 'Banners e avisos', descricao: 'Pop-up, faixa de aviso e banner do mercadinho' },
   { key: 'market', icon: 'bag', titulo: 'Além do Pãozin', descricao: 'Mini market: produtos, categorias, estoque' },
@@ -75,6 +81,8 @@ export function AdminGestao() {
   const navigate = useNavigate()
   // Ganchos aguardando entrega — badge no card da fila.
   const [pendingHooks, setPendingHooks] = useState(0)
+  // Indicações em análise — selo "N em análise" no card do Indique e Ganhe (A1).
+  const [pendingReferrals, setPendingReferrals] = useState(0)
 
   // Depende de `sub`: este componente NÃO desmonta ao entrar numa subtela (só troca o que
   // renderiza), então um efeito de mount deixaria o número congelado no que era ao abrir Gestão.
@@ -92,6 +100,16 @@ export function AdminGestao() {
         // falha silenciosa — sem badge, o hub continua navegável
       }
     })()
+    void (async () => {
+      try {
+        const res = await apiFetch('/admin/referrals/summary')
+        if (!res.ok || cancelled) return
+        const data = (await res.json()) as { pendingReview: number }
+        if (!cancelled) setPendingReferrals(data.pendingReview)
+      } catch {
+        // idem — sem o selo, o card continua abrindo
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -99,6 +117,7 @@ export function AdminGestao() {
 
   const onBack = () => setSub(null)
 
+  if (sub === 'indicacao') return <AdminIndicacao onBack={onBack} />
   if (sub === 'combos') return <AdminCombos onBack={onBack} />
   if (sub === 'banners') return <AdminBanners onBack={onBack} />
   if (sub === 'market') return <AdminMarket onBack={onBack} />
@@ -135,7 +154,9 @@ export function AdminGestao() {
             icon={item.icon}
             titulo={item.titulo}
             descricao={item.descricao}
+            gold={item.gold}
             badge={item.key === 'ganchos' ? pendingHooks : 0}
+            badgeText={item.key === 'indicacao' && pendingReferrals > 0 ? `${pendingReferrals} em análise` : undefined}
             onClick={() => setSub(item.key)}
           />
         ))}
@@ -267,10 +288,14 @@ interface HubCardProps {
   descricao: string
   /** Pendências do item; 0 (ou ausente) não desenha nada. */
   badge?: number
+  /** Selo em texto, dourado ("3 em análise") — o do Indique e Ganhe (A1). */
+  badgeText?: string
+  /** Ícone em `accent` sobre `gold-soft` (A1), em vez do quadrado bege. */
+  gold?: boolean
   onClick: () => void
 }
 
-function HubCard({ icon, titulo, descricao, badge = 0, onClick }: HubCardProps) {
+function HubCard({ icon, titulo, descricao, badge = 0, badgeText, gold = false, onClick }: HubCardProps) {
   return (
     <button
       type="button"
@@ -294,7 +319,7 @@ function HubCard({ icon, titulo, descricao, badge = 0, onClick }: HubCardProps) 
           width: 44,
           height: 44,
           borderRadius: 12,
-          background: 'var(--color-surface-2)',
+          background: gold ? 'var(--color-gold-soft)' : 'var(--color-surface-2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -354,6 +379,24 @@ function HubCard({ icon, titulo, descricao, badge = 0, onClick }: HubCardProps) 
           }}
         >
           {badge}
+        </span>
+      )}
+
+      {badgeText && (
+        <span
+          style={{
+            padding: '4px 10px',
+            borderRadius: 999,
+            background: 'var(--color-gold)',
+            color: 'var(--color-espresso)',
+            fontFamily: 'var(--font-body)',
+            fontSize: 11.5,
+            fontWeight: 800,
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {badgeText}
         </span>
       )}
 

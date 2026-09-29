@@ -408,6 +408,96 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.setGancho.bind(ctrl),
   )
 
+  // ── Indique e Ganhe (A3) ────────────────────────────────────────────────
+  // Todo campo da config precisa estar no schema de resposta: o `fast-json-stringify` descarta
+  // o que não está declarado, em silêncio.
+  const referralCampaignSchema = {
+    type: 'object',
+    nullable: true,
+    description: 'Campanha por período (uma por vez — D-16), ou null. Multiplica a recompensa de quem indica.',
+    properties: {
+      rotulo: { type: 'string', description: 'Rótulo exibido no app, ex.: "Semana em dobro" (1..30).' },
+      multiplicador: { type: 'integer', description: 'Multiplicador da recompensa de quem indica (2..5).' },
+      inicio: { type: 'string', description: 'Primeiro dia (BRT, YYYY-MM-DD, inclusivo).' },
+      fim: { type: 'string', description: 'Último dia (BRT, YYYY-MM-DD, inclusivo).' },
+    },
+  }
+  const referralGoalsSchema = {
+    type: 'array',
+    description: 'Metas de quem indica (até 5), em ordem crescente de quantidade.',
+    items: {
+      type: 'object',
+      properties: {
+        quantidade: { type: 'integer', description: 'N-ésima indicação que valeu (1..999).' },
+        bonus: { type: 'integer', description: 'Bônus extra em pãezins (1..50).' },
+      },
+    },
+  }
+  const referralConfigProperties = {
+    ativa: { type: 'boolean', description: 'Programa ligado (só vale com recompensa ≥ 1).' },
+    recompensa: { type: 'integer', description: 'X — pãezins para quem indica, por indicação que valeu (0..50).' },
+    bonusIndicado: { type: 'integer', description: 'Y — pãezins de boas-vindas do amigo (0..50; 0 = sem bônus).' },
+    compraMinima: { type: 'number', description: 'Valor mínimo (R$) de um pagamento real do amigo. 0 = qualquer.' },
+    limiteMensal: { type: 'integer', description: 'Recompensas por indicador no mês antes de ir para análise (0..99; 0 = sem limite).' },
+    prazoDias: { type: 'integer', description: 'Dias, a partir do cadastro, para o amigo qualificar (0..180; 0 = sem prazo).' },
+    mensagem: { type: 'string', description: 'Texto do compartilhamento, com {codigo} {link} {nome} {bonus}.' },
+    campanha: referralCampaignSchema,
+    metas: referralGoalsSchema,
+  }
+
+  fastify.get(
+    '/admin/settings/indicacao',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Consultar config do Indique e Ganhe (admin)',
+        description:
+          'Retorna a configuração do programa de indicação (valores, regras, campanha, metas e mensagem), mais `unitPrice` — quanto vale um pãozin em R$ (preço médio pago; sem vendas, o preço avulso), base do "≈ R$" — e `today`, o dia BRT de hoje. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração do Indique e Ganhe.',
+            properties: {
+              ...referralConfigProperties,
+              unitPrice: { type: 'number', description: 'Quanto vale um pãozin em R$ (somente leitura). 0 = sem base ainda.' },
+              today: { type: 'string', description: 'Dia BRT de hoje (YYYY-MM-DD) — referência para validar a campanha.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getIndicacao.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/settings/indicacao',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Atualizar config do Indique e Ganhe (admin)',
+        description:
+          'Grava a configuração inteira do programa. 400 = forma inválida (faixas da D-13). 422 = regra de negócio: ligar com recompensa 0, mensagem sem {codigo}/{link}, ou campanha nova/alterada terminando antes de hoje. Os valores novos valem para novas indicações — as antigas mantêm os de quando foram feitas. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['ativa', 'recompensa', 'bonusIndicado', 'compraMinima', 'limiteMensal', 'prazoDias', 'mensagem', 'campanha', 'metas'],
+          properties: referralConfigProperties,
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração em vigor após salvar (como a leitura a enxerga).',
+            properties: referralConfigProperties,
+          },
+        },
+      },
+    },
+    ctrl.setIndicacao.bind(ctrl),
+  )
+
   // ---------------------------------------------------------------- alíquotas do gateway
   const gatewayRatesSchema = {
     type: 'object',

@@ -7,7 +7,6 @@ import { creditForPayment } from './credit-payment.js'
 import { fulfillSingleOrderFromMetadata } from './fulfill-single-order.js'
 import { fulfillMarketOrder } from './fulfill-market-order.js'
 import { effectiveComboPrice } from '../../lib/combo-pricing.js'
-import { notifyAdminsCreditPurchase } from './notify-credit-purchase.js'
 import { getGanchoConfig } from '../../lib/gancho-config.js'
 
 export class PaymentsService {
@@ -161,7 +160,7 @@ export class PaymentsService {
     userId: string
   }) {
     const { savedCardId, saveCard = false, comboId, customQuantity, userId } = params
-    const { amount, quantity, description } = await this.resolveAmount(comboId, customQuantity)
+    const { amount, description } = await this.resolveAmount(comboId, customQuantity)
     const customerId = await this.stripe.getOrCreateCustomer(userId)
 
     // ── Cartão salvo: off_session, sem CVV ──────────────────────────────────
@@ -189,12 +188,11 @@ export class PaymentsService {
         customQuantity,
       })
 
-      // Cartão é aprovado de forma síncrona → credita já (webhook é rede de segurança,
-      // que ignora pagamentos já PAID — sem risco de crédito em dobro).
+      // Cartão é aprovado de forma síncrona → credita já, pelo MESMO ponto único do webhook. O
+      // `payment_intent.succeeded` pode chegar enquanto este passo roda: a trava do Payment
+      // (claimAndCreditPurchase) garante que só um dos dois credite.
       if (intent.status === 'succeeded') {
-        await this.repo.creditUserBalance(userId, quantity, payment.id)
-        await this.repo.updatePaymentStatus(payment.id, 'PAID')
-        await notifyAdminsCreditPurchase(this.fastify, { userId, quantity, amount })
+        await creditForPayment(this.fastify, payment)
         return { paymentId: payment.id, status: 'approved' as const }
       }
       // 'processing' (raro p/ cartão) → aguarda webhook

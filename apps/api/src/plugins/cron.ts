@@ -7,6 +7,7 @@ import { AdminSupplierOrdersService } from '../modules/admin-supplier-orders/adm
 import { CourierService } from '../modules/courier/courier.service.js'
 import { MarketCheckoutService } from '../modules/market/market-checkout.service.js'
 import { FinancialAlertsService } from '../modules/admin-financial/financial-alerts.service.js'
+import { sweepReferrals } from '../lib/referral.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -46,6 +47,16 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.info('[cron] sendPausedTooLongReminders concluído')
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em sendPausedTooLongReminders — servidor mantido ativo')
+      }
+
+      // Indique e Ganhe — rede de segurança do gatilho da entrega: expira as indicações vencidas e
+      // paga as que qualificaram sem o gatilho ter pego. Aqui, e não num cron novo: o projeto evita
+      // crons que falham em silêncio.
+      try {
+        const counts = await sweepReferrals(fastify)
+        fastify.log.info({ counts }, '[cron] sweepReferrals concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em sweepReferrals — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },

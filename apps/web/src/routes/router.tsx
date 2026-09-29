@@ -181,6 +181,13 @@ export const router = createBrowserRouter([
               })),
           },
           {
+            path: 'perfil/indique',
+            lazy: () =>
+              import('../pages/client/ReferralScreen').then((m) => ({
+                Component: m.ReferralScreen,
+              })),
+          },
+          {
             path: 'creditos/pix',
             lazy: () =>
               import('../pages/client/PixWaitingScreen').then((m) => ({

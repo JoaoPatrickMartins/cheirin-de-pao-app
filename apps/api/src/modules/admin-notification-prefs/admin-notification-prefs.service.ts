@@ -1,5 +1,10 @@
 import { FastifyInstance } from 'fastify'
-import { ADMIN_NOTIFICATION_TYPES, type AdminNotificationType, type UpdatePrefs } from './admin-notification-prefs.schema.js'
+import {
+  ADMIN_NOTIFICATION_TYPES,
+  isAdminNotificationOn,
+  type AdminNotificationType,
+  type UpdatePrefs,
+} from './admin-notification-prefs.schema.js'
 
 export type PrefsMap = Record<AdminNotificationType, boolean>
 
@@ -7,7 +12,7 @@ export type PrefsMap = Record<AdminNotificationType, boolean>
  * AdminNotificationPrefsService — toggles de notificação por admin.
  *
  * Persistência: campo Json `User.adminNotificationPrefs` = mapa `{ [type]: boolean }`.
- * Ausência/null = tudo LIGADO. O GET sempre devolve o mapa completo (defaults=true)
+ * Ausência/null = tudo LIGADO, menos os tipos de `DEFAULT_OFF_ADMIN_NOTIFICATION_TYPES`. O GET sempre devolve o mapa completo (defaults=true)
  * para a UI renderizar todos os switches sem precisar conhecer os defaults.
  */
 export class AdminNotificationPrefsService {
@@ -17,11 +22,14 @@ export class AdminNotificationPrefsService {
     return this.fastify.prisma
   }
 
-  /** Preenche o mapa completo (todos os tipos), default=true para chaves ausentes. */
+  /**
+   * Preenche o mapa completo (todos os tipos). Chave ausente = ligado, exceto os tipos que nascem
+   * desligados (D-14) — ver `isAdminNotificationOn`.
+   */
   private fill(stored: Record<string, boolean> | null | undefined): PrefsMap {
     const out = {} as PrefsMap
     for (const t of ADMIN_NOTIFICATION_TYPES) {
-      out[t] = stored?.[t] !== false // só false desliga; ausência/true = ligado
+      out[t] = isAdminNotificationOn(stored, t)
     }
     return out
   }

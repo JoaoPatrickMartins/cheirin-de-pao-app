@@ -21,6 +21,10 @@ import {
   type WeekdayMinimums,
 } from '../../lib/order-minimums.js'
 import { getGanchoConfig, type GanchoConfig } from '../../lib/gancho-config.js'
+import { getReferralConfig, REFERRAL_SETTING_KEYS, type ReferralConfig } from '../../lib/referral-config.js'
+import { estimateBreadUnitPrice } from '../../lib/bread-price.js'
+import { referralMessageHasCodeOrLink } from '@cheirin-de-pao/shared'
+import type { UpdateReferralSettingsBody } from './admin-settings.schema.js'
 import { FEE_SETTING_KEYS, DEFAULT_FEE_PCT } from '../../lib/gateway-fee.js'
 import type { PaymentMethod } from '@prisma/client'
 import {
@@ -367,6 +371,72 @@ export class AdminSettingsService {
     if (recorrenciaMin !== undefined) return { recorrenciaMin }
     const { recorrenciaMin: vigente } = await getGanchoConfig(this.prisma)
     return { recorrenciaMin: vigente }
+  }
+
+  /**
+   * Config do Indique e Ganhe (A3) + o que a tela precisa para os textos de apoio:
+   * - `unitPrice`: quanto vale um pãozin em R$ — o "≈ R$ por indicação" (ver `estimateBreadUnitPrice`);
+   * - `today`: o dia BRT de hoje, para a tela validar "a campanha termina hoje ou depois" com o
+   *   mesmo relógio do servidor (o do aparelho pode estar em outro fuso).
+   */
+  async getReferralSettings(): Promise<ReferralConfig & { unitPrice: number; today: string }> {
+    const [config, unitPrice] = await Promise.all([
+      getReferralConfig(this.prisma),
+      estimateBreadUnitPrice(this.prisma),
+    ])
+    return { ...config, unitPrice, today: brtDateStr() }
+  }
+
+  /**
+   * Grava a config do Indique e Ganhe. Regras de negócio (422, com o texto da tela):
+   * - ligar só com recompensa ≥ 1 — um programa que promete "ganhe 0 pãezins" não pode ir ao ar;
+   * - a mensagem precisa de `{codigo}` ou `{link}` — sem eles o amigo não tem como usar;
+   * - campanha NOVA ou alterada termina hoje ou depois. A que já estava gravada pode ter vencido:
+   *   salvar outra coisa da tela não pode ser barrado por ela (vencida, ela só deixa de valer).
+   *
+   * Vale para novas indicações: as antigas mantêm os valores congelados no cadastro (invariante 4).
+   */
+  async setReferralSettings(body: UpdateReferralSettingsBody, now: Date = new Date()): Promise<ReferralConfig> {
+    if (body.ativa && body.recompensa < 1) {
+      throw { statusCode: 422, message: 'Para ligar o programa, defina uma recompensa maior que 0 para quem indica.' }
+    }
+    if (!referralMessageHasCodeOrLink(body.mensagem)) {
+      throw {
+        statusCode: 422,
+        message: 'A mensagem precisa de {codigo} ou {link} — sem eles o amigo não tem como usar a indicação.',
+      }
+    }
+    if (body.campanha) {
+      const stored = (await getReferralConfig(this.prisma)).campanha
+      const changed = JSON.stringify(stored) !== JSON.stringify(body.campanha)
+      if (changed && body.campanha.fim < brtDateStr(now)) {
+        throw { statusCode: 422, message: 'A campanha precisa terminar hoje ou depois.' }
+      }
+    }
+
+    const metas = [...body.metas].sort((a, b) => a.quantidade - b.quantidade)
+    const values: Record<keyof ReferralConfig, string> = {
+      ativa: String(body.ativa),
+      recompensa: String(body.recompensa),
+      bonusIndicado: String(body.bonusIndicado),
+      compraMinima: String(body.compraMinima),
+      limiteMensal: String(body.limiteMensal),
+      prazoDias: String(body.prazoDias),
+      mensagem: body.mensagem,
+      campanha: JSON.stringify(body.campanha),
+      metas: JSON.stringify(metas),
+    }
+    await this.prisma.$transaction(
+      (Object.keys(values) as Array<keyof ReferralConfig>).map((k) =>
+        this.prisma.setting.upsert({
+          where: { key: REFERRAL_SETTING_KEYS[k] },
+          create: { key: REFERRAL_SETTING_KEYS[k], value: values[k] },
+          update: { value: values[k] },
+        }),
+      ),
+    )
+    // Devolve o que a LEITURA enxerga — é o que o programa vai de fato usar.
+    return getReferralConfig(this.prisma)
   }
 
   /**

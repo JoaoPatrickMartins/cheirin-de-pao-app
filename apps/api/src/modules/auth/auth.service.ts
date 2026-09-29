@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { FastifyInstance } from 'fastify'
 import { AuthRepository } from './auth.repository.js'
 import { sendEmailOtp } from './otp.service.js'
+import { attachReferralAtSignup, markReferralVerified } from '../../lib/referral.js'
 import type { RegisterBody, RegisterCourierBody } from './auth.schema.js'
 
 const REFRESH_EXPIRY_MS = 90 * 24 * 60 * 60 * 1000 // 90 dias
@@ -23,6 +24,10 @@ export type AuthTokens = {
 }
 
 type AuthError = { error: string; status: number }
+
+// Conta bloqueada pelo admin. Vale para TODO caminho que emite tokens (senha, OTP, reset e refresh)
+// — antes só o login por senha checava, e o bloqueado seguia entrando por código ou pelo refresh.
+const BLOCKED_ERROR: AuthError = { error: 'Conta bloqueada. Fale com o suporte.', status: 403 }
 
 export class AuthService {
   private repo: AuthRepository
@@ -160,6 +165,9 @@ export class AuthService {
 
     const user = await this.repo.findUserAuthInfo(userId)
     if (!user) return { error: 'Usuário não encontrado', status: 404 }
+    // Só depois de validar o código — quem não tem o código não descobre que a conta está
+    // bloqueada (mesma ordem do login por senha). Cobre login por OTP e reset de senha.
+    if (user.isBlocked) return BLOCKED_ERROR
 
     await this.repo.markOtpUsed(otp.id)
     return { user }
@@ -174,11 +182,13 @@ export class AuthService {
     if ('error' in res) return res
 
     await this.revokeOtherDevices(userId, deviceId, res.user.role)
-    return this.issueTokens(
+    const tokens = await this.issueTokens(
       { id: res.user.id, role: res.user.role, name: res.user.name },
       deviceId,
       res.user.passwordHash != null,
     )
+    await markReferralVerified(this.fastify, res.user.id)
+    return tokens
   }
 
   // Rotação de refresh token — valida o refresh atual, revoga e emite um novo par.
@@ -194,6 +204,12 @@ export class AuthService {
 
     const user = await this.repo.findUserAuthInfo(session.userId)
     if (!user) return { error: 'Usuário não encontrado', status: 404 }
+    // Bloqueado: encerra esta sessão em vez de renová-la. O app trata qualquer falha do refresh
+    // como sessão morta e desloga (apiFetch.doRefresh).
+    if (user.isBlocked) {
+      await this.repo.revokeSession(session.id)
+      return BLOCKED_ERROR
+    }
 
     // Rotaciona: revoga o refresh atual e emite um novo par para o mesmo device.
     await this.repo.revokeSession(session.id)
@@ -232,16 +248,16 @@ export class AuthService {
     if (!user || !user.passwordHash || !passwordOk) {
       return { error: 'E-mail ou senha inválidos', status: 401 }
     }
-    if (user.isBlocked) {
-      return { error: 'Conta bloqueada. Fale com o suporte.', status: 403 }
-    }
+    if (user.isBlocked) return BLOCKED_ERROR
 
     await this.revokeOtherDevices(user.id, deviceId, user.role)
-    return this.issueTokens(
+    const tokens = await this.issueTokens(
       { id: user.id, role: user.role, name: user.name },
       deviceId,
       true,
     )
+    await markReferralVerified(this.fastify, user.id)
+    return tokens
   }
 
   // Define a senha no 1º acesso — permitido SOMENTE quando a conta ainda não tem senha.
@@ -271,11 +287,13 @@ export class AuthService {
     await this.repo.updatePassword(userId, hash)
 
     await this.revokeOtherDevices(userId, deviceId, res.user.role)
-    return this.issueTokens(
+    const tokens = await this.issueTokens(
       { id: res.user.id, role: res.user.role, name: res.user.name },
       deviceId,
       true,
     )
+    await markReferralVerified(this.fastify, res.user.id)
+    return tokens
   }
 
   // Troca de senha logado — exige a senha atual correta.
@@ -300,7 +318,10 @@ export class AuthService {
   async register(
     body: RegisterBody,
   ): Promise<{ userId: string } | { error: string; status: 409 }> {
-    const { phone, email, name, cpf, birthDate, password, condominiumId, apartment, block, complement } = body
+    const {
+      phone, email, name, cpf, birthDate, password, condominiumId, apartment, block, complement,
+      referralCode, referralSource,
+    } = body
 
     const existingPhone = await this.repo.findUserByPhone(phone)
     if (existingPhone) return { error: 'Telefone já cadastrado', status: 409 }
@@ -327,7 +348,23 @@ export class AuthService {
       complement,
     })
 
-    await this.sendOtp(user.id, email)
+    // Indicação: best-effort por dentro (nunca lança) — código ruim ou programa desligado não
+    // atrapalha o cadastro, só não vincula. O aviso a quem indicou espera o 1º login do amigo
+    // (`markReferralVerified`), para não avisar de um cadastro abandonado antes do código.
+    if (referralCode) {
+      try {
+        await attachReferralAtSignup(this.fastify, user, referralCode, referralSource ?? 'CODE')
+      } catch (err) {
+        // Segunda camada: o usuário JÁ foi criado — um 500 aqui faria o app pedir um cadastro que
+        // não pode mais ser refeito (e-mail/CPF já existem).
+        this.fastify.log.warn({ err, userId: user.id }, '[auth] vínculo da indicação falhou — ignorado')
+      }
+    }
+
+    // O código de confirmação NÃO sai daqui: a tela chama POST /auth/otp/send logo depois do
+    // cadastro (inclusive versões antigas do PWA em cache). Enviar nos dois lugares mandava dois
+    // e-mails, e o 2º invalidava o 1º — quem digitava o código do primeiro e-mail via "Código
+    // incorreto".
     return { userId: user.id }
   }
 

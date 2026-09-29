@@ -1,7 +1,17 @@
 // Auth service unit tests — Requirements: AUTH-05 (OTP generation), AUTH-06 (session management)
 import { vi } from 'vitest'
-import { AuthService } from '../modules/auth/auth.service.js'
 import type { FastifyInstance } from 'fastify'
+
+// Indique e Ganhe: a regra tem teste próprio (lib/__tests__/referral.test.ts). Aqui só importa que
+// o auth chama nos momentos certos — e que o cadastro/login não caem se ela falhar.
+vi.mock('../lib/referral.js', () => ({
+  attachReferralAtSignup: vi.fn().mockResolvedValue(null),
+  markReferralVerified: vi.fn().mockResolvedValue(undefined),
+}))
+
+import { AuthService } from '../modules/auth/auth.service.js'
+import { RegisterSchema } from '../modules/auth/auth.schema.js'
+import { attachReferralAtSignup, markReferralVerified } from '../lib/referral.js'
 
 function createMockFastify(overrides: Record<string, unknown> = {}): FastifyInstance {
   return {
@@ -35,8 +45,14 @@ function createMockFastify(overrides: Record<string, unknown> = {}): FastifyInst
       sign: vi.fn().mockReturnValue('signed.jwt.token'),
       verify: vi.fn(),
     },
+    log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
   } as unknown as FastifyInstance
 }
+
+beforeEach(() => {
+  vi.mocked(attachReferralAtSignup).mockClear()
+  vi.mocked(markReferralVerified).mockClear()
+})
 
 describe('AuthService [AUTH-05, AUTH-06]', () => {
   it('generateOtpCode returns 4-digit string between 1000 and 9999', () => {
@@ -421,6 +437,215 @@ describe('AuthService [AUTH-05, AUTH-06]', () => {
       expect(fastify.prisma.otpCode.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
 
       process.env.NODE_ENV = originalEnv
+    })
+  })
+
+  describe('conta bloqueada — nenhum caminho emite tokens', () => {
+    const blockedUser = { id: 'user1', role: 'CLIENT', name: 'Cliente', passwordHash: 'hash', isBlocked: true }
+
+    function withValidOtp(fastify: FastifyInstance, service: AuthService) {
+      ;(fastify.prisma.otpCode.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'otp1',
+        code: service.hashValue('4321'),
+        expiresAt: new Date(Date.now() + 600_000),
+        usedAt: null,
+      })
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(blockedUser)
+    }
+
+    it('login por OTP: código certo, conta bloqueada → 403 e nenhuma sessão', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      withValidOtp(fastify, service)
+
+      const result = await service.verifyOtpAndCreateSession('user1', '4321', 'dev1')
+
+      expect(result).toEqual({ error: 'Conta bloqueada. Fale com o suporte.', status: 403 })
+      expect(fastify.prisma.session.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    })
+
+    it('reset de senha por OTP: conta bloqueada → 403, sem trocar a senha nem abrir sessão', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      withValidOtp(fastify, service)
+
+      const result = await service.resetPasswordWithOtp('user1', '4321', 'dev1', 'SenhaNova789')
+
+      expect((result as { status: number }).status).toBe(403)
+      expect(fastify.prisma.user.update as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+      expect(fastify.prisma.session.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    })
+
+    it('código errado continua 401 mesmo com a conta bloqueada (não revela o bloqueio)', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      withValidOtp(fastify, service)
+
+      const result = await service.verifyOtpAndCreateSession('user1', '0000', 'dev1')
+
+      expect((result as { status: number }).status).toBe(401)
+    })
+
+    it('refresh: conta bloqueada → 403 e a sessão é encerrada em vez de renovada', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      const refreshRaw = 'refresh-raw-token'
+      ;(fastify.prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'sess-old',
+        userId: 'user1',
+        deviceId: 'device-1',
+        token: service.hashValue(refreshRaw),
+        isRevoked: false,
+        expiresAt: new Date(Date.now() + 600_000),
+      })
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(blockedUser)
+
+      const result = await service.refreshSession(refreshRaw, 'device-1')
+
+      expect((result as { status: number }).status).toBe(403)
+      expect(fastify.prisma.session.update as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'sess-old' }, data: { isRevoked: true } }),
+      )
+      expect(fastify.prisma.session.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('register', () => {
+    it('cria o cliente sem enviar código — a tela chama /auth/otp/send em seguida', async () => {
+      const originalEnv = process.env.NODE_ENV
+      process.env.NODE_ENV = 'production'
+
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      const result = await service.register({
+        name: 'Maria',
+        cpf: '52998224725',
+        phone: '11987654321',
+        email: 'maria@example.com',
+        password: 'SenhaForte123',
+        condominiumId: '64b000000000000000000001',
+        apartment: '12',
+      })
+
+      expect(result).toEqual({ userId: 'user1' })
+      // Um código só por cadastro: nada é gerado (nem invalidado) aqui.
+      expect(fastify.prisma.otpCode.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+      expect(fastify.prisma.otpCode.updateMany as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+
+      process.env.NODE_ENV = originalEnv
+    })
+  })
+  describe('Indique e Ganhe', () => {
+    const registerBody = {
+      name: 'Maria Souza',
+      cpf: '52998224725',
+      phone: '11987654321',
+      email: 'maria@example.com',
+      password: 'SenhaForte123',
+      condominiumId: '64b000000000000000000001',
+      apartment: '12',
+    }
+
+    function withValidOtp(fastify: FastifyInstance, service: AuthService, user: Record<string, unknown>) {
+      ;(fastify.prisma.otpCode.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'otp1',
+        code: service.hashValue('4321'),
+        expiresAt: new Date(Date.now() + 600_000),
+        usedAt: null,
+      })
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(user)
+    }
+
+    it('register com código: vincula depois de criar o usuário, com a origem', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+
+      const result = await service.register({ ...registerBody, referralCode: 'JOAO7K2F', referralSource: 'LINK' })
+
+      expect(result).toEqual({ userId: 'user1' })
+      expect(attachReferralAtSignup).toHaveBeenCalledOnce()
+      const [, user, code, source] = vi.mocked(attachReferralAtSignup).mock.calls[0]
+      expect(user).toMatchObject({ id: 'user1' })
+      expect(code).toBe('JOAO7K2F')
+      expect(source).toBe('LINK')
+    })
+
+    it('register com código sem origem → CODE (digitado)', async () => {
+      const service = new AuthService(createMockFastify())
+      await service.register({ ...registerBody, referralCode: 'JOAO7K2F' })
+      expect(vi.mocked(attachReferralAtSignup).mock.calls[0][3]).toBe('CODE')
+    })
+
+    it('register sem código não chama o vínculo', async () => {
+      const service = new AuthService(createMockFastify())
+      await service.register(registerBody)
+      expect(attachReferralAtSignup).not.toHaveBeenCalled()
+    })
+
+    it('register: o vínculo lançando não derruba o cadastro (o usuário já existe)', async () => {
+      vi.mocked(attachReferralAtSignup).mockRejectedValueOnce(new Error('boom'))
+      const service = new AuthService(createMockFastify())
+      await expect(service.register({ ...registerBody, referralCode: 'JOAO7K2F' })).resolves.toEqual({ userId: 'user1' })
+    })
+
+    it('RegisterSchema: código adulterado ou origem estranha são descartados, sem recusar o cadastro', () => {
+      const parsed = RegisterSchema.parse({ ...registerBody, referralCode: 'X'.repeat(300), referralSource: 'HACK' })
+      expect(parsed.referralCode).toBeUndefined()
+      expect(parsed.referralSource).toBeUndefined()
+      expect(RegisterSchema.parse({ ...registerBody, referralCode: ' joao7k2f ' }).referralCode).toBe('joao7k2f')
+    })
+
+    it('login por OTP marca a indicação como confirmada — depois de emitir os tokens', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      withValidOtp(fastify, service, { id: 'user1', role: 'CLIENT', name: 'Maria', passwordHash: null, isBlocked: false })
+
+      const result = await service.verifyOtpAndCreateSession('user1', '4321', 'dev1')
+
+      expect(result).toHaveProperty('accessToken')
+      expect(markReferralVerified).toHaveBeenCalledWith(fastify, 'user1')
+      const sessionOrder = (fastify.prisma.session.create as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]
+      expect(vi.mocked(markReferralVerified).mock.invocationCallOrder[0]).toBeGreaterThan(sessionOrder)
+    })
+
+    it('login por senha e reset por OTP também marcam', async () => {
+      const bcrypt = (await import('bcryptjs')).default
+      const hash = await bcrypt.hash('SenhaForte123', 4)
+      const fastify = createMockFastify()
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'user1', role: 'CLIENT', name: 'Maria', email: 'maria@example.com', passwordHash: hash, isBlocked: false,
+      })
+      const service = new AuthService(fastify)
+      await service.loginWithPassword('maria@example.com', 'SenhaForte123', 'dev1')
+      expect(markReferralVerified).toHaveBeenCalledWith(fastify, 'user1')
+
+      vi.mocked(markReferralVerified).mockClear()
+      const fastify2 = createMockFastify()
+      const service2 = new AuthService(fastify2)
+      withValidOtp(fastify2, service2, { id: 'user1', role: 'CLIENT', name: 'Maria', passwordHash: 'x', isBlocked: false })
+      await service2.resetPasswordWithOtp('user1', '4321', 'dev1', 'SenhaNova789')
+      expect(markReferralVerified).toHaveBeenCalledWith(fastify2, 'user1')
+    })
+
+    it('refresh e login recusado NÃO marcam', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      const refreshRaw = 'refresh-raw-token'
+      ;(fastify.prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'sess-old', userId: 'user1', deviceId: 'dev1', token: service.hashValue(refreshRaw),
+        isRevoked: false, expiresAt: new Date(Date.now() + 600_000),
+      })
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'user1', role: 'CLIENT', name: 'Maria', passwordHash: null, isBlocked: false,
+      })
+      await service.refreshSession(refreshRaw, 'dev1')
+
+      const blocked = createMockFastify()
+      const blockedService = new AuthService(blocked)
+      withValidOtp(blocked, blockedService, { id: 'user1', role: 'CLIENT', name: 'Maria', passwordHash: null, isBlocked: true })
+      await blockedService.verifyOtpAndCreateSession('user1', '4321', 'dev1')
+
+      expect(markReferralVerified).not.toHaveBeenCalled()
     })
   })
 })

@@ -16,7 +16,16 @@ interface AppNotification {
 type Tone = 'good' | 'gold' | 'neutral'
 
 function getTone(type: string): Tone {
-  if (['ADMIN_DELIVERY_DONE', 'ADMIN_CREDIT_PURCHASED', 'ADMIN_ORDER_PLACED', 'ADMIN_AUTOGEN_DONE'].includes(type))
+  if (
+    [
+      'ADMIN_DELIVERY_DONE',
+      'ADMIN_CREDIT_PURCHASED',
+      'ADMIN_ORDER_PLACED',
+      'ADMIN_AUTOGEN_DONE',
+      // Indique e Ganhe: recompensa paga é boa notícia.
+      'ADMIN_REFERRAL_REWARDED',
+    ].includes(type)
+  )
     return 'good'
   if (
     [
@@ -30,6 +39,8 @@ function getTone(type: string): Tone {
       'ADMIN_MARGIN_DROP',
       'ADMIN_RESULT_NEGATIVE',
       'ADMIN_GOAL_AT_RISK',
+      // Indique e Ganhe: indicação em análise espera uma decisão do admin (o dourado do selo "Em análise").
+      'ADMIN_REFERRAL_REVIEW',
     ].includes(type)
   )
     return 'gold'
@@ -65,6 +76,13 @@ function getIcon(type: string) {
       return 'star'
     case 'ADMIN_CUTOFF_REACHED':
       return 'bell'
+    // Indique e Ganhe — os ícones dos selos do A4 (análise = lupa) e do programa (presente).
+    case 'ADMIN_REFERRAL_REVIEW':
+      return 'search'
+    case 'ADMIN_REFERRAL_REWARDED':
+      return 'gift'
+    case 'ADMIN_CONDO_INTEREST':
+      return 'building'
     default:
       return 'repeat'
   }

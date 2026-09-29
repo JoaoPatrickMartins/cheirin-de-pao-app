@@ -5,6 +5,7 @@ import { resolveWindow, type DateWindow } from '../../lib/date-range.js'
 import { AdminReportsService } from './admin-reports.service.js'
 import { SalesService } from './sales.service.js'
 import { CustomersService } from './customers.service.js'
+import { ReferralsReportService } from './referrals-report.service.js'
 import { CreditMovementService } from './credit-movement.service.js'
 
 type ZodIssue = { message: string }
@@ -26,12 +27,14 @@ export class AdminReportsController {
   private service: AdminReportsService
   private sales: SalesService
   private customers: CustomersService
+  private referrals: ReferralsReportService
   private creditMovement: CreditMovementService
 
   constructor(private fastify: FastifyInstance) {
     this.service = new AdminReportsService(fastify)
     this.sales = new SalesService(fastify)
     this.customers = new CustomersService(fastify)
+    this.referrals = new ReferralsReportService(fastify)
     this.creditMovement = new CreditMovementService(fastify)
   }
 
@@ -122,6 +125,11 @@ export class AdminReportsController {
   /** GET /admin/reports/credit-movement — movimentação do passivo de crédito (F7). */
   async getCreditMovement(request: FastifyRequest, reply: FastifyReply) {
     return this.run(request, reply, (w) => this.creditMovement.getReport(w))
+  }
+
+  /** GET /admin/reports/referrals — Indique e Ganhe: funil, custo × receita, top 5, estados (A6). */
+  async getReferrals(request: FastifyRequest, reply: FastifyReply) {
+    return this.run(request, reply, (w) => this.referrals.getReport(w))
   }
 
   /** GET /admin/reports/customers — top clientes, LTV e novos × recorrentes (V7/V8). */

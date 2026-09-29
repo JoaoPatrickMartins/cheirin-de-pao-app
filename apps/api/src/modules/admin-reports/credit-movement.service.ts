@@ -45,6 +45,10 @@ const TYPE_META: Record<string, { label: string; kind: 'in' | 'out' }> = {
   MARKET_PURCHASE: { label: 'Gasto na Cestinha', kind: 'out' },
   ADMIN_DEBIT: { label: 'Ajuste administrativo', kind: 'out' },
   EXPIRY: { label: 'Expiração', kind: 'out' },
+  // Indique e Ganhe — bônus do programa entram no passivo como qualquer crédito (§7.10).
+  REFERRAL_BONUS: { label: 'Bônus de indicação', kind: 'in' },
+  REFERRAL_WELCOME: { label: 'Boas-vindas de indicação', kind: 'in' },
+  REFERRAL_GOAL: { label: 'Meta de indicações', kind: 'in' },
 }
 
 export interface CreditMovementRow {

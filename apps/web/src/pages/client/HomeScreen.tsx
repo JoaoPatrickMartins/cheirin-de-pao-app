@@ -10,6 +10,7 @@ import { Icon, Ic } from '../../components/brand/Icon'
 import { BreadMark } from '../../components/brand/BreadMark'
 import { DeliveryBannerCarousel } from '../../components/client/DeliveryBannerCarousel'
 import { MarketHomeBlock } from '../../components/client/MarketHomeBlock'
+import { ReferralHomeCard } from '../../components/client/ReferralHomeCard'
 import { useOrderTracking } from '../../hooks/useOrderTracking'
 import { useCutoffStatus } from '../../hooks/useCutoffStatus'
 import { useNotif } from '../../contexts/NotifContext'
@@ -476,6 +477,9 @@ export function HomeScreen() {
 
           {/* Ações rápidas */}
           <QuickActions onGo={navigate} />
+
+          {/* Indique e Ganhe (C3) — só depois da 1ª entrega; devolve null quando não aparece. */}
+          <ReferralHomeCard />
 
           {/* Além do Pãozin — bloco fixo do mini market. Renderiza direto (sem wrapper motion)
               para que, ao retornar null (catálogo vazio), não sobre um gap fantasma na coluna. */}

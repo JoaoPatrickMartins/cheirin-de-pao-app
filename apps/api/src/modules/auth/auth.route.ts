@@ -27,6 +27,10 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
           apartment: { type: 'string', description: 'Número ou identificação do apartamento/unidade.' },
           block: { type: 'string', description: 'Bloco do apartamento. Obrigatório em condomínios do tipo BLOCKS.' },
           complement: { type: 'string', maxLength: 10, description: 'Complemento curto do bloco (máx. 10 chars), ex.: "Lado A". Opcional, só em condomínios do tipo BLOCKS.' },
+          // Sem maxLength/enum AQUI de propósito: o JSON schema recusaria o cadastro inteiro com 400
+          // por causa de um `?ref=` adulterado. Quem descarta o valor ruim é o Zod (`.catch`).
+          referralCode: { type: 'string', description: 'Código de indicação (Indique e Ganhe), ex.: "JOAO7K2F". Opcional; até 20 caracteres (acima disso é ignorado). Inválido, de conta bloqueada ou com o programa desligado: o cadastro segue normal, só sem vínculo.' },
+          referralSource: { type: 'string', description: 'De onde veio o código: LINK (?ref= do link compartilhado) ou CODE (digitado). Opcional; outro valor é ignorado.' },
         },
       },
       response: {

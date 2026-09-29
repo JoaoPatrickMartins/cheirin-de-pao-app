@@ -3,11 +3,19 @@ import { useNavigate } from 'react-router'
 import { Icon } from '../../components/brand/Icon'
 import { StepDots } from '../../components/auth/StepDots'
 import { CondoSearch } from '../../components/auth/CondoSearch'
+import { CondoWaitlist } from '../../components/auth/CondoWaitlist'
 import { OtpInput } from '../../components/auth/OtpInput'
 import { ResendTimer } from '../../components/auth/ResendTimer'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { PasswordCriteria, isPasswordStrong } from '../../components/auth/AuthUI'
+import {
+  ReferralBadge,
+  ReferralCodeField,
+  ReferralCodeToggle,
+  useSignupReferral,
+} from '../../components/auth/ReferralCodeField'
+import { clearStoredReferral } from '../../lib/referral'
 import {
   isValidCpf,
   isValidBrMobile,
@@ -101,6 +109,8 @@ export function OnboardingScreen() {
   const [confirmaSenha, setConfirmaSenha] = useState('')
 
   // Step 2 — Condomínio
+  // Lista de espera (C8): sub-tela do passo, aberta por "Meu condomínio não está aqui" com o termo buscado.
+  const [waitlistFor, setWaitlistFor] = useState<string | null>(null)
   const [condos, setCondos] = useState<Condo[]>([])
   const [condosLoading, setCondosLoading] = useState(false)
   const [selectedCondoId, setSelectedCondoId] = useState<string | null>(null)
@@ -115,6 +125,9 @@ export function OnboardingScreen() {
   const [otpCode, setOtpCode] = useState('')
   const [otpKey, setOtpKey] = useState(0)
   const [userId, setUserId] = useState<string | null>(null)
+
+  // Indique e Ganhe (C4) — código do link ou digitado. Nunca bloqueia o cadastro.
+  const referral = useSignupReferral()
 
   const selectedCondo = condos.find((c) => c.id === selectedCondoId) ?? null
   const isBlocksCondo = selectedCondo?.type === 'BLOCKS'
@@ -195,6 +208,7 @@ export function OnboardingScreen() {
           apartment: apto,
           ...(isBlocksCondo && bloco ? { block: bloco } : {}),
           ...(isBlocksCondo && complemento.trim() ? { complement: complemento.trim() } : {}),
+          ...referral.payload(),
         }),
       })
 
@@ -211,6 +225,8 @@ export function OnboardingScreen() {
 
       const { userId: uid } = (await regRes.json()) as { userId: string }
       setUserId(uid)
+      // O código do link já foi usado — não pode ficar para um próximo cadastro neste aparelho.
+      clearStoredReferral()
 
       // Send OTP (sempre por e-mail neste primeiro momento)
       const otpRes = await apiFetch('/auth/otp/send', {
@@ -314,6 +330,18 @@ export function OnboardingScreen() {
   const otpDestination = email
   const otpChannelLabel = 'e-mail'
 
+  // C8 — lista de espera: toma a tela inteira (o handoff não mostra os passos nela), já com o que o
+  // cadastro sabe. Voltar devolve à busca; "Voltar ao início" vai para a abertura do app.
+  if (waitlistFor !== null) {
+    return (
+      <CondoWaitlist
+        initial={{ condoName: waitlistFor, contactName: nome.trim(), contact: email.trim() }}
+        onBack={() => setWaitlistFor(null)}
+        onDone={() => navigate('/')}
+      />
+    )
+  }
+
   return (
     <div
       style={{
@@ -356,6 +384,16 @@ export function OnboardingScreen() {
       {/* ─── Step 0: Seus dados ─── */}
       {step === 0 && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          {/* Veio pelo link: o selo fica ACIMA do título; "Trocar" abre o campo com o código. */}
+          {referral.linked && !referral.fieldOpen && (
+            <div style={{ marginBottom: 18 }}>
+              <ReferralBadge
+                referrerName={referral.linked.referrerName}
+                welcomeBreads={referral.linked.welcomeBreads}
+                onChange={referral.openField}
+              />
+            </div>
+          )}
           <h1
             style={{
               fontFamily: 'var(--font-display)',
@@ -423,13 +461,25 @@ export function OnboardingScreen() {
             />
           </div>
 
+          {/* Sem link: "Tenho um código de indicação" abaixo dos campos. Programa desligado: nada. */}
+          {referral.active && (referral.fieldOpen || !referral.linked) && (
+            <div style={{ marginTop: 18 }}>
+              {referral.fieldOpen ? (
+                <ReferralCodeField referral={referral} />
+              ) : (
+                <ReferralCodeToggle onOpen={referral.openField} />
+              )}
+            </div>
+          )}
+
           <div style={{ flex: 1 }} />
 
           {error && <ErrorText>{error}</ErrorText>}
 
+          {/* O código nunca bloqueia o Continuar — só a conferência em andamento. */}
           <PrimaryBtn
             onClick={handleStep0Continue}
-            disabled={!step0Valid}
+            disabled={!step0Valid || referral.status === 'validating'}
           >
             Continuar
           </PrimaryBtn>
@@ -576,6 +626,7 @@ export function OnboardingScreen() {
             <CondoSearch
               condos={condos}
               selectedId={selectedCondoId}
+              onNotListed={(query) => setWaitlistFor(query)}
               onSelect={(id) => {
                 setSelectedCondoId(id)
                 setBloco(null) // reset block when condo changes

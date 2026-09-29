@@ -20,6 +20,8 @@ import { ConfirmSheet } from './ConfirmSheet'
 import { FirstOrderChip } from './FirstOrderChip'
 import { ManualCouponComposer } from './ManualCouponComposer'
 import { OrderDetailSheet, type LedgerRow } from './OrderDetailSheet'
+import { IndicacoesCard, ReferredByRow, useClientReferrals } from './IndicacoesCard'
+import { VincularIndicacaoSheet } from './VincularIndicacaoSheet'
 
 type IconName = ComponentProps<typeof Icon>['name']
 
@@ -113,6 +115,8 @@ interface Condo {
 interface ClientDetailViewProps {
   clienteId: string
   onBack: () => void
+  /** Abre o detalhe de outro cliente — o atalho "Indicação de" (A5). */
+  onOpenClient?: (id: string) => void
 }
 
 // ------------------------------------------------------------------ helpers
@@ -254,7 +258,11 @@ const rowValueStyle: CSSProperties = {
 }
 
 // ------------------------------------------------------------------ componente
-export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
+export function ClientDetailView({ clienteId, onBack, onOpenClient }: ClientDetailViewProps) {
+  // Indique e Ganhe (A5): linha "Indicação de" / "Vincular indicação" e o card de indicações.
+  const [referralsReloadKey, setReferralsReloadKey] = useState(0)
+  const referrals = useClientReferrals(clienteId, referralsReloadKey)
+  const [showLinkSheet, setShowLinkSheet] = useState(false)
   const [cliente, setCliente] = useState<ClienteDetalhe | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isBlocking, setIsBlocking] = useState(false)
@@ -874,6 +882,15 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
               <span style={rowLabelStyle}>Membro desde</span>
               <span style={rowValueStyle}>{formatMemberSince(cliente.createdAt)}</span>
             </div>
+
+            {/* Indicação de — logo abaixo de "Membro desde" (A5) */}
+            {referrals && (
+              <ReferredByRow
+                data={referrals}
+                onOpenClient={(id) => onOpenClient?.(id)}
+                onLink={() => setShowLinkSheet(true)}
+              />
+            )}
           </div>
 
           {/* Saldo + créditos */}
@@ -938,6 +955,9 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
           {/* Ganchos — logo abaixo do botão que concede: quem vai bonificar precisa ver antes
               se o cliente já tem gancho entregue (ou um pago sem confirmar). */}
           <GanchosCard clienteId={cliente.id} reloadKey={hooksReloadKey} />
+
+          {/* Indique e Ganhe (A5): código do cliente, fez / valeram / ganhos e a lista */}
+          {referrals && <IndicacoesCard data={referrals} />}
 
           {/* Agenda */}
           {(() => {
@@ -1362,6 +1382,16 @@ export function ClientDetailView({ clienteId, onBack }: ClientDetailViewProps) {
         </>
       )}
 
+      {/* Vincular indicação (A5) */}
+      {showLinkSheet && cliente && (
+        <VincularIndicacaoSheet
+          clientId={cliente.id}
+          clientName={cliente.name}
+          onClose={() => setShowLinkSheet(false)}
+          onLinked={() => setReferralsReloadKey((k) => k + 1)}
+        />
+      )}
+
       {/* Cupom manual — cabeçalho do cadastro + miolo escrito na hora */}
       {showCupom && cliente && (
         <ManualCouponComposer
@@ -1751,6 +1781,8 @@ const TX_LABEL: Record<string, string> = {
   ADMIN_DEBIT: 'Remoção',
   // Cestinha (Além do Pãozin) — sem estes dois o extrato mostrava o enum cru na tela.
   MARKET_PURCHASE: 'Cestinha', MARKET_REFUND: 'Estorno da Cestinha',
+  // Indique e Ganhe — os mesmos rótulos da movimentação de créditos (§7.10).
+  REFERRAL_BONUS: 'Bônus de indicação', REFERRAL_WELCOME: 'Boas-vindas de indicação', REFERRAL_GOAL: 'Meta de indicações',
 }
 const PAY_STATUS: Record<string, string> = {
   PENDING: 'Pendente', PAID: 'Pago', FAILED: 'Falhou', REFUNDED: 'Estornado',

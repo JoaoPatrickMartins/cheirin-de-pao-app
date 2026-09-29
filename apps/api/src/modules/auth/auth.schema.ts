@@ -33,6 +33,12 @@ export const RegisterSchema = z.object({
   apartment: z.string(),
   block: z.string().optional(),
   complement: z.string().trim().max(COMPLEMENT_MAX_LENGTH).optional(),
+  // Indique e Ganhe — OPCIONAIS de propósito: versões antigas do PWA em cache não mandam e seguem
+  // cadastrando. E o `.catch(undefined)` é a invariante "a indicação nunca atrapalha o cadastro":
+  // um `?ref=` adulterado (longo, com lixo) é descartado em vez de devolver 400 para o formulário
+  // inteiro. Código com formato certo mas inexistente também não recusa — só não vincula.
+  referralCode: z.string().trim().max(20).optional().catch(undefined),
+  referralSource: z.enum(['LINK', 'CODE']).optional().catch(undefined),
 })
 
 export type RegisterBody = z.infer<typeof RegisterSchema>

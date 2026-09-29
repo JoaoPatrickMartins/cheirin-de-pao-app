@@ -46,18 +46,29 @@ import { clientHookRoute } from './modules/client-hook/client-hook.route.js'
 import { adminHooksRoute } from './modules/admin-hooks/admin-hooks.route.js'
 import { adminNotificationPrefsRoute } from './modules/admin-notification-prefs/admin-notification-prefs.route.js'
 import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
+import { referralsRoute } from './modules/referrals/referrals.route.js'
+import { adminReferralsRoute } from './modules/admin-referrals/admin-referrals.route.js'
+import { condoInterestsRoute } from './modules/condo-interests/condo-interests.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 import {
   seedDefaultsIfAbsent,
   seedExpenseCategories,
   seedGatewayFeeRates,
+  seedReferralDefaults,
 } from './bootstrap/defaults-seed.js'
 import { backfillHooksIfNeeded } from './bootstrap/hooks-backfill.js'
 import { backfillSupplierProductsIfNeeded } from './bootstrap/supplier-products-backfill.js'
 import { backfillCreditMilliIfNeeded } from './bootstrap/credit-milli-backfill.js'
 
-const fastify = Fastify({ logger: true })
+// trustProxy: 1 — a API só é alcançada pelo Nginx do host (a porta publicada não responde de fora),
+// que manda `X-Forwarded-For $proxy_add_x_forwarded_for` via `include proxy_params`. Confiar em
+// exatamente UM salto faz `request.ip` ser o último endereço da lista — o que o Nginx acrescentou,
+// ou seja, o IP real; um valor forjado pelo cliente fica à esquerda e é ignorado. Sem isto toda
+// requisição vinha de 172.30.0.1 (gateway do Docker) e o rate limit era UM balde para o app inteiro:
+// 5 OTP/min e 10 logins/min somando todos os clientes. `true` confiaria no IP que o cliente
+// escrevesse. Mudou a frente (Cloudflare, outro proxy)? O número de saltos muda junto.
+const fastify = Fastify({ logger: true, trustProxy: 1 })
 
 // Environment variable validation schema (registered FIRST before other plugins)
 const envSchema = {
@@ -185,6 +196,7 @@ const start = async () => {
           { name: 'admin — notifications', description: 'Preferências de notificação do admin (toggles)' },
           { name: 'analytics', description: 'Ingestão de eventos de acesso/login (público)' },
           { name: 'saved-cards', description: 'Cartões salvos do cliente (Stripe SetupIntent / PaymentMethod)' },
+          { name: 'referrals', description: 'Indique e Ganhe: código, validação e indicações do cliente' },
         ],
       },
     })
@@ -220,6 +232,10 @@ const start = async () => {
     // Bootstrap — alíquotas de taxa de gateway. É o que permite a dedução do DRE funcionar
     // retroativamente sobre o histórico; o admin ajusta a sua taxa negociada nas Configurações.
     await seedGatewayFeeRates(fastify.prisma)
+
+    // Bootstrap — config do Indique e Ganhe. O programa nasce desligado; o admin revisa os valores
+    // e liga em Gestão › Indique e Ganhe.
+    await seedReferralDefaults(fastify.prisma)
 
     // Bootstrap — migra o gancho legado do User → coleção HookRequest (execução única via flag)
     await backfillHooksIfNeeded(fastify.prisma, fastify.log)
@@ -293,6 +309,9 @@ const start = async () => {
     await fastify.register(adminHooksRoute)     // Gancho — GET /admin/hook-requests + PATCH /:id/deliver
     await fastify.register(adminNotificationPrefsRoute) // Notificações — GET/PUT /admin/notification-prefs (toggles do admin)
     await fastify.register(savedCardsRoute)     // Phase 12 — GET/PATCH/DELETE /users/me/cards (CARD-01/04/05)
+    await fastify.register(referralsRoute)      // Indique e Ganhe — config/validação públicas + telas do cliente
+    await fastify.register(adminReferralsRoute) // Indique e Ganhe — lista/detalhe/aprovar/recusar + card e vínculo do cliente (admin)
+    await fastify.register(condoInterestsRoute) // Lista de espera de condomínio — pedido público (5/min) + grupos do admin (A7)
     await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h + 21h (SCHED-03/04)
 
     const port = Number(process.env.API_PORT ?? 3001)
