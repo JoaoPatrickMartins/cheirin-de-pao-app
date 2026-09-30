@@ -1146,8 +1146,11 @@ model Expense {
   notes           String?
   // Parcela gerada por uma recorrência. Nulo/ausente = lançamento avulso.
   recurrenceId    String?       @db.ObjectId
-  // Mês de competência da parcela ("YYYY-MM", BRT). Existe SÓ para a trava de idempotência abaixo:
-  // é o índice único que impede a recorrência de gerar o aluguel duas vezes no mesmo mês.
+  // Mês de competência da parcela ("YYYY-MM", BRT). Existe SÓ para a trava de idempotência: o
+  // índice único (recurrenceId, recurrenceMonth) impede a recorrência de gerar o aluguel duas vezes
+  // no mesmo mês. Ele é PARCIAL e mora em lib/ensure-indexes.ts — NÃO declarar @@unique aqui: no
+  // Mongo, um único comum trata "sem recorrência" como (null, null) e a 2ª despesa avulsa estourava
+  // P2002 (achado em 30/09/2026 no banco de teste, antes de ir para produção).
   recurrenceMonth String?
   createdById     String        @db.ObjectId
   // Auditoria (A4): quem mexeu por último e qual era o valor antes. Despesa editada depois do
@@ -1157,7 +1160,6 @@ model Expense {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  @@unique([recurrenceId, recurrenceMonth])
   @@index([competenceDate])
   @@index([status, dueDate])
   @@index([categoryId, competenceDate])
@@ -1212,9 +1214,10 @@ model Budget {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // A trava contra meta duplicada é do BANCO, não da aplicação — mesma disciplina de
-  // `@@unique([recurrenceId, recurrenceMonth])` em Expense: duas metas para a mesma categoria no
-  // mesmo mês dariam um "previsto" silenciosamente dobrado.
+  // A trava contra meta duplicada é do BANCO, não da aplicação — mesma disciplina da trava
+  // (recurrenceId, recurrenceMonth) de Expense: duas metas para a mesma categoria no mesmo mês
+  // dariam um "previsto" silenciosamente dobrado. Aqui o único COMUM é o certo: meta sem categoria
+  // (null) é a meta do tipo inteiro, e ela TEM de ser uma só por mês.
   //
   // ATENÇÃO (Mongo): índice único com campo nulável só funciona porque a aplicação SEMPRE grava a
   // chave `categoryId` (com valor ou com null explícito). Documento sem a chave não é encontrado

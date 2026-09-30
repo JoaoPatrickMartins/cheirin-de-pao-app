@@ -702,7 +702,8 @@ link aberto dentro do Instagram**. Celular pelo túnel (§10.3); desktop em `loc
   aviso do handoff. Ao refazer o Google (fluxo expirado), o que foi digitado é guardado e volta.
 - **D-19 — Páginas legais com rascunho real (Onda 7).** No lugar do lorem do handoff, um rascunho que
   descreve o app de verdade (dados, finalidade, compartilhamento, direitos, exclusão em 15 dias), com o
-  aviso "Versão provisória" enquanto `LEGAL_DRAFT` for true (`content/legal.ts`). Contato:
+  aviso "Versão provisória" enquanto `LEGAL_DRAFT` for true (`content/legal.ts`). **30/09/2026: o
+  usuário decidiu subir sem o aviso (`LEGAL_DRAFT = false`), antes da revisão jurídica.** Contato:
   `cheirindepao.contato@gmail.com`. Pendente com vocês: revisão jurídica, razão social/CNPJ,
   encarregado, prazo de exclusão.
 - **Bug achado no teste real (30/09/2026) — router criado antes da reescrita da URL.** O `router.tsx`
@@ -710,3 +711,7 @@ link aberto dentro do Instagram**. Celular pelo túnel (§10.3); desktop em `loc
   depois, e o router, que já tinha lido `/`, mostrava a splash com a URL nova na barra. Correção:
   `createAppRouter()` (função), chamada no `main.tsx` depois de `captureSocialReturn()`. As capturas
   passaram a incluir o caminho real (abrir `/?social=<id>`), não só `/entrar/social` direto.
+- **Revisão de produção da branch (30/09/2026) — bug do módulo de Despesas, fora do login social.**
+  O `@@unique([recurrenceId, recurrenceMonth])` de `Expense` impedia a 2ª despesa avulsa (P2002).
+  Virou índice parcial no `ensure-indexes` (detalhe no topo de `plano-financeiro-vendas.md`).
+

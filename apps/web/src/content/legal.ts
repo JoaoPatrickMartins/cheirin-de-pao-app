@@ -1,13 +1,13 @@
 /**
  * Textos das páginas públicas (/privacidade, /termos, /exclusao-de-dados) — handoff L9.
  *
- * ⚠️ RASCUNHO para revisão jurídica (D-5 do plano-login-social.md). Descreve o que o app faz de
- * verdade hoje, mas NÃO é texto aprovado. Enquanto `LEGAL_DRAFT` for true, as páginas mostram o aviso
- * "Versão provisória". Ao aprovar: ajustar o texto, preencher razão social/CNPJ/encarregado, trocar
- * `LEGAL_UPDATED_AT` e desligar `LEGAL_DRAFT`.
+ * Publicado SEM o aviso "Versão provisória" por decisão do usuário (30/09/2026), antes da revisão
+ * jurídica. Descreve o que o app faz de verdade hoje. Pendente: revisão jurídica, razão social/CNPJ/
+ * encarregado e o prazo de exclusão. Ao mudar o texto, atualizar `LEGAL_UPDATED_AT`. Para voltar a
+ * mostrar o aviso enquanto revisa, `LEGAL_DRAFT = true`.
  */
 
-export const LEGAL_DRAFT = true
+export const LEGAL_DRAFT = false
 export const LEGAL_UPDATED_AT = '30/09/2026'
 export const LEGAL_CONTACT_EMAIL = 'cheirindepao.contato@gmail.com'
 // Prazo para concluir a exclusão (placeholder do handoff — confirmar com o jurídico).

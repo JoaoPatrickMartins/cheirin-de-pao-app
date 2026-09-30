@@ -56,6 +56,21 @@ const INDEX_SPECS: Array<{
       },
     ],
   },
+  {
+    collection: 'Expense',
+    indexes: [
+      // Idempotência da recorrência de despesas: uma parcela por recorrência por mês (a 2ª abertura
+      // do mês e as requisições concorrentes caem em P2002 — ver lib/expense-recurrence.ts).
+      // PARCIAL porque a despesa AVULSA não tem recorrência: num único comum ela entraria como
+      // (null, null) e a segunda avulsa colidiria com a primeira. Por isso não pode morar no schema.
+      {
+        key: { recurrenceId: 1, recurrenceMonth: 1 },
+        name: 'recurrenceId_1_recurrenceMonth_1',
+        unique: true,
+        partialFilterExpression: { recurrenceId: { $type: 'objectId' } },
+      },
+    ],
+  },
 ]
 
 /**

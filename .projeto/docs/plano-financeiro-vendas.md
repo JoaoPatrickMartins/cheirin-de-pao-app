@@ -1,5 +1,15 @@
 # Plano — Módulo Financeiro & Relatórios de Vendas (admin)
 
+> ⚠️ **Correção antes de produção (30/09/2026) — trava da recorrência virou índice PARCIAL.** O
+> `@@unique([recurrenceId, recurrenceMonth])` do schema era um único **comum**: no Mongo, despesa
+> avulsa (sem recorrência) entra como `(null, null)`, e a **2ª avulsa estourava P2002** — reproduzido
+> no banco de teste. A trava saiu do schema e virou o índice parcial
+> `recurrenceId_1_recurrenceMonth_1` (`partialFilterExpression: { recurrenceId: { $type: 'objectId' } }`)
+> em [ensure-indexes.ts](../../apps/api/src/lib/ensure-indexes.ts), criado pela API no boot. A
+> idempotência da recorrência continua (2ª parcela do mesmo mês → P2002, conferido) e avulsas não
+> colidem mais. As menções abaixo a `@@unique([recurrenceId, recurrenceMonth])` valem como "a trava
+> única (recurrenceId, recurrenceMonth)", hoje parcial.
+
 > Levantamento e planejamento do módulo de **relatório financeiro (DRE, despesas, fluxo de caixa)**
 > e de **relatórios de venda / performance / métricas** no administrativo.
 > Data: 2026-09-21 · Branch sugerida: `feat/admin-financeiro-dre`
