@@ -1,14 +1,20 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { KpiCard } from '../../../components/admin/KpiCard'
 import { ReportAppBar, ReportScroll, ReportCard, SectionTitle, StatRow, LoadingText, ErrorText, fmtInt, fmtPct, fmtBRL } from './RelShared'
-import { buildCsv, downloadCsv } from '../../../lib/csv'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 type Period = 'day' | 'week' | 'month'
 
 interface PaymentsReport {
-  period: Period
+  period?: Period
+  window: { from: string; to: string; label: string; isPartial: boolean }
   byStatus: { paid: number; pending: number; failed: number; refunded: number }
   approvalRate: number
   refundRate: number
@@ -32,12 +38,6 @@ const PURPOSE_LABEL: Record<string, string> = {
   MARKET: '🧺 Cestinha',
 }
 
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
-
 const METHOD_LABEL: Record<string, string> = {
   PIX: 'Pix',
   CREDIT_CARD: 'Cartão de crédito',
@@ -45,7 +45,7 @@ const METHOD_LABEL: Record<string, string> = {
 }
 
 export function RelPagamentos({ onBack }: { onBack: () => void }) {
-  const [period, setPeriod] = useState<Period>('month')
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'month' })
   const [data, setData] = useState<PaymentsReport | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -53,7 +53,7 @@ export function RelPagamentos({ onBack }: { onBack: () => void }) {
     const run = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/reports/payments?period=${period}`)
+        const res = await apiFetch(`/admin/reports/payments?${periodQuery(sel)}`)
         setData(res.ok ? ((await res.json()) as PaymentsReport) : null)
       } catch {
         setData(null)
@@ -62,45 +62,73 @@ export function RelPagamentos({ onBack }: { onBack: () => void }) {
       }
     }
     void run()
-  }, [period])
+  }, [sel])
 
   const s = data?.byStatus
 
   const onExport =
     data && s
       ? () =>
-          downloadCsv(
-            `pagamentos-${period}.csv`,
-            buildCsv(
-              ['Métrica', 'Valor'],
-              [
-                ['Taxa de aprovação (%)', fmtPct(data.approvalRate)],
-                ['Taxa de estorno (%)', fmtPct(data.refundRate)],
+          void downloadXlsx(`pagamentos-${selectionSlug(sel)}.xlsx`, [
+            {
+              name: 'Resumo',
+              notes: [`Pagamentos — ${data.window.label}`],
+              head: ['Métrica', 'Quantidade'],
+              rows: [
                 ['Aprovados', s.paid],
                 ['Pendentes', s.pending],
                 ['Falhos', s.failed],
                 ['Estornados', s.refunded],
-                ['Recuperados', data.recovered],
-                ...data.byMethod.map(
-                  (m) => [`Método: ${METHOD_LABEL[m.method] ?? m.method}`, `${m.count} · R$ ${m.amount.toFixed(2)}`] as [string, string],
-                ),
-                ...(data.byPurpose ?? []).map(
-                  (p) =>
-                    [
-                      `Finalidade: ${PURPOSE_LABEL[p.purpose] ?? p.purpose}`,
-                      `${p.paid} ok / ${p.failed} falhos · ${fmtPct(p.approvalRate)}% · R$ ${p.amount.toFixed(2)}`,
-                    ] as [string, string],
-                ),
+                ['Recuperados (falhou → pagou depois)', data.recovered],
               ],
-            ),
-          )
+              integer: [1],
+              footer: data.window.isPartial ? ['Período EM CURSO — números parciais.'] : [],
+            },
+            {
+              name: 'Taxas',
+              head: ['Métrica', 'Taxa'],
+              rows: [
+                ['Taxa de aprovação', data.approvalRate],
+                ['Taxa de estorno', data.refundRate],
+              ],
+              percent: [1],
+            },
+            {
+              name: 'Por método',
+              head: ['Método', 'Pagamentos', 'Valor aprovado'],
+              rows: data.byMethod.map((m) => [METHOD_LABEL[m.method] ?? m.method, m.count, m.amount]),
+              integer: [1],
+              money: [2],
+            },
+            ...(data.byPurpose && data.byPurpose.length > 0
+              ? [
+                  {
+                    name: 'Por finalidade',
+                    head: ['Finalidade', 'Aprovados', 'Falhos', 'Pendentes', 'Estornados', 'Taxa de aprovação', 'Valor aprovado'],
+                    rows: data.byPurpose.map((p) => [
+                      PURPOSE_LABEL[p.purpose] ?? p.purpose,
+                      p.paid,
+                      p.failed,
+                      p.pending,
+                      p.refunded,
+                      p.approvalRate,
+                      p.amount,
+                    ]),
+                    integer: [1, 2, 3, 4],
+                    percent: [5],
+                    money: [6],
+                    footer: ['Cada fluxo com a sua taxa: a média geral esconde um fluxo novo mal configurado.'],
+                  },
+                ]
+              : []),
+          ])
       : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <ReportAppBar title="Pagamentos" onBack={onBack} onExport={onExport} />
       <ReportScroll>
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <LoadingText />

@@ -17,9 +17,11 @@ interface AppNotification {
 type Tone = 'good' | 'gold' | 'neutral'
 
 function getTone(type: string): Tone {
-  if (['DELIVERY_EVE', 'DELIVERY_DONE', 'OUT_FOR_DELIVERY', 'HOOK_DELIVERED'].includes(type)) return 'good'
+  if (['DELIVERY_EVE', 'DELIVERY_DONE', 'OUT_FOR_DELIVERY', 'HOOK_DELIVERED', 'REFERRAL_SIGNUP'].includes(type)) return 'good'
   // Cestinha cancelada/não entregue vem com crédito de volta — dourado, não vermelho.
   if (['LOW_CREDIT', 'CREDIT_GRANTED', 'MARKET_ORDER_CANCELLED', 'MARKET_NOT_DELIVERED'].includes(type)) return 'gold'
+  // Indique e Ganhe (C6): pãezins que chegaram são dourados; o convite (REFERRAL_INVITE) é neutro.
+  if (['REFERRAL_REWARD', 'REFERRAL_WELCOME'].includes(type)) return 'gold'
   return 'neutral'
 }
 
@@ -31,6 +33,9 @@ function getIcon(type: string) {
   if (type === 'CREDIT_GRANTED') return 'coin'
   if (type === 'HOOK_DELIVERED') return 'pin'
   if (type === 'MARKET_ORDER_CANCELLED' || type === 'MARKET_NOT_DELIVERED') return 'alert'
+  if (type === 'REFERRAL_SIGNUP') return 'users'
+  if (type === 'REFERRAL_REWARD' || type === 'REFERRAL_WELCOME') return 'gift'
+  if (type === 'REFERRAL_INVITE') return 'spark'
   return 'repeat'
 }
 
@@ -50,6 +55,12 @@ const CTA_CONFIG: Record<string, { label: string; path: string }> = {
   HOOK_DELIVERED:   { label: 'Ir para o início',  path: '/client/home'    },
   MARKET_ORDER_CANCELLED: { label: 'Ver pedidos', path: '/client/pedidos' },
   MARKET_NOT_DELIVERED:   { label: 'Ver pedidos', path: '/client/pedidos' },
+  // Indique e Ganhe — o botão in-app vem DAQUI, não do `actionRoute` da notificação.
+  // "Ver saldo" leva ao extrato (A-13), onde o bônus aparece com o selo.
+  REFERRAL_SIGNUP:  { label: 'Ver indicações',    path: '/client/perfil/indique' },
+  REFERRAL_REWARD:  { label: 'Ver saldo',         path: '/client/creditos/extrato' },
+  REFERRAL_WELCOME: { label: 'Ver saldo',         path: '/client/creditos/extrato' },
+  REFERRAL_INVITE:  { label: 'Indicar agora',     path: '/client/perfil/indique' },
 }
 
 function formatTimestamp(dateStr: string): string {
@@ -202,9 +213,10 @@ export function NotificationsScreen() {
                   background: 'var(--color-surface)',
                   borderRadius: 'var(--radius-card)',
                   padding: 15,
+                  // Novo em dourado (handoff C6 · D-17) — antes era o accent.
                   border: read
                     ? '1px solid var(--color-border-2)'
-                    : '1.5px solid var(--color-accent)',
+                    : '1.5px solid var(--color-gold)',
                   display: 'flex',
                   gap: 13,
                   position: 'relative',
@@ -214,7 +226,8 @@ export function NotificationsScreen() {
                   style={{
                     width: 42,
                     height: 42,
-                    borderRadius: 12,
+                    // Ícone em círculo (handoff C6 · D-17) — antes era quadrado arredondado.
+                    borderRadius: 999,
                     background: iconBg,
                     display: 'grid',
                     placeItems: 'center',
@@ -281,7 +294,9 @@ export function NotificationsScreen() {
                         border: 'none',
                         cursor: 'pointer',
                         background: tone === 'gold' ? 'var(--color-gold)' : 'var(--color-surface-2)',
-                        color: tone === 'gold' ? 'var(--color-app-bg)' : 'var(--color-text)',
+                        // Texto espresso sobre o dourado (o `onGold` do handoff · D-17) — o creme
+                        // de antes tinha pouco contraste.
+                        color: tone === 'gold' ? 'var(--color-espresso)' : 'var(--color-text)',
                       }}
                     >
                       {cta.label}

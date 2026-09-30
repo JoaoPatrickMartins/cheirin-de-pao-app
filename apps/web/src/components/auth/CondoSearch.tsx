@@ -12,13 +12,16 @@ interface CondoSearchProps {
   condos: Condo[]
   selectedId: string | null
   onSelect: (id: string) => void
+  /** "Meu condomínio não está aqui" (C8) — recebe o termo buscado, que pré-preenche o pedido. */
+  onNotListed?: (query: string) => void
 }
 
 /**
  * Searchable condominium list with empty state.
- * Filters by name (case-insensitive). Shows empty state when no condos match.
+ * Filters by name (case-insensitive). Shows empty state when no condos match — com `onNotListed`,
+ * o vazio vira o card da lista de espera (C8, handoff `RefWaitlist`).
  */
-export function CondoSearch({ condos, selectedId, onSelect }: CondoSearchProps) {
+export function CondoSearch({ condos, selectedId, onSelect, onNotListed }: CondoSearchProps) {
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
 
@@ -78,7 +81,73 @@ export function CondoSearch({ condos, selectedId, onSelect }: CondoSearchProps) 
           gap: 8,
         }}
       >
-        {isEmpty ? (
+        {isEmpty && onNotListed ? (
+          /* Lista de espera (C8): card do handoff com o botão dourado */
+          <div
+            style={{
+              background: 'var(--color-surface-alt)',
+              border: '1.5px dashed var(--color-border)',
+              borderRadius: 22,
+              padding: 22,
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 16,
+                background: 'var(--color-surface-2)',
+                color: 'var(--color-text-sec)',
+                display: 'grid',
+                placeItems: 'center',
+                margin: '0 auto',
+              }}
+            >
+              <Icon name="building" size={24} />
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontWeight: 700,
+                fontSize: 18,
+                color: 'var(--color-text)',
+                marginTop: 12,
+                letterSpacing: '-0.02em',
+              }}
+            >
+              Seu condomínio ainda não é parceiro
+            </div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)', marginTop: 6, lineHeight: 1.5 }}>
+              Conta pra gente onde você mora. Quando vários vizinhos pedem, o Cheirin chega mais rápido.
+            </div>
+            <button
+              type="button"
+              onClick={() => onNotListed(query.trim())}
+              style={{
+                marginTop: 16,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                minHeight: 44,
+                padding: '13px 18px',
+                borderRadius: 16,
+                border: 'none',
+                background: 'var(--color-gold)',
+                color: 'var(--color-espresso)',
+                fontFamily: 'var(--font-body)',
+                fontWeight: 700,
+                fontSize: 15,
+                letterSpacing: '-0.01em',
+                cursor: 'pointer',
+              }}
+            >
+              <Icon name="bell" size={18} stroke={2.2} />
+              Meu condomínio não está aqui
+            </button>
+          </div>
+        ) : isEmpty ? (
           /* Empty state */
           <div
             style={{

@@ -57,6 +57,24 @@ export const adminCombosRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.list.bind(ctrl),
   )
 
+  // Precede `/admin/combos/:id` no arquivo por clareza; o roteador do Fastify já prioriza
+  // segmento estático sobre paramétrico, então "pricing" nunca cai no handler de id.
+  fastify.get(
+    '/admin/combos/pricing',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — combos'],
+        summary: 'Insumos da precificação assistida (admin)',
+        description:
+          'Custo unitário esperado do pão (matriz de fornecimento) e preço do avulso, para o formulário de combo exibir custo, margem e R$ por pãozinho AO VIVO. ' +
+          '`breadUnitCost` vem `null` — nunca zero — quando o pão não tem fornecedor ativo: zero apareceria como margem de 100%. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    ctrl.getPricing.bind(ctrl),
+  )
+
   fastify.get(
     '/admin/combos/:id',
     {

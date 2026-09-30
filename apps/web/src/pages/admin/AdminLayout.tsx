@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { LoadingScreen } from '../auth/LoadingScreen'
+import { needsPasswordSetup } from '../../lib/roleRoutes'
 import { Navigate } from 'react-router'
 import { AdminBottomNav } from '../../components/admin/AdminBottomNav'
 import { AdminPainel } from './tabs/AdminPainel'
@@ -71,7 +72,7 @@ export function AdminLayout() {
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'ADMIN') return <Navigate to="/" replace />
   // 1º acesso sem senha: força a definição antes de usar o painel.
-  if (user.hasPassword === false) return <Navigate to="/set-password" replace />
+  if (needsPasswordSetup(user)) return <Navigate to="/set-password" replace />
 
   return (
     <NotifProvider>

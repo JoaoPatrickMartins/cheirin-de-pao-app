@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { UpdateSlotsSchema, UpdateAvulsoSchema, UpdatePedidoMinimoSchema, UpdateGanchoSchema, UpdateRestricoesSchema, CreateDeliveryBlockSchema } from './admin-settings.schema.js'
+import { UpdateSlotsSchema, UpdateAvulsoSchema, UpdatePedidoMinimoSchema, UpdateGanchoSchema, UpdateReferralSettingsSchema, UpdateGatewayRatesSchema, UpdateRestricoesSchema, CreateDeliveryBlockSchema } from './admin-settings.schema.js'
 import { AdminSettingsService } from './admin-settings.service.js'
 import { AdminBlocksService } from './admin-blocks.service.js'
 
@@ -282,13 +282,104 @@ export class AdminSettingsController {
     }
 
     try {
-      const saved = await this.service.setGanchoConfig(body.pedidoUnicoMin, body.preco, body.recorrenciaMin)
+      const saved = await this.service.setGanchoConfig(
+        body.pedidoUnicoMin,
+        body.preco,
+        body.recorrenciaMin,
+        body.custo,
+      )
       return reply.status(200).send({
         ok: true,
         pedidoUnicoMin: body.pedidoUnicoMin,
         preco: body.preco,
         recorrenciaMin: saved.recorrenciaMin,
+        custo: body.custo,
       })
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/settings/indicacao
+   * Config do Indique e Ganhe (A3) + `unitPrice` (≈ R$) e `today` (dia BRT).
+   */
+  async getIndicacao(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    try {
+      return reply.status(200).send(await this.service.getReferralSettings())
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * PATCH /admin/settings/indicacao
+   * Grava a config inteira. Forma inválida → 400; regra de negócio → 422 com o texto da tela.
+   */
+  async setIndicacao(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    let body: ReturnType<typeof UpdateReferralSettingsSchema.parse>
+    try {
+      body = UpdateReferralSettingsSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ error: zodMessage(err) })
+      }
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      const saved = await this.service.setReferralSettings(body)
+      return reply.status(200).send(saved)
+    } catch (err) {
+      const domain = domainError(err)
+      if (domain) return reply.status(domain.statusCode).send({ error: domain.message })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/settings/gateway-rates
+   * Alíquotas usadas para ESTIMAR a taxa do gateway, com o sinal de quais nunca foram editadas.
+   */
+  async getGatewayRates(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    try {
+      return reply.status(200).send(await this.service.getGatewayRates())
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /** PATCH /admin/settings/gateway-rates — grava as alíquotas de estimativa. */
+  async setGatewayRates(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    let body: ReturnType<typeof UpdateGatewayRatesSchema.parse>
+    try {
+      body = UpdateGatewayRatesSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+
+    try {
+      await this.service.setGatewayRates(body.pix, body.creditCard, body.debitCard)
+      return reply.status(200).send({ ok: true, ...(await this.service.getGatewayRates()) })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })

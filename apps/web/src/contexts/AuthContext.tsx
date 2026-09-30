@@ -24,16 +24,21 @@ export interface AuthUser {
   /** Complemento curto do bloco ("Lado A"). '' = sem complemento. */
   complement?: string
   condominiumJustChanged?: boolean
-  // false = conta ainda sem senha (1º acesso via OTP) — força tela de definir senha.
+  // false = conta sem senha (1º acesso via OTP, ou criada pelo Google).
   hasPassword?: boolean
+  // true = sem senha E sem Google — força a tela de definir senha (ver needsPasswordSetup).
+  mustSetPassword?: boolean
 }
+
+// Como a sessão foi aberta — vai no evento de login dos Relatórios.
+export type LoginMethod = 'password' | 'otp' | 'google'
 
 export interface AuthContextType {
   user: AuthUser | null
   /** access token (JWT curto). Use apiFetch para requisições — ele cuida do refresh. */
   token: string | null
   isLoading: boolean
-  login: (accessToken: string, refreshToken: string, user: AuthUser) => void
+  login: (accessToken: string, refreshToken: string, user: AuthUser, method?: LoginMethod) => void
   logout: () => void
   updateCreditBalance: (balance: number) => void
   updateUser: (partial: Partial<AuthUser>) => void
@@ -82,7 +87,7 @@ export function AuthProvider() {
       user,
       token,
       isLoading,
-      login: (accessToken: string, refreshToken: string, u: AuthUser) => {
+      login: (accessToken: string, refreshToken: string, u: AuthUser, method?: LoginMethod) => {
         // ensure creditBalance is always present (backward compat with callers that may omit it)
         const userData: AuthUser = { ...u, creditBalance: u.creditBalance ?? 0 }
         try {
@@ -96,7 +101,7 @@ export function AuthProvider() {
         setUser(userData)
         // Métrica de login (Relatórios) — chokepoint único de todos os logins.
         // O backend filtra role=CLIENT para a conversão acesso→login.
-        trackLogin(userData.role, userData.id)
+        trackLogin(userData.role, userData.id, method)
       },
       logout: () => {
         // Revoga a sessão (refresh) no servidor — best-effort, não bloqueia o logout.

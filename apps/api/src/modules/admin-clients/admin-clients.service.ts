@@ -3,6 +3,7 @@ import * as OneSignal from '@onesignal/node-onesignal'
 import { Prisma, TransactionType, NotificationType } from '@prisma/client'
 import { CREDIT_SCALE, formatCredits, fromMilli, toMilli } from '@cheirin-de-pao/shared'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { firstDeliveryDayByUser, isFirstDelivery } from '../../lib/first-delivery.js'
 import { excludeNonCreditPurpose } from '../../lib/revenue.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { AuthService } from '../auth/auth.service.js'
@@ -225,6 +226,7 @@ export class AdminClientsService {
       ordersCount,
       marketConfirmed,
       marketDelivered,
+      socialAccounts,
     ] = await Promise.all([
       // Busca a agenda do cliente independente de isActive — para que agendas
       // pausadas continuem visíveis no detalhe (e o admin possa retomá-las).
@@ -272,6 +274,8 @@ export class AdminClientsService {
         where: { userId: id, status: 'DELIVERED' },
         select: { breadQty: true, items: true },
       }),
+      // Linha "Acesso" do card Cadastro (login com Google — plano-login-social.md, A1).
+      this.prisma.socialAccount.findMany({ where: { userId: id }, select: { provider: true } }),
     ])
 
     const cestinhaGmv = marketConfirmed.reduce((acc, o) => acc + o.totalValue, 0)
@@ -326,8 +330,16 @@ export class AdminClientsService {
     // API fala em pãezinhos, não em milésimos.
     const { creditMilli, ...clientSemMilli } = user
 
+    // Como o cliente entra: 'google' e/ou 'password'. O código no e-mail vale para todos — não entra
+    // na lista (o handoff deixa de fora de propósito).
+    const accessMethods = [
+      ...socialAccounts.map((a) => a.provider.toLowerCase()),
+      ...(user.passwordHash ? ['password'] : []),
+    ]
+
     return {
       client: { ...clientSemMilli, creditBalance: fromMilli(creditMilli ?? 0) },
+      accessMethods,
       schedule,
       recentOrders,
       recentCestinhas: recentCestinhas.map((o) => ({
@@ -519,6 +531,61 @@ export class AdminClientsService {
   }
 
   /**
+   * Ganchos de porta do cliente (HookRequest) — histórico completo, para o card "Ganchos"
+   * e a timeline do detalhe do cliente.
+   *
+   * Traz TODOS os status, inclusive PENDING_PAYMENT e CANCELLED: um gancho pago que nunca
+   * foi confirmado é exatamente o que o atendimento precisa ver ao ouvir "paguei e não chegou".
+   * Admins (concessão/entrega) e valor do gancho pago são resolvidos em queries batch.
+   */
+  async getHooks(id: string) {
+    await this.assertClient(id)
+
+    const hooks = await this.prisma.hookRequest.findMany({
+      where: { userId: id },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (hooks.length === 0) return []
+
+    const adminIds = [
+      ...new Set(
+        hooks.flatMap((h) => [h.grantedById, h.deliveredById]).filter((v): v is string => !!v),
+      ),
+    ]
+    const adminMap = new Map<string, string>()
+    if (adminIds.length > 0) {
+      const admins = await this.prisma.user.findMany({
+        where: { id: { in: adminIds } },
+        select: { id: true, name: true },
+      })
+      for (const a of admins) adminMap.set(a.id, a.name)
+    }
+
+    const paymentIds = [...new Set(hooks.map((h) => h.paymentId).filter((v): v is string => !!v))]
+    const paymentMap = new Map<string, number>()
+    if (paymentIds.length > 0) {
+      const payments = await this.prisma.payment.findMany({
+        where: { id: { in: paymentIds } },
+        select: { id: true, amount: true },
+      })
+      for (const p of payments) paymentMap.set(p.id, p.amount)
+    }
+
+    return hooks.map((h) => ({
+      id: h.id,
+      type: h.type,
+      status: h.status,
+      reason: h.reason ?? null,
+      amount: h.paymentId ? paymentMap.get(h.paymentId) ?? null : null,
+      grantedByName: h.grantedById ? adminMap.get(h.grantedById) ?? null : null,
+      deliveredByName: h.deliveredById ? adminMap.get(h.deliveredById) ?? null : null,
+      requestedAt: h.requestedAt,
+      deliveredAt: h.deliveredAt,
+      createdAt: h.createdAt,
+    }))
+  }
+
+  /**
    * Métodos de pagamento do cliente: cartões salvos (read-only) + configuração
    * de auto-recarga (com nome do combo, se houver).
    */
@@ -599,6 +666,9 @@ export class AdminClientsService {
     ]
     const marketIds = marketOrders.map((o) => o.id)
 
+    // Estreia do cliente: um `userId` só, então uma chamada resolve a lista inteira.
+    const firstDay = (await firstDeliveryDayByUser(this.prisma, [id])).get(id)
+
     const [deliveries, couriers, refunds] = await Promise.all([
       orderIds.length > 0
         ? this.prisma.delivery.findMany({
@@ -651,6 +721,7 @@ export class AdminClientsService {
         creditsApplied: null as number | null,
         moneyAmount: null as number | null,
         refundedCredits: null as number | null,
+        isFirstOrder: isFirstDelivery(firstDay, o.scheduledDate),
       }
     })
 
@@ -677,6 +748,7 @@ export class AdminClientsService {
       creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)) as number | null,
       moneyAmount: o.moneyAmount as number | null,
       refundedCredits: refundedById.get(o.id) ?? 0,
+      isFirstOrder: isFirstDelivery(firstDay, o.scheduledDate),
     }))
 
     return [...breadRows, ...marketRows]
@@ -844,7 +916,7 @@ export class AdminClientsService {
     }
 
     const willBlock = !user.isBlocked
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: willBlock
         ? { isBlocked: true, blockReason: reason ?? null, blockedAt: new Date(), blockedById: adminId ?? null }
@@ -856,6 +928,18 @@ export class AdminClientsService {
         blockedAt: true,
       },
     })
+
+    // Bloquear derruba as sessões abertas: sem isto o cliente seguia no app com o refresh de 90
+    // dias. O access token em mãos ainda vale até expirar (≤ 15 min) — o `authenticate` é stateless
+    // por escolha. Desbloquear não restaura nada: o cliente entra de novo.
+    if (willBlock) {
+      await this.prisma.session.updateMany({
+        where: { userId: id, isRevoked: false },
+        data: { isRevoked: true },
+      })
+    }
+
+    return updated
   }
 
   /**

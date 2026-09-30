@@ -1,20 +1,33 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
-import { NotificationType, OrderStatus, MarketOrderStatus, PaymentStatus, Prisma } from '@prisma/client'
+import { NotificationType, OrderStatus, MarketOrderStatus, PaymentStatus, TransactionType, Prisma } from '@prisma/client'
 import { fromMilli, toMilli } from '@cheirin-de-pao/shared'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
 import { excludeNonCreditPurpose } from '../../lib/revenue.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { firstDeliveryDayByUser, isFirstDelivery } from '../../lib/first-delivery.js'
 import { reverseMarketOrder } from '../../lib/market-reversal.js'
 import { propagateMarketStatusForOrder, dispatchMarketForOrders, assignMarketByCondoDay } from '../../lib/market-pipeline.js'
 import { notifyMarketCancelled, notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
 import { clientLabel } from '../../lib/client-label.js'
+import { afterDelivery } from '../../lib/referral.js'
 
 /** Centavos, sem lixo de ponto flutuante em somas de R$. */
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+/** Código curto do pedido — o mesmo impresso no cupom, por onde o operador chama o pedido. */
+const shortOrderCode = (id: string) => id.slice(-4).toUpperCase()
+
+/**
+ * Soma movimentos de crédito em MILÉSIMOS e converte no fim, em valor absoluto.
+ * Somar decimais acumularia erro de float; o `abs` é porque débito é negativo e a tela mostra
+ * "quanto voltou", não o sinal.
+ */
+const sumMilliAbs = (rows: { quantityMilli: number | null }[]) =>
+  Math.abs(fromMilli(rows.reduce((acc, r) => acc + (r.quantityMilli ?? 0), 0)))
 
 /**
  * Mapa de transições de estado válidas para pedidos.
@@ -182,6 +195,47 @@ export interface LedgerRow {
   moneyAmount: number
   /** Valor total da Cestinha em R$ (0 em `BREAD`). */
   totalValue: number
+  /**
+   * Estreia do cliente — a linha cai no dia da primeira entrega dele (`lib/first-delivery.ts`).
+   * Retroativo por construção: em histórico, o cliente antigo aparece marcado na primeira
+   * entrega DELE, que é o que a auditoria quer ver.
+   */
+  isFirstOrder: boolean
+}
+
+/** Pagamento vinculado a um pedido — o que a conciliação precisa ver. */
+export interface OrderPayment {
+  id: string
+  amount: number
+  method: string
+  status: string
+  /** CREDITS | HOOK | MARKET. Documento antigo sem o campo lê CREDITS. */
+  purpose: string
+  createdAt: string
+  /** Id no gateway (Stripe ou Mercado Pago) — a tela só quer o que colar na conciliação. */
+  gatewayId: string
+  comboName: string
+  quantity: number
+}
+
+/**
+ * Um pedido com o detalhe completo: a linha do ledger MAIS o que não cabe numa lista.
+ * Alimenta o resumo do pedido no admin (Entregas e Clientes).
+ */
+export interface OrderDetail extends LedgerRow {
+  createdAt: string
+  /** 4 últimos do id, como no cupom — é por ele que o operador chama o pedido. */
+  code: string
+  /** Pãezinhos debitados na criação do pedido (split aplicado, na Cestinha). */
+  creditsDebited: number
+  /**
+   * `creditsDebited` veio da regra, não do extrato — pedido do corte da agenda anterior ao
+   * vínculo `referenceId`. A tela avisa, para ninguém tratar o número como linha auditada.
+   */
+  creditsDebitedDerived: boolean
+  /** Pãezinhos já devolvidos deste pedido. */
+  refundedCredits: number
+  payment: OrderPayment | null
 }
 
 /** Filtros do ledger de pedidos. */
@@ -284,6 +338,10 @@ export class AdminOrdersService {
       // a transição desta chamada, não o estado atual: uma Cestinha já entregue pelo fluxo
       // só-market receberia um segundo aviso quando o pedido de pão fosse concluído depois.
       if (marketMoved > 0) await notifyMarketDelivered(this.fastify, order.userId)
+      // Indique e Ganhe — a 1ª entrega paga pode qualificar a indicação do cliente. Cobre o
+      // entregador, a separação e o admin (todos passam por aqui), e a Cestinha propagada acima.
+      // Nunca lança.
+      await afterDelivery(this.fastify, order.userId)
     }
 
     // F3 — Cestinha da parada combinada não entregue. O pão não tem aviso equivalente ao cliente,
@@ -583,9 +641,15 @@ export class AdminOrdersService {
     // Janela de amanhã BRT (para o card "Pedido de amanhã")
     const startOfTomorrowBrt = new Date(startOfDayBrt.getTime() + 24 * 60 * 60 * 1000)
     const endOfTomorrowBrt = new Date(startOfTomorrowBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
-    // Janela de ontem BRT (para os deltas reais dos badges)
-    const startOfYesterdayBrt = new Date(startOfDayBrt.getTime() - 24 * 60 * 60 * 1000)
-    const endOfYesterdayBrt = new Date(startOfDayBrt.getTime() - 1)
+    // Base dos deltas dos badges: o MESMO DIA DA SEMANA anterior, não ontem.
+    //
+    // Era ontem, e isso fazia os dois badges do painel mentirem por calendário: toda segunda-feira
+    // aparecia despencando contra o domingo e todo domingo subindo contra o sábado. A demanda de
+    // pão é semanal (a agenda do cliente é por dia da semana), então segunda só se compara com
+    // segunda. Os nomes dos campos seguem `*TrendPct` porque é exatamente o que eles passaram a
+    // ser — tendência, e não oscilação de um dia para o outro.
+    const startOfPrevWeekdayBrt = new Date(startOfDayBrt.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const endOfPrevWeekdayBrt = new Date(startOfPrevWeekdayBrt.getTime() + 24 * 60 * 60 * 1000 - 1)
     // Meio-dia BRT de hoje/amanhã (seguro p/ projeção da agenda — cai dentro do dia)
     const todayNoonBrt = new Date(startOfDayBrt.getTime() + 12 * 60 * 60 * 1000)
     const tomorrowNoonBrt = new Date(todayNoonBrt.getTime() + 24 * 60 * 60 * 1000)
@@ -600,13 +664,13 @@ export class AdminOrdersService {
     const [
       orderAgg,
       orderTomorrowAgg,
-      orderYesterdayAgg,
+      orderPrevWeekdayAgg,
       marketTodayAgg,
       marketTomorrowAgg,
-      marketYesterdayAgg,
+      marketPrevWeekdayAgg,
       weekMarket,
       paymentAgg,
-      paymentYesterdayAgg,
+      paymentPrevWeekdayAgg,
       clientsCount,
       clientsNewCount,
       condominiumsCount,
@@ -631,10 +695,10 @@ export class AdminOrdersService {
         _sum: { quantity: true },
         where: { scheduledDate: { gte: startOfTomorrowBrt, lte: endOfTomorrowBrt }, status: { not: 'CANCELLED' } },
       }),
-      // breads de ontem (delta do card "Pães hoje")
+      // breads do mesmo dia da semana anterior (delta do card "Pães hoje")
       this.prisma.order.aggregate({
         _sum: { quantity: true },
-        where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { not: 'CANCELLED' } },
+        where: { scheduledDate: { gte: startOfPrevWeekdayBrt, lte: endOfPrevWeekdayBrt }, status: { not: 'CANCELLED' } },
       }),
       // Pães vendidos DENTRO da Cestinha (D-1: breadQty é pão e conta em todo contador de pães).
       // Três janelas espelhando as agregações de Order acima.
@@ -648,7 +712,7 @@ export class AdminOrdersService {
       }),
       this.prisma.marketOrder.aggregate({
         _sum: { breadQty: true },
-        where: { scheduledDate: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
+        where: { scheduledDate: { gte: startOfPrevWeekdayBrt, lte: endOfPrevWeekdayBrt }, status: { in: [...CONFIRMED_MARKET_STATUSES] } },
       }),
       // Cestinhas da semana — alimenta o gráfico "Fornadas por dia" com o pão da Cestinha.
       this.prisma.marketOrder.findMany({
@@ -663,7 +727,7 @@ export class AdminOrdersService {
       // revenue de ontem (delta do card "Receita do dia")
       this.prisma.payment.aggregate({
         _sum: { amount: true },
-        where: { status: 'PAID', createdAt: { gte: startOfYesterdayBrt, lte: endOfYesterdayBrt }, ...excludeNonCreditPurpose },
+        where: { status: 'PAID', createdAt: { gte: startOfPrevWeekdayBrt, lte: endOfPrevWeekdayBrt }, ...excludeNonCreditPurpose },
       }),
       // clientsCount
       this.prisma.user.count({ where: { role: 'CLIENT', isBlocked: false } }),
@@ -746,11 +810,11 @@ export class AdminOrdersService {
     // Pães do dia = pedidos de pão + pão da Cestinha (D-1).
     const marketBreadsToday = (marketTodayAgg._sum?.breadQty as number | null) ?? 0
     const marketBreadsTomorrow = (marketTomorrowAgg._sum?.breadQty as number | null) ?? 0
-    const marketBreadsYesterday = (marketYesterdayAgg._sum?.breadQty as number | null) ?? 0
+    const marketBreadsPrevWeekday = (marketPrevWeekdayAgg._sum?.breadQty as number | null) ?? 0
     const breadsToday = ((orderAgg._sum?.quantity as number | null) ?? 0) + marketBreadsToday
-    const breadsYesterday = ((orderYesterdayAgg._sum?.quantity as number | null) ?? 0) + marketBreadsYesterday
+    const breadsPrevWeekday = ((orderPrevWeekdayAgg._sum?.quantity as number | null) ?? 0) + marketBreadsPrevWeekday
     const revenueToday = (paymentAgg._sum?.amount as number | null) ?? 0
-    const revenueYesterday = (paymentYesterdayAgg._sum?.amount as number | null) ?? 0
+    const revenuePrevWeekday = (paymentPrevWeekdayAgg._sum?.amount as number | null) ?? 0
     const pct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0)
 
     return {
@@ -761,8 +825,8 @@ export class AdminOrdersService {
       breadsByWeekday,
       itemsByWeekday,
       revenueToday,
-      breadsTodayTrendPct: pct(breadsToday, breadsYesterday),
-      revenueTrendPct: pct(revenueToday, revenueYesterday),
+      breadsTodayTrendPct: pct(breadsToday, breadsPrevWeekday),
+      revenueTrendPct: pct(revenueToday, revenuePrevWeekday),
       clientsCount,
       clientsNewCount,
       condominiumsCount,
@@ -1248,7 +1312,7 @@ export class AdminOrdersService {
     const paymentIds = [...new Set(orders.map((o) => o.paymentId).filter((p): p is string => !!p))]
     const orderIds = orders.map((o) => o.id)
 
-    const [users, condos, couriers, refunds, payments] = await Promise.all([
+    const [users, condos, couriers, refunds, payments, firstDayByUser] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, apartment: true, block: true, complement: true },
@@ -1270,6 +1334,7 @@ export class AdminOrdersService {
             select: { id: true, amount: true, status: true },
           })
         : Promise.resolve([] as { id: string; amount: number; status: PaymentStatus }[]),
+      firstDeliveryDayByUser(this.prisma, userIds),
     ])
 
     const userById = new Map(users.map((u) => [u.id, u]))
@@ -1321,6 +1386,7 @@ export class AdminOrdersService {
         creditsApplied: 0,
         moneyAmount: 0,
         totalValue: 0,
+        isFirstOrder: isFirstDelivery(firstDayByUser.get(o.userId), o.scheduledDate),
       }
     })
   }
@@ -1361,7 +1427,7 @@ export class AdminOrdersService {
     const paymentIds = [...new Set(orders.map((o) => o.paymentId).filter((p): p is string => !!p))]
     const orderIds = orders.map((o) => o.id)
 
-    const [users, condos, refunds, payments] = await Promise.all([
+    const [users, condos, refunds, payments, firstDayByUser] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, apartment: true, block: true, complement: true },
@@ -1380,6 +1446,7 @@ export class AdminOrdersService {
             select: { id: true, amount: true, status: true },
           })
         : Promise.resolve([] as { id: string; amount: number; status: PaymentStatus }[]),
+      firstDeliveryDayByUser(this.prisma, userIds),
     ])
 
     const userById = new Map(users.map((u) => [u.id, u]))
@@ -1435,6 +1502,7 @@ export class AdminOrdersService {
         creditsApplied: fromMilli((o.creditsAppliedMilli ?? 0)),
         moneyAmount: o.moneyAmount,
         totalValue: o.totalValue,
+        isFirstOrder: isFirstDelivery(firstDayByUser.get(o.userId), o.scheduledDate),
       }
     })
   }
@@ -1618,6 +1686,113 @@ export class AdminOrdersService {
   }
 
   /**
+   * getOrderDetail — um pedido (pão ou Cestinha) com TUDO que o admin precisa para responder
+   * "o que aconteceu com este pedido e como ele foi pago".
+   *
+   * Reusa `_enrich*` de propósito: o detalhe e a linha da lista têm de contar a mesma história.
+   * O que se acrescenta é o que não cabe numa lista — o pagamento inteiro (método, gateway,
+   * combo), os créditos movimentados e quando o pedido nasceu.
+   *
+   * `kind` é uma dica, não uma exigência: sem ele tentamos `Order` e caímos em `MarketOrder`.
+   * A tela de Clientes tem o `kind` na mão; um link colado no navegador não tem.
+   */
+  async getOrderDetail(id: string, kind?: 'BREAD' | 'CESTINHA'): Promise<OrderDetail> {
+    const order =
+      kind === 'CESTINHA'
+        ? null
+        : await this.prisma.order.findUnique({
+            where: { id },
+            select: { ...this._ledgerSelect, createdAt: true },
+          })
+
+    if (order) {
+      const [row] = await this._enrichOrders([order])
+      // Débito do pedido de pão. O avulso sempre amarrou a transação ao pedido; o corte da agenda
+      // só passou a amarrar depois — em pedido antigo não há linha, e aí o valor é DERIVADO da
+      // quantidade (1 pão = 1 crédito na criação). Derivar é honesto: é exatamente a regra que
+      // debitou. Ver o comentário no corte, em schedules.service.ts.
+      const [debit, refund, payment] = await Promise.all([
+        this.prisma.creditTransaction.findFirst({
+          where: { type: TransactionType.DELIVERY, referenceId: id },
+          select: { quantityMilli: true },
+        }),
+        this.prisma.creditTransaction.findMany({
+          where: { type: TransactionType.REFUND, referenceId: id },
+          select: { quantityMilli: true },
+        }),
+        this._loadPayment(order.paymentId),
+      ])
+
+      return {
+        ...row,
+        createdAt: order.createdAt.toISOString(),
+        code: shortOrderCode(id),
+        creditsDebited: debit ? Math.abs(fromMilli(debit.quantityMilli ?? 0)) : order.quantity,
+        creditsDebitedDerived: !debit,
+        refundedCredits: sumMilliAbs(refund),
+        payment,
+      }
+    }
+
+    const marketOrder =
+      kind === 'BREAD'
+        ? null
+        : await this.prisma.marketOrder.findUnique({
+            where: { id },
+            select: { ...this._marketLedgerSelect, createdAt: true },
+          })
+
+    if (!marketOrder) {
+      throw { statusCode: 404, message: 'Pedido não encontrado' }
+    }
+
+    const [row] = await this._enrichMarketOrders([marketOrder])
+    const [refund, payment] = await Promise.all([
+      this.prisma.creditTransaction.findMany({
+        where: { type: TransactionType.MARKET_REFUND, referenceId: id },
+        select: { quantityMilli: true },
+      }),
+      this._loadPayment(marketOrder.paymentId),
+    ])
+
+    return {
+      ...row,
+      createdAt: marketOrder.createdAt.toISOString(),
+      code: shortOrderCode(id),
+      // Na Cestinha o débito é o split — já veio do pedido, não precisa de derivação.
+      creditsDebited: row.creditsApplied,
+      creditsDebitedDerived: false,
+      refundedCredits: sumMilliAbs(refund),
+      payment,
+    }
+  }
+
+  /** Pagamento vinculado, com o nome do combo resolvido. `null` quando pago só com saldo. */
+  private async _loadPayment(paymentId: string | null): Promise<OrderPayment | null> {
+    if (!paymentId) return null
+    const p = await this.prisma.payment.findUnique({ where: { id: paymentId } })
+    if (!p) return null
+
+    const combo = p.comboId
+      ? await this.prisma.combo.findUnique({ where: { id: p.comboId }, select: { name: true, quantity: true } })
+      : null
+
+    return {
+      id: p.id,
+      amount: p.amount,
+      method: p.method,
+      status: p.status,
+      // Ausente/null = CREDITS (compra de créditos) — ver o enum no schema.
+      purpose: p.purpose ?? 'CREDITS',
+      createdAt: p.createdAt.toISOString(),
+      // Um campo só: a tela não se importa com QUAL gateway, só quer o id para conciliar.
+      gatewayId: p.stripePaymentIntentId ?? p.mercadoPagoId ?? '',
+      comboName: combo?.name ?? '',
+      quantity: combo?.quantity ?? p.customQuantity ?? 0,
+    }
+  }
+
+  /**
    * refundOrder — estorna os créditos de um pedido (atalho do detalhe do pedido).
    * Cria CreditTransaction REFUND + incrementa o saldo. Idempotente: bloqueia 2º estorno.
    */
@@ -1755,6 +1930,8 @@ export class AdminOrdersService {
     if (outcome === 'DELIVERED' && brtDateStr(order.scheduledDate) === brtDateStr(now)) {
       await this.notifyAndPersist(order)
     }
+    // Indique e Ganhe — entrega confirmada depois, mas é entrega: pode qualificar. Nunca lança.
+    if (outcome === 'DELIVERED') await afterDelivery(this.fastify, order.userId)
 
     const user = await this.prisma.user.findUnique({
       where: { id: order.userId },
@@ -1828,6 +2005,8 @@ export class AdminOrdersService {
       if (brtDateStr(order.scheduledDate) === brtDateStr(new Date())) {
         await notifyMarketDelivered(this.fastify, order.userId)
       }
+      // Indique e Ganhe — Cestinha entregue também qualifica (D-1). Nunca lança.
+      await afterDelivery(this.fastify, order.userId)
     } else if (opts.outcome === 'NOT_DELIVERED') {
       await notifyMarketNotDelivered(this.fastify, order, { reason: opts.reason, refundedCredits })
     } else {

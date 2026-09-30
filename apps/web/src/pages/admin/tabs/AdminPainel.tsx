@@ -5,6 +5,38 @@ import { KpiCard } from '../../../components/admin/KpiCard'
 import { BarChart } from '../../../components/admin/BarChart'
 import { BreadMark } from '../../../components/brand/BreadMark'
 import { Icon } from '../../../components/brand/Icon'
+import {
+  PeriodPicker,
+  periodQuery,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
+import { PainelAlertas, type AlertTarget } from '../../../components/admin/painel/PainelAlertas'
+import { PainelResultado } from '../../../components/admin/painel/PainelResultado'
+import { PainelBase, SectionLabel } from '../../../components/admin/painel/PainelBase'
+import { PainelPosicao } from '../../../components/admin/painel/PainelPosicao'
+import type {
+  DashboardAlerts,
+  DashboardOverview,
+} from '../../../components/admin/painel/painel-types'
+import { fmtBRL } from '../../../components/admin/painel/painel-types'
+
+/**
+ * AdminPainel — a visão ponta a ponta do negócio (§15 do plano-financeiro-vendas).
+ *
+ * Antes desta reformulação o painel respondia a UMA pergunta ("como está hoje") e a respondia com
+ * números de operação. Faltava tudo o que decide o negócio: resultado do período, base de
+ * clientes, posição patrimonial — e faltava **período**, porque nada aqui tinha seletor.
+ *
+ * A tela virou composição de faixas, cada uma num componente próprio. Três fontes, buscadas em
+ * paralelo e renderizadas progressivamente:
+ *
+ *   - `GET /admin/dashboard`          — operação (rápido; é o que pinta primeiro)
+ *   - `GET /admin/dashboard/alerts`   — Faixa 0
+ *   - `GET /admin/dashboard/overview` — Faixas 2, 4, 6 (mais pesado, cacheado)
+ *
+ * Cada faixa tolera a sua fonte faltando: um endpoint que falha esconde a faixa em vez de derrubar
+ * o painel.
+ */
 
 type AdminTab = 'painel' | 'pedido' | 'separacao' | 'entregas' | 'clientes' | 'gestao'
 
@@ -14,6 +46,8 @@ interface DashboardData {
   breadsTomorrowCount: number
   breadsTomorrowProjected: number
   breadsByWeekday: number[]
+  /** Itens do mercadinho por dia — métrica PARALELA aos pães, nunca somada (D-1). */
+  itemsByWeekday?: number[]
   revenueToday: number
   breadsTodayTrendPct: number
   revenueTrendPct: number
@@ -21,11 +55,7 @@ interface DashboardData {
   clientsNewCount: number
   condominiumsCount: number
   deliverySlots: Array<{ slotId: string; label: string; time: string; cutoffTime: string }>
-  revenueByType: {
-    combos: number
-    avulso: number
-  }
-  /** Cestinha comprada hoje (D-2): receita nova entra no consolidado, GMV nunca. */
+  revenueByType: { combos: number; avulso: number }
   marketToday?: { revenue: number; gmv: number; orders: number }
   revenueTodayConsolidated?: number
   stuckCount: number
@@ -35,16 +65,16 @@ const DAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 // breadsByWeekday vem indexado Seg..Dom; mapeia para o índice JS de getDay() (0=Dom)
 const WEEKDAY_TO_JS = [1, 2, 3, 4, 5, 6, 0]
 
-function buildBarChartData(breadsByWeekday: number[], currentDayOfWeek: number) {
-  const series = breadsByWeekday.length === 7 ? breadsByWeekday : [0, 0, 0, 0, 0, 0, 0]
-  return series.map((value, i) => ({
+function buildBarChartData(series: number[], currentDayOfWeek: number) {
+  const safe = series.length === 7 ? series : [0, 0, 0, 0, 0, 0, 0]
+  return safe.map((value, i) => ({
     label: DAY_LABELS[WEEKDAY_TO_JS[i]],
     value,
     highlight: WEEKDAY_TO_JS[i] === currentDayOfWeek,
   }))
 }
 
-// Formata um delta percentual em badge ("+12%" / "-5%"); positivo (ou zero) = verde.
+/** Badge de delta. Positivo (ou zero) = verde. */
 function trendPill(pct: number | undefined): { text: string; tone: 'good' | 'neutral' } | undefined {
   if (pct === undefined || pct === null) return undefined
   return { text: `${pct >= 0 ? '+' : ''}${pct}%`, tone: pct >= 0 ? 'good' : 'neutral' }
@@ -53,60 +83,97 @@ function trendPill(pct: number | undefined): { text: string; tone: 'good' | 'neu
 export function AdminPainel({
   onNavigate,
 }: {
-  // O 2º argumento é um deep-link opcional: leva a aba destino já num segmento/filtro
-  // específico (usado pelo banner de pedidos parados → Entregas › Histórico › Parados).
   onNavigate: (tab: AdminTab, intent?: { segment: 'historico'; filter: 'parados' }) => void
 }) {
   const [data, setData] = useState<DashboardData | null>(null)
+  const [alerts, setAlerts] = useState<DashboardAlerts | null>(null)
+  const [overview, setOverview] = useState<DashboardOverview | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isOverviewLoading, setIsOverviewLoading] = useState(true)
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'month' })
+  const [compare, setCompare] = useState(true)
 
+  // Operação e alertas não dependem do período: buscados uma vez, no mount.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await apiFetch('/admin/dashboard')
-        if (res.ok) {
-          setData((await res.json()) as DashboardData)
-        }
-      } catch {
-        // falha silenciosa — mantém estado anterior
-      } finally {
-        setIsLoading(false)
+    let cancelled = false
+    void (async () => {
+      const [opRes, alertRes] = await Promise.allSettled([
+        apiFetch('/admin/dashboard'),
+        apiFetch('/admin/dashboard/alerts'),
+      ])
+      if (cancelled) return
+
+      if (opRes.status === 'fulfilled' && opRes.value.ok) {
+        setData((await opRes.value.json()) as DashboardData)
       }
+      if (alertRes.status === 'fulfilled' && alertRes.value.ok) {
+        setAlerts((await alertRes.value.json()) as DashboardAlerts)
+      }
+      setIsLoading(false)
+    })()
+    return () => {
+      cancelled = true
     }
-    void fetchData()
   }, [])
 
+  // A visão geral refaz a cada troca de período/comparativo.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setIsOverviewLoading(true)
+      try {
+        const res = await apiFetch(`/admin/dashboard/overview?${periodQuery(sel, { compare })}`)
+        if (cancelled) return
+        setOverview(res.ok ? ((await res.json()) as DashboardOverview) : null)
+      } catch {
+        if (!cancelled) setOverview(null)
+      } finally {
+        if (!cancelled) setIsOverviewLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [sel, compare])
+
   const currentDayOfWeek = new Date().getDay()
-  const barData = buildBarChartData(data?.breadsByWeekday ?? [], currentDayOfWeek)
+  const breadBars = buildBarChartData(data?.breadsByWeekday ?? [], currentDayOfWeek)
+  const itemBars = buildBarChartData(data?.itemsByWeekday ?? [], currentDayOfWeek)
+  const hasItems = itemBars.some((b) => b.value > 0)
 
-  const totalReceita = data ? data.revenueByType.combos + data.revenueByType.avulso : 0
-  const combosPercent = totalReceita > 0 ? (data!.revenueByType.combos / totalReceita) * 100 : 50
-  const avulsoPercent = totalReceita > 0 ? (data!.revenueByType.avulso / totalReceita) * 100 : 50
+  const onAlertNavigate = (t: AlertTarget) =>
+    t.tab === 'entregas' ? onNavigate('entregas', t.intent) : onNavigate(t.tab)
 
-  function formatCurrency(value: number) {
-    return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  }
+  // ═══ Mix de canal (Fase 6) ═══
+  // Era "Receita por tipo" e mostrava só combos × avulso — os dois canais que existiam quando o
+  // card nasceu. Cestinha e gancho JÁ vinham no mesmo payload e simplesmente não eram desenhados,
+  // então o card exibia um "total" menor que a receita da Faixa 2 logo acima, sem explicar por quê.
+  // Agora são os quatro canais, e a soma fecha com o consolidado.
+  const rev = overview?.revenue
+  const mix = rev
+    ? [
+        { key: 'combos', label: 'Combos', value: rev.byType.combos, color: 'var(--color-gold)', opacity: 1 },
+        { key: 'avulso', label: 'Compra personalizada', value: rev.byType.avulso, color: 'var(--color-accent)', opacity: 0.55 },
+        { key: 'market', label: '🧺 Cestinha', value: rev.market, color: 'var(--color-good)', opacity: 1 },
+        { key: 'hook', label: 'Gancho de porta', value: rev.hook, color: 'var(--color-espresso)', opacity: 0.75 },
+      ].filter((c) => c.value > 0)
+    : []
+  const mixTotal = mix.reduce((s, c) => s + c.value, 0)
 
   return (
-    <div
-      style={{
-        flex: 1,
-        overflowY: 'auto',
-        paddingBottom: 24,
-      }}
-    >
-      <AdminHead sub="Cheirin de Pão · Operação" titulo="Painel" />
+    <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
+      <AdminHead
+        sub={
+          data
+            ? `${data.condominiumsCount} ${data.condominiumsCount === 1 ? 'condomínio' : 'condomínios'} · ${data.clientsCount} clientes`
+            : 'Cheirin de Pão · Operação'
+        }
+        titulo="Painel"
+      />
 
       <div style={{ padding: '0 20px' }}>
         {isLoading ? (
-          /* Loading state simples */
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              padding: '40px 0',
-            }}
-          >
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
             <div
               style={{
                 width: 28,
@@ -120,52 +187,25 @@ export function AdminPainel({
           </div>
         ) : (
           <>
-            {/* Alerta — pedidos no limbo (sem desfecho) */}
-            {data && data.stuckCount > 0 && (
-              <button
-                onClick={() => onNavigate('entregas', { segment: 'historico', filter: 'parados' })}
-                aria-label="Ver pedidos parados"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  width: '100%',
-                  textAlign: 'left',
-                  background: 'rgba(194,65,12,0.10)',
-                  border: '1px solid rgba(194,65,12,0.30)',
-                  borderRadius: 16,
-                  padding: 14,
-                  marginBottom: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 11,
-                    background: 'rgba(194,65,12,0.16)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <Icon name="alert" size={20} color="var(--color-bad, #C2410C)" stroke={2.2} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, fontWeight: 700, color: 'var(--color-bad, #C2410C)', margin: 0, lineHeight: 1.25 }}>
-                    {data.stuckCount} pedido{data.stuckCount > 1 ? 's' : ''} parado{data.stuckCount > 1 ? 's' : ''}
-                  </p>
-                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-sec)', margin: '2px 0 0', lineHeight: 1.3 }}>
-                    Data passada sem desfecho — verifique em Entregas › Histórico › Parados
-                  </p>
-                </div>
-                <Icon name="chevR" size={18} color="var(--color-bad, #C2410C)" stroke={2} />
-              </button>
-            )}
+            {/* ═══ FAIXA 0 · alertas — nada a resolver, nada desenhado ═══ */}
+            <PainelAlertas data={alerts} onNavigate={onAlertNavigate} />
 
-            {/* Grade 2x2 de KpiCards */}
+            {/* ═══ FAIXA 1 · período ═══ */}
+            <div style={{ marginBottom: 12 }}>
+              <PeriodPicker
+                value={sel}
+                onChange={setSel}
+                showCompare
+                compare={compare}
+                onCompareChange={setCompare}
+              />
+            </div>
+
+            {/* ═══ FAIXA 2 · resultado ═══ */}
+            <PainelResultado data={overview} isLoading={isOverviewLoading} />
+
+            {/* ═══ FAIXA 3 · operação (não segue o período: é sempre hoje/amanhã) ═══ */}
+            <SectionLabel>Operação · hoje</SectionLabel>
             <div
               style={{
                 display: 'grid',
@@ -178,48 +218,33 @@ export function AdminPainel({
                 icon="bag"
                 value={
                   <>
-                    {data?.breadsTodayCount ?? 0}{' '}
-                    <span style={{ fontSize: 19 }}>🥖</span>
+                    {data?.breadsTodayCount ?? 0} <span style={{ fontSize: 19 }}>🥖</span>
                   </>
                 }
                 label="A entregar hoje"
                 pill={trendPill(data?.breadsTodayTrendPct)}
-                sub={data && data.breadsTodayProjected > 0 ? `+${data.breadsTodayProjected} previstos (agenda)` : undefined}
-              />
-              <KpiCard
-                icon="trend"
-                value={formatCurrency(data?.revenueTodayConsolidated ?? data?.revenueToday ?? 0)}
-                label="Receita do dia"
-                pill={trendPill(data?.revenueTrendPct)}
-                // D-2: o GMV da Cestinha aparece como CONTEXTO, jamais somado à receita. Uma
-                // Cestinha paga 100% em pãezinhos movimenta sem gerar receita nova — e está certo.
                 sub={
-                  data?.marketToday && data.marketToday.gmv > 0
-                    ? `🧺 ${formatCurrency(data.marketToday.gmv)} movimentados`
-                    : undefined
+                  data && data.breadsTodayProjected > 0
+                    ? `+${data.breadsTodayProjected} previstos (agenda)`
+                    : 'vs. mesmo dia da semana anterior'
                 }
               />
               <KpiCard
-                icon="users"
-                value={data?.clientsCount ?? 0}
-                label="Clientes"
-                pill={data && data.clientsNewCount > 0 ? { text: `+${data.clientsNewCount}`, tone: 'good' } : undefined}
-              />
-              <KpiCard
-                icon="building"
-                value={data?.condominiumsCount ?? 0}
-                label="Condomínios"
+                icon="trend"
+                value={fmtBRL(data?.revenueTodayConsolidated ?? data?.revenueToday ?? 0)}
+                label="Receita de hoje"
+                // D-2: o GMV aparece como contexto, jamais somado à receita.
+                sub={
+                  data?.marketToday && data.marketToday.gmv > 0
+                    ? `🧺 ${fmtBRL(data.marketToday.gmv)} movimentados`
+                    : undefined
+                }
               />
             </div>
 
             {/* Card atalho — Pedido de amanhã */}
             <div
-              style={{
-                borderRadius: 22,
-                overflow: 'hidden',
-                marginBottom: 12,
-                cursor: 'pointer',
-              }}
+              style={{ borderRadius: 22, overflow: 'hidden', marginBottom: 12, cursor: 'pointer' }}
               onClick={() => onNavigate('pedido')}
               role="button"
               aria-label="Ir para pedido"
@@ -235,7 +260,6 @@ export function AdminPainel({
                   overflow: 'hidden',
                 }}
               >
-                {/* BreadMark decorativo */}
                 <div
                   style={{
                     position: 'absolute',
@@ -248,7 +272,6 @@ export function AdminPainel({
                   <BreadMark size={120} color="#E3AC3F" />
                 </div>
 
-                {/* Ícone avatar */}
                 <div
                   style={{
                     width: 44,
@@ -265,7 +288,6 @@ export function AdminPainel({
                   <Icon name="factory" size={22} color="#E3AC3F" stroke={2} />
                 </div>
 
-                {/* Textos */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p
                     style={{
@@ -288,22 +310,26 @@ export function AdminPainel({
                       fontSize: 16,
                       fontWeight: 700,
                       color: '#FAF5EC',
-                      marginTop: 2,
                       margin: '2px 0 0',
                       lineHeight: 1.2,
                     }}
                   >
                     Pedido de amanhã · {data?.breadsTomorrowCount ?? 0} pães
-                    {data && data.breadsTomorrowProjected > 0 ? ` · +${data.breadsTomorrowProjected} previstos` : ''}
+                    {data && data.breadsTomorrowProjected > 0
+                      ? ` · +${data.breadsTomorrowProjected} previstos`
+                      : ''}
                   </p>
                 </div>
 
-                {/* Chevron */}
                 <Icon name="chevR" size={20} color="#C7B595" stroke={2} />
               </div>
             </div>
 
-            {/* Card — Fornadas por dia */}
+            {/* ═══ FAIXA 4 · base e crescimento ═══ */}
+            <PainelBase data={overview} />
+
+            {/* ═══ FAIXA 5 · gráficos ═══ */}
+            <SectionLabel>Volume da semana</SectionLabel>
             <div
               style={{
                 background: 'var(--color-surface)',
@@ -313,201 +339,264 @@ export function AdminPainel({
                 marginBottom: 12,
               }}
             >
-              <p
-                style={{
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: 'var(--color-text)',
-                  margin: '0 0 14px',
-                }}
-              >
-                Fornadas por dia
-              </p>
-              <BarChart data={barData} height={96} />
+              <ChartTitle>Pães por dia</ChartTitle>
+              <BarChart data={breadBars} height={96} />
+
+              {/* `itemsByWeekday` era calculado pela API e NUNCA lido pelo front — a Cestinha não
+                  aparecia em gráfico nenhum. Série separada, nunca somada aos pães (D-1): "18 pães"
+                  não pode ser 12 pães + 6 potes de geleia. */}
+              {hasItems && (
+                <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--color-border-2)' }}>
+                  <ChartTitle>Itens da Cestinha por dia</ChartTitle>
+                  <BarChart data={itemBars} height={72} />
+                </div>
+              )}
             </div>
 
-            {/* Card — Receita por tipo */}
-            <div
-              style={{
-                background: 'var(--color-surface)',
-                borderRadius: 22,
-                padding: 18,
-                border: '1px solid var(--color-border-2)',
-              }}
-            >
-              {/* Header */}
+            {/* ═══ FAIXA 5 · mix de canal — segue o período da Faixa 2, mesma fonte. ═══ */}
+            {mix.length > 0 && mixTotal > 0 && (
               <div
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
+                  background: 'var(--color-surface)',
+                  borderRadius: 22,
+                  padding: 18,
+                  border: '1px solid var(--color-border-2)',
                   marginBottom: 12,
                 }}
               >
-                <p
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 15,
-                    fontWeight: 700,
-                    color: 'var(--color-text)',
-                    margin: 0,
-                  }}
-                >
-                  Receita por tipo · hoje
-                </p>
-                <p
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 15,
-                    fontWeight: 800,
-                    color: 'var(--color-text)',
-                    margin: 0,
-                  }}
-                >
-                  {formatCurrency(totalReceita)}
-                </p>
-              </div>
-
-              {/* Barra proporcional */}
-              <div
-                style={{
-                  height: 12,
-                  borderRadius: 99,
-                  overflow: 'hidden',
-                  marginBottom: 14,
-                  display: 'flex',
-                }}
-              >
                 <div
                   style={{
-                    width: `${combosPercent}%`,
-                    background: 'var(--color-gold)',
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-                <div
-                  style={{
-                    width: `${avulsoPercent}%`,
-                    background: 'var(--color-accent)',
-                    opacity: 0.5,
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </div>
-
-              {/* Legenda */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div
-                      style={{
-                        width: 11,
-                        height: 11,
-                        borderRadius: 3,
-                        background: 'var(--color-gold)',
-                        flexShrink: 0,
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 13.5,
-                        color: 'var(--color-text-sec)',
-                      }}
-                    >
-                      Combos
-                    </span>
-                  </div>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 13.5,
-                      fontWeight: 700,
-                      color: 'var(--color-text)',
-                    }}
-                  >
-                    {formatCurrency(data?.revenueByType.combos ?? 0)}
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div
-                      style={{
-                        width: 11,
-                        height: 11,
-                        borderRadius: 3,
-                        background: 'var(--color-accent)',
-                        opacity: 0.5,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 13.5,
-                        color: 'var(--color-text-sec)',
-                      }}
-                    >
-                      Compra personalizada
-                    </span>
-                  </div>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 13.5,
-                      fontWeight: 700,
-                      color: 'var(--color-text)',
-                    }}
-                  >
-                    {formatCurrency(data?.revenueByType.avulso ?? 0)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Cestinha — linha SEPARADA da barra proporcional acima, porque ali só há receita de
-                  crédito. D-2: dinheiro novo entra no consolidado; movimentado é contexto. */}
-              {data?.marketToday && (data.marketToday.gmv > 0 || data.marketToday.revenue > 0) && (
-                <div
-                  style={{
-                    borderTop: '1px solid var(--color-border-2)',
-                    marginTop: 12,
-                    paddingTop: 12,
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    gap: 10,
+                    alignItems: 'baseline',
+                    marginBottom: 12,
                   }}
                 >
-                  <div style={{ minWidth: 0 }}>
-                    <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }}>
-                      🧺 Cestinha · {data.marketToday.orders}
-                    </span>
-                    <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--color-text-ter)', margin: '1px 0 0' }}>
-                      {formatCurrency(data.marketToday.gmv)} movimentados — o que foi pago em pãezinhos não é receita nova
-                    </p>
-                  </div>
-                  <span
+                  <p
                     style={{
-                      fontFamily: 'var(--font-body)',
-                      fontSize: 13.5,
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 15,
                       fontWeight: 700,
                       color: 'var(--color-text)',
-                      whiteSpace: 'nowrap',
+                      margin: 0,
                     }}
                   >
-                    {formatCurrency(data.marketToday.revenue)}
-                  </span>
+                    Mix de canal
+                  </p>
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: 'var(--color-text)',
+                      margin: 0,
+                    }}
+                  >
+                    {fmtBRL(mixTotal)}
+                  </p>
                 </div>
-              )}
+
+                <div style={{ height: 12, borderRadius: 99, overflow: 'hidden', marginBottom: 14, display: 'flex' }}>
+                  {mix.map((c) => (
+                    <div
+                      key={c.key}
+                      style={{
+                        width: `${(c.value / mixTotal) * 100}%`,
+                        background: c.color,
+                        opacity: c.opacity,
+                        transition: 'width 0.3s ease',
+                      }}
+                    />
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {mix.map((c) => (
+                    <Legend key={c.key} color={c.color} opacity={c.opacity} label={c.label} value={c.value} />
+                  ))}
+                </div>
+
+                {/* O movimentado da Cestinha aparece como CONTEXTO, fora da barra: somá-lo à
+                    receita contaria duas vezes a parte paga em pãezinhos (D-2). */}
+                {(rev?.cestinhaGmv ?? 0) > 0 && (
+                  <p
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: 11.5,
+                      color: 'var(--color-text-ter)',
+                      margin: '11px 0 0',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    🧺 {fmtBRL(rev!.cestinhaGmv)} movimentados em Cestinhas — a parte paga em
+                    pãezinhos já foi faturada na compra do combo e não entra na barra.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* ═══ FAIXA 6 · posição ═══ */}
+            <PainelPosicao data={overview} />
+
+            {/* ═══ FAIXA 7 · atalhos ═══
+                Os oito relatórios existiam e o painel não levava a nenhum — "o que foi construído
+                não é encontrado" era o último item do diagnóstico do §15.2. Estes atalhos levam ao
+                relatório que EXPLICA o número exibido acima, não a um menu genérico. */}
+            <SectionLabel>Ver em detalhe</SectionLabel>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 10,
+                marginBottom: 12,
+              }}
+            >
+              <ShortcutCard
+                icon="trend"
+                label="Vendas & performance"
+                hint="Mais vendidos, ABC e ticket"
+                onClick={() => onNavigate('gestao')}
+              />
+              <ShortcutCard
+                icon="star"
+                label="Clientes & LTV"
+                hint="Quem sustenta o faturamento"
+                onClick={() => onNavigate('gestao')}
+              />
+              <ShortcutCard
+                icon="doc"
+                label="DRE"
+                hint="O resultado, linha a linha"
+                onClick={() => onNavigate('gestao')}
+              />
+              <ShortcutCard
+                icon="wallet"
+                label="Financeiro"
+                hint="Despesas, caixa e contas"
+                onClick={() => onNavigate('gestao')}
+              />
             </div>
           </>
         )}
       </div>
 
-      {/* CSS para animação de spinner */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ subcomponentes
+
+/**
+ * Atalho da Faixa 7.
+ *
+ * Leva à aba Gestão, de onde o hub correspondente é um toque. A navegação do admin não expõe
+ * deep-link para subtela de hub — inventar um só para estes quatro cartões acrescentaria um segundo
+ * caminho de navegação para manter em sincronia.
+ */
+function ShortcutCard({
+  icon,
+  label,
+  hint,
+  onClick,
+}: {
+  icon: 'trend' | 'star' | 'doc' | 'wallet'
+  label: string
+  hint: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        gap: 6,
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border-2)',
+        borderRadius: 16,
+        padding: 14,
+        cursor: 'pointer',
+        textAlign: 'left',
+        width: '100%',
+      }}
+    >
+      <Icon name={icon} size={19} color="var(--color-accent)" />
+      <span
+        style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: 13.5,
+          fontWeight: 700,
+          color: 'var(--color-text)',
+          lineHeight: 1.25,
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: 11.5,
+          fontWeight: 600,
+          color: 'var(--color-text-ter)',
+          lineHeight: 1.3,
+        }}
+      >
+        {hint}
+      </span>
+    </button>
+  )
+}
+
+function ChartTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      style={{
+        fontFamily: 'var(--font-body)',
+        fontSize: 12.5,
+        fontWeight: 700,
+        color: 'var(--color-text-sec)',
+        margin: '0 0 12px',
+      }}
+    >
+      {children}
+    </p>
+  )
+}
+
+function Legend({
+  color,
+  opacity,
+  label,
+  value,
+}: {
+  color: string
+  opacity?: number
+  label: string
+  value: number
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div
+          style={{ width: 11, height: 11, borderRadius: 3, background: color, opacity, flexShrink: 0 }}
+        />
+        <span style={{ fontFamily: 'var(--font-body)', fontSize: 13.5, color: 'var(--color-text-sec)' }}>
+          {label}
+        </span>
+      </div>
+      <span
+        style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: 13.5,
+          fontWeight: 700,
+          color: 'var(--color-text)',
+        }}
+      >
+        {fmtBRL(value)}
+      </span>
     </div>
   )
 }

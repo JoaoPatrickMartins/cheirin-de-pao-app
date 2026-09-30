@@ -123,6 +123,12 @@ jobs:
           echo S3_ACCESS_KEY_ID=${{ secrets.S3_ACCESS_KEY_ID_DEV }} >> ./apps/api/.env.production
           echo S3_SECRET_ACCESS_KEY=${{ secrets.S3_SECRET_ACCESS_KEY_DEV }} >> ./apps/api/.env.production
           echo S3_PUBLIC_BASE_URL=${{ secrets.S3_PUBLIC_BASE_URL_DEV }} >> ./apps/api/.env.production
+          # Login com Google (plano-login-social.md). Sem estes secrets o botão fica escondido — criá-los é o
+          # interruptor do lançamento. APP_PUBLIC_URL é opcional (vazio = CORS_ORIGIN).
+          echo API_PUBLIC_URL=${{ secrets.API_PUBLIC_URL_DEV }} >> ./apps/api/.env.production
+          echo APP_PUBLIC_URL=${{ secrets.APP_PUBLIC_URL_DEV }} >> ./apps/api/.env.production
+          echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID_DEV }} >> ./apps/api/.env.production
+          echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET_DEV }} >> ./apps/api/.env.production
 
       - name: criando arquivo .env de producao
         if: github.ref == 'refs/heads/main'
@@ -152,6 +158,12 @@ jobs:
           echo S3_ACCESS_KEY_ID=${{ secrets.S3_ACCESS_KEY_ID_PROD }} >> ./apps/api/.env.production
           echo S3_SECRET_ACCESS_KEY=${{ secrets.S3_SECRET_ACCESS_KEY_PROD }} >> ./apps/api/.env.production
           echo S3_PUBLIC_BASE_URL=${{ secrets.S3_PUBLIC_BASE_URL_PROD }} >> ./apps/api/.env.production
+          # Login com Google (plano-login-social.md). Sem estes secrets o botão fica escondido — criá-los é o
+          # interruptor do lançamento. APP_PUBLIC_URL é opcional (vazio = CORS_ORIGIN).
+          echo API_PUBLIC_URL=${{ secrets.API_PUBLIC_URL_PROD }} >> ./apps/api/.env.production
+          echo APP_PUBLIC_URL=${{ secrets.APP_PUBLIC_URL_PROD }} >> ./apps/api/.env.production
+          echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID_PROD }} >> ./apps/api/.env.production
+          echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET_PROD }} >> ./apps/api/.env.production
 
       - name: logando no Docker Hub
         uses: docker/login-action@v3.6.0

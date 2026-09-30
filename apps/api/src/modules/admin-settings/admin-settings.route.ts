@@ -359,6 +359,9 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
               recorrenciaMin: { type: 'integer', description: 'Pedidos entregues (pedido único + Cestinha) para o gancho por fidelidade. 0 = regra desligada.' },
               recorrenciaDesde: { type: 'string', nullable: true, description: 'Marco de vigência da fidelidade (ISO 8601): só pedidos entregues a partir daqui contam. null = regra nunca foi ligada.' },
               avulsoUnit: { type: 'number', description: 'Preço do pão avulso em reais (somente leitura) — base do cálculo do limiar da Cestinha.' },
+              // Sem esta linha o `fast-json-stringify` DESCARTA o campo em silêncio — a mesma
+              // armadilha documentada em admin-reports.route.ts. O serviço já devolvia `custo`.
+              custo: { type: 'number', description: 'Quanto um gancho CUSTA para a empresa (A3). 0 = não informado; o relatório então declara o CAC como indisponível em vez de exibir zero.' },
             },
           },
         },
@@ -384,6 +387,7 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
             pedidoUnicoMin: { type: 'integer', minimum: 1, maximum: 50, description: 'Novo mínimo de pães do pedido único.' },
             preco: { type: 'number', minimum: 0, description: 'Novo preço do gancho adicional em reais.' },
             recorrenciaMin: { type: 'integer', minimum: 0, maximum: 100, description: 'Pedidos entregues para o gancho por fidelidade; 0 desliga a regra. Omitido = preserva o valor vigente.' },
+            custo: { type: 'number', minimum: 0, description: 'Quanto um gancho CUSTA para a empresa, em reais (A3) — base do CAC via gancho grátis. Omitido = preserva o valor vigente; 0 significa "não informado".' },
           },
         },
         response: {
@@ -395,12 +399,171 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
               pedidoUnicoMin: { type: 'integer' },
               preco: { type: 'number' },
               recorrenciaMin: { type: 'integer', description: 'Valor em vigor após o salvamento.' },
+              custo: { type: 'number' },
             },
           },
         },
       },
     },
     ctrl.setGancho.bind(ctrl),
+  )
+
+  // ── Indique e Ganhe (A3) ────────────────────────────────────────────────
+  // Todo campo da config precisa estar no schema de resposta: o `fast-json-stringify` descarta
+  // o que não está declarado, em silêncio.
+  const referralCampaignSchema = {
+    type: 'object',
+    nullable: true,
+    description: 'Campanha por período (uma por vez — D-16), ou null. Multiplica a recompensa de quem indica.',
+    properties: {
+      rotulo: { type: 'string', description: 'Rótulo exibido no app, ex.: "Semana em dobro" (1..30).' },
+      multiplicador: { type: 'integer', description: 'Multiplicador da recompensa de quem indica (2..5).' },
+      inicio: { type: 'string', description: 'Primeiro dia (BRT, YYYY-MM-DD, inclusivo).' },
+      fim: { type: 'string', description: 'Último dia (BRT, YYYY-MM-DD, inclusivo).' },
+    },
+  }
+  const referralGoalsSchema = {
+    type: 'array',
+    description: 'Metas de quem indica (até 5), em ordem crescente de quantidade.',
+    items: {
+      type: 'object',
+      properties: {
+        quantidade: { type: 'integer', description: 'N-ésima indicação que valeu (1..999).' },
+        bonus: { type: 'integer', description: 'Bônus extra em pãezins (1..50).' },
+      },
+    },
+  }
+  const referralConfigProperties = {
+    ativa: { type: 'boolean', description: 'Programa ligado (só vale com recompensa ≥ 1).' },
+    recompensa: { type: 'integer', description: 'X — pãezins para quem indica, por indicação que valeu (0..50).' },
+    bonusIndicado: { type: 'integer', description: 'Y — pãezins de boas-vindas do amigo (0..50; 0 = sem bônus).' },
+    compraMinima: { type: 'number', description: 'Valor mínimo (R$) de um pagamento real do amigo. 0 = qualquer.' },
+    limiteMensal: { type: 'integer', description: 'Recompensas por indicador no mês antes de ir para análise (0..99; 0 = sem limite).' },
+    prazoDias: { type: 'integer', description: 'Dias, a partir do cadastro, para o amigo qualificar (0..180; 0 = sem prazo).' },
+    mensagem: { type: 'string', description: 'Texto do compartilhamento, com {codigo} {link} {nome} {bonus}.' },
+    campanha: referralCampaignSchema,
+    metas: referralGoalsSchema,
+  }
+
+  fastify.get(
+    '/admin/settings/indicacao',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Consultar config do Indique e Ganhe (admin)',
+        description:
+          'Retorna a configuração do programa de indicação (valores, regras, campanha, metas e mensagem), mais `unitPrice` — quanto vale um pãozin em R$ (preço médio pago; sem vendas, o preço avulso), base do "≈ R$" — e `today`, o dia BRT de hoje. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração do Indique e Ganhe.',
+            properties: {
+              ...referralConfigProperties,
+              unitPrice: { type: 'number', description: 'Quanto vale um pãozin em R$ (somente leitura). 0 = sem base ainda.' },
+              today: { type: 'string', description: 'Dia BRT de hoje (YYYY-MM-DD) — referência para validar a campanha.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getIndicacao.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/settings/indicacao',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Atualizar config do Indique e Ganhe (admin)',
+        description:
+          'Grava a configuração inteira do programa. 400 = forma inválida (faixas da D-13). 422 = regra de negócio: ligar com recompensa 0, mensagem sem {codigo}/{link}, ou campanha nova/alterada terminando antes de hoje. Os valores novos valem para novas indicações — as antigas mantêm os de quando foram feitas. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['ativa', 'recompensa', 'bonusIndicado', 'compraMinima', 'limiteMensal', 'prazoDias', 'mensagem', 'campanha', 'metas'],
+          properties: referralConfigProperties,
+        },
+        response: {
+          200: {
+            type: 'object',
+            description: 'Configuração em vigor após salvar (como a leitura a enxerga).',
+            properties: referralConfigProperties,
+          },
+        },
+      },
+    },
+    ctrl.setIndicacao.bind(ctrl),
+  )
+
+  // ---------------------------------------------------------------- alíquotas do gateway
+  const gatewayRatesSchema = {
+    type: 'object',
+    description: 'Alíquotas em PERCENTUAL (0,99 = 0,99%), usadas para ESTIMAR a taxa do gateway.',
+    properties: {
+      pix: { type: 'number', description: 'Alíquota do Pix (%).' },
+      creditCard: { type: 'number', description: 'Alíquota do cartão de crédito (%).' },
+      debitCard: { type: 'number', description: 'Alíquota do cartão de débito (%).' },
+      isDefault: {
+        type: 'object',
+        description: 'Quais alíquotas NUNCA foram editadas e ainda são a tabela pública de referência — não a taxa negociada desta conta.',
+        properties: {
+          pix: { type: 'boolean' },
+          creditCard: { type: 'boolean' },
+          debitCard: { type: 'boolean' },
+        },
+      },
+    },
+  }
+
+  fastify.get(
+    '/admin/settings/gateway-rates',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Consultar alíquotas de gateway (admin)',
+        description:
+          'Alíquotas usadas para ESTIMAR a taxa do gateway nos pagamentos em que o provedor não informou o número real. Onde o webhook gravou a taxa real, ela prevalece e estas alíquotas não são consultadas. ' +
+          '`isDefault` diz quais nunca foram editadas: são a tabela pública de referência, não a taxa negociada desta conta — e o DRE estima a dedução em cima delas. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: { 200: gatewayRatesSchema },
+      },
+    },
+    ctrl.getGatewayRates.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/settings/gateway-rates',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Atualizar alíquotas de gateway (admin)',
+        description:
+          'Grava as alíquotas de ESTIMATIVA (0..30%). A estimativa é recalculada na LEITURA e nunca persistida em `Payment`, então a mudança se reflete retroativamente em todo relatório que dependia dela — que é o comportamento desejado. ' +
+          'Pagamento com taxa REAL informada pelo provedor não é afetado. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['pix', 'creditCard', 'debitCard'],
+          properties: {
+            pix: { type: 'number', minimum: 0, maximum: 30 },
+            creditCard: { type: 'number', minimum: 0, maximum: 30 },
+            debitCard: { type: 'number', minimum: 0, maximum: 30 },
+          },
+        },
+        response: {
+          200: {
+            ...gatewayRatesSchema,
+            properties: { ok: { type: 'boolean' }, ...gatewayRatesSchema.properties },
+          },
+        },
+      },
+    },
+    ctrl.setGatewayRates.bind(ctrl),
   )
 
   // Restrições por dia da semana — dias bloqueados + limite de pedidos (global).

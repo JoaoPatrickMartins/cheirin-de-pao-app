@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cheirin de Pão — Login com Google ou Facebook · Telas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Roboto:wght@500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Hanken Grotesk',system-ui,sans-serif;color:#241608;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+a{color:#B0702A}a:hover{color:#1E1207}
+input::placeholder,textarea::placeholder{color:#B5A789;opacity:1}
+@keyframes rfShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes rfSpin{to{transform:rotate(360deg)}}
+@keyframes rfBlink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="app/brand.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/screens-onboarding.jsx"></script>
+<script type="text/babel" src="app/screens-referral.jsx"></script>
+<script type="text/babel" src="app/screens-referral2.jsx"></script>
+<script type="text/babel" src="app/screens-referral3.jsx"></script>
+<script type="text/babel" src="app/screens-referral-admin.jsx"></script>
+<script type="text/babel" src="app/screens-referral-admin2.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth2.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth3.jsx"></script>
+<script type="text/babel">
+const W = 390;
+function Phone({ h, children, tabs, noStatus }) {
+  const t = THEMES.light;
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, height: h, background: t.appBg, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        {!noStatus && <StatusBar />}
+        <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0 }}>{children}</div>
+        {tabs && <BTabs active={tabs} />}
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+function BTabs({ active }) {
+  const t = THEMES.light;
+  const tabs = [['home', 'home', 'Início'], ['calendar', 'agenda', 'Agenda'], ['wallet', 'paes', 'Pãezins'], ['basket', 'cest', 'Cestinha'], ['user', 'perfil', 'Perfil']];
+  return <div style={{ display: 'flex', borderTop: `1px solid ${t.border2}`, background: t.surface, padding: '8px 4px 14px' }}>{tabs.map(([ic, k, l]) => <div key={k} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '6px 0', color: active === k ? t.accent : t.textTer }}><Icon name={ic} size={22} stroke={active === k ? 2.3 : 2} /><span style={{ fontSize: 10, fontWeight: active === k ? 700 : 600 }}>{l}</span></div>)}</div>;
+}
+function Kit() {
+  const t = THEMES.light;
+  const L = ({ children }) => <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.1em', color: t.textTer, marginTop: 6 }}>{children}</div>;
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, padding: 20, background: t.appBg, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <SAKeyframes />
+        <L>BOTÕES DOS PROVEDORES</L>
+        <SocialBtn provider="google" />
+        <SocialBtn provider="facebook" />
+        <SocialBtn provider="google" state="loading" />
+        <SocialBtn provider="facebook" state="disabled" />
+        <Btn full size="lg">Entrar (espresso · mesma geometria)</Btn>
+        <L>DIVISOR · CONSENTIMENTO</L>
+        <SADivider />
+        <SAConsent />
+        <L>PILL DO PROVEDOR · AVISO</L>
+        <SAProviderPill email="marina.ribeiro@gmail.com" />
+        <SAInAppNotice />
+        <L>ÍCONES NOVOS</L>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          {['lock', 'shield', 'unlink', 'external'].map(n => <div key={n} style={{ background: t.surface, borderRadius: 14, padding: '14px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, color: t.text }}><Icon name={n} size={26} /><span style={{ fontSize: 11.5, fontWeight: 700, color: t.textSec }}>{n}</span></div>)}
+        </div>
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+
+const S = (id, label, h, el) => <DCArtboard key={id} id={id} label={label} width={W} height={h}>{el}</DCArtboard>;
+const P = (id, label, h, el, o = {}) => S(id, label, h, <Phone h={h} {...o}>{el}</Phone>);
+const C0 = CONDOS[0].id;
+
+function Board() {
+  return (
+    <DesignCanvas>
+      <DCSection id="kit" title="Kit" subtitle="Botões dos provedores (seguem a marca de cada um) + peças reutilizáveis">
+        {S('kit', 'Componentes e ícones', 900, <Kit />)}
+      </DCSection>
+      <DCSection id="l1" title="L1 · Login" subtitle="Social primeiro, e-mail e senha logo abaixo">
+        {P('l1-both', 'Google + Facebook', 900, <LoginSocial st="both" />)}
+        {P('l1-google', 'Só Google', 844, <LoginSocial st="google" />)}
+        {P('l1-none', 'Nenhum provedor (igual hoje)', 844, <LoginSocial st="none" />)}
+        {P('l1-loading', 'Abrindo o Google…', 900, <LoginSocial st="loading" />)}
+        {P('l1-inapp', 'Navegador do Instagram', 960, <LoginSocial st="inapp" />)}
+        {P('l1-cancel', 'Erro · cancelou', 980, <LoginSocial st="errCancel" />)}
+        {P('l1-fail', 'Erro · falha do Google', 980, <LoginSocial st="errFail" />)}
+      </DCSection>
+      <DCSection id="l2" title="L2 · Como você quer criar sua conta?" subtitle="Antes dos passos do cadastro · some se nenhum provedor estiver ligado">
+        {P('l2-ref', 'Com indicação', 844, <RegisterChoice st="ref" />)}
+        {P('l2-noref', 'Sem indicação', 844, <RegisterChoice st="noref" />)}
+        {P('l2-google', 'Só Google', 844, <RegisterChoice st="google" />)}
+        {P('l2-inapp', 'Navegador do Instagram', 844, <RegisterChoice st="inapp" />)}
+        {P('l2-loading', 'Abrindo o Facebook…', 844, <RegisterChoice st="loading" />)}
+      </DCSection>
+      <DCSection id="l3" title="L3 · Retorno" subtitle="Conectando (app) · Pode voltar ao app (janela do Safari) · erros">
+        {P('l3a', 'L3a · Conectando', 844, <SAConnecting provider="google" />)}
+        {P('l3a-fb', 'L3a · Conectando (Facebook)', 844, <SAConnecting provider="facebook" />)}
+        {P('l3b', 'L3b · Safari · Pode voltar ao app', 844, <SASafariDone />)}
+        {['cancel:Cancelou', 'blocked:Conta bloqueada', 'role:Entregador/admin', 'expired:Expirou', 'provider:Falha do provedor', 'taken:Já ligada a outro cadastro'].map(x => { const [k, l] = x.split(':'); return P('l3c-' + k, 'L3c · ' + l, 844, <SAError kind={k} />); })}
+      </DCSection>
+      <DCSection id="l4" title="L4 · Cadastro social" subtitle="3 passos · sem senha e sem código · passos 2 e 3 iguais aos de hoje">
+        {P('l4-fill', 'Passo 1 · preenchendo', 960, <SocialStep1 st="fill" />)}
+        {P('l4-filled', 'Passo 1 · pronto', 960, <SocialStep1 st="filled" />)}
+        {P('l4-ref', 'Passo 1 · com indicação', 1010, <SocialStep1 st="ref" />)}
+        {P('l4-cpf', 'CPF inválido', 990, <SocialStep1 st="cpfInvalid" />)}
+        {P('l4-tel', 'Celular inválido', 990, <SocialStep1 st="telInvalid" />)}
+        {P('l4-cpftaken', 'CPF já tem conta', 1100, <SocialStep1 st="cpfTaken" />)}
+        {P('l4-teltaken', 'Celular já cadastrado', 1000, <SocialStep1 st="telTaken" />)}
+        {P('l4-sending', 'Enviando', 960, <SocialStep1 st="sending" />)}
+        {P('l4-expired', 'Sessão do Google expirou', 1130, <SocialStep1 st="expired" />)}
+        {P('l4-s2', 'Passo 2 · Onde você mora?', 844, <OnboardingScreen go={() => {}} social={SOCIAL_PREFILL} initStep={2} initCondo={C0} />)}
+        {P('l4-s3', 'Passo 3 · Seu endereço', 844, <OnboardingScreen go={() => {}} social={SOCIAL_PREFILL} initStep={3} initCondo={C0} />)}
+      </DCSection>
+      <DCSection id="l5" title="L5 · Confirmar e-mail (Facebook)" subtitle="E-mail do Facebook confirmado por código antes de seguir">
+        {P('l5a', 'L5a · Confirme seu e-mail', 844, <SAEmailConfirm st="prefilled" />)}
+        {P('l5b', 'L5b · Qual é o seu e-mail?', 844, <SAEmailConfirm st="empty" />)}
+        {P('l5-sending', 'Enviando', 844, <SAEmailConfirm st="sending" />)}
+        {P('l5c', 'L5c · Código', 844, <SAEmailConfirm st="code" />)}
+        {P('l5-wrong', 'Código errado', 844, <SAEmailConfirm st="codeWrong" />)}
+        {P('l5-expired', 'Código expirado', 844, <SAEmailConfirm st="codeExpired" />)}
+        {P('l5-many', 'Muitas tentativas', 844, <SAEmailConfirm st="tooMany" />)}
+      </DCSection>
+      <DCSection id="l6" title="L6 · Encontramos sua conta" subtitle="Conectar a uma conta que já existe — com senha ou código">
+        {P('l6-both', 'Conta com senha', 900, <SAFoundAccount st="both" />)}
+        {P('l6-code-only', 'Conta sem senha', 844, <SAFoundAccount st="codeOnly" />)}
+        {P('l6-wrong', 'Senha errada', 940, <SAFoundAccount st="wrongPw" />)}
+        {P('l6-code', 'Código', 844, <SAFoundAccount st="code" />)}
+        {P('l6-done', 'Conectado', 844, <SAFoundAccount st="done" />, { tabs: 'home' })}
+      </DCSection>
+      <DCSection id="l7" title="L7 · Contas conectadas" subtitle="Perfil › Minha conta — entre Contato e Segurança">
+        {P('l7-none', 'Nenhum conectado', 1060, <MyAccount conn="none" />)}
+        {P('l7-google', 'Google conectado', 1060, <MyAccount conn="google" />)}
+        {P('l7-both', 'Os dois', 1060, <MyAccount conn="both" />)}
+        {P('l7-connecting', 'Conectando Facebook', 1060, <MyAccount conn="connecting" />)}
+        {P('l7-connected', 'Conectado (toast)', 1060, <MyAccount conn="connected" />)}
+        {P('l7-taken', 'Erro · já ligada', 1160, <MyAccount conn="taken" />)}
+        {P('l7-sheet', 'Desconectar (sheet)', 844, <MyAccount conn="google" sheet />)}
+        {P('l7-sheet-nopw', 'Desconectar · sem senha', 844, <MyAccount conn="google" pw={false} sheet />)}
+      </DCSection>
+      <DCSection id="l8" title="L8 · Segurança sem senha + Criar senha" subtitle="Conta criada pelo Google/Facebook não tem senha">
+        {P('l8-sec', 'Minha conta · sem senha', 1060, <MyAccount conn="google" pw={false} />)}
+        {P('l8-empty', 'Criar senha', 844, <CreatePassword st="empty" />)}
+        {P('l8-typing', 'Digitando', 844, <CreatePassword st="typing" />)}
+        {P('l8-mismatch', 'Senhas diferentes', 844, <CreatePassword st="mismatch" />)}
+        {P('l8-saving', 'Salvando', 844, <CreatePassword st="saving" />)}
+        {P('l8-done', 'Senha criada', 844, <CreatePassword st="done" />)}
+      </DCSection>
+      <DCSection id="l9" title="L9 · Páginas públicas" subtitle="Privacidade · Termos · Exclusão de dados — texto de exemplo">
+        {P('l9-hub', 'Perfil › Ajuda', 1160, <ProfileHub />, { tabs: 'perfil' })}
+        {P('l9-legal', 'Privacidade e termos', 600, <LegalHub />)}
+        {P('l9-privacy', 'Política de Privacidade', 1200, <LegalPage kind="privacy" />)}
+        {P('l9-terms', 'Termos de Uso', 1200, <LegalPage kind="terms" />)}
+        {P('l9-delete', 'Exclusão de dados', 1000, <LegalPage kind="delete" />)}
+      </DCSection>
+      <DCSection id="a1" title="A1 · Admin — detalhe do cliente" subtitle="Nova linha “Acesso” no card Cadastro">
+        {P('a1-g', 'Google + e-mail e senha', 900, <RAClientGeral acesso={['google', 'senha']} />)}
+        {P('a1-fb', 'Só Facebook', 900, <RAClientGeral acesso={['facebook']} />)}
+        {P('a1-all', 'Todos', 900, <RAClientGeral acesso={['google', 'facebook', 'senha']} />)}
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Board />);
+</script>
+</body>
+</html>

@@ -27,6 +27,10 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
           apartment: { type: 'string', description: 'Número ou identificação do apartamento/unidade.' },
           block: { type: 'string', description: 'Bloco do apartamento. Obrigatório em condomínios do tipo BLOCKS.' },
           complement: { type: 'string', maxLength: 10, description: 'Complemento curto do bloco (máx. 10 chars), ex.: "Lado A". Opcional, só em condomínios do tipo BLOCKS.' },
+          // Sem maxLength/enum AQUI de propósito: o JSON schema recusaria o cadastro inteiro com 400
+          // por causa de um `?ref=` adulterado. Quem descarta o valor ruim é o Zod (`.catch`).
+          referralCode: { type: 'string', description: 'Código de indicação (Indique e Ganhe), ex.: "JOAO7K2F". Opcional; até 20 caracteres (acima disso é ignorado). Inválido, de conta bloqueada ou com o programa desligado: o cadastro segue normal, só sem vínculo.' },
+          referralSource: { type: 'string', description: 'De onde veio o código: LINK (?ref= do link compartilhado) ou CODE (digitado). Opcional; outro valor é ignorado.' },
         },
       },
       response: {
@@ -65,6 +69,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string', description: 'Access token JWT (vida curta, ~15 min).' },
             refreshToken: { type: 'string', description: 'Refresh token opaco (90 dias).' },
             hasPassword: { type: 'boolean', description: 'Sempre true no login por senha.' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               properties: {
@@ -129,6 +134,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string', description: 'Access token JWT (vida curta, ~15 min). Enviar como Authorization: Bearer.' },
             refreshToken: { type: 'string', description: 'Refresh token opaco (90 dias). Usar em POST /auth/refresh para renovar o acesso.' },
             hasPassword: { type: 'boolean', description: 'false = conta ainda sem senha; o app deve forçar a definição de senha.' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               description: 'Dados básicos do usuário autenticado.',
@@ -167,6 +173,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string', description: 'Novo access token JWT.' },
             refreshToken: { type: 'string', description: 'Novo refresh token (o anterior foi revogado).' },
             hasPassword: { type: 'boolean', description: 'Indica se a conta já tem senha definida.' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               properties: {
@@ -243,6 +250,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string' },
             refreshToken: { type: 'string' },
             hasPassword: { type: 'boolean' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               properties: { id: { type: 'string' }, name: { type: 'string' }, role: { type: 'string' } },

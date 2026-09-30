@@ -7,6 +7,7 @@ import StepperInline from '../../../components/client/StepperInline'
 import { CondominiumOrderDetail } from '../../../components/admin/CondominiumOrderDetail'
 import { SupplierOrderHistory } from '../../../components/admin/SupplierOrderHistory'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import { DaySalesSheet } from '../../../components/admin/DaySalesSheet'
 import { slotTabLabel } from '../../../lib/slots'
 import { cutoffInstantForDelivery } from '../../../lib/cutoff'
 
@@ -17,10 +18,13 @@ import { cutoffInstantForDelivery } from '../../../lib/cutoff'
 interface SlotBreakdown {
   slotId: string
   label: string
+  /** Pães contáveis do turno (pagos + previstos sem risco). Não inclui `atRisk`. */
   breads: number
   deliveries: number
   /** Itens do mercadinho do turno — métrica paralela aos pães (D-1). */
   items: number
+  /** Pães previstos em risco do turno — fora de `breads`. */
+  atRisk: number
 }
 
 interface CondoDraft {
@@ -30,10 +34,13 @@ interface CondoDraft {
   deliveryCount: number
   /** Pães já pagos — INCLUI o pão vendido dentro da Cestinha. */
   totalBreads: number
+  /** Previstos que devem materializar (SEM risco) — o em risco fica em `riskBreads`. */
   projectedBreads: number
   projectedDeliveries: number
   bySlot: SlotBreakdown[]
   riskCount: number
+  /** Pães previstos em risco — não somam em nenhum total; só contam quando confirmarem. */
+  riskBreads: number
   /** Itens do mercadinho do condomínio — nunca somados aos pães (D-1). */
   marketItemCount: number
   /** Recorte de `totalBreads` que vem da Cestinha. */
@@ -377,6 +384,8 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
   const dateQuery = deliveryDate ? `&date=${deliveryDate}` : ''
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
   const [showHistory, setShowHistory] = useState(false)
+  /** Relatório de itens vendidos do dia (sheet) — só no modo dia, que é onde há uma data. */
+  const [showReport, setShowReport] = useState(false)
   const [slotId, setSlotId] = useState<string>('')
   const [generated, setGenerated] = useState<{ generated: boolean; orderId: string; totalQuantity: number } | null>(null)
 
@@ -510,6 +519,9 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
     const projected = condos.reduce((s, c) => s + c.projectedBreads, 0)
     const deliveries = condos.reduce((s, c) => s + c.deliveryCount + c.projectedDeliveries, 0)
     const risk = condos.reduce((s, c) => s + c.riskCount, 0)
+    // Pães em risco: mostrados à parte, nunca somados em `confirmed`/`projected` (o corte só
+    // materializa quem tiver saldo, então prometê-los na tela seria comprar pão que não existe).
+    const riskBreads = condos.reduce((s, c) => s + c.riskBreads, 0)
     // Itens do mercadinho — métrica paralela aos pães (D-1), exibida ao lado, nunca somada.
     const items = condos.reduce((s, c) => s + c.marketItemCount, 0)
     const marketBreads = condos.reduce((s, c) => s + c.marketBreads, 0)
@@ -528,6 +540,7 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
       projected,
       deliveries,
       risk,
+      riskBreads,
       items,
       marketBreads,
       condoCount: condos.length,
@@ -765,6 +778,33 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
               Compra
             </h1>
           </div>
+          {/* Relatório de vendas do DIA — geral, somando todos os turnos e condomínios. O resto
+              desta tela é por condomínio (é o que a compra precisa); esta é a visão que responde
+              "o que saiu hoje" sem obrigar a somar condomínio por condomínio. */}
+          <button
+            onClick={() => setShowReport(true)}
+            aria-label="Relatório de itens vendidos do dia"
+            title="Itens vendidos no dia"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 13px',
+              borderRadius: 999,
+              border: '1px solid var(--color-border-2)',
+              background: 'var(--color-surface)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 700,
+              fontSize: 12.5,
+              color: 'var(--color-text)',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-soft)',
+              flexShrink: 0,
+            }}
+          >
+            <Icon name="doc" size={15} color="var(--color-accent)" stroke={2} />
+            Relatório
+          </button>
         </div>
       ) : (
         <AdminHead
@@ -1071,6 +1111,13 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                                 <i style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--color-accent)' }} />
                                 em risco
                                 <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{summary.risk}</strong>
+                                {/* Os pães em risco NÃO entram nos KPIs acima — dizer quantos são
+                                    evita a leitura de que "sumiram" da conta. */}
+                                {summary.riskBreads > 0 && (
+                                  <span style={{ fontWeight: 600 }}>
+                                    ({summary.riskBreads} 🥖 fora)
+                                  </span>
+                                )}
                               </span>
                             )}
                           </div>
@@ -1264,6 +1311,7 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
                               >
                                 <Icon name="alert" size={11} color="var(--color-accent)" stroke={2.2} />
                                 {condo.riskCount} risco
+                                {condo.riskBreads > 0 && ` · ${condo.riskBreads} 🥖 fora`}
                               </span>
                             )}
                           </div>
@@ -1668,6 +1716,11 @@ export function AdminPedido({ deliveryDate, daySlots, daySubtitle, onBack }: Adm
             Voltar ao início
           </button>
         </div>
+      )}
+
+      {/* Relatório de itens vendidos do dia — geral, não por condomínio. */}
+      {showReport && deliveryDate && (
+        <DaySalesSheet date={deliveryDate} onClose={() => setShowReport(false)} />
       )}
 
       {/* CSS para spinner */}

@@ -33,6 +33,11 @@ export const CreateSupplierSchema = z.object({
   email: z.string().email('E-mail inválido').optional(),
   pricePerUnit: z.number().min(0, 'Preço por unidade deve ser >= 0'),
   isPrincipal: z.boolean().default(false),
+  /**
+   * Fornecimento próprio: este "fornecedor" é a própria casa. Compra dele não vira conta a pagar,
+   * porque o custo real já entra pelas despesas (farinha, gás, mão de obra).
+   */
+  isSelfSupply: z.boolean().default(false),
   address: z.object({
     street: z.string().min(1, 'Rua é obrigatória'),
     number: z.string().min(1, 'Número é obrigatório'),

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cheirin de Pão — Indique e Ganhe · Telas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Hanken Grotesk',system-ui,sans-serif;color:#241608;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+a{color:#B0702A}a:hover{color:#1E1207}
+input::placeholder,textarea::placeholder{color:#B5A789;opacity:1}
+@keyframes rfShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes rfSpin{to{transform:rotate(360deg)}}
+@keyframes rfBlink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="app/brand.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/screens-referral.jsx"></script>
+<script type="text/babel" src="app/screens-referral2.jsx"></script>
+<script type="text/babel" src="app/screens-referral3.jsx"></script>
+<script type="text/babel" src="app/screens-referral-admin.jsx"></script>
+<script type="text/babel" src="app/screens-referral-admin2.jsx"></script>
+<script type="text/babel">
+const W = 390;
+function Phone({ h, children, tabs, admin, overlay }) {
+  const t = THEMES.light;
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, minHeight: h, background: t.appBg, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        <StatusBar />
+        <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>{children}</div>
+        {tabs && <BTabs active={tabs} />}
+        {admin && <ATabs />}
+        {overlay}
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+function BTabs({ active }) {
+  const t = THEMES.light;
+  const tabs = [['home', 'home', 'Início'], ['calendar', 'agenda', 'Agenda'], ['wallet', 'paes', 'Pãezins'], ['basket', 'cest', 'Cestinha'], ['user', 'perfil', 'Perfil']];
+  return <div style={{ display: 'flex', borderTop: `1px solid ${t.border2}`, background: t.surface, padding: '8px 4px 14px' }}>{tabs.map(([ic, k, l]) => <div key={k} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '6px 0', color: active === k ? t.accent : t.textTer }}><Icon name={ic} size={22} stroke={active === k ? 2.3 : 2} /><span style={{ fontSize: 10, fontWeight: active === k ? 700 : 600 }}>{l}</span></div>)}</div>;
+}
+function ATabs() {
+  const t = THEMES.light;
+  const tabs = [['trend', 'Painel'], ['list', 'Pedidos'], ['scissors', 'Separação'], ['truck', 'Entregas'], ['users', 'Clientes'], ['settings', 'Gestão']];
+  return <div style={{ display: 'flex', borderTop: `1px solid ${t.border2}`, background: t.surface, padding: '8px 2px 14px' }}>{tabs.map(([ic, l], i) => <div key={l} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '6px 0', color: i === 5 ? t.accent : t.textTer }}><Icon name={ic} size={20} stroke={i === 5 ? 2.3 : 2} /><span style={{ fontSize: 9.5, fontWeight: 700 }}>{l}</span></div>)}</div>;
+}
+function MsgPreview() {
+  const t = THEMES.light;
+  const bub = (txt, l) => (
+    <div>
+      <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.1em', color: t.textTer, marginBottom: 8 }}>{l}</div>
+      <div style={{ background: t.surface2, borderRadius: 18, padding: 14 }}>
+        <div style={{ maxWidth: '88%', marginLeft: 'auto', background: t.goodSoft, borderRadius: '16px 16px 4px 16px', padding: '10px 12px', fontSize: 14, lineHeight: 1.45, color: t.text }}>{txt}<div style={{ fontSize: 10.5, color: t.textTer, textAlign: 'right', marginTop: 4 }}>09:41 ✓✓</div></div>
+      </div>
+    </div>
+  );
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, padding: 20, background: t.appBg, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {bub(refMsg(REFERRAL_CFG), 'COM BÔNUS DO AMIGO (Y = 3)')}
+        {bub(refMsg({ ...REFERRAL_CFG, bonusAmigo: 0 }), 'SEM BÔNUS DO AMIGO (Y = 0)')}
+        <div style={{ fontSize: 12.5, color: t.textSec, lineHeight: 1.5 }}>O código vai sempre escrito na mensagem: no iPhone o link pode se perder na instalação do app.</div>
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+function IconSheet() {
+  const t = THEMES.light;
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, padding: 20, background: t.appBg, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        {['share', 'copy', 'link', 'chat', 'target', 'ticket'].map(n => <div key={n} style={{ background: t.surface, borderRadius: 16, padding: '16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: t.text }}><Icon name={n} size={28} /><span style={{ fontSize: 12, fontWeight: 700, color: t.textSec }}>{n}</span></div>)}
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+
+const S = (id, label, h, el) => <DCArtboard key={id} id={id} label={label} width={W} height={h} style={{ height: 'auto', minHeight: h }}>{el}</DCArtboard>;
+
+function Board() {
+  return (
+    <DesignCanvas>
+      <DCSection id="c1" title="C1 · Indique e ganhe" subtitle="Perfil › Indique e ganhe — todos os estados">
+        {S('c1-campaign', 'Campanha ativa (padrão)', 2010, <Phone h={2010}><ReferralScreen st="campaign" /></Phone>)}
+        {S('c1-full', 'Com indicações · todos os estados', 1960, <Phone h={1960}><ReferralScreen st="full" /></Phone>)}
+        {S('c1-empty', 'Sem indicações', 1210, <Phone h={1210}><ReferralScreen st="empty" /></Phone>)}
+        {S('c1-goal', 'Meta atingida', 2320, <Phone h={2320}><ReferralScreen st="goal" /></Phone>)}
+        {S('c1-nobonus', 'Sem bônus do amigo (Y = 0)', 1930, <Phone h={1930}><ReferralScreen st="nobonus" /></Phone>)}
+        {S('c1-paused', 'Programa pausado', 1040, <Phone h={1040}><ReferralScreen st="paused" /></Phone>)}
+        {S('c1-loading', 'Carregando', 844, <Phone h={844}><ReferralScreen st="loading" /></Phone>)}
+        {S('c1-error', 'Erro ao carregar', 844, <Phone h={844}><ReferralScreen st="error" /></Phone>)}
+        {S('c1-msg', 'Mensagem compartilhada', 520, <MsgPreview />)}
+      </DCSection>
+      <DCSection id="c2c3" title="C2 · Perfil  ·  C3 · Card na Home" subtitle="Seção própria acima de Conta · card entre ações rápidas e Além do Pãozin">
+        {S('c2-normal', 'Perfil · normal', 1060, <Phone h={1060} tabs="perfil"><ProfileHub st="normal" /></Phone>)}
+        {S('c2-campaign', 'Perfil · campanha ativa', 1060, <Phone h={1060} tabs="perfil"><ProfileHub st="campaign" /></Phone>)}
+        {S('c2-off', 'Perfil · programa desligado', 960, <Phone h={960} tabs="perfil"><ProfileHub st="off" /></Phone>)}
+        {S('c3-normal', 'Home · card normal', 520, <Phone h={520} tabs="home"><RefHomeContext st="normal" /></Phone>)}
+        {S('c3-campaign', 'Home · campanha ativa', 540, <Phone h={540} tabs="home"><RefHomeContext st="campaign" /></Phone>)}
+      </DCSection>
+      <DCSection id="c4" title="C4 · Cadastro com indicação" subtitle="Passo 1 · Seus dados — o cadastro nunca trava por causa do código">
+        {['link:Veio pelo link', 'closed:Sem link · link discreto', 'typing:Digitando', 'validating:Validando', 'valid:Código válido', 'invalid:Código inválido', 'nobonus:Sem bônus do amigo', 'off:Programa desligado'].map(x => { const [k, l] = x.split(':'); return S('c4-' + k, l, 844, <Phone h={844}><RegisterReferral st={k} /></Phone>); })}
+      </DCSection>
+      <DCSection id="c5" title="C5 · Comemoração" subtitle="Modal na abertura, depois do consentimento do gancho — uma vez por recompensa">
+        {['referrer:Quem indicou', 'friend:O amigo (boas-vindas)', 'goal:Meta atingida', 'multi:Várias acumuladas'].map(x => { const [k, l] = x.split(':'); return S('c5-' + k, l, 844, <Phone h={844} tabs="home" overlay={<RefCelebration variant={k} />}><RefFauxHome /></Phone>); })}
+      </DCSection>
+      <DCSection id="c6c7" title="C6 · Notificações  ·  C7 · Extrato" subtitle="4 tipos novos na central · linhas de bônus no extrato">
+        {S('c6', 'Central de notificações', 900, <Phone h={900}><RefNotifs /></Phone>)}
+        {S('c7', 'Extrato de pãezins', 1000, <Phone h={1000} tabs="paes"><RefStatement /></Phone>)}
+      </DCSection>
+      <DCSection id="c8" title="C8 · Lista de espera" subtitle="Passo 3 · Onde você mora? — condomínio não atendido">
+        {['empty:Busca vazia', 'form:Formulário', 'sending:Enviando', 'error:Erro', 'success:Sucesso'].map(x => { const [k, l] = x.split(':'); return S('c8-' + k, l, 844, <Phone h={844}><RefWaitlist st={k} /></Phone>); })}
+      </DCSection>
+      <DCSection id="a1a3" title="A1 · Gestão  ·  A2/A3 · Configuração" subtitle="Admin — hub e regras do programa">
+        {S('a1', 'Gestão · card com badge', 720, <Phone h={720} admin><RAGestaoHub /></Phone>)}
+        {S('a3-on', 'Config · campanha ativa', 2380, <Phone h={2380}><RAHub cfgSt="on" /></Phone>)}
+        {S('a3-off', 'Config · programa desligado', 2380, <Phone h={2380}><RAHub cfgSt="off" /></Phone>)}
+        {S('a3-zero', 'Erro · ligar com recompensa 0', 2440, <Phone h={2440}><RAHub cfgSt="zeroErr" /></Phone>)}
+        {S('a3-nogoals', 'Metas vazias · sem campanha', 1880, <Phone h={1880}><RAHub cfgSt="noGoals" /></Phone>)}
+        {S('a3-msg', 'Erro · mensagem sem código/link', 2440, <Phone h={2440}><RAHub cfgSt="msgErr" /></Phone>)}
+        {S('a3-bonus', 'Aviso · {bonus} com bônus 0', 2440, <Phone h={2440}><RAHub cfgSt="bonusWarn" /></Phone>)}
+        {S('a3-saving', 'Salvando', 2380, <Phone h={2380}><RAHub cfgSt="saving" /></Phone>)}
+        {S('a3-saved', 'Salvo', 2460, <Phone h={2460}><RAHub cfgSt="saved" /></Phone>)}
+      </DCSection>
+      <DCSection id="a4" title="A4 · Indicações" subtitle="Lista com sinais (só admin) + detalhe em sheet">
+        {S('a4-list', 'Lista · Em análise', 844, <Phone h={844}><RAHub sec="lista" /></Phone>)}
+        {S('a4-loading', 'Carregando', 844, <Phone h={844}><RAHub sec="lista" listSt="loading" /></Phone>)}
+        {S('a4-empty', 'Vazio por filtro', 844, <Phone h={844}><RAHub sec="lista" listSt="empty" /></Phone>)}
+        {S('a4-view', 'Detalhe', 844, <Phone h={844}><RADetail st="view" /></Phone>)}
+        {S('a4-approve', 'Confirmar aprovação', 900, <Phone h={900}><RADetail st="approve" /></Phone>)}
+        {S('a4-reject', 'Recusar · motivo obrigatório', 1000, <Phone h={1000}><RADetail st="reject" /></Phone>)}
+        {S('a4-done', 'Sucesso', 844, <Phone h={844}><RADetail st="done" /></Phone>)}
+      </DCSection>
+      <DCSection id="a5" title="A5 · Detalhe do cliente" subtitle="Aba Geral — Indicado por · card Indicações · Vincular indicação">
+        {S('a5-default', 'Geral · indicado por', 900, <Phone h={900}><RAClientGeral st="default" /></Phone>)}
+        {S('a5-link', 'Vincular · código válido', 900, <Phone h={900}><RAClientGeral st="link" /></Phone>)}
+        {S('a5-invalid', 'Vincular · código inválido', 900, <Phone h={900}><RAClientGeral st="linkInvalid" /></Phone>)}
+        {S('a5-self', 'Vincular · próprio cliente', 900, <Phone h={900}><RAClientGeral st="linkSelf" /></Phone>)}
+        {S('a5-done', 'Vincular · sucesso', 900, <Phone h={900}><RAClientGeral st="linkDone" /></Phone>)}
+      </DCSection>
+      <DCSection id="a6a8" title="A6 · Relatório  ·  A7 · Condomínios  ·  A8 · Preferências" subtitle="Admin">
+        {S('a6', 'Relatório · Indicações', 1720, <Phone h={1720}><RAReport /></Phone>)}
+        {S('a6-loading', 'Relatório · carregando', 844, <Phone h={844}><RAReport st="loading" /></Phone>)}
+        {S('a6-empty', 'Relatório · sem dados', 844, <Phone h={844}><RAReport st="empty" /></Phone>)}
+        {S('a7', 'Pedidos de novos condomínios', 900, <Phone h={900}><RACondoInterests /></Phone>)}
+        {S('a8', 'Preferências de notificação', 700, <Phone h={700}><RANotifPrefs /></Phone>)}
+        {S('icons', 'Ícones novos', 260, <IconSheet />)}
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Board />);
+</script>
+</body>
+</html>

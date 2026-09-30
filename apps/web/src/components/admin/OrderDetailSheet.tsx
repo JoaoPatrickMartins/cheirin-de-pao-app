@@ -1,7 +1,10 @@
 import { formatCredits, toMilli, formatUnit } from '@cheirin-de-pao/shared'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
+import { FirstOrderChip } from './FirstOrderChip'
+import { usePrintQueue } from './coupon/CouponShell'
+import { OrderCouponSheet, type CouponData } from './coupon/OrderCoupon'
 
 export interface LedgerRow {
   /** D-4: o ledger é unificado — 'BREAD' (pedido de pão) | 'CESTINHA' (mini market). */
@@ -42,6 +45,50 @@ export interface LedgerRow {
   creditsApplied: number
   moneyAmount: number
   totalValue: number
+  /** Estreia do cliente — a linha cai no dia da primeira entrega dele. */
+  isFirstOrder?: boolean
+}
+
+/** Pagamento vinculado ao pedido — vem de `GET /admin/orders/:id`. */
+export interface OrderPayment {
+  id: string
+  amount: number
+  method: string
+  status: string
+  purpose: string
+  createdAt: string
+  gatewayId: string
+  comboName: string
+  quantity: number
+}
+
+/**
+ * O que `GET /admin/orders/:id` acrescenta à linha do ledger. Opcional no sheet: Entregas abre
+ * instantâneo com a linha que já tem em memória e ENRIQUECE em segundo plano — abrir um detalhe
+ * não pode ficar esperando rede quando metade da informação já está na tela.
+ */
+export interface OrderDetailExtras {
+  createdAt: string
+  code: string
+  creditsDebited: number
+  creditsDebitedDerived: boolean
+  refundedCredits: number
+  payment: OrderPayment | null
+}
+
+export type OrderDetailRow = LedgerRow & OrderDetailExtras
+
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  PIX: 'Pix',
+  CREDIT_CARD: 'Cartão de crédito',
+  DEBIT_CARD: 'Cartão de débito',
+}
+
+const PAYMENT_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pendente',
+  PAID: 'Pago',
+  FAILED: 'Falhou',
+  REFUNDED: 'Estornado',
 }
 
 export const STATUS_META: Record<string, { label: string; color: string; soft: string }> = {
@@ -72,6 +119,33 @@ function fmtMoney(v: number) {
   return `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+/** Só a data, para o cupom (que já diz o turno na linha ao lado). */
+function fmtDateOnly(dateStr: string) {
+  if (!dateStr) return ''
+  try {
+    return new Date(dateStr).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
+  } catch {
+    return dateStr
+  }
+}
+
+/**
+ * A linha já veio enriquecida? `code` só existe no retorno de `GET /admin/orders/:id`, então
+ * serve de discriminador — quem abre com o detalhe na mão não dispara uma segunda busca.
+ */
+function toExtras(row: LedgerRow): OrderDetailExtras | null {
+  const r = row as Partial<OrderDetailRow>
+  if (typeof r.code !== 'string') return null
+  return {
+    createdAt: r.createdAt ?? '',
+    code: r.code,
+    creditsDebited: r.creditsDebited ?? 0,
+    creditsDebitedDerived: r.creditsDebitedDerived ?? false,
+    refundedCredits: r.refundedCredits ?? 0,
+    payment: r.payment ?? null,
+  }
+}
+
 /**
  * Detalhe de um pedido com o "resolver": para um pedido ativo/parado, permite dar o
  * desfecho (entregue a posteriori / não entregue / cancelado) e, no mesmo passo,
@@ -84,6 +158,28 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
   const [refundCredits, setRefundCredits] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Detalhe completo (pagamento, créditos, criação). Chega depois da abertura — quem já recebe a
+  // linha enriquecida (Clientes) não espera nada; quem abre do ledger vê o resto preencher.
+  const [extras, setExtras] = useState<OrderDetailExtras | null>(toExtras(row))
+  const { queue: coupons, print: printCoupons } = usePrintQueue<CouponData>()
+
+  const detailId = row.kind === 'CESTINHA' ? row.marketOrderId : row.orderId
+
+  useEffect(() => {
+    if (extras || !detailId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch(`/admin/orders/${detailId}?kind=${row.kind}`)
+        if (res.ok && !cancelled) setExtras(toExtras((await res.json()) as OrderDetailRow))
+      } catch {
+        // silencioso: o detalhe é complemento, a linha principal já está na tela
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [detailId, row.kind, extras])
 
   const meta = STATUS_META[row.status] ?? { label: row.status, color: 'var(--color-text-ter)', soft: 'var(--color-surface-2)' }
   const isCestinha = row.kind === 'CESTINHA'
@@ -171,7 +267,32 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
   const reasonRequired = mode === 'fail' || mode === 'cancel'
   const confirmDisabled = busy || (reasonRequired && !reason.trim())
 
+  /** 2ª via do cupom deste pedido — mesmo layout da Separação, um cupom só. */
+  function reprint() {
+    if (!extras) return
+    printCoupons([
+      {
+        // O QR é bipado na porta: precisa do id que o entregador resolve, como no lote original.
+        orderId: detailId,
+        code: extras.code,
+        clientName: row.clientName,
+        condominiumName: row.condominiumName,
+        block: row.block,
+        complement: row.complement,
+        apartment: row.apartment,
+        quantity: row.quantity,
+        slotLabel: row.slotLabel,
+        dateLabel: fmtDateOnly(row.scheduledDate),
+        marketItems: row.marketItems,
+        isFirstOrder: row.isFirstOrder,
+      },
+    ])
+  }
+
   return (
+    <>
+    {/* Folha de impressão (oculta na tela; sai via window.print) */}
+    <OrderCouponSheet coupons={coupons} />
     <div
       role="dialog"
       aria-modal="true"
@@ -194,9 +315,13 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
           <div style={{ minWidth: 0 }}>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: 'var(--color-text)', margin: 0 }}>{row.clientName}</p>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: 'var(--color-text)', margin: 0, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              {row.clientName}
+              {row.isFirstOrder && <FirstOrderChip />}
+            </p>
             <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-text-ter)', margin: '3px 0 0' }}>
               {row.condominiumName} · {formatUnit(row)}
+              {extras?.code ? ` · #${extras.code}` : ''}
             </p>
           </div>
           <span style={{ padding: '4px 10px', borderRadius: 99, background: meta.soft, color: meta.color, fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
@@ -238,7 +363,48 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
               {row.totalValue > 0 && <DetailRow label="Total" value={fmtMoney(row.totalValue)} />}
             </>
           )}
-          {hasPayment && (
+          {extras?.createdAt && <DetailRow label="Pedido feito em" value={fmt(extras.createdAt)} />}
+        </div>
+
+        {/* ── Pagamento ──────────────────────────────────────────────────────
+            Um pedido de pão pode não ter pagamento nenhum (saiu do saldo). Dizer "pago com
+            saldo" é informação; deixar a seção vazia faria parecer dado faltando. */}
+        {extras && (
+          <div style={{ marginBottom: 16 }}>
+            <SectionTitle>Pagamento</SectionTitle>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {extras.payment ? (
+                <>
+                  <DetailRow label="Valor" value={fmtMoney(extras.payment.amount)} />
+                  <DetailRow label="Forma" value={PAYMENT_METHOD_LABEL[extras.payment.method] ?? extras.payment.method} />
+                  <DetailRow label="Situação" value={PAYMENT_STATUS_LABEL[extras.payment.status] ?? extras.payment.status} />
+                  <DetailRow label="Pago em" value={fmt(extras.payment.createdAt)} />
+                  {extras.payment.comboName && <DetailRow label="Combo" value={extras.payment.comboName} />}
+                  {extras.payment.quantity > 0 && (
+                    <DetailRow label="Creditou" value={`${extras.payment.quantity} 🥖`} />
+                  )}
+                  {extras.payment.gatewayId && <DetailRow label="Id no gateway" value={extras.payment.gatewayId} />}
+                </>
+              ) : (
+                <DetailRow label="Forma" value="Pago com saldo de pãezinhos" />
+              )}
+              {extras.creditsDebited > 0 && (
+                <DetailRow
+                  label="Pãezinhos debitados"
+                  // A flag existe porque pedido do corte antigo não tem linha no extrato: o número
+                  // é a regra que debitou, não um movimento auditado. Esconder isso seria mentir.
+                  value={`${formatCredits(toMilli(extras.creditsDebited))}${extras.creditsDebitedDerived ? ' (estimado)' : ''}`}
+                />
+              )}
+              {extras.refundedCredits > 0 && (
+                <DetailRow label="Pãezinhos devolvidos" value={formatCredits(toMilli(extras.refundedCredits))} />
+              )}
+            </div>
+          </div>
+        )}
+
+        {!extras && hasPayment && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
             <DetailRow
               label="Pagamento"
               value={
@@ -246,8 +412,8 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
                 (row.paymentStatus === 'REFUNDED' ? ' · estornado' : '')
               }
             />
-          )}
-        </div>
+          </div>
+        )}
 
         {error && (
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 13, color: 'var(--color-bad, #C2410C)', margin: '0 0 12px' }}>{error}</p>
@@ -319,6 +485,9 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
               )}
               {canRefund && <ActionButton variant="primary" label="Devolver pães ao saldo" onClick={() => goto('refund')} />}
               {canRefundPayment && <ActionButton variant="ghost" label={`Estornar pagamento${row.paymentAmount ? ` (${fmtMoney(row.paymentAmount)})` : ''}`} onClick={() => goto('payment')} />}
+              {/* Reimpressão: cupom perdido/rasgado, ou 2ª via para conferência na porta.
+                  Só depois que o detalhe chega — é dele que sai o código impresso. */}
+              {extras && <ActionButton variant="ghost" label="Reimprimir cupom" onClick={reprint} />}
               <ActionButton variant="ghost" label="Fechar" onClick={onClose} />
             </>
           )}
@@ -355,6 +524,25 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
         </div>
       </div>
     </div>
+    </>
+  )
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      style={{
+        fontFamily: 'var(--font-body)',
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        color: 'var(--color-text-ter)',
+        margin: '0 0 8px',
+      }}
+    >
+      {children}
+    </p>
   )
 }
 

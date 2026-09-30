@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest'
-import { blockLabel, formatUnit, compareUnits, COMPLEMENT_MAX_LENGTH } from '../unit-label'
+import {
+  blockLabel,
+  formatUnit,
+  compareUnits,
+  COMPLEMENT_MAX_LENGTH,
+  apartmentFieldLabel,
+  apartmentFieldPlaceholder,
+} from '../unit-label'
+
+describe('apartmentFieldLabel', () => {
+  it('em entrada única abre o campo para casa/lote', () => {
+    expect(apartmentFieldLabel('SINGLE_ENTRANCE')).toBe('Apartamento ou número')
+    expect(apartmentFieldPlaceholder('SINGLE_ENTRANCE')).toBe('Ex.: 102 ou 25A')
+  })
+
+  it('em condomínio com blocos continua "Apartamento"', () => {
+    expect(apartmentFieldLabel('BLOCKS')).toBe('Apartamento')
+    expect(apartmentFieldPlaceholder('BLOCKS')).toBe('Ex.: 102')
+  })
+
+  it('trata tipo desconhecido como "Apartamento"', () => {
+    // As telas montam o condomínio selecionado antes de /condominiums responder (type '').
+    // Se o desconhecido caísse em "ou número", o rótulo piscaria para quem mora em BLOCKS.
+    expect(apartmentFieldLabel('')).toBe('Apartamento')
+    expect(apartmentFieldLabel(null)).toBe('Apartamento')
+    expect(apartmentFieldLabel(undefined)).toBe('Apartamento')
+  })
+})
 
 describe('blockLabel', () => {
   it('prefixa "Bloco" quando o valor é só o identificador', () => {

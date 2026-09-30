@@ -262,7 +262,11 @@ export function AdminClientes({ initialClientId }: AdminClientesProps = {}) {
   if (sub === 'detalhe' && selectedId) {
     return (
       <ClientDetailView
+        // `key`: abrir outro cliente pelo atalho "Indicação de" recomeça a tela do zero (aba,
+        // sheets e formulários), em vez de herdar o estado do cliente anterior.
+        key={selectedId}
         clienteId={selectedId}
+        onOpenClient={(id) => setSelectedId(id)}
         onBack={() => {
           setSub(null)
           setSelectedId(null)

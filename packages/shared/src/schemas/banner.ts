@@ -35,6 +35,8 @@ export const BANNER_SCREENS = {
   market: { route: '/client/market', label: 'Além do Pãozin' },
   cestinha: { route: '/client/market/cestinha', label: 'Minha Cestinha' },
   gancho: { route: '/client/perfil/gancho', label: 'Gancho de porta' },
+  // Indique e Ganhe — divulgar o programa por pop-up/faixa sem código novo.
+  indique: { route: '/client/perfil/indique', label: 'Indique e ganhe' },
 } as const
 
 export type BannerScreenKey = keyof typeof BANNER_SCREENS

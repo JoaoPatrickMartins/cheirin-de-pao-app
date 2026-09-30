@@ -96,6 +96,7 @@ export class AuthController {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         hasPassword: result.hasPassword,
+        mustSetPassword: result.mustSetPassword,
         user: result.user,
       })
     } catch (err) {
@@ -123,6 +124,7 @@ export class AuthController {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         hasPassword: result.hasPassword,
+        mustSetPassword: result.mustSetPassword,
         user: result.user,
       })
     } catch (err) {
@@ -150,6 +152,7 @@ export class AuthController {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         hasPassword: result.hasPassword,
+        mustSetPassword: result.mustSetPassword,
         user: result.user,
       })
     } catch (err) {
@@ -222,6 +225,7 @@ export class AuthController {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         hasPassword: result.hasPassword,
+        mustSetPassword: result.mustSetPassword,
         user: result.user,
       })
     } catch (err) {

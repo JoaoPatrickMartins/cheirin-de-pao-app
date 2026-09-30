@@ -5,6 +5,10 @@ import { StripeService } from '../payments/stripe.service.js'
 import { MercadoPagoPixService } from '../payments/mercadopago-pix.service.js'
 import { creditForPayment } from '../payments/credit-payment.js'
 import { fulfillSingleOrderFromMetadata } from '../payments/fulfill-single-order.js'
+import {
+  recordGatewayFee,
+  extractMercadoPagoFee,
+} from '../../lib/gateway-fee.js'
 
 export class WebhooksService {
   private repo: PaymentsRepository
@@ -76,6 +80,21 @@ export class WebhooksService {
       // metadata do pagamento (funciona mesmo com o app fechado). Idempotente e best-effort.
       const payment = await this.repo.findPaymentByMercadoPagoId(mpId)
       if (payment) await fulfillSingleOrderFromMetadata(this.fastify, payment, mpPayment.metadata)
+      // Taxa REAL do gateway (Fase 3). DEPOIS do fulfillment e em try/catch próprio: a taxa é
+      // informação contábil, e creditar o cliente não pode falhar porque o MP mudou o formato de
+      // um campo. Sem ela, aquele pagamento apenas segue com a taxa estimada.
+      if (payment) {
+        try {
+          await recordGatewayFee(
+            this.fastify.prisma,
+            payment.id,
+            extractMercadoPagoFee(mpPayment),
+            payment.amount,
+          )
+        } catch (err) {
+          this.fastify.log.warn({ err, mpId }, '[webhook] taxa do MP não registrada — segue estimada')
+        }
+      }
     } else if (status === 'rejected' || status === 'cancelled') {
       const payment = await this.repo.findPaymentByMercadoPagoId(mpId)
       if (payment && payment.status === 'PENDING') {
@@ -88,6 +107,24 @@ export class WebhooksService {
   private async creditFromPaymentIntent(paymentIntentId: string): Promise<void> {
     const payment = await this.repo.findPaymentByStripePaymentIntentId(paymentIntentId)
     await creditForPayment(this.fastify, payment)
+
+    // Taxa REAL do gateway (Fase 3) — DEPOIS do fulfillment e isolada em try/catch: creditar o
+    // cliente não pode falhar porque a `BalanceTransaction` ainda não liquidou. Sem ela, o
+    // pagamento apenas segue com a taxa estimada na leitura.
+    if (!payment) return
+    try {
+      await recordGatewayFee(
+        this.fastify.prisma,
+        payment.id,
+        await this.stripe.getFeeForPaymentIntent(paymentIntentId),
+        payment.amount,
+      )
+    } catch (err) {
+      this.fastify.log.warn(
+        { err, paymentIntentId },
+        '[webhook] taxa do Stripe não registrada — segue estimada',
+      )
+    }
   }
 
   // Crédito por id do pagamento do Mercado Pago (Pix). Delegado ao ponto único.

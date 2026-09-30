@@ -47,6 +47,23 @@ export class AdminCombosController {
   }
 
   /**
+   * GET /admin/combos/pricing
+   * Custo do pão e preço do avulso — insumos da precificação assistida (D1).
+   */
+  async getPricing(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+
+    try {
+      return reply.status(200).send(await this.service.getPricing())
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * GET /admin/combos/:id
    * Retorna um combo por ID para preencher o formulário de edição.
    */

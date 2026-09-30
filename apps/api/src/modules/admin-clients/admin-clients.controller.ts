@@ -74,6 +74,7 @@ export class AdminClientsController {
         ...result.client,
         condominiumName: result.condominium?.name ?? null,
         blockedByName: result.blockedByName,
+        accessMethods: result.accessMethods,
         schedule: result.schedule,
         recentOrders: result.recentOrders,
         recentCestinhas: result.recentCestinhas,
@@ -152,6 +153,22 @@ export class AdminClientsController {
     const { id } = request.params as { id: string }
     try {
       const result = await this.service.getPayments(id)
+      return reply.status(200).send(result)
+    } catch (err) {
+      this.fastify.log.error(err)
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  async hooks(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      const result = await this.service.getHooks(id)
       return reply.status(200).send(result)
     } catch (err) {
       this.fastify.log.error(err)

@@ -3,24 +3,28 @@ import { Icon, Ic } from '../../../components/brand/Icon'
 import { ReportAppBar } from './RelShared'
 import { RelAcesso } from './RelAcesso'
 import { RelRetencao } from './RelRetencao'
-import { RelPassivo } from './RelPassivo'
 import { RelCondominios } from './RelCondominios'
 import { RelEntregas } from './RelEntregas'
 import { RelDesperdicio } from './RelDesperdicio'
 import { RelAgenda } from './RelAgenda'
 import { RelPagamentos } from './RelPagamentos'
+import { RelVendas } from './RelVendas'
+import { RelClientes } from './RelClientes'
+import { RelIndicacoes } from './RelIndicacoes'
 
 // ------------------------------------------------------------------ tipos
 type RelSub =
   | null
   | 'acesso'
   | 'retencao'
-  | 'passivo'
   | 'condominios'
   | 'entregas'
   | 'desperdicio'
   | 'agenda'
   | 'pagamentos'
+  | 'vendas'
+  | 'clientes'
+  | 'indicacoes'
 
 interface HubItem {
   key: Exclude<RelSub, null>
@@ -33,14 +37,30 @@ interface AdminRelatoriosProps {
   onBack: () => void
 }
 
+/**
+ * Nota de navegação (decisão 8 do plano-financeiro-vendas): o **passivo de crédito** saiu daqui e
+ * foi para Gestão › Financeiro. A divisória entre os dois hubs é: Financeiro é dinheiro (o que o
+ * contador entende), Relatórios é comportamento (o que o operador entende) — e passivo é linha de
+ * balanço, não métrica de cliente.
+ */
 const GROUPS: Array<{ title: string; items: HubItem[] }> = [
+  {
+    // Grupo novo (Fase 6). Vem PRIMEIRO de propósito: é a pergunta que o dono faz mais vezes por
+    // semana — "o que está vendendo" —, e deixá-la abaixo de aquisição e operação a esconderia
+    // atrás de duas rolagens.
+    title: 'Vendas & performance',
+    items: [
+      { key: 'vendas', icon: 'trend', titulo: 'Vendas por período', descricao: 'Mais vendidos, curva ABC, ticket e mix de canal' },
+      { key: 'clientes', icon: 'star', titulo: 'Clientes & LTV', descricao: 'Quem sustenta o faturamento e o risco de concentração' },
+    ],
+  },
   {
     title: 'Aquisição & clientes',
     items: [
       { key: 'acesso', icon: 'users', titulo: 'Aquisição', descricao: 'Acessos, login e conversão' },
       { key: 'retencao', icon: 'repeat', titulo: 'Recorrência & retenção', descricao: 'Recarga, churn, recompra e ativação' },
-      { key: 'passivo', icon: 'wallet', titulo: 'Passivo de crédito', descricao: 'Créditos em circulação (R$)' },
       { key: 'condominios', icon: 'building', titulo: 'Condomínios', descricao: 'Ranking por receita e volume' },
+      { key: 'indicacoes', icon: 'gift', titulo: 'Indicações', descricao: 'Funil, custo × receita e top indicadores' },
     ],
   },
   {
@@ -56,7 +76,6 @@ const GROUPS: Array<{ title: string; items: HubItem[] }> = [
 
 // Tier 3 — visíveis como "Em breve" (ainda sem backend)
 const EM_BREVE: Array<{ icon: keyof typeof Ic; titulo: string; descricao: string }> = [
-  { icon: 'phone', titulo: 'Custo de OTP por canal', descricao: 'Volume e custo de SMS vs e-mail' },
   { icon: 'gift', titulo: 'Concessões & suporte', descricao: 'Cortesias de crédito e carga de atendimento' },
   { icon: 'trend', titulo: 'Cohort de receita', descricao: 'Receita por mês de cadastro' },
   { icon: 'user', titulo: 'Sessões & dispositivos', descricao: 'Engajamento ativo por dispositivo' },
@@ -69,12 +88,14 @@ export function AdminRelatorios({ onBack }: AdminRelatoriosProps) {
 
   if (sub === 'acesso') return <RelAcesso onBack={backToHub} />
   if (sub === 'retencao') return <RelRetencao onBack={backToHub} />
-  if (sub === 'passivo') return <RelPassivo onBack={backToHub} />
   if (sub === 'condominios') return <RelCondominios onBack={backToHub} />
   if (sub === 'entregas') return <RelEntregas onBack={backToHub} />
   if (sub === 'desperdicio') return <RelDesperdicio onBack={backToHub} />
   if (sub === 'agenda') return <RelAgenda onBack={backToHub} />
   if (sub === 'pagamentos') return <RelPagamentos onBack={backToHub} />
+  if (sub === 'vendas') return <RelVendas onBack={backToHub} />
+  if (sub === 'clientes') return <RelClientes onBack={backToHub} />
+  if (sub === 'indicacoes') return <RelIndicacoes onBack={backToHub} />
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

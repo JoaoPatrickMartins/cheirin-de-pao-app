@@ -22,13 +22,15 @@ interface DeliveryDetail {
   block: string
   /** Complemento do bloco ("Lado A"); '' quando não há. */
   complement: string
-  /** Total de pães da parada (pago + previsto). */
+  /** Pães CONTÁVEIS da parada (pago + previsto sem risco). Parada em risco vem 0 aqui. */
   quantity: number
   slotId: string
   slotLabel: string
   type: 'SINGLE' | 'SCHEDULED'
   source: 'order' | 'projected'
   risk: RiskFlag
+  /** Pães previstos em risco desta parada — fora de `quantity` e de todo total. */
+  breadAtRisk: number
   /** Itens do mercadinho desta parada. */
   marketItems: MarketItemLine[]
   marketItemCount: number
@@ -41,20 +43,26 @@ interface DeliveryDetail {
 interface SlotBreakdown {
   slotId: string
   label: string
+  /** Pães contáveis do turno (pagos + previstos sem risco). */
   breads: number
   deliveries: number
   items: number
+  /** Pães previstos em risco do turno — fora de `breads`. */
+  atRisk: number
 }
 
 interface CondoDetail {
   condominiumId: string
   name: string
+  /** Pães contáveis (pagos + previstos SEM risco) — o em risco fica fora. */
   totalBreads: number
   materializedBreads: number
   projectedBreads: number
   deliveryCount: number
   projectedDeliveries: number
   riskCount: number
+  /** Pães previstos em risco — não somam em `totalBreads` nem em `projectedBreads`. */
+  riskBreads: number
   bySlot: SlotBreakdown[]
   /** Quebra dos pães JÁ PAGOS por origem: single + scheduled + cestinha. */
   byType: { single: number; scheduled: number; cestinha: number }
@@ -158,9 +166,11 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
   function exportCsv() {
     if (!data) return
     // Colunas da Cestinha ao lado das do pão — quem separa precisa das duas (D-1).
+    // "Em risco (pães)" existe porque `quantity` já NÃO os inclui — sem esta coluna o número
+    // desapareceria da exportação e o CSV não fecharia com a agenda do cliente.
     const header = [
       'Cliente', 'Bloco', 'Complemento', 'Apartamento', 'Turno', 'Tipo', 'Origem', 'Risco', 'Quantidade',
-      'Pães da Cestinha', 'Itens da Cestinha', 'Itens (detalhe)',
+      'Em risco (pães)', 'Pães da Cestinha', 'Itens da Cestinha', 'Itens (detalhe)',
     ]
     const linhas = data.deliveries.map((d) => [
       d.name,
@@ -172,6 +182,7 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
       d.source === 'projected' ? 'Previsto' : 'Confirmado',
       riskLabel(d.risk) ?? '',
       String(d.quantity),
+      String(d.breadAtRisk),
       String(d.breadFromMarket),
       String(d.marketItemCount),
       d.marketItems.map((it) => `${it.qty}x ${it.name}`).join(' | '),
@@ -290,6 +301,21 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                 +{data.projectedBreads} previstos
               </span>
             )}
+            {/* Fora da conta por definição — só entram quando virarem pedido no corte. */}
+            {data.riskBreads > 0 && (
+              <span
+                style={{
+                  display: 'block',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 10.5,
+                  color: WARN,
+                  fontWeight: 700,
+                  marginTop: 2,
+                }}
+              >
+                {data.riskBreads} em risco · fora do total
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -337,6 +363,23 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
               <Stat label="Em risco" value={data.riskCount} color={data.riskCount > 0 ? WARN : 'var(--color-text)'} />
             </div>
 
+            {/* "Em risco" acima conta CLIENTES; aqui vai o pão que eles trariam e que ficou fora
+                de Confirmados/Previstos — sem isso o admin não sabe o tamanho do que está em jogo. */}
+            {data.riskBreads > 0 && (
+              <p
+                style={{
+                  margin: '9px 6px 0',
+                  textAlign: 'center',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: WARN,
+                }}
+              >
+                {data.riskBreads} {data.riskBreads === 1 ? 'pão em risco' : 'pães em risco'} — não entram no total
+              </p>
+            )}
+
             {data.bySlot.length > 0 && (
               <div style={{ borderTop: '1px solid var(--color-border-2)', margin: '10px 6px 0', paddingTop: 11 }}>
                 {data.bySlot.length > 1 && (
@@ -350,10 +393,15 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                       boxShadow: 'inset 0 0 0 1px var(--color-border-2)',
                     }}
                   >
+                    {/* totalBreads pode ser 0 (dia só de previstos em risco): sem a guarda a
+                        largura vira NaN% e a barra some sem explicação. */}
                     {data.bySlot.map((s) => (
                       <div
                         key={s.slotId}
-                        style={{ width: `${(s.breads / data.totalBreads) * 100}%`, background: slotColor(s.slotId) }}
+                        style={{
+                          width: data.totalBreads > 0 ? `${(s.breads / data.totalBreads) * 100}%` : '0%',
+                          background: slotColor(s.slotId),
+                        }}
                       />
                     ))}
                   </div>
@@ -451,6 +499,11 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                       // Itens do mercadinho do grupo — paralelos aos pães (D-1), nunca somados.
                       const it = rows.reduce((s, r) => s + r.marketItemCount, 0)
                       return it > 0 ? ` · ${it} ${it === 1 ? 'item' : 'itens'}` : ''
+                    })()}
+                    {(() => {
+                      // Em risco do bloco: fora da soma acima, mas visível para quem separa.
+                      const ar = rows.reduce((s, r) => s + r.breadAtRisk, 0)
+                      return ar > 0 ? <span style={{ color: WARN }}> · {ar} em risco</span> : null
                     })()}{' '}
                     · {rows.length} {rows.length === 1 ? 'entrega' : 'entregas'}
                   </span>
@@ -585,14 +638,33 @@ export function CondominiumOrderDetail({ condominiumId, slotId, date, onBack }: 
                             fontWeight: 800,
                             fontVariantNumeric: 'tabular-nums',
                             lineHeight: 1,
-                            color: 'var(--color-text)',
+                            color: d.quantity === 0 && d.breadAtRisk > 0 ? WARN : 'var(--color-text)',
                             display: 'block',
                           }}
                         >
-                          {/* Parada só-Cestinha pode ter 0 pães (só produtos): mostra o cesto
-                              em vez de um "0 🥖" que parece erro. */}
-                          {d.quantity > 0 ? `${d.quantity} 🥖` : `${d.marketItemCount} 🧺`}
+                          {/* Três casos: pão contável, parada em risco (quantity 0 — o pão existe
+                              na agenda mas não entra em total nenhum) e parada só-Cestinha, que
+                              mostra o cesto em vez de um "0 🥖" que parece erro. */}
+                          {d.quantity > 0
+                            ? `${d.quantity} 🥖`
+                            : d.breadAtRisk > 0
+                              ? `${d.breadAtRisk} 🥖`
+                              : `${d.marketItemCount} 🧺`}
                         </span>
+                        {d.quantity === 0 && d.breadAtRisk > 0 && (
+                          <span
+                            style={{
+                              display: 'block',
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 9.5,
+                              fontWeight: 700,
+                              color: WARN,
+                              marginTop: 2,
+                            }}
+                          >
+                            não contado
+                          </span>
+                        )}
                         <span
                           style={{
                             display: 'inline-flex',

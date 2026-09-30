@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { ReportAppBar, ReportScroll, ReportCard, LoadingText, ErrorText, fmtInt, fmtBRL } from './RelShared'
-import { buildCsv, downloadCsv } from '../../../lib/csv'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 type Period = 'day' | 'week' | 'month'
 
@@ -21,18 +26,13 @@ interface CondoItem {
 }
 
 interface CondominiumRankingReport {
-  period: Period
+  period?: Period
+  window: { from: string; to: string; label: string; isPartial: boolean }
   items: CondoItem[]
 }
 
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
-
 export function RelCondominios({ onBack }: { onBack: () => void }) {
-  const [period, setPeriod] = useState<Period>('month')
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'month' })
   const [data, setData] = useState<CondominiumRankingReport | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -40,7 +40,7 @@ export function RelCondominios({ onBack }: { onBack: () => void }) {
     const run = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/reports/condominiums?period=${period}`)
+        const res = await apiFetch(`/admin/reports/condominiums?${periodQuery(sel)}`)
         setData(res.ok ? ((await res.json()) as CondominiumRankingReport) : null)
       } catch {
         setData(null)
@@ -49,7 +49,7 @@ export function RelCondominios({ onBack }: { onBack: () => void }) {
       }
     }
     void run()
-  }, [period])
+  }, [sel])
 
   const items = data?.items ?? []
   const maxRevenue = Math.max(...items.map((i) => i.revenue), 1)
@@ -57,36 +57,44 @@ export function RelCondominios({ onBack }: { onBack: () => void }) {
   const onExport =
     data && items.length > 0
       ? () =>
-          downloadCsv(
-            `condominios-${period}.csv`,
-            buildCsv(
-              [
+          void downloadXlsx(`condominios-${selectionSlug(sel)}.xlsx`, [
+            {
+              name: 'Condomínios',
+              notes: [`Ranking de condomínios — ${data.window.label}`],
+              head: [
                 'Condomínio',
-                'Receita total (R$)',
-                'Receita créditos (R$)',
-                'Receita Cestinha (R$)',
-                'Movimentado Cestinha (R$)',
+                'Receita total',
+                'Receita créditos',
+                'Receita Cestinha',
+                'Movimentado Cestinha',
                 'Clientes ativos',
                 'Pães entregues',
               ],
-              items.map((c) => [
+              rows: items.map((c) => [
                 c.condominiumName,
-                c.revenue.toFixed(2),
-                (c.creditRevenue ?? c.revenue).toFixed(2),
-                (c.marketRevenue ?? 0).toFixed(2),
-                (c.cestinhaGmv ?? 0).toFixed(2),
+                c.revenue,
+                c.creditRevenue ?? c.revenue,
+                c.marketRevenue ?? 0,
+                c.cestinhaGmv ?? 0,
                 c.activeClients,
                 c.breadsDelivered,
               ]),
-            ),
-          )
+              money: [1, 2, 3, 4],
+              integer: [5, 6],
+              footer: [
+                'Receita total = créditos + dinheiro NOVO da Cestinha (D-2).',
+                'Movimentado da Cestinha NUNCA entra na receita: a parte paga em pãezinhos já foi faturada na compra do combo.',
+                ...(data.window.isPartial ? ['Período EM CURSO — números parciais.'] : []),
+              ],
+            },
+          ])
       : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <ReportAppBar title="Condomínios" onBack={onBack} onExport={onExport} />
       <ReportScroll>
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <LoadingText />

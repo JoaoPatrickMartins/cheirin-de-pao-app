@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { KpiCard } from '../../../components/admin/KpiCard'
 import {
   ReportAppBar,
@@ -13,28 +18,23 @@ import {
   fmtInt, fmtCredits,
   fmtPct,
 } from './RelShared'
-import { buildCsv, downloadCsv } from '../../../lib/csv'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 type Period = 'day' | 'week' | 'month'
 
 interface RetentionReport {
-  period: Period
+  period?: Period
+  window: { from: string; to: string; label: string; isPartial: boolean }
   autoRecharge: { enabled: number; activeClients: number; rate: number; byMode: { acabar: number; semanal: number } }
   credit: { zeroBalance: number; atRisk: number }
   activation: { registered: number; withSchedule: number; withPurchase: number; withDelivery: number }
   repurchase: { avgIntervalDays: number | null; repurchasingClients: number; creditsSold: number; creditsConsumed: number }
 }
 
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
-
 const safeDiv = (a: number, b: number) => (b > 0 ? a / b : 0)
 
 export function RelRetencao({ onBack }: { onBack: () => void }) {
-  const [period, setPeriod] = useState<Period>('month')
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'month' })
   const [data, setData] = useState<RetentionReport | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -42,7 +42,7 @@ export function RelRetencao({ onBack }: { onBack: () => void }) {
     const run = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/reports/retention?period=${period}`)
+        const res = await apiFetch(`/admin/reports/retention?${periodQuery(sel)}`)
         setData(res.ok ? ((await res.json()) as RetentionReport) : null)
       } catch {
         setData(null)
@@ -51,41 +51,61 @@ export function RelRetencao({ onBack }: { onBack: () => void }) {
       }
     }
     void run()
-  }, [period])
+  }, [sel])
 
   const a = data?.activation
   const reg = a?.registered ?? 0
 
   const onExport = data
     ? () =>
-        downloadCsv(
-          `recorrencia-${period}.csv`,
-          buildCsv(
-            ['Métrica', 'Valor'],
-            [
-              ['Recarga automática (%)', fmtPct(data.autoRecharge.rate)],
+        void downloadXlsx(`recorrencia-${selectionSlug(sel)}.xlsx`, [
+          {
+            name: 'Resumo',
+            notes: [`Recorrência & retenção — ${data.window.label}`],
+            head: ['Métrica', 'Valor'],
+            rows: [
               ['Recarga automática (clientes)', data.autoRecharge.enabled],
               ['Clientes ativos', data.autoRecharge.activeClients],
               ['Clientes sem crédito', data.credit.zeroBalance],
-              ['Sem crédito + agenda (risco)', data.credit.atRisk],
-              ['Cadastros', a?.registered ?? 0],
-              ['Montaram agenda', a?.withSchedule ?? 0],
-              ['Fizeram 1ª compra', a?.withPurchase ?? 0],
-              ['Receberam 1ª entrega', a?.withDelivery ?? 0],
-              ['Intervalo médio de recompra (dias)', data.repurchase.avgIntervalDays ?? ''],
+              ['Sem crédito + agenda (risco de churn)', data.credit.atRisk],
               ['Clientes recorrentes (180d)', data.repurchase.repurchasingClients],
-              ['Créditos vendidos (período)', data.repurchase.creditsSold],
-              ['Créditos consumidos (período)', data.repurchase.creditsConsumed],
+              ['Intervalo médio de recompra (dias)', data.repurchase.avgIntervalDays ?? ''],
             ],
-          ),
-        )
+            footer: [
+              `Adoção de recarga automática: ${fmtPct(data.autoRecharge.rate)}`,
+              ...(data.window.isPartial ? ['Período EM CURSO — números parciais.'] : []),
+            ],
+          },
+          {
+            name: 'Funil de ativação',
+            head: ['Etapa', 'Clientes', 'Do cadastro'],
+            rows: [
+              ['Cadastros', a?.registered ?? 0, 1],
+              ['Montaram agenda', a?.withSchedule ?? 0, safeDiv(a?.withSchedule ?? 0, reg)],
+              ['Fizeram 1ª compra', a?.withPurchase ?? 0, safeDiv(a?.withPurchase ?? 0, reg)],
+              ['Receberam 1ª entrega', a?.withDelivery ?? 0, safeDiv(a?.withDelivery ?? 0, reg)],
+            ],
+            integer: [1],
+            percent: [2],
+            footer: ['`Receberam 1ª entrega` conta quem recebeu pão OU Cestinha.'],
+          },
+          {
+            name: 'Créditos',
+            head: ['Métrica', 'Pãezinhos'],
+            rows: [
+              ['Vendidos no período', data.repurchase.creditsSold],
+              ['Consumidos no período', data.repurchase.creditsConsumed],
+            ],
+            footer: ['Consumidos inclui os pãezinhos gastos na Cestinha (MARKET_PURCHASE).'],
+          },
+        ])
     : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <ReportAppBar title="Recorrência & retenção" onBack={onBack} onExport={onExport} />
       <ReportScroll>
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <LoadingText />

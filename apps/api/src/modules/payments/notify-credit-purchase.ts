@@ -5,8 +5,8 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 /**
  * Notifica os admins de uma compra de créditos confirmada (best-effort).
  *
- * Chamado nos dois chokepoints de crédito (webhook do Stripe e cobrança síncrona
- * off_session) — ambos guardados por idempotência de status, então dispara 1× por pagamento.
+ * Chamado pelo `creditForPayment` só quando ele ganha a trava do Payment
+ * (`claimAndCreditPurchase`), então dispara 1× por pagamento.
  */
 export async function notifyAdminsCreditPurchase(
   fastify: FastifyInstance,

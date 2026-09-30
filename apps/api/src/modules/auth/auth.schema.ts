@@ -19,20 +19,31 @@ export type SetPasswordBody = z.infer<typeof SetPasswordSchema>
 export type ResetPasswordBody = z.infer<typeof ResetPasswordSchema>
 export type ChangePasswordBody = z.infer<typeof ChangePasswordSchema>
 
-// E-mail é obrigatório (canal do OTP). Telefone também é obrigatório:
-// será usado no OTP por WhatsApp (futuro) e nos avisos de entrega.
-// Senha obrigatória no cadastro (política de senha forte no PasswordSchema).
-export const RegisterSchema = z.object({
+// Dados do cliente comuns aos dois cadastros — por e-mail (RegisterSchema) e pelo Google
+// (SocialCompleteSchema, em social-auth.schema.ts). Uma regra só, para os dois não divergirem.
+// Telefone é obrigatório: será usado no OTP por WhatsApp (futuro) e nos avisos de entrega.
+export const SignupProfileSchema = z.object({
   name: z.string().min(2),
   cpf: CpfSchema,
   birthDate: z.string().datetime().optional(),
   phone: PhoneSchema,
-  email: z.string().email(),
-  password: PasswordSchema,
   condominiumId: z.string(),
   apartment: z.string(),
   block: z.string().optional(),
   complement: z.string().trim().max(COMPLEMENT_MAX_LENGTH).optional(),
+  // Indique e Ganhe — OPCIONAIS de propósito: versões antigas do PWA em cache não mandam e seguem
+  // cadastrando. E o `.catch(undefined)` é a invariante "a indicação nunca atrapalha o cadastro":
+  // um `?ref=` adulterado (longo, com lixo) é descartado em vez de devolver 400 para o formulário
+  // inteiro. Código com formato certo mas inexistente também não recusa — só não vincula.
+  referralCode: z.string().trim().max(20).optional().catch(undefined),
+  referralSource: z.enum(['LINK', 'CODE']).optional().catch(undefined),
+})
+
+// Cadastro por e-mail: e-mail obrigatório (canal do OTP) e senha obrigatória (política forte no
+// PasswordSchema).
+export const RegisterSchema = SignupProfileSchema.extend({
+  email: z.string().email(),
+  password: PasswordSchema,
 })
 
 export type RegisterBody = z.infer<typeof RegisterSchema>

@@ -19,7 +19,7 @@ const INDEX_SPECS: Array<{
     key: Record<string, 1 | -1>
     name: string
     unique?: boolean
-    partialFilterExpression?: Record<string, { $exists: boolean }>
+    partialFilterExpression?: Record<string, { $exists: boolean } | { $type: string }>
   }>
 }> = [
   {
@@ -34,6 +34,40 @@ const INDEX_SPECS: Array<{
         name: 'paymentId_1',
         unique: true,
         partialFilterExpression: { paymentId: { $exists: true } },
+      },
+    ],
+  },
+  {
+    collection: 'User',
+    indexes: [
+      // Código de indicação único (Indique e Ganhe). PARCIAL porque quase todo documento não tem
+      // o campo: um índice único comum trataria todos os "sem código" como o mesmo valor e
+      // recusaria o segundo. Por isso ele não pode morar no schema — o `db push` criaria o comum.
+      //
+      // `$type: 'string'` em vez de `$exists: true`: um `null` gravado por engano também fica de
+      // fora do índice, em vez de virar uma colisão entre todos os `null`. A colisão de verdade
+      // (dois clientes sorteando o mesmo código) volta como P2002 e `ensureReferralCode` sorteia de
+      // novo.
+      {
+        key: { referralCode: 1 },
+        name: 'referralCode_1',
+        unique: true,
+        partialFilterExpression: { referralCode: { $type: 'string' } },
+      },
+    ],
+  },
+  {
+    collection: 'Expense',
+    indexes: [
+      // Idempotência da recorrência de despesas: uma parcela por recorrência por mês (a 2ª abertura
+      // do mês e as requisições concorrentes caem em P2002 — ver lib/expense-recurrence.ts).
+      // PARCIAL porque a despesa AVULSA não tem recorrência: num único comum ela entraria como
+      // (null, null) e a segunda avulsa colidiria com a primeira. Por isso não pode morar no schema.
+      {
+        key: { recurrenceId: 1, recurrenceMonth: 1 },
+        name: 'recurrenceId_1_recurrenceMonth_1',
+        unique: true,
+        partialFilterExpression: { recurrenceId: { $type: 'objectId' } },
       },
     ],
   },

@@ -29,6 +29,11 @@ export const analyticsRoute: FastifyPluginAsync = async (fastify) => {
             path: { type: 'string', description: 'Rota/tela inicial.' },
             referrer: { type: 'string', description: 'Referrer da navegação.' },
             platform: { type: 'string', enum: ['pwa', 'browser'], description: 'Plataforma de acesso.' },
+            // Sem maxLength/pattern de propósito: o Fastify recusaria o evento inteiro antes do Zod,
+            // que só descarta um código ruim (o acesso continua contando).
+            ref: { type: 'string', description: 'Indique e Ganhe: código do link `?ref=` capturado nesta carga (funil).' },
+            // Sem enum de propósito, pelo mesmo motivo do `ref`: quem descarta valor desconhecido é o Zod.
+            method: { type: 'string', description: 'Só em login: password | otp | google.' },
           },
         },
         response: {

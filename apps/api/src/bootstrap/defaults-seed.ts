@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, type ExpenseGroup } from '@prisma/client'
+import { REFERRAL_DEFAULTS, REFERRAL_SETTING_KEYS } from '../lib/referral-config.js'
 
 /**
  * seedDefaultsIfAbsent — garante valores padrão no banco quando o admin ainda não configurou.
@@ -183,4 +184,112 @@ export async function seedDefaultsIfAbsent(prisma: PrismaClient): Promise<void> 
     })
     console.log('[bootstrap] produto fixo "Pão Francês" criado')
   }
+}
+
+/**
+ * Alíquotas de taxa de gateway (Fase 3 do plano-financeiro-vendas).
+ *
+ * Semeadas com as tabelas públicas de referência, e é o que permite a linha "taxa de gateway" do
+ * DRE funcionar RETROATIVAMENTE sobre todo o histórico — sem elas o relatório nasceria com meses
+ * em branco. Cada conta negocia a sua taxa, então o admin ajusta pelas Configurações.
+ *
+ * `update: {}` no upsert: cria só se ausente, nunca sobrescreve o que o admin já ajustou.
+ */
+export async function seedGatewayFeeRates(prisma: PrismaClient): Promise<void> {
+  for (const [key, value] of Object.entries(DEFAULT_FEE_PCT_BY_KEY)) {
+    await prisma.setting.upsert({
+      where: { key },
+      update: {},
+      create: { key, value },
+    })
+  }
+}
+
+/**
+ * Config do Indique e Ganhe (§6 do plano-indique-e-ganhe) — o programa nasce DESLIGADO.
+ *
+ * Os valores saem de `REFERRAL_DEFAULTS`, os mesmos que a leitura defensiva usa quando a chave falta:
+ * semente e fallback nunca divergem. Campanha e metas são JSON (`null` e `[]`).
+ *
+ * `update: {}` no upsert: cria só se ausente, nunca sobrescreve o que o admin já configurou.
+ */
+export async function seedReferralDefaults(prisma: PrismaClient): Promise<void> {
+  const d = REFERRAL_DEFAULTS
+  const values: Record<keyof typeof REFERRAL_SETTING_KEYS, string> = {
+    ativa: String(d.ativa),
+    recompensa: String(d.recompensa),
+    bonusIndicado: String(d.bonusIndicado),
+    compraMinima: String(d.compraMinima),
+    limiteMensal: String(d.limiteMensal),
+    prazoDias: String(d.prazoDias),
+    mensagem: d.mensagem,
+    campanha: JSON.stringify(d.campanha),
+    metas: JSON.stringify(d.metas),
+  }
+  for (const [field, key] of Object.entries(REFERRAL_SETTING_KEYS)) {
+    await prisma.setting.upsert({
+      where: { key },
+      update: {},
+      create: { key, value: values[field as keyof typeof values] },
+    })
+  }
+}
+
+/** Alíquota padrão em percentual, por chave de Setting. */
+const DEFAULT_FEE_PCT_BY_KEY: Record<string, string> = {
+  taxaPix: '0.99',
+  taxaCartaoCredito: '4.98',
+  taxaCartaoDebito: '1.99',
+}
+
+/**
+ * Categorias de despesa padrão (decisão 4 do plano-financeiro-vendas).
+ *
+ * Semeadas porque o módulo de despesas com a lista vazia empurra o admin para criar categoria
+ * antes de lançar a primeira conta — e quem está com a nota na mão desiste. O `group` é o que
+ * amarra a linha do DRE, então cada semente já nasce no lugar certo da demonstração.
+ *
+ * `isFixed` não é enfeite: é o que torna o ponto de equilíbrio calculável (F9).
+ *
+ * Idempotente por `name` (@unique): rodar de novo não duplica e NÃO sobrescreve o que o admin
+ * ajustou — um upsert com `update` reverteria a categoria que ele moveu de grupo a cada deploy.
+ */
+export async function seedExpenseCategories(prisma: PrismaClient): Promise<void> {
+  const defaults: Array<{
+    name: string
+    group: ExpenseGroup
+    isFixed: boolean
+    emoji: string
+    sortOrder: number
+  }> = [
+    // Pessoal — decisão 6: despesa comum, sem folha nem encargo calculado.
+    { name: 'Entregador', group: 'PEOPLE', isFixed: false, emoji: '🛵', sortOrder: 10 },
+    { name: 'Pró-labore', group: 'PEOPLE', isFixed: true, emoji: '👤', sortOrder: 11 },
+    // Operação
+    { name: 'Combustível', group: 'OPERATION', isFixed: false, emoji: '⛽', sortOrder: 20 },
+    { name: 'Embalagem', group: 'OPERATION', isFixed: false, emoji: '📦', sortOrder: 21 },
+    { name: 'Gancho de porta', group: 'OPERATION', isFixed: false, emoji: '🪝', sortOrder: 22 },
+    { name: 'Manutenção', group: 'OPERATION', isFixed: false, emoji: '🔧', sortOrder: 23 },
+    // Comercial
+    { name: 'Marketing', group: 'SALES', isFixed: false, emoji: '📣', sortOrder: 30 },
+    { name: 'Taxa de gateway', group: 'SALES', isFixed: false, emoji: '💳', sortOrder: 31 },
+    // Administrativas
+    { name: 'Aluguel', group: 'ADMIN', isFixed: true, emoji: '🏠', sortOrder: 40 },
+    { name: 'Energia', group: 'ADMIN', isFixed: true, emoji: '💡', sortOrder: 41 },
+    { name: 'Internet e telefone', group: 'ADMIN', isFixed: true, emoji: '🌐', sortOrder: 42 },
+    { name: 'Software e serviços', group: 'ADMIN', isFixed: true, emoji: '🖥️', sortOrder: 43 },
+    { name: 'Contador', group: 'ADMIN', isFixed: true, emoji: '📗', sortOrder: 44 },
+    // Impostos — decisão 9: o sistema registra, nunca calcula.
+    { name: 'DAS / Simples', group: 'TAXES', isFixed: false, emoji: '🧾', sortOrder: 50 },
+    { name: 'Tarifa bancária', group: 'TAXES', isFixed: true, emoji: '🏦', sortOrder: 51 },
+    { name: 'Outras', group: 'OTHER', isFixed: false, emoji: '•', sortOrder: 90 },
+  ]
+
+  const existing = await prisma.expenseCategory.findMany({ select: { name: true } })
+  const have = new Set(existing.map((c) => c.name))
+  const missing = defaults.filter((d) => !have.has(d.name))
+  if (missing.length === 0) return
+
+  await prisma.expenseCategory.createMany({ data: missing })
+  console.log(`[bootstrap] ${missing.length} categorias de despesa semeadas`)
 }

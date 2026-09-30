@@ -7,6 +7,17 @@ export interface GanchoConfig {
   /** Preço de um gancho adicional (reposição por defeito/perda), em reais. */
   preco: number
   /**
+   * Quanto um gancho CUSTA para a empresa, em reais (A3 do plano-financeiro-vendas).
+   *
+   * Existia `preco` (o que se COBRA) e não existia o custo — então o gancho grátis, que é o maior
+   * investimento de aquisição do produto, saía do bolso a cada cliente novo sem aparecer em
+   * número nenhum. Com este Setting, o CAC via gancho fica exatamente calculável:
+   * `ganchos FREE/BONUS entregues no período × custo`.
+   *
+   * `0` = não informado; o relatório então declara o CAC como indisponível em vez de exibir zero.
+   */
+  custo: number
+  /**
    * Pedidos ENTREGUES (pedido único + Cestinha) para ganhar o gancho grátis por fidelidade.
    * `0` = regra desligada — é o default: a regra só passa a valer quando o admin define o número.
    */
@@ -21,6 +32,9 @@ export interface GanchoConfig {
 
 const DEFAULT_PEDIDO_UNICO_MIN = 10
 const DEFAULT_PRECO = 5
+// Sem default de negócio: custo inventado viraria um CAC inventado. Zero significa "não sei", e
+// quem consome trata como indisponível.
+const DEFAULT_CUSTO = 0
 
 /**
  * Lê a config do gancho a partir do Setting (ganchoPedidoUnicoMin / ganchoPreco /
@@ -31,9 +45,10 @@ const DEFAULT_PRECO = 5
 export async function getGanchoConfig(
   prisma: Pick<PrismaClient, 'setting'>,
 ): Promise<GanchoConfig> {
-  const [minRow, precoRow, recorrenciaRow, desdeRow] = await Promise.all([
+  const [minRow, precoRow, custoRow, recorrenciaRow, desdeRow] = await Promise.all([
     prisma.setting.findUnique({ where: { key: 'ganchoPedidoUnicoMin' } }),
     prisma.setting.findUnique({ where: { key: 'ganchoPreco' } }),
+    prisma.setting.findUnique({ where: { key: 'ganchoCusto' } }),
     prisma.setting.findUnique({ where: { key: 'ganchoRecorrenciaMin' } }),
     prisma.setting.findUnique({ where: { key: 'ganchoRecorrenciaDesde' } }),
   ])
@@ -44,6 +59,9 @@ export async function getGanchoConfig(
   const precoParsed = precoRow ? parseFloat(precoRow.value) : NaN
   const preco = Number.isFinite(precoParsed) && precoParsed >= 0 ? precoParsed : DEFAULT_PRECO
 
+  const custoParsed = custoRow ? parseFloat(custoRow.value) : NaN
+  const custo = Number.isFinite(custoParsed) && custoParsed >= 0 ? custoParsed : DEFAULT_CUSTO
+
   // Sem default de negócio: valor ausente/inválido = regra desligada (nunca concede por engano).
   const recorrenciaParsed = recorrenciaRow ? parseInt(recorrenciaRow.value, 10) : NaN
   const recorrenciaMin = Number.isFinite(recorrenciaParsed) && recorrenciaParsed >= 1 ? recorrenciaParsed : 0
@@ -53,5 +71,5 @@ export async function getGanchoConfig(
   const recorrenciaDesde =
     desdeParsed && !Number.isNaN(desdeParsed.getTime()) ? desdeParsed : null
 
-  return { pedidoUnicoMin, preco, recorrenciaMin, recorrenciaDesde }
+  return { pedidoUnicoMin, preco, custo, recorrenciaMin, recorrenciaDesde }
 }

@@ -1,6 +1,7 @@
 import { Outlet, Navigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { LoadingScreen } from '../auth/LoadingScreen'
+import { needsPasswordSetup } from '../../lib/roleRoutes'
 import { useOneSignalRegister } from '../../hooks/useOneSignalRegister'
 import { useOneSignalDeepLink } from '../../hooks/useOneSignalDeepLink'
 
@@ -13,7 +14,7 @@ export function CourierLayout() {
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'COURIER') return <Navigate to="/" replace />
   // 1º acesso sem senha: força a definição antes de usar o app.
-  if (user.hasPassword === false) return <Navigate to="/set-password" replace />
+  if (needsPasswordSetup(user)) return <Navigate to="/set-password" replace />
 
   // A CourierScreen controla seu próprio fundo, min-height e paddings.
   return <Outlet />

@@ -1,15 +1,21 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { KpiCard } from '../../../components/admin/KpiCard'
 import { BarChart } from '../../../components/admin/BarChart'
 import { ReportAppBar, ReportScroll, ReportCard, SectionTitle, LoadingText, ErrorText, fmtInt } from './RelShared'
-import { buildCsv, downloadCsv } from '../../../lib/csv'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 type Period = 'day' | 'week' | 'month'
 
 interface ScheduleProfileReport {
-  period: Period
+  period?: Period
+  window: { from: string; to: string; label: string; isPartial: boolean }
   activeSchedules: number
   totalWeeklyBreads: number
   avgWeeklyBreads: number
@@ -17,14 +23,8 @@ interface ScheduleProfileReport {
   orderMix: { single: number; scheduled: number }
 }
 
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
-
 export function RelAgenda({ onBack }: { onBack: () => void }) {
-  const [period, setPeriod] = useState<Period>('month')
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'month' })
   const [data, setData] = useState<ScheduleProfileReport | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -32,7 +32,7 @@ export function RelAgenda({ onBack }: { onBack: () => void }) {
     const run = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/reports/schedule-profile?period=${period}`)
+        const res = await apiFetch(`/admin/reports/schedule-profile?${periodQuery(sel)}`)
         setData(res.ok ? ((await res.json()) as ScheduleProfileReport) : null)
       } catch {
         setData(null)
@@ -41,7 +41,7 @@ export function RelAgenda({ onBack }: { onBack: () => void }) {
       }
     }
     void run()
-  }, [period])
+  }, [sel])
 
   const maxWd = Math.max(...(data?.byWeekday ?? []).map((d) => d.qty), 1)
   const bars = (data?.byWeekday ?? []).map((d) => ({ label: d.day, value: d.qty, highlight: d.qty === maxWd && d.qty > 0 }))
@@ -51,27 +51,34 @@ export function RelAgenda({ onBack }: { onBack: () => void }) {
 
   const onExport = data
     ? () =>
-        downloadCsv(
-          `agenda-${period}.csv`,
-          buildCsv(
-            ['Item', 'Valor'],
-            [
+        void downloadXlsx(`agenda-${selectionSlug(sel)}.xlsx`, [
+          {
+            name: 'Perfil da agenda',
+            notes: [`Perfil da agenda — ${data.window.label}`],
+            head: ['Item', 'Valor'],
+            rows: [
               ['Agendas ativas', data.activeSchedules],
               ['Pães/semana (total)', data.totalWeeklyBreads],
-              ['Pães/semana por cliente', data.avgWeeklyBreads.toFixed(1)],
-              ...data.byWeekday.map((d) => [`Dia: ${d.day}`, d.qty] as [string, number]),
+              ['Pães/semana por cliente', data.avgWeeklyBreads],
               ['Pedidos recorrentes (período)', scheduled],
               ['Pedidos únicos (período)', single],
             ],
-          ),
-        )
+            footer: data.window.isPartial ? ['Período EM CURSO — números parciais.'] : [],
+          },
+          {
+            name: 'Por dia da semana',
+            head: ['Dia', 'Pães/semana'],
+            rows: data.byWeekday.map((d) => [d.day, d.qty]),
+            integer: [1],
+          },
+        ])
     : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <ReportAppBar title="Perfil da agenda" onBack={onBack} onExport={onExport} />
       <ReportScroll>
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <LoadingText />
