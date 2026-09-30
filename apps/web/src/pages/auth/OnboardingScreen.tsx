@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { Icon } from '../../components/brand/Icon'
 import { StepDots } from '../../components/auth/StepDots'
 import { CondoSearch } from '../../components/auth/CondoSearch'
@@ -16,6 +16,17 @@ import {
   useSignupReferral,
 } from '../../components/auth/ReferralCodeField'
 import { clearStoredReferral } from '../../lib/referral'
+import { RegisterChoice } from '../../components/auth/RegisterChoice'
+import { SocialSignupStep, type SocialSignupNotice } from '../../components/auth/SocialSignupStep'
+import { useFinishAuth } from '../../lib/finishAuth'
+import {
+  claimSocial,
+  clearPendingFlow,
+  completeSocialSignup,
+  fetchSocialProviders,
+  readPendingFlow,
+  startSocial,
+} from '../../lib/socialAuth'
 import {
   isValidCpf,
   isValidBrMobile,
@@ -86,15 +97,41 @@ function blockOptions(numBlocks: number): string[] {
   return Array.from({ length: count }, (_, i) => `${i + 1} ou ${String.fromCharCode(65 + i)}`)
 }
 
-const TOTAL_STEPS = 5
+// Dois roteiros (plano-login-social.md §9.3). E-mail: os 5 passos de sempre. Google: "Quase lá" (5)
+// → condomínio (2) → endereço (3), sem senha e sem código — o e-mail já vem verificado.
+const EMAIL_STEPS = [0, 1, 2, 3, 4]
+const GOOGLE_STEPS = [5, 2, 3]
+const QUASE_LA = 5
+
+// Rascunho do "Quase lá" enquanto a pessoa refaz o Google (a volta recarrega a página).
+const SOCIAL_DRAFT_KEY = 'cdp_social_signup_draft'
+
+type SignupMode = 'loading' | 'choice' | 'email' | 'google'
+type SocialPrefill = { name: string; email: string }
 
 export function OnboardingScreen() {
   const navigate = useNavigate()
   const auth = useAuth()
+  const finishAuth = useFinishAuth()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const navState = (location.state ?? null) as { prefill?: SocialPrefill; emailSignup?: boolean; socialError?: string } | null
 
-  const [step, setStep] = useState(0)
+  // choice = L2 ("Como você quer criar sua conta?"), só com o Google ligado.
+  const [mode, setMode] = useState<SignupMode>(() =>
+    searchParams.get('modo') === 'google' ? 'google' : navState?.emailSignup ? 'email' : 'loading',
+  )
+  const [googleOn, setGoogleOn] = useState(false)
+  const [prefill, setPrefill] = useState<SocialPrefill | null>(navState?.prefill ?? null)
+  const [socialFlow, setSocialFlow] = useState(() => readPendingFlow())
+  const [socialNotice, setSocialNotice] = useState<SocialSignupNotice>(null)
+  const [restarting, setRestarting] = useState(false)
+
+  const [step, setStep] = useState(() => (searchParams.get('modo') === 'google' ? QUASE_LA : 0))
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const steps = mode === 'google' ? GOOGLE_STEPS : EMAIL_STEPS
+  const stepIndex = Math.max(0, steps.indexOf(step))
 
   // Step 0 — Dados
   const [nome, setNome] = useState('')
@@ -129,6 +166,57 @@ export function OnboardingScreen() {
   // Indique e Ganhe (C4) — código do link ou digitado. Nunca bloqueia o cadastro.
   const referral = useSignupReferral()
 
+  // Provedores: com o Google ligado, o cadastro abre na escolha (L2); sem ele, no passo 1.
+  useEffect(() => {
+    let alive = true
+    void fetchSocialProviders().then((p) => {
+      if (!alive) return
+      setGoogleOn(p.google)
+      setMode((m) => (m === 'loading' ? (p.google ? 'choice' : 'email') : m))
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // Roteiro Google: nome/e-mail vêm do retorno; num reload, busca de novo com o segredo guardado.
+  useEffect(() => {
+    if (mode !== 'google' || prefill) return
+    if (!socialFlow) {
+      setMode('choice')
+      setStep(0)
+      return
+    }
+    let alive = true
+    void claimSocial(socialFlow).then((res) => {
+      if (!alive) return
+      if (res?.status === 'NEEDS_SIGNUP') setPrefill({ name: res.prefill.name, email: res.prefill.email })
+      else if (res?.status === 'LOGGED_IN') {
+        clearPendingFlow()
+        finishAuth(res, 'google', { replace: true })
+      } else setSocialNotice('expired')
+    })
+    return () => {
+      alive = false
+    }
+  }, [mode, prefill, socialFlow, finishAuth])
+
+  // Nome do Google preenchido (editável); volta o rascunho digitado antes de refazer o Google.
+  useEffect(() => {
+    if (mode !== 'google' || !prefill) return
+    let draft: { nome?: string; cpf?: string; nasc?: string; tel?: string } | null = null
+    try {
+      draft = JSON.parse(sessionStorage.getItem(SOCIAL_DRAFT_KEY) ?? 'null')
+      sessionStorage.removeItem(SOCIAL_DRAFT_KEY)
+    } catch {
+      draft = null
+    }
+    setNome((cur) => cur || draft?.nome || prefill.name)
+    if (draft?.cpf) setCpfDisplay(draft.cpf)
+    if (draft?.nasc) setDataNascimento(draft.nasc)
+    if (draft?.tel) setTelefone(draft.tel)
+  }, [mode, prefill])
+
   const selectedCondo = condos.find((c) => c.id === selectedCondoId) ?? null
   const isBlocksCondo = selectedCondo?.type === 'BLOCKS'
   // Opções de bloco vindas de numBlocks; sem esse dado, cai para input de texto livre.
@@ -162,15 +250,91 @@ export function OnboardingScreen() {
     // Only allow digits and formatting chars
     const digits = value.replace(/\D/g, '').slice(0, 11)
     setCpfDisplay(formatCpf(digits))
+    if (socialNotice === 'cpfTaken') setSocialNotice(null)
   }
 
   const handleBack = () => {
     setError(null)
-    if (step === 0) {
-      navigate('/')
-    } else {
-      setStep((s) => s - 1)
+    if (stepIndex > 0) {
+      setStep(steps[stepIndex - 1])
+      return
     }
+    // Primeiro passo: volta para a escolha (L2) quando o Google está ligado.
+    if (mode === 'google') {
+      clearPendingFlow()
+      setSocialFlow(null)
+      setPrefill(null)
+      setSocialNotice(null)
+      setMode('choice')
+      setStep(0)
+    } else if (googleOn) {
+      setMode('choice')
+    } else {
+      navigate('/')
+    }
+  }
+
+  /** Roteiro Google, passo 3: cria a conta (sem senha, sem código) e entra. */
+  const handleSocialComplete = async () => {
+    setError(null)
+    const birthDate = parseBirthDate(dataNascimento)
+    if (!socialFlow || !birthDate) {
+      setSocialNotice('expired')
+      setStep(QUASE_LA)
+      return
+    }
+    setLoading(true)
+    const res = await completeSocialSignup(socialFlow, {
+      name: nome.trim(),
+      cpf: stripCpf(cpfDisplay),
+      birthDate,
+      phone: telefone,
+      condominiumId: selectedCondoId!,
+      apartment: apto,
+      ...(isBlocksCondo && bloco ? { block: bloco } : {}),
+      ...(isBlocksCondo && complemento.trim() ? { complement: complemento.trim() } : {}),
+      ...referral.payload(),
+    })
+    setLoading(false)
+    if (res.ok) {
+      if (res.result.status === 'LOGGED_IN') {
+        clearStoredReferral()
+        clearPendingFlow()
+        finishAuth(res.result, 'google', { replace: true })
+        return
+      }
+      // O fluxo venceu ou foi usado em outra aba: refaz o Google sem perder o que foi digitado.
+      setSocialNotice('expired')
+      setStep(QUASE_LA)
+      return
+    }
+    if (res.status === 409 && /CPF/i.test(res.error)) {
+      setSocialNotice('cpfTaken')
+      setStep(QUASE_LA)
+      return
+    }
+    if (res.status === 409 && /telefone/i.test(res.error)) {
+      setSocialNotice('telTaken')
+      setStep(QUASE_LA)
+      return
+    }
+    setError(res.error)
+  }
+
+  const restartGoogle = async () => {
+    setRestarting(true)
+    try {
+      sessionStorage.setItem(SOCIAL_DRAFT_KEY, JSON.stringify({ nome, cpf: cpfDisplay, nasc: dataNascimento, tel: telefone }))
+    } catch {
+      // sem storage o rascunho se perde — a pessoa digita de novo
+    }
+    const started = await startSocial('google', 'register')
+    if (!started.ok) {
+      setRestarting(false)
+      setError(started.error)
+      return
+    }
+    navigate('/entrar/social')
   }
 
   const handleStep0Continue = () => {
@@ -188,8 +352,9 @@ export function OnboardingScreen() {
     setStep(3)
   }
 
-  /** Step 3 CTA: register + send OTP */
+  /** Step 3 CTA: register + send OTP (roteiro Google: cria a conta direto) */
   const handleStep3Submit = async () => {
+    if (mode === 'google') return handleSocialComplete()
     setError(null)
     setLoading(true)
     try {
@@ -286,7 +451,7 @@ export function OnboardingScreen() {
         refreshToken: string
         user: { id: string; role: 'CLIENT' | 'COURIER' | 'ADMIN'; name: string; creditBalance?: number }
       }
-      auth.login(accessToken, refreshToken, { ...user, creditBalance: user.creditBalance ?? 0 })
+      auth.login(accessToken, refreshToken, { ...user, creditBalance: user.creditBalance ?? 0 }, 'otp')
       navigate('/client')
     } catch {
       setError('Algo deu errado. Verifique sua conexão e tente novamente.')
@@ -332,10 +497,25 @@ export function OnboardingScreen() {
 
   // C8 — lista de espera: toma a tela inteira (o handoff não mostra os passos nela), já com o que o
   // cadastro sabe. Voltar devolve à busca; "Voltar ao início" vai para a abertura do app.
+  // L2 — escolha (Google / e-mail). Enquanto os provedores não respondem, só o fundo (sem piscar).
+  if (mode === 'loading') return <div style={{ minHeight: '100dvh', background: 'var(--color-app-bg)' }} />
+  if (mode === 'choice') {
+    return (
+      <RegisterChoice
+        referral={referral}
+        initialSocialError={navState?.socialError ?? null}
+        onEmail={() => {
+          setMode('email')
+          setStep(0)
+        }}
+      />
+    )
+  }
+
   if (waitlistFor !== null) {
     return (
       <CondoWaitlist
-        initial={{ condoName: waitlistFor, contactName: nome.trim(), contact: email.trim() }}
+        initial={{ condoName: waitlistFor, contactName: nome.trim(), contact: (mode === 'google' ? prefill?.email ?? '' : email).trim() }}
         onBack={() => setWaitlistFor(null)}
         onDone={() => navigate('/')}
       />
@@ -379,7 +559,59 @@ export function OnboardingScreen() {
       </button>
 
       {/* Step dots */}
-      <StepDots currentStep={step} totalSteps={TOTAL_STEPS} />
+      <StepDots currentStep={stepIndex} totalSteps={steps.length} />
+
+      {/* ─── Roteiro Google, passo 1: Quase lá (L4) ─── */}
+      {step === QUASE_LA && mode === 'google' && (
+        prefill ? (
+          <SocialSignupStep
+            email={prefill.email}
+            name={nome}
+            cpf={cpfDisplay}
+            birthDate={dataNascimento}
+            phone={telefone}
+            onName={setNome}
+            onCpf={handleCpfChange}
+            onBirthDate={(v) => setDataNascimento(formatDate(v))}
+            onPhone={(v) => {
+              setTelefone(formatPhone(v))
+              if (socialNotice === 'telTaken') setSocialNotice(null)
+            }}
+            referral={referral}
+            notice={socialNotice}
+            restarting={restarting}
+            onRestartGoogle={() => void restartGoogle()}
+            onLoginInstead={() => {
+              clearPendingFlow()
+              navigate('/login')
+            }}
+            onContinue={() => {
+              setError(null)
+              setStep(2)
+            }}
+          />
+        ) : socialNotice === 'expired' ? (
+          <SocialSignupStep
+            email=""
+            name={nome}
+            cpf={cpfDisplay}
+            birthDate={dataNascimento}
+            phone={telefone}
+            onName={setNome}
+            onCpf={handleCpfChange}
+            onBirthDate={(v) => setDataNascimento(formatDate(v))}
+            onPhone={(v) => setTelefone(formatPhone(v))}
+            referral={referral}
+            notice="expired"
+            restarting={restarting}
+            onRestartGoogle={() => void restartGoogle()}
+            onLoginInstead={() => navigate('/login')}
+            onContinue={() => undefined}
+          />
+        ) : (
+          <div style={{ flex: 1 }} />
+        )
+      )}
 
       {/* ─── Step 0: Seus dados ─── */}
       {step === 0 && (
@@ -733,7 +965,9 @@ export function OnboardingScreen() {
             disabled={!step3Valid || loading}
             style={{ whiteSpace: 'nowrap' }}
           >
-            {loading ? 'Enviando...' : 'Enviar código de confirmação'}
+            {mode === 'google'
+              ? loading ? 'Criando conta…' : 'Criar conta e ver meu pão'
+              : loading ? 'Enviando...' : 'Enviar código de confirmação'}
           </PrimaryBtn>
         </div>
       )}

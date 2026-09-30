@@ -141,6 +141,7 @@ function makeDetailFastify(user: { creditMilli?: number | null; creditBalance?: 
     },
     marketOrder: { findMany: vi.fn().mockResolvedValue([]), groupBy: vi.fn().mockResolvedValue([]) },
     payment: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }) },
+    socialAccount: { findMany: vi.fn().mockResolvedValue([]) },
   }
   return { prisma, fastify: { prisma, log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } } as unknown as FastifyInstance }
 }

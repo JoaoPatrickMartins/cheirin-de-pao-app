@@ -33,3 +33,17 @@ describe('analytics — ref do Indique e Ganhe', () => {
     expect(TrackEventSchema.parse({ type: 'access', visitorId: 'v1', ref: 42 }).ref).toBeUndefined()
   })
 })
+
+// Login com Google (plano-login-social.md): o evento de login diz como a pessoa entrou.
+describe('analytics — método do login', () => {
+  it('grava o método só no evento de login', async () => {
+    const { service, create } = makeService()
+    await service.record(TrackEventSchema.parse({ type: 'login', visitorId: 'v1', role: 'CLIENT', method: 'google' }))
+    await service.record(TrackEventSchema.parse({ type: 'access', visitorId: 'v1', method: 'google' }))
+    expect(create.mock.calls.map(([arg]) => arg.data.method)).toEqual(['google', null])
+  })
+
+  it('método desconhecido é descartado, sem derrubar o evento', () => {
+    expect(TrackEventSchema.parse({ type: 'login', visitorId: 'v1', method: 'facebook' }).method).toBeUndefined()
+  })
+})

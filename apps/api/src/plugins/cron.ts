@@ -8,6 +8,7 @@ import { CourierService } from '../modules/courier/courier.service.js'
 import { MarketCheckoutService } from '../modules/market/market-checkout.service.js'
 import { FinancialAlertsService } from '../modules/admin-financial/financial-alerts.service.js'
 import { sweepReferrals } from '../lib/referral.js'
+import { cleanupExpiredSocialFlows } from '../lib/social-flow-cleanup.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -57,6 +58,14 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.info({ counts }, '[cron] sweepReferrals concluído')
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em sweepReferrals — servidor mantido ativo')
+      }
+
+      // Login social — faxina dos fluxos vencidos (valem 60 min; o código já ignora os vencidos).
+      try {
+        const removed = await cleanupExpiredSocialFlows(fastify.prisma)
+        fastify.log.info({ removed }, '[cron] cleanupExpiredSocialFlows concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em cleanupExpiredSocialFlows — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },

@@ -23,6 +23,11 @@ export const TrackEventSchema = z.object({
    * `.catch(undefined)`: um código adulterado só é descartado; o evento de acesso nunca vira 400.
    */
   ref: z.string().max(40).optional().catch(undefined),
+  /**
+   * Só em login: como a pessoa entrou (login com Google — plano-login-social.md). Valor desconhecido
+   * (ex.: bundle novo com um método que esta API ainda não conhece) é descartado, nunca 400.
+   */
+  method: z.enum(['password', 'otp', 'google']).optional().catch(undefined),
 })
 
 export type TrackEvent = z.infer<typeof TrackEventSchema>

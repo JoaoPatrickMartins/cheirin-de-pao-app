@@ -74,6 +74,7 @@ export class AdminClientsController {
         ...result.client,
         condominiumName: result.condominium?.name ?? null,
         blockedByName: result.blockedByName,
+        accessMethods: result.accessMethods,
         schedule: result.schedule,
         recentOrders: result.recentOrders,
         recentCestinhas: result.recentCestinhas,

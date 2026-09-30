@@ -238,6 +238,13 @@ export function SettingsScreen() {
             description="Ver as boas-vindas e o tour do app de novo"
             onClick={replayOnboarding}
           />
+          <div style={{ height: 1, background: 'var(--color-border-2)', margin: '0 4px' }} />
+          <ProfileMenuRow
+            icon="shield"
+            label="Privacidade e termos"
+            description="Política de Privacidade, Termos e exclusão de dados"
+            onClick={() => navigate('/client/perfil/privacidade')}
+          />
         </div>
 
         {/* Conta */}

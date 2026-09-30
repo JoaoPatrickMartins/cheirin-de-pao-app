@@ -11,6 +11,7 @@ import prismaPlugin from './plugins/prisma.js'
 import authenticatePlugin from './plugins/authenticate.js'
 import { healthRoute } from './modules/health/health.route.js'
 import { authRoute } from './modules/auth/auth.route.js'
+import { socialAuthRoute } from './modules/social-auth/social-auth.route.js'
 import { condominiumsRoute } from './modules/condominiums/condominiums.route.js'
 import { paymentsRoute } from './modules/payments/payments.route.js'
 import { creditsRoute } from './modules/credits/credits.route.js'
@@ -110,6 +111,15 @@ const envSchema = {
     S3_SECRET_ACCESS_KEY: { type: 'string', default: '' },
     // Base pública opcional (CDN/CloudFront). Vazio = usa o endpoint padrão do bucket S3.
     S3_PUBLIC_BASE_URL: { type: 'string', default: '' },
+    // Login com Google — TODAS opcionais: a API sobe sem elas e o botão só aparece quando o par
+    // GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET e a URL pública da API existem (GET /auth/social/providers).
+    // Os secrets de produção são o interruptor do lançamento.
+    // API_PUBLIC_URL monta o redirect_uri (local: http://localhost:5173/api, via proxy do Vite).
+    // APP_PUBLIC_URL é para onde a API devolve no fim (vazio = CORS_ORIGIN).
+    API_PUBLIC_URL: { type: 'string', default: '' },
+    APP_PUBLIC_URL: { type: 'string', default: '' },
+    GOOGLE_CLIENT_ID: { type: 'string', default: '' },
+    GOOGLE_CLIENT_SECRET: { type: 'string', default: '' },
   },
 }
 
@@ -269,6 +279,7 @@ const start = async () => {
 
     // Auth routes — POST /auth/register, /auth/otp/send, /auth/otp/verify, /auth/couriers
     await fastify.register(authRoute)
+    await fastify.register(socialAuthRoute) // Login com Google — plano-login-social.md
 
     // Condominiums route — GET /condominiums (public, no auth required)
     await fastify.register(condominiumsRoute)

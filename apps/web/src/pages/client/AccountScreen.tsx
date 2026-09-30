@@ -5,6 +5,14 @@ import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
 import { CondoSearch } from '../../components/auth/CondoSearch'
 import { Icon } from '../../components/brand/Icon'
+import { Btn, Card, ProviderTile, Row, SectionLabel, SocialKeyframes, Spinner } from '../../components/auth/SocialAuthUI'
+import {
+  disconnectSocial,
+  fetchConnectedAccounts,
+  fetchSocialProviders,
+  startSocial,
+  type ConnectedAccount,
+} from '../../lib/socialAuth'
 
 interface Condo {
   id: string
@@ -26,6 +34,22 @@ function formatBirthDate(iso?: string): string {
   const [y, m, day] = d.split('-')
   if (!y || !m || !day) return 'Não informado'
   return `${day}/${m}/${y}`
+}
+
+// CPF mascarado na leitura (handoff L7): "52998224725" → "•••.982.247-••".
+function maskCpf(cpf?: string): string {
+  const d = (cpf ?? '').replace(/\D/g, '')
+  if (d.length !== 11) return cpf || '—'
+  return `•••.${d.slice(3, 6)}.${d.slice(6, 9)}-••`
+}
+
+// Celular legível (handoff L7): "11987654321" → "(11) 9 8765-4321".
+function formatPhoneDisplay(phone?: string): string {
+  let d = (phone ?? '').replace(/\D/g, '')
+  if (d.length > 11 && d.startsWith('55')) d = d.slice(2)
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 3)} ${d.slice(3, 7)}-${d.slice(7)}`
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return phone || 'Não informado'
 }
 
 export function AccountScreen() {
@@ -55,6 +79,49 @@ export function AccountScreen() {
   const showToast = (message: string, ok: boolean) => {
     setToast({ message, ok })
     setTimeout(() => setToast(null), 2500)
+  }
+
+  // ── Contas conectadas (login com Google — handoff L7) ──
+  const [googleOn, setGoogleOn] = useState(false)
+  const [accounts, setAccounts] = useState<ConnectedAccount[] | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const google = accounts?.find((a) => a.provider === 'google') ?? null
+  // Sessão antiga sem o campo: trata como "tem senha" (mostra Trocar, como antes).
+  const hasPassword = user?.hasPassword !== false
+
+  useEffect(() => {
+    let alive = true
+    void fetchSocialProviders().then((p) => alive && setGoogleOn(p.google))
+    void fetchConnectedAccounts().then((list) => alive && setAccounts(list ?? []))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const connectGoogle = async () => {
+    setConnecting(true)
+    const started = await startSocial('google', 'account')
+    if (!started.ok) {
+      setConnecting(false)
+      showToast('Não foi possível falar com o Google. Tente de novo.', false)
+      return
+    }
+    navigate('/entrar/social')
+  }
+
+  const doDisconnect = async () => {
+    setDisconnecting(true)
+    const ok = await disconnectSocial('google')
+    setDisconnecting(false)
+    setConfirmDisconnect(false)
+    if (!ok) {
+      showToast('Não foi possível desconectar. Tente de novo.', false)
+      return
+    }
+    setAccounts((list) => (list ?? []).filter((a) => a.provider !== 'google'))
+    showToast('Google desconectado. O código no e-mail continua valendo.', true)
   }
 
   useEffect(() => {
@@ -179,26 +246,34 @@ export function AccountScreen() {
         flexDirection: 'column',
       }}
     >
-      {/* Toast */}
+      <SocialKeyframes />
+      {/* Toast — o do handoff (embaixo, espresso, check dourado); erro em vermelho. */}
       {toast && (
         <div
+          role="status"
           style={{
             position: 'fixed',
-            top: 16,
-            left: '50%',
-            transform: 'translateX(-50%)',
+            left: 20,
+            right: 20,
+            bottom: 'calc(76px + env(safe-area-inset-bottom))',
             zIndex: 9999,
-            background: 'var(--color-espresso)',
-            color: 'var(--color-primary-btn-text)',
-            borderRadius: 12,
-            padding: '12px 16px',
+            background: toast.ok ? 'var(--color-espresso)' : 'var(--color-warn)',
+            color: '#FAF5EC',
+            borderRadius: 14,
+            padding: '13px 16px',
             fontFamily: 'var(--font-body)',
             fontWeight: 600,
-            fontSize: 14,
-            whiteSpace: 'nowrap',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.22)',
+            fontSize: 13.5,
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            boxShadow: 'var(--shadow-strong)',
+            animation: 'saRise .25s ease',
           }}
         >
+          <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+            <Icon name={toast.ok ? 'check' : 'alert'} size={17} color={toast.ok ? 'var(--color-gold)' : '#FAF5EC'} stroke={2.4} />
+          </span>
           {toast.message}
         </div>
       )}
@@ -246,7 +321,7 @@ export function AccountScreen() {
       </div>
 
       {/* Scroll area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px', paddingBottom: 80 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px', paddingBottom: 80, display: 'flex', flexDirection: 'column', gap: 18 }}>
         {/* Seção: Dados Pessoais */}
         <SectionCard
           title="Dados pessoais"
@@ -282,67 +357,82 @@ export function AccountScreen() {
             </>
           ) : (
             <>
-              <ReadRow label="Nome completo" value={user?.name} />
-              <ReadRow label="Data de nascimento" value={formatBirthDate(user?.birthDate)} />
-              <ReadRow label="CPF" value={user?.cpf} last />
+              <Row label="Nome" value={user?.name || '—'} />
+              <Row label="Nascimento" value={formatBirthDate(user?.birthDate)} />
+              <Row label="CPF" value={maskCpf(user?.cpf)} />
             </>
           )}
         </SectionCard>
 
         {/* Seção: Contato */}
-        <SectionCard title="Contato">
-          <ContactRow
-            label="Telefone"
-            value={user?.phone ?? undefined}
-            onEdit={() => navigate('/client/perfil/editar-contato')}
-          />
-          <div style={{ height: 12 }} />
-          <ContactRow
-            label="E-mail"
-            value={user?.email ?? undefined}
-            onEdit={() => navigate('/client/perfil/editar-contato')}
-          />
+        <SectionCard title="Contato" onEdit={() => navigate('/client/perfil/editar-contato')}>
+          <Row label="Celular" value={formatPhoneDisplay(user?.phone)} />
+          <Row label="E-mail" value={user?.email || 'Não informado'} />
         </SectionCard>
 
-        {/* Seção: Segurança */}
-        <SectionCard title="Segurança">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div style={{ minWidth: 0 }}>
-              <p
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: 'var(--color-text-sec)',
-                  margin: '0 0 2px',
-                }}
-              >
-                Senha
-              </p>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, color: 'var(--color-text)', margin: 0 }}>
-                ••••••••
-              </p>
+        {/* Seção: Contas conectadas (L7) — só com o Google ligado no servidor. */}
+        {googleOn && (
+          <div>
+            <SectionLabel>Contas conectadas</SectionLabel>
+            <Card pad={0}>
+              <ConnectedRow
+                state={connecting ? 'connecting' : google ? 'on' : accounts === null ? 'loading' : 'off'}
+                email={google?.email ?? null}
+                onConnect={() => void connectGoogle()}
+                onDisconnect={() => setConfirmDisconnect(true)}
+              />
+            </Card>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', lineHeight: 1.5, margin: '8px 4px 0' }}>
+              Entre com um toque. Desconectar não tranca sua conta: o código no e-mail sempre funciona.
             </div>
-            <button
-              onClick={() => navigate('/change-password')}
+          </div>
+        )}
+
+        {/* Seção: Segurança (L8 quando não há senha) */}
+        <div>
+          <SectionLabel>Segurança</SectionLabel>
+          <Card pad={14} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
               style={{
+                width: 38,
+                height: 38,
+                borderRadius: 12,
                 background: 'var(--color-surface-2)',
-                border: 'none',
-                borderRadius: 10,
-                padding: '8px 14px',
-                fontFamily: 'var(--font-body)',
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--color-accent)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
+                color: 'var(--color-text-sec)',
+                display: 'grid',
+                placeItems: 'center',
                 flexShrink: 0,
               }}
             >
-              Trocar
-            </button>
-          </div>
-        </SectionCard>
+              <Icon name={hasPassword ? 'lock' : 'shield'} size={19} />
+            </div>
+            {hasPassword ? (
+              <>
+                <div style={{ flex: 1, fontFamily: 'var(--font-body)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-text)' }}>Senha</div>
+                  <div style={{ fontSize: 13, color: 'var(--color-text-sec)', marginTop: 2, letterSpacing: '0.1em' }}>••••••••</div>
+                </div>
+                <Btn size="sm" variant="soft" onClick={() => navigate('/change-password')}>
+                  Trocar
+                </Btn>
+              </>
+            ) : (
+              <>
+                <div style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-text)' }}>
+                    {google ? 'Você entra com o Google' : 'Você entra com código no e-mail'}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--color-text-sec)', marginTop: 2, lineHeight: 1.4 }}>
+                    {google ? 'Ou com código no e-mail. Quer uma senha também?' : 'Quer uma senha também?'}
+                  </div>
+                </div>
+                <Btn size="sm" onClick={() => navigate('/create-password')}>
+                  Criar senha
+                </Btn>
+              </>
+            )}
+          </Card>
+        </div>
 
         {/* Seção: Condomínio */}
         <SectionCard
@@ -403,14 +493,24 @@ export function AccountScreen() {
             </>
           ) : (
             <>
-              <ReadRow label="Condomínio" value={user?.condominiumName} />
-              <ReadRow label={aptLabel} value={user?.apartment} />
-              <ReadRow label="Bloco / Torre" value={user?.block} />
-              <ReadRow label="Complemento" value={user?.complement} last />
+              <Row label="Condomínio" value={user?.condominiumName || '—'} />
+              <Row label={aptLabel} value={user?.apartment || '—'} />
+              {user?.block && <Row label="Bloco / Torre" value={user.block} />}
+              {user?.complement && <Row label="Complemento" value={user.complement} />}
             </>
           )}
         </SectionCard>
       </div>
+
+      {/* Sheet: desconectar o Google (L7) */}
+      {confirmDisconnect && (
+        <DisconnectSheet
+          hasPassword={hasPassword}
+          busy={disconnecting}
+          onCancel={() => setConfirmDisconnect(false)}
+          onConfirm={() => void doDisconnect()}
+        />
+      )}
 
       {/* Dialog: confirmar mudança de condomínio */}
       {showCondoDialog && (
@@ -531,6 +631,7 @@ const hintStyle: React.CSSProperties = {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
+// Seção do handoff (L7): rótulo fora do card, "Editar" à direita do rótulo, card com as linhas.
 function SectionCard({
   title,
   editing,
@@ -543,51 +644,28 @@ function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <div
-      style={{
-        background: 'var(--color-surface)',
-        borderRadius: 'var(--radius-card)',
-        padding: 24,
-        boxShadow: 'var(--shadow-soft)',
-        marginBottom: 20,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 16,
-        }}
-      >
-        <h2
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 16,
-            fontWeight: 700,
-            color: 'var(--color-text)',
-            margin: 0,
-            letterSpacing: '-0.01em',
-          }}
-        >
-          {title}
-        </h2>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, marginBottom: -4 }}>
+        <SectionLabel>{title}</SectionLabel>
         {onEdit && !editing && (
           <button
+            type="button"
             onClick={onEdit}
+            aria-label={`Editar ${title.toLowerCase()}`}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: 'var(--color-surface-2)',
+              minHeight: 44,
+              padding: '0 4px',
+              background: 'none',
               border: 'none',
-              borderRadius: 10,
-              padding: '7px 12px',
-              fontFamily: 'var(--font-body)',
-              fontSize: 13,
-              fontWeight: 600,
               color: 'var(--color-accent)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              fontWeight: 700,
+              fontSize: 13,
               cursor: 'pointer',
+              fontFamily: 'var(--font-body)',
+              marginTop: -8,
             }}
           >
             <Icon name="edit" size={15} color="var(--color-accent)" />
@@ -595,7 +673,128 @@ function SectionCard({
           </button>
         )}
       </div>
-      {children}
+      <Card pad={16} style={editing ? undefined : { paddingTop: 8, paddingBottom: 8 }}>
+        {children}
+      </Card>
+    </div>
+  )
+}
+
+// Linha de provedor em "Contas conectadas" (handoff ConnectedRow).
+function ConnectedRow({
+  state,
+  email,
+  onConnect,
+  onDisconnect,
+}: {
+  state: 'off' | 'on' | 'connecting' | 'loading'
+  email: string | null
+  onConnect: () => void
+  onDisconnect: () => void
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', minHeight: 64 }}>
+      <ProviderTile size={40} />
+      <div style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)' }}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: 7 }}>
+          Google
+          {state === 'on' && <Icon name="check" size={15} color="var(--color-good)" stroke={2.6} />}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: state === 'on' ? 'var(--color-text-sec)' : 'var(--color-text-ter)',
+            marginTop: 2,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {state === 'on' ? email || 'Conectado' : state === 'connecting' ? 'Conectando…' : state === 'loading' ? '…' : 'Não conectado'}
+        </div>
+      </div>
+      {state === 'on' && (
+        <button
+          type="button"
+          onClick={onDisconnect}
+          style={{ minHeight: 44, padding: '0 6px', background: 'none', border: 'none', color: 'var(--color-text-sec)', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+        >
+          Desconectar
+        </button>
+      )}
+      {state === 'off' && (
+        <Btn size="sm" variant="soft" onClick={onConnect}>
+          Conectar
+        </Btn>
+      )}
+      {state === 'connecting' && (
+        <div style={{ width: 44, height: 44, display: 'grid', placeItems: 'center' }}>
+          <Spinner size={18} color="var(--color-accent)" track="var(--color-gold-soft)" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Confirmação de desconectar (handoff SADisconnectSheet).
+function DisconnectSheet({
+  hasPassword,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  hasPassword: boolean
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onCancel])
+  return (
+    <div
+      onClick={onCancel}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(30,18,7,0.5)', display: 'flex', alignItems: 'flex-end', zIndex: 200 }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Desconectar o Google?"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%',
+          background: 'var(--color-app-bg)',
+          borderRadius: '26px 26px 0 0',
+          padding: '10px 20px calc(22px + env(safe-area-inset-bottom))',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          boxSizing: 'border-box',
+        }}
+      >
+        <div style={{ width: 40, height: 5, borderRadius: 9, background: 'var(--color-border)', margin: '0 auto 8px' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ProviderTile size={44} />
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 21, color: 'var(--color-text)', letterSpacing: '-0.02em' }}>
+            Desconectar o Google?
+          </div>
+        </div>
+        <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--color-text-sec)', lineHeight: 1.5 }}>
+          Você continua entrando com código no e-mail{hasPassword ? ' ou com sua senha' : ''}. Dá pra conectar de novo quando quiser.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+          <Btn full size="lg" icon="unlink" loading={busy} onClick={onConfirm}>
+            Desconectar
+          </Btn>
+          <Btn full variant="soft" size="lg" disabled={busy} onClick={onCancel}>
+            Manter conectado
+          </Btn>
+        </div>
+      </div>
     </div>
   )
 }
@@ -613,91 +812,6 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
     >
       {children}
     </p>
-  )
-}
-
-function ReadRow({ label, value, last = false }: { label: string; value?: string; last?: boolean }) {
-  return (
-    <div
-      style={{
-        paddingBottom: last ? 0 : 14,
-        marginBottom: last ? 0 : 14,
-        borderBottom: last ? 'none' : '1px solid var(--color-border-2)',
-      }}
-    >
-      <p
-        style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: 12.5,
-          fontWeight: 600,
-          color: 'var(--color-text-sec)',
-          margin: '0 0 2px',
-        }}
-      >
-        {label}
-      </p>
-      <p
-        style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: 15,
-          color: value ? 'var(--color-text)' : 'var(--color-text-ter)',
-          margin: 0,
-        }}
-      >
-        {value || 'Não informado'}
-      </p>
-    </div>
-  )
-}
-
-function ContactRow({ label, value, onEdit }: { label: string; value?: string; onEdit: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-      <div style={{ minWidth: 0 }}>
-        <p
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: 'var(--color-text-sec)',
-            margin: '0 0 2px',
-          }}
-        >
-          {label}
-        </p>
-        <p
-          style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: 15,
-            color: value ? 'var(--color-text)' : 'var(--color-text-ter)',
-            margin: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {value ?? 'Não informado'}
-        </p>
-      </div>
-      <button
-        onClick={onEdit}
-        style={{
-          background: 'var(--color-surface-2)',
-          border: 'none',
-          borderRadius: 10,
-          padding: '8px 14px',
-          fontFamily: 'var(--font-body)',
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--color-accent)',
-          cursor: 'pointer',
-          whiteSpace: 'nowrap',
-          flexShrink: 0,
-        }}
-      >
-        Editar
-      </button>
-    </div>
   )
 }
 

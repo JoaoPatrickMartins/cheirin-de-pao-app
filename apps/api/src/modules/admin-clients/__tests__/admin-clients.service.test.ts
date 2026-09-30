@@ -95,6 +95,8 @@ function makeFastifyMock(overrides: {
       findFirst: vi.fn().mockResolvedValue(schedule),
       update: vi.fn().mockResolvedValue({ id: 'schedule-01', isActive: false }),
     },
+    // Linha "Acesso" do detalhe (login com Google) — sem conta conectada por padrão.
+    socialAccount: { findMany: vi.fn().mockResolvedValue([]) },
     order: {
       findMany: vi.fn().mockResolvedValue(orders),
       findUnique: vi.fn().mockResolvedValue(null),
@@ -277,6 +279,18 @@ describe('AdminClientsService', () => {
       expect(result).toHaveProperty('client')
       expect(result).toHaveProperty('schedule')
       expect(result).toHaveProperty('recentOrders')
+    })
+
+    it('linha Acesso: Google conectado + senha; sem nada, lista vazia', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      expect((await service.getDetail('user-01')).accessMethods).toEqual([])
+
+      prisma.socialAccount.findMany.mockResolvedValue([{ provider: 'GOOGLE' }])
+      prisma.user.findUnique.mockResolvedValueOnce({ ...(await prisma.user.findUnique()), passwordHash: '$2a$10$x' })
+      expect((await service.getDetail('user-01')).accessMethods).toEqual(['google', 'password'])
     })
 
     it('inclui condomínio e métricas agregadas', async () => {

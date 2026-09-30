@@ -110,6 +110,11 @@ export class AuthRepository {
     })
   }
 
+  // Login social: quantas contas externas (Google) o usuário tem — define o mustSetPassword.
+  countSocialAccounts(userId: string) {
+    return this.prisma.socialAccount.count({ where: { userId } })
+  }
+
   updateSessionLastUsed(id: string) {
     return this.prisma.session.update({ where: { id }, data: { lastUsedAt: new Date() } })
   }

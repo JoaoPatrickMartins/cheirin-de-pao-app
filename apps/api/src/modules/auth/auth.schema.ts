@@ -19,16 +19,14 @@ export type SetPasswordBody = z.infer<typeof SetPasswordSchema>
 export type ResetPasswordBody = z.infer<typeof ResetPasswordSchema>
 export type ChangePasswordBody = z.infer<typeof ChangePasswordSchema>
 
-// E-mail é obrigatório (canal do OTP). Telefone também é obrigatório:
-// será usado no OTP por WhatsApp (futuro) e nos avisos de entrega.
-// Senha obrigatória no cadastro (política de senha forte no PasswordSchema).
-export const RegisterSchema = z.object({
+// Dados do cliente comuns aos dois cadastros — por e-mail (RegisterSchema) e pelo Google
+// (SocialCompleteSchema, em social-auth.schema.ts). Uma regra só, para os dois não divergirem.
+// Telefone é obrigatório: será usado no OTP por WhatsApp (futuro) e nos avisos de entrega.
+export const SignupProfileSchema = z.object({
   name: z.string().min(2),
   cpf: CpfSchema,
   birthDate: z.string().datetime().optional(),
   phone: PhoneSchema,
-  email: z.string().email(),
-  password: PasswordSchema,
   condominiumId: z.string(),
   apartment: z.string(),
   block: z.string().optional(),
@@ -39,6 +37,13 @@ export const RegisterSchema = z.object({
   // inteiro. Código com formato certo mas inexistente também não recusa — só não vincula.
   referralCode: z.string().trim().max(20).optional().catch(undefined),
   referralSource: z.enum(['LINK', 'CODE']).optional().catch(undefined),
+})
+
+// Cadastro por e-mail: e-mail obrigatório (canal do OTP) e senha obrigatória (política forte no
+// PasswordSchema).
+export const RegisterSchema = SignupProfileSchema.extend({
+  email: z.string().email(),
+  password: PasswordSchema,
 })
 
 export type RegisterBody = z.infer<typeof RegisterSchema>

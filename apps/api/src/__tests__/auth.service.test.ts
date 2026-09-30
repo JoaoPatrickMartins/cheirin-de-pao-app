@@ -39,6 +39,10 @@ function createMockFastify(overrides: Record<string, unknown> = {}): FastifyInst
         ),
         update: vi.fn().mockResolvedValue({}),
       },
+      // Login social: sem conta Google por padrão (conta sem senha → mustSetPassword true).
+      socialAccount: {
+        count: vi.fn().mockResolvedValue(0),
+      },
       ...overrides,
     },
     jwt: {
@@ -646,6 +650,72 @@ describe('AuthService [AUTH-05, AUTH-06]', () => {
       await blockedService.verifyOtpAndCreateSession('user1', '4321', 'dev1')
 
       expect(markReferralVerified).not.toHaveBeenCalled()
+    })
+  })
+
+  // Login com Google (plano-login-social.md, T-7): conta sem senha só é forçada a definir senha
+  // quando também não tem login social.
+  describe('mustSetPassword', () => {
+    function withOtpFor(fastify: FastifyInstance, service: AuthService, passwordHash: string | null) {
+      ;(fastify.prisma.otpCode.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'otp1',
+        code: service.hashValue('4321'),
+        expiresAt: new Date(Date.now() + 600_000),
+        usedAt: null,
+      })
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'user1', role: 'CLIENT', name: 'Maria', passwordHash, isBlocked: false,
+      })
+    }
+
+    it('sem senha e sem Google → true (força definir senha, como antes)', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      withOtpFor(fastify, service, null)
+
+      const result = await service.verifyOtpAndCreateSession('user1', '4321', 'dev1')
+
+      expect(result).toMatchObject({ hasPassword: false, mustSetPassword: true })
+    })
+
+    it('sem senha, mas com Google → false (entra sem definir senha)', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      withOtpFor(fastify, service, null)
+      ;(fastify.prisma.socialAccount.count as ReturnType<typeof vi.fn>).mockResolvedValue(1)
+
+      const result = await service.verifyOtpAndCreateSession('user1', '4321', 'dev1')
+
+      expect(result).toMatchObject({ hasPassword: false, mustSetPassword: false })
+    })
+
+    it('com senha → false, sem nem consultar as contas sociais', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      withOtpFor(fastify, service, '$2a$10$hash')
+
+      const result = await service.verifyOtpAndCreateSession('user1', '4321', 'dev1')
+
+      expect(result).toMatchObject({ hasPassword: true, mustSetPassword: false })
+      expect(fastify.prisma.socialAccount.count as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+    })
+
+    it('refresh recalcula: conta só com Google continua sem ser forçada', async () => {
+      const fastify = createMockFastify()
+      const service = new AuthService(fastify)
+      const refreshRaw = 'refresh-raw-token'
+      ;(fastify.prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'sess-old', userId: 'user1', deviceId: 'dev1', token: service.hashValue(refreshRaw),
+        isRevoked: false, expiresAt: new Date(Date.now() + 600_000),
+      })
+      ;(fastify.prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'user1', role: 'CLIENT', name: 'Maria', passwordHash: null, isBlocked: false,
+      })
+      ;(fastify.prisma.socialAccount.count as ReturnType<typeof vi.fn>).mockResolvedValue(1)
+
+      const result = await service.refreshSession(refreshRaw, 'dev1')
+
+      expect(result).toMatchObject({ hasPassword: false, mustSetPassword: false })
     })
   })
 })

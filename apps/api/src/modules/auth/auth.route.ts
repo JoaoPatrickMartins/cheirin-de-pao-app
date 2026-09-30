@@ -69,6 +69,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string', description: 'Access token JWT (vida curta, ~15 min).' },
             refreshToken: { type: 'string', description: 'Refresh token opaco (90 dias).' },
             hasPassword: { type: 'boolean', description: 'Sempre true no login por senha.' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               properties: {
@@ -133,6 +134,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string', description: 'Access token JWT (vida curta, ~15 min). Enviar como Authorization: Bearer.' },
             refreshToken: { type: 'string', description: 'Refresh token opaco (90 dias). Usar em POST /auth/refresh para renovar o acesso.' },
             hasPassword: { type: 'boolean', description: 'false = conta ainda sem senha; o app deve forçar a definição de senha.' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               description: 'Dados básicos do usuário autenticado.',
@@ -171,6 +173,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string', description: 'Novo access token JWT.' },
             refreshToken: { type: 'string', description: 'Novo refresh token (o anterior foi revogado).' },
             hasPassword: { type: 'boolean', description: 'Indica se a conta já tem senha definida.' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               properties: {
@@ -247,6 +250,7 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
             accessToken: { type: 'string' },
             refreshToken: { type: 'string' },
             hasPassword: { type: 'boolean' },
+            mustSetPassword: { type: 'boolean', description: 'true = conta sem senha e sem login social — o app força a definição de senha. Conta criada pelo Google vem false.' },
             user: {
               type: 'object',
               properties: { id: { type: 'string' }, name: { type: 'string' }, role: { type: 'string' } },

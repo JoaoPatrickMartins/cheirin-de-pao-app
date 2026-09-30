@@ -226,6 +226,7 @@ export class AdminClientsService {
       ordersCount,
       marketConfirmed,
       marketDelivered,
+      socialAccounts,
     ] = await Promise.all([
       // Busca a agenda do cliente independente de isActive — para que agendas
       // pausadas continuem visíveis no detalhe (e o admin possa retomá-las).
@@ -273,6 +274,8 @@ export class AdminClientsService {
         where: { userId: id, status: 'DELIVERED' },
         select: { breadQty: true, items: true },
       }),
+      // Linha "Acesso" do card Cadastro (login com Google — plano-login-social.md, A1).
+      this.prisma.socialAccount.findMany({ where: { userId: id }, select: { provider: true } }),
     ])
 
     const cestinhaGmv = marketConfirmed.reduce((acc, o) => acc + o.totalValue, 0)
@@ -327,8 +330,16 @@ export class AdminClientsService {
     // API fala em pãezinhos, não em milésimos.
     const { creditMilli, ...clientSemMilli } = user
 
+    // Como o cliente entra: 'google' e/ou 'password'. O código no e-mail vale para todos — não entra
+    // na lista (o handoff deixa de fora de propósito).
+    const accessMethods = [
+      ...socialAccounts.map((a) => a.provider.toLowerCase()),
+      ...(user.passwordHash ? ['password'] : []),
+    ]
+
     return {
       client: { ...clientSemMilli, creditBalance: fromMilli(creditMilli ?? 0) },
+      accessMethods,
       schedule,
       recentOrders,
       recentCestinhas: recentCestinhas.map((o) => ({

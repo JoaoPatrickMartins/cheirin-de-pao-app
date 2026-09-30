@@ -15,6 +15,9 @@ import { BannerProvider } from '../../contexts/BannerContext'
 import { BannerPopupHost } from '../../components/client/BannerPopupHost'
 import { hasSeenOnboarding, slidesDone, markSlidesDone, markOnboardingSeen } from '../../lib/onboarding'
 import { apiFetch } from '../../lib/apiFetch'
+import { needsPasswordSetup } from '../../lib/roleRoutes'
+import { takeFlash } from '../../lib/flash'
+import { SocialKeyframes, SocialToast } from '../../components/auth/SocialAuthUI'
 import { ReferralCelebration } from '../../components/client/ReferralCelebration'
 import { patchReferralSummary, useReferralSummary } from '../../hooks/useReferralSummary'
 
@@ -113,8 +116,8 @@ export function ClientLayout() {
 
   if (isLoading) return <LoadingScreen />
   if (!user || user.role !== 'CLIENT') return <Navigate to="/" replace />
-  // 1º acesso sem senha: força a definição antes de usar o app.
-  if (user.hasPassword === false) return <Navigate to="/set-password" replace />
+  // 1º acesso sem senha (e sem Google): força a definição antes de usar o app.
+  if (needsPasswordSetup(user)) return <Navigate to="/set-password" replace />
 
   // "Começar" ou "Pular" nas telas: marca slides e segue para o tour (fluxo "Tour sempre").
   function finishSlides() {
@@ -160,6 +163,7 @@ export function ClientLayout() {
         <CartProvider>
           <BannerProvider>
             <Outlet />
+            <FlashToast />
             <FloatingCart />
             <ClientTabBar />
             {phase === 'slides' && <OnboardingOverlay onFinish={finishSlides} />}
@@ -183,5 +187,23 @@ export function ClientLayout() {
         </CartProvider>
       </NotifProvider>
     </div>
+  )
+}
+
+// Aviso de uma vez só vindo de outra tela (ex.: "Google conectado!" depois do vínculo — lib/flash).
+function FlashToast() {
+  const [message] = useState(() => takeFlash())
+  const [visible, setVisible] = useState(!!message)
+  useEffect(() => {
+    if (!message) return
+    const timer = setTimeout(() => setVisible(false), 3200)
+    return () => clearTimeout(timer)
+  }, [message])
+  if (!visible) return null
+  return (
+    <>
+      <SocialKeyframes />
+      <SocialToast message={message} />
+    </>
   )
 }

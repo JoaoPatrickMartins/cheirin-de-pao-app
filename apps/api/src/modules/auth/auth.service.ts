@@ -15,13 +15,22 @@ const DUMMY_PASSWORD_HASH = bcrypt.hashSync('cheirin-de-pao-dummy-password', BCR
 
 type SessionUser = { id: string; role: string; name: string }
 
-// Resultado de qualquer fluxo que autentica e emite tokens (login/OTP/reset/refresh).
+// Resultado de qualquer fluxo que autentica e emite tokens (login/OTP/reset/refresh/Google).
 export type AuthTokens = {
   accessToken: string
   refreshToken: string
   user: SessionUser
   hasPassword: boolean
+  // true = conta sem senha E sem login social — o app força "defina sua senha". Conta criada pelo
+  // Google não tem senha e mesmo assim entra (plano-login-social.md, T-7).
+  mustSetPassword: boolean
 }
+
+// Estado da credencial que viaja com os tokens.
+export type CredentialFlags = { hasPassword: boolean; mustSetPassword: boolean }
+
+// Usuário com o mínimo para abrir uma sessão (claims do JWT + estado da senha).
+export type SessionCandidate = SessionUser & { passwordHash: string | null }
 
 type AuthError = { error: string; status: number }
 
@@ -122,13 +131,32 @@ export class AuthService {
   async issueTokens(
     user: SessionUser,
     deviceId: string,
-    hasPassword: boolean,
+    flags: CredentialFlags,
   ): Promise<AuthTokens> {
     const { raw, hash } = this.generateSessionToken()
     const expiresAt = new Date(Date.now() + REFRESH_EXPIRY_MS)
     const session = await this.repo.createSession({ userId: user.id, token: hash, deviceId, expiresAt })
     const accessToken = this.signAccessToken(user, session.id, deviceId)
-    return { accessToken, refreshToken: raw, user, hasPassword }
+    return { accessToken, refreshToken: raw, user, ...flags }
+  }
+
+  // hasPassword + mustSetPassword. Só consulta as contas sociais quando não há senha — o caso comum
+  // (conta com senha) não paga a consulta.
+  async credentialFlags(userId: string, passwordHash: string | null): Promise<CredentialFlags> {
+    if (passwordHash != null) return { hasPassword: true, mustSetPassword: false }
+    const socialAccounts = await this.repo.countSocialAccounts(userId)
+    return { hasPassword: false, mustSetPassword: socialAccounts === 0 }
+  }
+
+  // Abre a sessão de um usuário já autenticado por qualquer caminho (senha, OTP, reset, Google):
+  // sessão única por aparelho → tokens → 1º login conta para o Indique e Ganhe.
+  // O bloqueio é checado ANTES por quem chama (cada caminho tem a sua ordem anti-enumeração).
+  async startSession(user: SessionCandidate, deviceId: string): Promise<AuthTokens> {
+    await this.revokeOtherDevices(user.id, deviceId, user.role)
+    const flags = await this.credentialFlags(user.id, user.passwordHash)
+    const tokens = await this.issueTokens({ id: user.id, role: user.role, name: user.name }, deviceId, flags)
+    await markReferralVerified(this.fastify, user.id)
+    return tokens
   }
 
   // Sessão única por dispositivo: revoga refresh tokens ativos de outros devices.
@@ -181,14 +209,7 @@ export class AuthService {
     const res = await this.consumeOtp(userId, code)
     if ('error' in res) return res
 
-    await this.revokeOtherDevices(userId, deviceId, res.user.role)
-    const tokens = await this.issueTokens(
-      { id: res.user.id, role: res.user.role, name: res.user.name },
-      deviceId,
-      res.user.passwordHash != null,
-    )
-    await markReferralVerified(this.fastify, res.user.id)
-    return tokens
+    return this.startSession(res.user, deviceId)
   }
 
   // Rotação de refresh token — valida o refresh atual, revoga e emite um novo par.
@@ -216,7 +237,7 @@ export class AuthService {
     return this.issueTokens(
       { id: user.id, role: user.role, name: user.name },
       deviceId,
-      user.passwordHash != null,
+      await this.credentialFlags(user.id, user.passwordHash),
     )
   }
 
@@ -250,14 +271,7 @@ export class AuthService {
     }
     if (user.isBlocked) return BLOCKED_ERROR
 
-    await this.revokeOtherDevices(user.id, deviceId, user.role)
-    const tokens = await this.issueTokens(
-      { id: user.id, role: user.role, name: user.name },
-      deviceId,
-      true,
-    )
-    await markReferralVerified(this.fastify, user.id)
-    return tokens
+    return this.startSession(user, deviceId)
   }
 
   // Define a senha no 1º acesso — permitido SOMENTE quando a conta ainda não tem senha.
@@ -286,14 +300,7 @@ export class AuthService {
     const hash = await this.hashPassword(newPassword)
     await this.repo.updatePassword(userId, hash)
 
-    await this.revokeOtherDevices(userId, deviceId, res.user.role)
-    const tokens = await this.issueTokens(
-      { id: res.user.id, role: res.user.role, name: res.user.name },
-      deviceId,
-      true,
-    )
-    await markReferralVerified(this.fastify, res.user.id)
-    return tokens
+    return this.startSession({ ...res.user, passwordHash: hash }, deviceId)
   }
 
   // Troca de senha logado — exige a senha atual correta.

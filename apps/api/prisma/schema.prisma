@@ -270,6 +270,14 @@ enum BannerFrequency {
   ALWAYS // toda abertura da Home — usar com parcimônia
 }
 
+// ===== LOGIN SOCIAL =====
+
+// Provedor de login externo. Só GOOGLE por enquanto; outro provedor (ex.: FACEBOOK — plano
+// guardado em .projeto/docs/plano-login-social-facebook.md) entra somando um valor aqui.
+enum SocialProvider {
+  GOOGLE
+}
+
 // ===== MODELS (15 collections) =====
 
 // 1. User — clientes, entregadores e admins
@@ -729,6 +737,58 @@ model OtpCode {
   createdAt DateTime  @default(now())
 }
 
+// SocialAccount — identidade externa (Google) ligada a um cliente.
+// A chave é o id do provedor (Google `sub`) — NUNCA o e-mail, que pode mudar dos dois lados.
+// Os dois @@unique são seguros: os campos existem em todo documento (não há chave ausente).
+model SocialAccount {
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String         @db.ObjectId
+  provider       SocialProvider
+  providerUserId String
+  // E-mail informado pelo provedor no momento do vínculo — só auditoria/exibição, não é chave.
+  email          String?
+  linkedAt       DateTime       @default(now())
+  lastLoginAt    DateTime?
+
+  @@unique([provider, providerUserId]) // um Google só pode estar em uma conta
+  @@unique([userId, provider]) // uma conta tem no máximo 1 conta de cada provedor
+}
+
+// SocialLoginFlow — fluxo de login social em andamento (efêmero, 60 min).
+// Guarda o que o navegador não pode ver (PKCE) e o resultado até o app buscá-lo com o segredo.
+// Validade: o código SEMPRE confere `expiresAt`; os vencidos são apagados no cron diário
+// (lib/social-flow-cleanup.ts). NÃO usar índice TTL do Mongo: o Prisma não o expressa, e o
+// `db push` do deploy apaga o TTL criado fora do schema (visto em 30/09/2026 no banco de teste).
+model SocialLoginFlow {
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  provider       SocialProvider
+  intent         String // 'login' | 'link'
+  stateHash      String         @unique // SHA-256 do `state` do OAuth
+  codeVerifier   String // PKCE — nunca sai do servidor
+  secretHash     String // SHA-256 do segredo entregue ao app que iniciou (claim)
+  deviceId       String
+  linkUserId     String?        @db.ObjectId // intent=link: quem está logado
+  status         String // PENDING | RESOLVED | CONSUMED | ERROR
+  outcome        String? // LOGIN | SIGNUP | LINK_REQUIRED | LINKED
+  errorCode      String? // cancelled | not_client | blocked | email_unverified | expired | already_linked | provider_taken | provider_error
+  // Identidade devolvida pelo provedor (preenchida no callback)
+  providerUserId String?
+  providerEmail  String?
+  emailVerified  Boolean?
+  name           String?
+  matchedUserId  String?        @db.ObjectId // conta existente com o mesmo e-mail (LINK_REQUIRED)
+  // Código de e-mail do próprio fluxo. Agora: confirmação do vínculo, sempre para o e-mail da
+  // conta encontrada. Nomes genéricos de propósito: o Facebook reusa para confirmar o e-mail.
+  codeHash       String?
+  codeTarget     String?
+  codeExpiresAt  DateTime?
+  attempts       Int? // senha ou código do vínculo, somados
+  expiresAt      DateTime
+  createdAt      DateTime       @default(now())
+
+  @@index([expiresAt]) // limpeza diária dos vencidos
+}
+
 // 18. SavedCard — cartões salvos do cliente (Stripe PaymentMethod; mpCardId legado)
 model SavedCard {
   id                    String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -771,6 +831,8 @@ model AnalyticsEvent {
   userAgent String? // para breakdown de SO/dispositivo
   // Código de indicação capturado do `?ref=` naquela carga (Indique e Ganhe) — 1ª etapa do funil.
   refCode   String?
+  // Só em LOGIN: como entrou — password | otp | google (login com Google). Ausente em evento antigo.
+  method    String?
   createdAt DateTime           @default(now())
 
   @@index([type, createdAt])

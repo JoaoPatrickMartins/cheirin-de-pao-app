@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { apiFetch } from '../../lib/apiFetch'
-import { roleRoutes } from '../../lib/roleRoutes'
+import { roleRoutes, needsPasswordSetup } from '../../lib/roleRoutes'
 import { LoadingScreen } from './LoadingScreen'
 import {
   Heading,
@@ -33,8 +33,8 @@ export function SetPasswordScreen() {
   if (isLoading) return <LoadingScreen />
   // Sem sessão → precisa logar antes.
   if (!user) return <Navigate to="/login" replace />
-  // Já tem senha → não precisa desta tela.
-  if (user.hasPassword !== false) return <Navigate to={roleRoutes[user.role] ?? '/client'} replace />
+  // Já tem senha (ou entra pelo Google) → não precisa desta tela.
+  if (!needsPasswordSetup(user)) return <Navigate to={roleRoutes[user.role] ?? '/client'} replace />
 
   const strong = isPasswordStrong(password)
   const matches = password === confirm
@@ -50,7 +50,7 @@ export function SetPasswordScreen() {
         body: JSON.stringify({ password }),
       })
       if (res.ok) {
-        updateUser({ hasPassword: true })
+        updateUser({ hasPassword: true, mustSetPassword: false })
         // Hidrata o perfil do CLIENT (condomínio, apto etc.) — paridade com o login normal.
         if (user.role === 'CLIENT') {
           try {

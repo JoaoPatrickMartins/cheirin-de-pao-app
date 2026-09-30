@@ -42,6 +42,7 @@ export class AnalyticsService {
         platform: input.platform ?? null,
         userAgent: input.userAgent ?? null,
         refCode,
+        method: input.type === 'login' ? (input.method ?? null) : null,
       },
     })
   }

@@ -109,6 +109,11 @@ export const adminClientsRoute: FastifyPluginAsync = async (fastify) => {
               blockedAt: { type: 'string', nullable: true, description: 'Quando foi bloqueado (ISO 8601).' },
               blockedByName: { type: 'string', nullable: true, description: 'Admin que bloqueou.' },
               createdAt: { type: 'string', description: 'Data de cadastro / membro desde (ISO 8601).' },
+              accessMethods: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Como o cliente entra: `google` (conta Google conectada) e/ou `password` (tem senha). O código no e-mail vale para todos e não aparece aqui.',
+              },
               schedule: {
                 type: 'object',
                 nullable: true,

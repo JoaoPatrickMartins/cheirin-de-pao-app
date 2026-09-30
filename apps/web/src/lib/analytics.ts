@@ -67,12 +67,13 @@ export function trackAccess(ref?: string | null): void {
 }
 
 /** Registra um login efetuado. Chamar quando a sessão for estabelecida. */
-export function trackLogin(role: string, userId?: string): void {
+export function trackLogin(role: string, userId?: string, method?: 'password' | 'otp' | 'google'): void {
   send({
     type: 'login',
     visitorId: getVisitorId(),
     role,
     userId,
     platform: detectPlatform(),
+    ...(method ? { method } : {}),
   })
 }

@@ -16,6 +16,7 @@ import {
   type HookType,
 } from '../../lib/hookLabels'
 import { Icon } from '../brand/Icon'
+import { GoogleG } from '../auth/SocialAuthUI'
 import { ConfirmSheet } from './ConfirmSheet'
 import { FirstOrderChip } from './FirstOrderChip'
 import { ManualCouponComposer } from './ManualCouponComposer'
@@ -99,6 +100,8 @@ interface ClienteDetalhe {
   blockedAt?: string | null
   blockedByName?: string | null
   createdAt?: string | null
+  /** Como o cliente entra: 'google' e/ou 'password' (login com Google — handoff A1). */
+  accessMethods?: string[]
   schedule?: ClienteSchedule | null
   recentOrders?: ClienteOrder[]
   recentCestinhas?: ClienteCestinha[]
@@ -882,6 +885,18 @@ export function ClientDetailView({ clienteId, onBack, onOpenClient }: ClientDeta
               <span style={rowLabelStyle}>Membro desde</span>
               <span style={rowValueStyle}>{formatMemberSince(cliente.createdAt)}</span>
             </div>
+
+            {/* Acesso — como o cliente entra (login com Google, handoff A1) */}
+            {cliente.accessMethods && (
+              <>
+                <Separator />
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px' }}>
+                  <Icon name="shield" size={20} stroke={1.9} color="var(--color-accent)" aria-hidden="true" />
+                  <span style={{ ...rowLabelStyle, paddingTop: 2 }}>Acesso</span>
+                  <AccessPills methods={cliente.accessMethods} />
+                </div>
+              </>
+            )}
 
             {/* Indicação de — logo abaixo de "Membro desde" (A5) */}
             {referrals && (
@@ -2770,6 +2785,38 @@ function TimelinePanel({ clienteId }: { clienteId: string }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// Pills da linha "Acesso" (handoff SAAccessRow): logo/ícone + texto, nunca só cor. Sem Google e sem
+// senha (conta antiga), mostra o código no e-mail — o caminho que toda conta tem — para a linha não ficar vazia.
+const ACCESS_LABEL: Record<string, string> = { google: 'Google', password: 'E-mail e senha', code: 'Código no e-mail' }
+
+function AccessPills({ methods }: { methods: string[] }) {
+  const list = methods.length > 0 ? methods : ['code']
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+      {list.map((m) => (
+        <span
+          key={m}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 10px 4px 7px',
+            borderRadius: 999,
+            background: 'var(--color-surface-2)',
+            color: 'var(--color-text)',
+            fontFamily: 'var(--font-body)',
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+        >
+          {m === 'google' ? <GoogleG size={13} /> : <Icon name={m === 'password' ? 'lock' : 'mail'} size={13} color="var(--color-text-sec)" stroke={2.2} />}
+          {ACCESS_LABEL[m] ?? m}
+        </span>
+      ))}
     </div>
   )
 }
