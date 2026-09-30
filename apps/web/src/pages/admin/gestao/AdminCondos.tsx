@@ -5,6 +5,7 @@ import { SwitchToggle } from '../../../components/admin/SwitchToggle'
 import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
 import { Toast, useToast } from '../../../components/admin/Toast'
 import { CondoForm } from './CondoForm'
+import { CondoInterestsSection } from '../../../components/admin/CondoInterestsSection'
 
 // ------------------------------------------------------------------ tipos
 interface Condo {
@@ -194,6 +195,9 @@ export function AdminCondos({ onBack }: AdminCondosProps) {
             ))}
           </div>
         )}
+
+        {/* Lista de espera (A7): pedidos de condomínios ainda não atendidos */}
+        <CondoInterestsSection />
       </div>
 
       <ConfirmSheet

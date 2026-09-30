@@ -1,6 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import { fromMilli, wholeBreads } from '@cheirin-de-pao/shared'
-import { getDateRange, type ReportPeriod } from '../../lib/date-range.js'
+import {
+  toWindow,
+  presetOf,
+  windowDescriptor,
+  type PeriodInput,
+  type ReportPeriod,
+  type WindowDescriptor,
+} from '../../lib/date-range.js'
 import { excludeNonCreditPurpose, nonCreditPurposeMatchRaw } from '../../lib/revenue.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
 import { loadUnitCosts } from '../../lib/product-cost.js'
@@ -17,7 +24,8 @@ interface EventAggregate {
 }
 
 export interface AccessReport {
-  period: ReportPeriod
+  period?: ReportPeriod
+  window: WindowDescriptor
   access: { total: number; uniqueVisitors: number }
   logins: { total: number; uniqueClients: number }
   conversion: { rate: number; loginVisitors: number; accessVisitors: number }
@@ -25,7 +33,8 @@ export interface AccessReport {
 }
 
 export interface RetentionReport {
-  period: ReportPeriod
+  period?: ReportPeriod
+  window: WindowDescriptor
   // #1 Adoção de recarga automática
   autoRecharge: {
     enabled: number
@@ -54,7 +63,8 @@ export interface CreditLiabilityReport {
 }
 
 export interface CondominiumRankingReport {
-  period: ReportPeriod
+  period?: ReportPeriod
+  window: WindowDescriptor
   items: Array<{
     condominiumId: string
     condominiumName: string
@@ -84,7 +94,8 @@ interface DeliveryCounts {
 }
 
 export interface DeliveryReport {
-  period: ReportPeriod
+  period?: ReportPeriod
+  window: WindowDescriptor
   /** Operação inteira — pedidos de pão + Cestinhas. */
   counts: DeliveryCounts
   deliveryRate: number
@@ -98,7 +109,8 @@ export interface DeliveryReport {
 }
 
 export interface WasteReport {
-  period: ReportPeriod
+  period?: ReportPeriod
+  window: WindowDescriptor
   ordered: number
   delivered: number
   waste: number
@@ -130,7 +142,8 @@ export interface WasteReport {
 }
 
 export interface ScheduleProfileReport {
-  period: ReportPeriod
+  period?: ReportPeriod
+  window: WindowDescriptor
   activeSchedules: number
   totalWeeklyBreads: number
   avgWeeklyBreads: number
@@ -139,7 +152,8 @@ export interface ScheduleProfileReport {
 }
 
 export interface PaymentsReport {
-  period: ReportPeriod
+  period?: ReportPeriod
+  window: WindowDescriptor
   byStatus: { paid: number; pending: number; failed: number; refunded: number }
   approvalRate: number
   refundRate: number
@@ -272,8 +286,9 @@ export class AdminReportsService {
    * - Logins:  eventos type=LOGIN com role=CLIENT (total + clientes únicos).
    * - Conversão: visitantes únicos que logaram / visitantes únicos que acessaram.
    */
-  async getAccessReport(period: ReportPeriod): Promise<AccessReport> {
-    const { startDate, endDate } = getDateRange(period)
+  async getAccessReport(input: PeriodInput): Promise<AccessReport> {
+    const win = toWindow(input)
+    const { startDate, endDate } = win
 
     const access = await this.aggregateEvents({ type: 'ACCESS' }, startDate, endDate)
     const login = await this.aggregateEvents({ type: 'LOGIN', role: 'CLIENT' }, startDate, endDate)
@@ -298,7 +313,8 @@ export class AdminReportsService {
     const rate = accessVisitors > 0 ? loginVisitors / accessVisitors : 0
 
     return {
-      period,
+      period: presetOf(win),
+      window: windowDescriptor(win),
       access: { total: access.total, uniqueVisitors: access.uniqueVisitors },
       logins: { total: login.total, uniqueClients: login.uniqueUsers },
       conversion: { rate, loginVisitors, accessVisitors },
@@ -315,8 +331,9 @@ export class AdminReportsService {
    * O intervalo de recompra usa janela fixa de 180 dias p/ estabilidade estatística;
    * créditos vendidos/consumidos respeitam o `period`.
    */
-  async getRetentionReport(period: ReportPeriod): Promise<RetentionReport> {
-    const { startDate, endDate } = getDateRange(period)
+  async getRetentionReport(input: PeriodInput): Promise<RetentionReport> {
+    const win = toWindow(input)
+    const { startDate, endDate } = win
 
     // Clientes ativos (+ campos p/ recarga e saldo) e agendas ativas — 2 queries, contagem em memória
     const [clients, activeSchedules] = await Promise.all([
@@ -413,7 +430,8 @@ export class AdminReportsService {
     const avgIntervalDays = intervalCount > 0 ? intervalSumDays / intervalCount : null
 
     return {
-      period,
+      period: presetOf(win),
+      window: windowDescriptor(win),
       autoRecharge: {
         enabled,
         activeClients,
@@ -477,8 +495,9 @@ export class AdminReportsService {
    * em vez de um segundo pipeline em `Payment`: um pedido fora de `PENDING_PAYMENT` é um pedido
    * cujo dinheiro entrou, e assim o número reconcilia com `market.moneyPart` do financeiro.
    */
-  async getCondominiumRanking(period: ReportPeriod): Promise<CondominiumRankingReport> {
-    const { startDate, endDate } = getDateRange(period)
+  async getCondominiumRanking(input: PeriodInput): Promise<CondominiumRankingReport> {
+    const win = toWindow(input)
+    const { startDate, endDate } = win
 
     const revenuePipeline: unknown[] = [
       {
@@ -616,7 +635,7 @@ export class AdminReportsService {
       }))
       .sort((a, b) => b.revenue - a.revenue)
 
-    return { period, items }
+    return { period: presetOf(win), window: windowDescriptor(win), items }
   }
 
   /**
@@ -632,8 +651,9 @@ export class AdminReportsService {
    * o pão entregue —, e contar por parada esconderia justamente a falha do mercadinho. `byKind`
    * mantém a série histórica do pão intacta e legível ao lado da nova.
    */
-  async getDeliveryReport(period: ReportPeriod): Promise<DeliveryReport> {
-    const { startDate, endDate } = getDateRange(period)
+  async getDeliveryReport(input: PeriodInput): Promise<DeliveryReport> {
+    const win = toWindow(input)
+    const { startDate, endDate } = win
     const where = { scheduledDate: { gte: startDate, lte: endDate } }
 
     const [statusGroups, failGroups, cancelGroups, marketStatusGroups, marketFailGroups, marketCancelGroups] =
@@ -701,7 +721,8 @@ export class AdminReportsService {
     }
 
     return {
-      period,
+      period: presetOf(win),
+      window: windowDescriptor(win),
       counts: {
         total: bread.total + cestinha.total,
         delivered,
@@ -726,8 +747,9 @@ export class AdminReportsService {
    * getWasteReport — desperdício (#7): pães comprados do fornecedor (PurchaseOrder
    * FINALIZED, por `date`) vs efetivamente entregues (Order DELIVERED, por `scheduledDate`).
    */
-  async getWasteReport(period: ReportPeriod): Promise<WasteReport> {
-    const { startDate, endDate } = getDateRange(period)
+  async getWasteReport(input: PeriodInput): Promise<WasteReport> {
+    const win = toWindow(input)
+    const { startDate, endDate } = win
     const [orderedAgg, deliveredAgg, marketDeliveredAgg] = await Promise.all([
       this.prisma.purchaseOrder.aggregate({
         _sum: { totalQuantity: true },
@@ -749,7 +771,15 @@ export class AdminReportsService {
     const delivered = (deliveredAgg._sum.quantity ?? 0) + (marketDeliveredAgg._sum.breadQty ?? 0)
     const waste = ordered - delivered
     const items = await this.itemWaste(startDate, endDate)
-    return { period, ordered, delivered, waste, wasteRate: ordered > 0 ? waste / ordered : 0, items }
+    return {
+      period: presetOf(win),
+      window: windowDescriptor(win),
+      ordered,
+      delivered,
+      waste,
+      wasteRate: ordered > 0 ? waste / ordered : 0,
+      items,
+    }
   }
 
   /**
@@ -833,8 +863,9 @@ export class AdminReportsService {
    * Agendas são estado atual (snapshot); o mix de pedidos respeita o `period`.
    * Schedule.days tem formato { slot: { seg|ter|...: qty } }.
    */
-  async getScheduleProfileReport(period: ReportPeriod): Promise<ScheduleProfileReport> {
-    const { startDate, endDate } = getDateRange(period)
+  async getScheduleProfileReport(input: PeriodInput): Promise<ScheduleProfileReport> {
+    const win = toWindow(input)
+    const { startDate, endDate } = win
     const [schedules, orderTypeGroups] = await Promise.all([
       this.prisma.schedule.findMany({ where: { isActive: true }, select: { weeklyQty: true, days: true } }),
       this.prisma.order.groupBy({ by: ['type'], where: { createdAt: { gte: startDate, lte: endDate } }, _count: true }),
@@ -870,7 +901,8 @@ export class AdminReportsService {
 
     const activeSchedules = schedules.length
     return {
-      period,
+      period: presetOf(win),
+      window: windowDescriptor(win),
       activeSchedules,
       totalWeeklyBreads,
       avgWeeklyBreads: activeSchedules > 0 ? totalWeeklyBreads / activeSchedules : 0,
@@ -886,8 +918,9 @@ export class AdminReportsService {
    * getPaymentsReport — pagamentos (#11): aprovação, estorno, mix Pix/cartão e
    * recuperação de pagamento falho (usuários com FAILED que depois tiveram um PAID).
    */
-  async getPaymentsReport(period: ReportPeriod): Promise<PaymentsReport> {
-    const { startDate, endDate } = getDateRange(period)
+  async getPaymentsReport(input: PeriodInput): Promise<PaymentsReport> {
+    const win = toWindow(input)
+    const { startDate, endDate } = win
     const dateRange = { gte: startDate, lte: endDate }
 
     // Saúde do gateway: conta TODA atividade de pagamento (inclui HOOK/MARKET) — recusas do
@@ -961,7 +994,8 @@ export class AdminReportsService {
     }
 
     return {
-      period,
+      period: presetOf(win),
+      window: windowDescriptor(win),
       byStatus: { paid, pending, failed: failedC, refunded },
       approvalRate: paid + failedC > 0 ? paid / (paid + failedC) : 0,
       refundRate: paid > 0 ? refunded / paid : 0,

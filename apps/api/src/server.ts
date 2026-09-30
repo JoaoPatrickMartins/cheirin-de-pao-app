@@ -11,6 +11,7 @@ import prismaPlugin from './plugins/prisma.js'
 import authenticatePlugin from './plugins/authenticate.js'
 import { healthRoute } from './modules/health/health.route.js'
 import { authRoute } from './modules/auth/auth.route.js'
+import { socialAuthRoute } from './modules/social-auth/social-auth.route.js'
 import { condominiumsRoute } from './modules/condominiums/condominiums.route.js'
 import { paymentsRoute } from './modules/payments/payments.route.js'
 import { creditsRoute } from './modules/credits/credits.route.js'
@@ -32,9 +33,12 @@ import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.rout
 import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
 import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-supplier-orders.route.js'
 import { adminSeparationRoute } from './modules/admin-separation/admin-separation.route.js'
+import { adminDaySalesRoute } from './modules/admin-day-sales/admin-day-sales.route.js'
 import { ensureIndexes } from './lib/ensure-indexes.js'
 import { adminFinancialRoute } from './modules/admin-financial/admin-financial.route.js'
 import { adminReportsRoute } from './modules/admin-reports/admin-reports.route.js'
+import { adminDashboardRoute } from './modules/admin-dashboard/admin-dashboard.route.js'
+import { adminExpensesRoute } from './modules/admin-expenses/admin-expenses.route.js'
 import { analyticsRoute } from './modules/analytics/analytics.route.js'
 import { adminPaymentsRoute } from './modules/admin-payments/admin-payments.route.js'
 import { courierRoute } from './modules/courier/courier.route.js'
@@ -43,14 +47,29 @@ import { clientHookRoute } from './modules/client-hook/client-hook.route.js'
 import { adminHooksRoute } from './modules/admin-hooks/admin-hooks.route.js'
 import { adminNotificationPrefsRoute } from './modules/admin-notification-prefs/admin-notification-prefs.route.js'
 import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
+import { referralsRoute } from './modules/referrals/referrals.route.js'
+import { adminReferralsRoute } from './modules/admin-referrals/admin-referrals.route.js'
+import { condoInterestsRoute } from './modules/condo-interests/condo-interests.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
-import { seedDefaultsIfAbsent } from './bootstrap/defaults-seed.js'
+import {
+  seedDefaultsIfAbsent,
+  seedExpenseCategories,
+  seedGatewayFeeRates,
+  seedReferralDefaults,
+} from './bootstrap/defaults-seed.js'
 import { backfillHooksIfNeeded } from './bootstrap/hooks-backfill.js'
 import { backfillSupplierProductsIfNeeded } from './bootstrap/supplier-products-backfill.js'
 import { backfillCreditMilliIfNeeded } from './bootstrap/credit-milli-backfill.js'
 
-const fastify = Fastify({ logger: true })
+// trustProxy: 1 — a API só é alcançada pelo Nginx do host (a porta publicada não responde de fora),
+// que manda `X-Forwarded-For $proxy_add_x_forwarded_for` via `include proxy_params`. Confiar em
+// exatamente UM salto faz `request.ip` ser o último endereço da lista — o que o Nginx acrescentou,
+// ou seja, o IP real; um valor forjado pelo cliente fica à esquerda e é ignorado. Sem isto toda
+// requisição vinha de 172.30.0.1 (gateway do Docker) e o rate limit era UM balde para o app inteiro:
+// 5 OTP/min e 10 logins/min somando todos os clientes. `true` confiaria no IP que o cliente
+// escrevesse. Mudou a frente (Cloudflare, outro proxy)? O número de saltos muda junto.
+const fastify = Fastify({ logger: true, trustProxy: 1 })
 
 // Environment variable validation schema (registered FIRST before other plugins)
 const envSchema = {
@@ -92,6 +111,15 @@ const envSchema = {
     S3_SECRET_ACCESS_KEY: { type: 'string', default: '' },
     // Base pública opcional (CDN/CloudFront). Vazio = usa o endpoint padrão do bucket S3.
     S3_PUBLIC_BASE_URL: { type: 'string', default: '' },
+    // Login com Google — TODAS opcionais: a API sobe sem elas e o botão só aparece quando o par
+    // GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET e a URL pública da API existem (GET /auth/social/providers).
+    // Os secrets de produção são o interruptor do lançamento.
+    // API_PUBLIC_URL monta o redirect_uri (local: http://localhost:5173/api, via proxy do Vite).
+    // APP_PUBLIC_URL é para onde a API devolve no fim (vazio = CORS_ORIGIN).
+    API_PUBLIC_URL: { type: 'string', default: '' },
+    APP_PUBLIC_URL: { type: 'string', default: '' },
+    GOOGLE_CLIENT_ID: { type: 'string', default: '' },
+    GOOGLE_CLIENT_SECRET: { type: 'string', default: '' },
   },
 }
 
@@ -178,6 +206,7 @@ const start = async () => {
           { name: 'admin — notifications', description: 'Preferências de notificação do admin (toggles)' },
           { name: 'analytics', description: 'Ingestão de eventos de acesso/login (público)' },
           { name: 'saved-cards', description: 'Cartões salvos do cliente (Stripe SetupIntent / PaymentMethod)' },
+          { name: 'referrals', description: 'Indique e Ganhe: código, validação e indicações do cliente' },
         ],
       },
     })
@@ -205,6 +234,18 @@ const start = async () => {
 
     // Bootstrap — garante defaults (preço avulso, limite e combo padrão) quando o admin não configurou
     await seedDefaultsIfAbsent(fastify.prisma)
+
+    // Bootstrap — categorias de despesa padrão. Sem elas o módulo de despesas abre vazio e obriga
+    // o admin a cadastrar categoria antes de lançar a primeira conta.
+    await seedExpenseCategories(fastify.prisma)
+
+    // Bootstrap — alíquotas de taxa de gateway. É o que permite a dedução do DRE funcionar
+    // retroativamente sobre o histórico; o admin ajusta a sua taxa negociada nas Configurações.
+    await seedGatewayFeeRates(fastify.prisma)
+
+    // Bootstrap — config do Indique e Ganhe. O programa nasce desligado; o admin revisa os valores
+    // e liga em Gestão › Indique e Ganhe.
+    await seedReferralDefaults(fastify.prisma)
 
     // Bootstrap — migra o gancho legado do User → coleção HookRequest (execução única via flag)
     await backfillHooksIfNeeded(fastify.prisma, fastify.log)
@@ -238,6 +279,7 @@ const start = async () => {
 
     // Auth routes — POST /auth/register, /auth/otp/send, /auth/otp/verify, /auth/couriers
     await fastify.register(authRoute)
+    await fastify.register(socialAuthRoute) // Login com Google — plano-login-social.md
 
     // Condominiums route — GET /condominiums (public, no auth required)
     await fastify.register(condominiumsRoute)
@@ -265,8 +307,11 @@ const start = async () => {
     await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)
     await fastify.register(adminSupplierOrdersRoute)  // Phase 7 — GET/POST /admin/supplier-orders + PDF/Excel (ADMO-05..09)
     await fastify.register(adminSeparationRoute)      // Separação — GET board + PATCH conclude/orders (gate da entrega)
+    await fastify.register(adminDaySalesRoute)        // Aba Pedidos — GET /admin/day-sales (+ PDF/Excel): itens vendidos do dia
     await fastify.register(adminFinancialRoute) // GET /admin/financial (ADMF-01..04)
     await fastify.register(adminReportsRoute)   // GET /admin/reports/access — acesso/login/conversão
+    await fastify.register(adminDashboardRoute) // GET /admin/dashboard/{alerts,overview} — faixas novas do Painel
+    await fastify.register(adminExpensesRoute)  // CRUD /admin/expenses + categorias + recorrências (Fase 1 do DRE)
     await fastify.register(analyticsRoute)      // POST /analytics/event — ingestão pública de acesso/login
     await fastify.register(adminPaymentsRoute)  // GET/POST /admin/payments (PAY-03/04)
     await fastify.register(courierRoute)        // GET /courier/orders/today + PATCH /courier/orders/:id/confirm (COUR-01/02)
@@ -275,6 +320,9 @@ const start = async () => {
     await fastify.register(adminHooksRoute)     // Gancho — GET /admin/hook-requests + PATCH /:id/deliver
     await fastify.register(adminNotificationPrefsRoute) // Notificações — GET/PUT /admin/notification-prefs (toggles do admin)
     await fastify.register(savedCardsRoute)     // Phase 12 — GET/PATCH/DELETE /users/me/cards (CARD-01/04/05)
+    await fastify.register(referralsRoute)      // Indique e Ganhe — config/validação públicas + telas do cliente
+    await fastify.register(adminReferralsRoute) // Indique e Ganhe — lista/detalhe/aprovar/recusar + card e vínculo do cliente (admin)
+    await fastify.register(condoInterestsRoute) // Lista de espera de condomínio — pedido público (5/min) + grupos do admin (A7)
     await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h + 21h (SCHED-03/04)
 
     const port = Number(process.env.API_PORT ?? 3001)

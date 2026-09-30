@@ -84,4 +84,33 @@ describe('NotificationsScreen [ACOMP-04, ACOMP-05]', () => {
       expect(mockRefresh).toHaveBeenCalled()
     })
   })
+  // Indique e Ganhe (C6) — o botão in-app vem do CTA_CONFIG, por tipo.
+  it.each([
+    ['REFERRAL_SIGNUP', 'Ver indicações'],
+    ['REFERRAL_REWARD', 'Ver saldo'],
+    ['REFERRAL_WELCOME', 'Ver saldo'],
+    ['REFERRAL_INVITE', 'Indicar agora'],
+  ])('%s mostra o botão "%s"', async (type, label) => {
+    mockApiForNotifs([makeNotif(type)])
+    render(<MemoryRouter><NotificationsScreen /></MemoryRouter>)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: label })).toBeDefined()
+    })
+  })
+
+  it('visual do handoff (D-17): ícone em círculo, borda dourada no novo, texto espresso no botão dourado', async () => {
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url === '/notifications/me') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([makeNotif('REFERRAL_REWARD')]) })
+      }
+      return new Promise(() => {}) // read-all pendente: o item continua "novo"
+    })
+    render(<MemoryRouter><NotificationsScreen /></MemoryRouter>)
+    const button = await screen.findByRole('button', { name: 'Ver saldo' })
+    expect(button.style.color).toBe('var(--color-espresso)')
+    const card = screen.getByLabelText('Título REFERRAL_REWARD: Corpo REFERRAL_REWARD')
+    expect(card.style.border).toContain('var(--color-gold)')
+    const iconCircle = card.firstElementChild as HTMLElement
+    expect(iconCircle.style.borderRadius).toBe('999px')
+  })
 })

@@ -1,5 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import { fromMilli } from '@cheirin-de-pao/shared'
+import {
+  toWindow,
+  presetOf,
+  windowDescriptor,
+  type PeriodInput,
+  type ReportPeriod,
+  type WindowDescriptor,
+} from '../../lib/date-range.js'
 import { excludeNonCreditPurpose, nonCreditPurposeMatchRaw } from '../../lib/revenue.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
 import { loadUnitCosts } from '../../lib/product-cost.js'
@@ -75,45 +83,6 @@ export class AdminFinancialService {
   }
 
   /**
-   * Calcula startDate e endDate em UTC com base no período e offset BRT (-3h).
-   * BRT = UTC-3 → hora local BRT = UTC - 3h
-   */
-  private getDateRange(period: 'day' | 'week' | 'month'): { startDate: Date; endDate: Date } {
-    // Offset BRT: -3h em ms
-    const BRT_OFFSET = 3 * 60 * 60 * 1000
-
-    const nowUtc = new Date()
-    // Hora atual em BRT (UTC-3)
-    const nowBrt = new Date(nowUtc.getTime() - BRT_OFFSET)
-
-    let startBrt: Date
-
-    if (period === 'day') {
-      // Início do dia BRT (00:00 BRT = 03:00 UTC)
-      startBrt = new Date(
-        Date.UTC(nowBrt.getUTCFullYear(), nowBrt.getUTCMonth(), nowBrt.getUTCDate()),
-      )
-    } else if (period === 'week') {
-      // Segunda-feira desta semana em BRT
-      const dayOfWeek = nowBrt.getUTCDay() // 0=Dom, 1=Seg, ...
-      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-      startBrt = new Date(
-        Date.UTC(nowBrt.getUTCFullYear(), nowBrt.getUTCMonth(), nowBrt.getUTCDate() - daysFromMonday),
-      )
-    } else {
-      // Primeiro dia do mês em BRT
-      startBrt = new Date(Date.UTC(nowBrt.getUTCFullYear(), nowBrt.getUTCMonth(), 1))
-    }
-
-    // Converter de volta para UTC (startBrt está em UTC mas representa hora BRT)
-    // Adicionamos BRT_OFFSET para obter o UTC real correspondente ao início do dia BRT
-    const startDate = new Date(startBrt.getTime() + BRT_OFFSET)
-    const endDate = nowUtc
-
-    return { startDate, endDate }
-  }
-
-  /**
    * getRevenue — agrega receita por período com breakdown por tipo e condomínio.
    *
    * Onda D1 — a Cestinha entra aqui pela primeira vez. Antes, TODOS os números aplicavam
@@ -126,13 +95,24 @@ export class AdminFinancialService {
    * @param condominiumId - filtra por condomínio (opcional; afeta só `byCondominium`, como antes)
    */
   async getRevenue(
-    period: 'day' | 'week' | 'month',
+    input: PeriodInput,
     condominiumId?: string,
   ): Promise<{
+    period?: ReportPeriod
+    window: WindowDescriptor
     total: number
     byType: { combos: number; avulso: number }
     market: MarketRevenue
-    /** Receita de crédito + receita da Cestinha. GMV **não** entra (D-2). */
+    /**
+     * Gancho de porta PAGO (decisão 7 do plano-financeiro-vendas).
+     *
+     * Antes desta onda o `HOOK` era removido por `excludeNonCreditPurpose` e — diferente do
+     * `MARKET` — nunca voltava por caminho nenhum: era receita real, com Pix confirmado, que não
+     * aparecia em NENHUM número financeiro do admin. Agora entra em `totalConsolidated`, e é por
+     * isso que a receita exibida sobe em relação à versão anterior. Não é bug; é o conserto.
+     */
+    hook: { revenue: number; orders: number }
+    /** Receita de crédito + Cestinha + gancho. GMV **não** entra (D-2). */
     totalConsolidated: number
     /** Compras ao fornecedor finalizadas no período — o outro lado do caixa (H9). */
     purchases: PurchasesSummary
@@ -143,7 +123,8 @@ export class AdminFinancialService {
       cestinhaGmv: number
     }>
   }> {
-    const { startDate, endDate } = this.getDateRange(period)
+    const win = toWindow(input)
+    const { startDate, endDate } = win
 
     // ── Total geral ──────────────────────────────────────────────────────────
     // §4.7: exclui HOOK/MARKET — receita de crédito (pão) apenas.
@@ -228,7 +209,15 @@ export class AdminFinancialService {
       marginPct: gmv > 0 ? Math.round(((gmv - cmv) / gmv) * 1000) / 10 : 0,
       unitsWithoutCost,
     }
-    const totalConsolidated = round2(total + market.revenue)
+    // Gancho de porta pago — decisão 7. Mesma janela de compra (`createdAt`) das outras receitas.
+    const hookAgg = await this.prisma.payment.aggregate({
+      _sum: { amount: true },
+      _count: true,
+      where: { status: 'PAID', purpose: 'HOOK', createdAt: { gte: startDate, lte: endDate } },
+    })
+    const hook = { revenue: round2(hookAgg._sum.amount ?? 0), orders: hookAgg._count }
+
+    const totalConsolidated = round2(total + market.revenue + hook.revenue)
     const purchases = await this.computePurchases(startDate, endDate)
 
     // ── Por condomínio (via $runCommandRaw — T-07-05-05: $match com date range primeiro) ──
@@ -337,7 +326,17 @@ export class AdminFinancialService {
       cestinhaGmv: r.cestinhaGmv,
     }))
 
-    return { total, byType: { combos, avulso }, market, totalConsolidated, purchases, byCondominium }
+    return {
+      period: presetOf(win),
+      window: windowDescriptor(win),
+      total,
+      byType: { combos, avulso },
+      market,
+      hook,
+      totalConsolidated,
+      purchases,
+      byCondominium,
+    }
   }
 
   /**

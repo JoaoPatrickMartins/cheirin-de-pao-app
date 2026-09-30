@@ -23,6 +23,11 @@ function makeMock(overrides: Record<string, any> = {}) {
     // D-4: ledger unificado. Vazio por padrão → o fluxo de pão fica idêntico ao histórico.
     marketOrders = [],
     marketCount = 0,
+    // Detalhe do pedido: pagamento vinculado, combo do pagamento e o débito de créditos.
+    marketOrder: marketOrderDoc = null,
+    payment = null,
+    combo = null,
+    creditDebit = null,
   } = overrides
 
   const prisma = {
@@ -31,16 +36,24 @@ function makeMock(overrides: Record<string, any> = {}) {
       count: vi.fn().mockResolvedValue(count),
       findUnique: vi.fn().mockResolvedValue(order),
       update: vi.fn().mockResolvedValue({}),
+      // Selo de estreia (`lib/first-delivery.ts`) — vazio = ninguém estreia.
+      groupBy: vi.fn().mockResolvedValue([]),
     },
     // D-4: o ledger/limbo é unificado (pão + Cestinha). Vazio por padrão → as asserções
     // existentes do fluxo de pão continuam valendo sem mudança.
     marketOrder: {
       findMany: vi.fn().mockResolvedValue(marketOrders),
       count: vi.fn().mockResolvedValue(marketCount),
-      findUnique: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(marketOrderDoc),
       update: vi.fn().mockResolvedValue({}),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      groupBy: vi.fn().mockResolvedValue([]),
     },
+    payment: {
+      findMany: vi.fn().mockResolvedValue(payment ? [payment] : []),
+      findUnique: vi.fn().mockResolvedValue(payment),
+    },
+    combo: { findUnique: vi.fn().mockResolvedValue(combo) },
     user: {
       // enrich (userIds) e busca por q usam o mesmo mock; couriers via segundo retorno
       findMany: vi.fn().mockImplementation(({ where }: { where?: { id?: { in?: string[] } } }) => {
@@ -55,7 +68,9 @@ function makeMock(overrides: Record<string, any> = {}) {
     condominium: { findMany: vi.fn().mockResolvedValue(condos) },
     creditTransaction: {
       findMany: vi.fn().mockResolvedValue(refunds),
-      findFirst: vi.fn().mockResolvedValue(existingRefund),
+      // `findFirst` serve a dois fluxos: a trava de 2º estorno (refundOrder) e o débito do
+      // pedido no detalhe (getOrderDetail). Cada teste usa o override que lhe cabe.
+      findFirst: vi.fn().mockResolvedValue(creditDebit ?? existingRefund),
       create: vi.fn().mockResolvedValue({ id: 'tx-1' }),
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -410,6 +425,141 @@ describe('AdminOrdersService — ledger / stuck / refund', () => {
       await expect(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         new AdminOrdersService(fastify as any).resolveStuckOrder('x', 'admin-1', { outcome: 'DELIVERED' }),
+      ).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+
+  // Resumo completo de um pedido — o que alimenta o detalhe no admin e a reimpressão do cupom.
+  describe('getOrderDetail', () => {
+    const USERS = [{ id: 'u1', name: 'Ana', apartment: '101', block: 'A' }]
+    const CONDOS = [{ id: 'c1', name: 'Cond 1', deliverySlots: SLOTS }]
+    const detailOrder = (over: Record<string, unknown> = {}) =>
+      makeOrder({ deliveryNote: null, paymentId: null, createdAt: new Date('2026-06-18T12:00:00.000Z'), ...over })
+
+    it('devolve a linha do ledger mais criação, código e créditos debitados', async () => {
+      const { fastify } = makeMock({
+        order: detailOrder(),
+        users: USERS,
+        condos: CONDOS,
+        creditDebit: { quantityMilli: -4000 },
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = await new AdminOrdersService(fastify as any).getOrderDetail('o1', 'BREAD')
+
+      expect(d.kind).toBe('BREAD')
+      expect(d.clientName).toBe('Ana')
+      expect(d.condominiumName).toBe('Cond 1')
+      expect(d.code).toBe('O1') // 4 últimos do id, em caixa alta — igual ao cupom
+      expect(d.createdAt).toBe('2026-06-18T12:00:00.000Z')
+      expect(d.creditsDebited).toBe(4)
+      expect(d.creditsDebitedDerived).toBe(false)
+      expect(d.payment).toBeNull()
+    })
+
+    // Pedido do corte anterior ao vínculo por `referenceId`: sem linha no extrato, o valor vem
+    // da regra (1 pão = 1 crédito) e a flag avisa que não é número auditado.
+    it('deriva os créditos da quantidade quando não há transação vinculada', async () => {
+      const { fastify } = makeMock({
+        order: detailOrder({ quantity: 7 }),
+        users: USERS,
+        condos: CONDOS,
+        creditDebit: null,
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = await new AdminOrdersService(fastify as any).getOrderDetail('o1', 'BREAD')
+
+      expect(d.creditsDebited).toBe(7)
+      expect(d.creditsDebitedDerived).toBe(true)
+    })
+
+    it('resolve o pagamento vinculado com método, gateway e combo', async () => {
+      const { fastify } = makeMock({
+        order: detailOrder({ paymentId: 'pay-1' }),
+        users: USERS,
+        condos: CONDOS,
+        payment: {
+          id: 'pay-1',
+          amount: 49.9,
+          method: 'PIX',
+          status: 'PAID',
+          purpose: null,
+          comboId: 'combo-1',
+          customQuantity: null,
+          stripePaymentIntentId: 'pi_123',
+          mercadoPagoId: null,
+          createdAt: new Date('2026-06-17T12:00:00.000Z'),
+        },
+        combo: { name: 'Combo 20', quantity: 20 },
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = await new AdminOrdersService(fastify as any).getOrderDetail('o1', 'BREAD')
+
+      expect(d.payment).toMatchObject({
+        amount: 49.9,
+        method: 'PIX',
+        status: 'PAID',
+        // Ausente no banco = compra de créditos; a tela nunca deve ver null aqui.
+        purpose: 'CREDITS',
+        gatewayId: 'pi_123',
+        comboName: 'Combo 20',
+        quantity: 20,
+      })
+    })
+
+    it('na Cestinha os créditos debitados são o split aplicado, sem derivação', async () => {
+      const { fastify } = makeMock({
+        marketOrder: { ...makeMarketOrder({ creditsAppliedMilli: 1500 }), createdAt: new Date('2026-06-19T12:00:00.000Z') },
+        users: USERS,
+        condos: CONDOS,
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = await new AdminOrdersService(fastify as any).getOrderDetail('mo1', 'CESTINHA')
+
+      expect(d.kind).toBe('CESTINHA')
+      expect(d.creditsDebited).toBe(1.5)
+      expect(d.creditsDebitedDerived).toBe(false)
+      expect(d.marketItems).toEqual([{ name: 'Bolo de Fubá', qty: 2 }])
+    })
+
+    it('soma os estornos em milésimos e devolve valor absoluto', async () => {
+      const { fastify } = makeMock({
+        order: detailOrder(),
+        users: USERS,
+        condos: CONDOS,
+        refunds: [{ quantityMilli: 2000 }, { quantityMilli: 1500 }],
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = await new AdminOrdersService(fastify as any).getOrderDetail('o1', 'BREAD')
+
+      expect(d.refundedCredits).toBe(3.5)
+    })
+
+    // Sem `kind`, tenta Order e cai para MarketOrder — um link colado no navegador não tem a dica.
+    it('cai para a Cestinha quando não há pedido de pão com o id', async () => {
+      const { fastify } = makeMock({
+        order: null,
+        marketOrder: { ...makeMarketOrder(), createdAt: new Date('2026-06-19T12:00:00.000Z') },
+        users: USERS,
+        condos: CONDOS,
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = await new AdminOrdersService(fastify as any).getOrderDetail('mo1')
+
+      expect(d.kind).toBe('CESTINHA')
+    })
+
+    it('404 quando o id não existe em nenhuma coleção', async () => {
+      const { fastify } = makeMock({ order: null, marketOrder: null })
+
+      await expect(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        new AdminOrdersService(fastify as any).getOrderDetail('nao-existe'),
       ).rejects.toMatchObject({ statusCode: 404 })
     })
   })

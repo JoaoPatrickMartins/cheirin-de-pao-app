@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { REFERRAL_LIMITS, ReferralCampaignSchema, ReferralGoalsSchema } from '@cheirin-de-pao/shared'
 
 /**
  * UpdateSlotsSchema — valida as edições de slots, globais ou de UM condomínio.
@@ -141,9 +142,68 @@ export const UpdateGanchoSchema = z.object({
   pedidoUnicoMin: z.number().int().min(1, 'Mínimo é 1').max(50, 'Máximo é 50'),
   preco: z.number().min(0, 'Preço não pode ser negativo'),
   recorrenciaMin: z.number().int().min(0, 'Mínimo é 0').max(100, 'Máximo é 100').optional(),
+  /**
+   * Quanto um gancho CUSTA para a empresa (A3 do plano-financeiro-vendas).
+   *
+   * Opcional pelo mesmo motivo de `recorrenciaMin`: uma tela em cache sem o campo preserva o valor
+   * vigente em vez de zerá-lo — e zerar aqui não é neutro, porque `0` significa "não informado" e
+   * apagaria o CAC do relatório de despesas.
+   */
+  custo: z.number().min(0, 'Custo não pode ser negativo').optional(),
 })
 
 export type UpdateGanchoBody = z.infer<typeof UpdateGanchoSchema>
+
+/**
+ * UpdateReferralSettingsSchema — config do Indique e Ganhe (A3). Faixas da D-13, que são as dos
+ * controles do handoff; campanha e metas usam os schemas do shared (o mesmo parse da leitura).
+ *
+ * Aqui só a FORMA. As regras de negócio — ligar só com recompensa ≥ 1, mensagem com `{codigo}` ou
+ * `{link}`, campanha terminando hoje ou depois — ficam no service e respondem 422 com o texto da
+ * tela, como no gancho.
+ */
+export const UpdateReferralSettingsSchema = z.object({
+  ativa: z.boolean(),
+  recompensa: z.number().int().min(REFERRAL_LIMITS.recompensa.min).max(REFERRAL_LIMITS.recompensa.max, 'Máximo é 50'),
+  bonusIndicado: z
+    .number()
+    .int()
+    .min(REFERRAL_LIMITS.bonusIndicado.min)
+    .max(REFERRAL_LIMITS.bonusIndicado.max, 'Máximo é 50'),
+  compraMinima: z.number().min(0, 'A compra mínima não pode ser negativa').max(10000),
+  limiteMensal: z
+    .number()
+    .int()
+    .min(REFERRAL_LIMITS.limiteMensal.min)
+    .max(REFERRAL_LIMITS.limiteMensal.max, 'Máximo é 99'),
+  prazoDias: z.number().int().min(REFERRAL_LIMITS.prazoDias.min).max(REFERRAL_LIMITS.prazoDias.max, 'Máximo é 180'),
+  mensagem: z
+    .string()
+    .trim()
+    .min(REFERRAL_LIMITS.mensagem.min, 'A mensagem precisa de pelo menos 20 caracteres')
+    .max(REFERRAL_LIMITS.mensagem.max, 'A mensagem pode ter até 500 caracteres'),
+  campanha: ReferralCampaignSchema.nullable(),
+  metas: ReferralGoalsSchema,
+})
+
+export type UpdateReferralSettingsBody = z.infer<typeof UpdateReferralSettingsSchema>
+
+/**
+ * UpdateGatewayRatesSchema — alíquotas usadas para ESTIMAR a taxa do gateway.
+ *
+ * Percentual (0,99 = 0,99%), não fração. Teto de 30% para barrar o erro de digitação que
+ * transformaria a taxa numa dedução gigantesca no DRE sem nenhum outro sinal.
+ *
+ * Só afetam pagamentos SEM taxa real do provedor: onde o webhook gravou `gatewayFee`, o número
+ * real prevalece e mexer aqui não muda nada retroativamente.
+ */
+export const UpdateGatewayRatesSchema = z.object({
+  pix: z.number().min(0, 'Alíquota não pode ser negativa').max(30, 'Máximo é 30%'),
+  creditCard: z.number().min(0, 'Alíquota não pode ser negativa').max(30, 'Máximo é 30%'),
+  debitCard: z.number().min(0, 'Alíquota não pode ser negativa').max(30, 'Máximo é 30%'),
+})
+
+export type UpdateGatewayRatesBody = z.infer<typeof UpdateGatewayRatesSchema>
 
 /**
  * UpdateRestricoesSchema — valida as restrições de agendamento por dia da semana.

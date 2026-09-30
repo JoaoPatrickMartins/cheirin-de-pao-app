@@ -392,7 +392,7 @@ export class SchedulesService {
         }
 
         await this.prisma.$transaction(async (tx) => {
-          await tx.order.create({
+          const order = await tx.order.create({
             data: {
               userId: schedule.userId,
               type: 'SCHEDULED',
@@ -413,6 +413,11 @@ export class SchedulesService {
               userId: schedule.userId,
               type: 'DELIVERY',
               quantityMilli: -toMilli(qty),
+              // O avulso já amarrava o débito ao pedido; o corte da agenda não, e o resumo do
+              // pedido no admin tinha de DERIVAR "pago com N pãezinhos" da quantidade. Com o
+              // vínculo, o extrato responde por si. Forward-only: linha antiga segue sem
+              // `referenceId`, então quem lê mantém o fallback derivado.
+              referenceId: order.id,
               description: `Entrega agendada para ${dateLabel} às ${slot.time}`,
             },
           })

@@ -11,6 +11,8 @@ interface GanchoSettings {
   recorrenciaDesde: string | null
   /** Preço do pão avulso (somente leitura) — base do limiar da Cestinha. */
   avulsoUnit: number
+  /** Quanto um gancho CUSTA para a casa (A3). 0 = não informado. */
+  custo: number
 }
 
 interface AdminGanchoProps {
@@ -30,6 +32,7 @@ function formatDate(iso: string): string {
 export function AdminGancho({ onBack }: AdminGanchoProps) {
   const [pedidoUnicoMin, setPedidoUnicoMin] = useState(10)
   const [preco, setPreco] = useState(5)
+  const [custo, setCusto] = useState(0)
   const [recorrenciaMin, setRecorrenciaMin] = useState(0)
   const [recorrenciaDesde, setRecorrenciaDesde] = useState<string | null>(null)
   const [avulsoUnit, setAvulsoUnit] = useState(0)
@@ -46,6 +49,7 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
           const data = (await res.json()) as GanchoSettings
           if (typeof data.pedidoUnicoMin === 'number' && data.pedidoUnicoMin > 0) setPedidoUnicoMin(data.pedidoUnicoMin)
           if (typeof data.preco === 'number' && data.preco >= 0) setPreco(data.preco)
+          if (typeof data.custo === 'number' && data.custo >= 0) setCusto(data.custo)
           if (typeof data.recorrenciaMin === 'number' && data.recorrenciaMin >= 0) setRecorrenciaMin(data.recorrenciaMin)
           if (typeof data.avulsoUnit === 'number' && data.avulsoUnit > 0) setAvulsoUnit(data.avulsoUnit)
           setRecorrenciaDesde(data.recorrenciaDesde ?? null)
@@ -69,7 +73,7 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
     try {
       const res = await apiFetch('/admin/settings/gancho', {
         method: 'PATCH',
-        body: JSON.stringify({ pedidoUnicoMin, preco, recorrenciaMin }),
+        body: JSON.stringify({ pedidoUnicoMin, preco, recorrenciaMin, custo }),
       })
       if (res.ok) {
         setSaved(true)
@@ -210,6 +214,38 @@ export function AdminGancho({ onBack }: AdminGanchoProps) {
                   }}
                 />
               </div>
+
+              <div style={{ height: 1, background: 'var(--color-border-2)', margin: '14px 0' }} />
+
+              {/* Custo do gancho (A3) — o que TORNA o CAC calculável. Existia como Setting desde a
+                  Fase 2 e só era editável no banco; sem ele o relatório de despesas declara o
+                  custo de aquisição via gancho como indisponível. */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
+                    Custo de um gancho
+                  </p>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--color-text-ter)', margin: '2px 0 0' }}>
+                    O que ele custa para a casa — base do custo de aquisição
+                  </p>
+                </div>
+                <PriceStepper
+                  value={custo}
+                  step={0.5}
+                  min={0}
+                  onChange={(v) => {
+                    setSaved(false)
+                    setCusto(v)
+                  }}
+                />
+              </div>
+
+              {custo === 0 && (
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: 11.5, fontWeight: 600, color: '#8A6A00', margin: '9px 0 0', lineHeight: 1.45 }}>
+                  Sem o custo informado, o relatório de despesas não consegue calcular o custo de
+                  aquisição via gancho grátis — ele aparece como indisponível em vez de zero.
+                </p>
+              )}
             </div>
 
             {/* Prévia */}

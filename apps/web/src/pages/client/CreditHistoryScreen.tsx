@@ -2,8 +2,10 @@ import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
+import { useCreditBalanceSync } from '../../hooks/useCreditBalanceSync'
+import { useReferralSummary } from '../../hooks/useReferralSummary'
 import { apiFetch } from '../../lib/apiFetch'
-import { Icon } from '../../components/brand/Icon'
+import { Icon, type Ic } from '../../components/brand/Icon'
 
 interface CreditTransaction {
   id: string
@@ -27,9 +29,57 @@ const TYPE_LABEL: Record<string, string> = {
   MARKET_REFUND: 'Cestinha cancelada — pãezins devolvidos',
 }
 
+/**
+ * Visual do extrato conforme o handoff do Indique e Ganhe (C7) — SÓ front (D-17): a API
+ * `/credits/history` é a mesma de antes. Ícone e título saem do tipo; a `description` gravada no
+ * lançamento vai para a 2ª linha. O detalhe do pagamento na compra ("Combo 30 · Pix") ficou de
+ * fora: exigiria mudar a API.
+ */
+const TYPE_ROW: Record<string, { icon: keyof typeof Ic; title: string; bonus?: boolean }> = {
+  PURCHASE: { icon: 'coin', title: 'Compra de pãezins' },
+  DELIVERY: { icon: 'truck', title: 'Entrega' },
+  DELIVERY_DONE: { icon: 'truck', title: 'Entrega realizada' },
+  REFUND: { icon: 'refresh', title: 'Estorno' },
+  EXPIRY: { icon: 'clock', title: 'Expiração' },
+  ADMIN_GRANT: { icon: 'coin', title: 'Pãezins concedidos' },
+  ADMIN_DEBIT: { icon: 'edit', title: 'Ajuste de saldo' },
+  MARKET_PURCHASE: { icon: 'basket', title: 'Cestinha' },
+  MARKET_REFUND: { icon: 'basket', title: 'Cestinha cancelada' },
+  REFERRAL_BONUS: { icon: 'gift', title: 'Indique e ganhe', bonus: true },
+  REFERRAL_WELCOME: { icon: 'gift', title: 'Boas-vindas por indicação', bonus: true },
+  REFERRAL_GOAL: { icon: 'star', title: 'Meta de indicações', bonus: true },
+}
+
+const BRT = 'America/Sao_Paulo'
+
+/** Chave do dia BRT ("2026-09-27") — o agrupamento é pelo dia de quem lê, não pelo UTC. */
+function brtDayKey(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: BRT, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+}
+
+/** "Hoje" ou "Sáb, 27/09". */
+function dayLabel(d: Date, todayKey: string): string {
+  if (brtDayKey(d) === todayKey) return 'Hoje'
+  const weekday = new Intl.DateTimeFormat('pt-BR', { timeZone: BRT, weekday: 'short' }).format(d).replace('.', '')
+  const dm = new Intl.DateTimeFormat('pt-BR', { timeZone: BRT, day: '2-digit', month: '2-digit' }).format(d)
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${dm}`
+}
+
+/** Título da linha. A meta ganha o número dela ("Meta de 5 indicações"), lido da descrição. */
+function rowTitle(tx: CreditTransaction): string {
+  if (tx.type === 'REFERRAL_GOAL') {
+    const n = tx.description?.match(/(\d+)ª/)?.[1]
+    return n ? `Meta de ${n} indicações` : TYPE_ROW.REFERRAL_GOAL.title
+  }
+  return TYPE_ROW[tx.type]?.title ?? TYPE_LABEL[tx.type] ?? 'Movimentação'
+}
+
 export function CreditHistoryScreen() {
   const navigate = useNavigate()
-  const { token } = useAuth()
+  const { token, user } = useAuth()
+  // Saldo do cabeçalho: o que o app já sincroniza (sem API nova — D-17).
+  useCreditBalanceSync()
+  const { summary: referral } = useReferralSummary()
   const [transactions, setTransactions] = useState<CreditTransaction[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -54,8 +104,19 @@ export function CreditHistoryScreen() {
     void fetchHistory()
   }, [token])
 
-  const formatDate = (dateStr: string) =>
-    new Intl.DateTimeFormat('pt-BR').format(new Date(dateStr))
+  const formatTime = (d: Date) => new Intl.DateTimeFormat('pt-BR', { timeZone: BRT, hour: '2-digit', minute: '2-digit' }).format(d)
+
+  // Grupos por dia BRT, na ordem que a API já manda (mais recente primeiro).
+  const todayKey = brtDayKey(new Date())
+  const groups: Array<{ key: string; label: string; items: CreditTransaction[] }> = []
+  for (const tx of transactions) {
+    const d = new Date(tx.createdAt)
+    const key = brtDayKey(d)
+    const last = groups[groups.length - 1]
+    if (last?.key === key) last.items.push(tx)
+    else groups.push({ key, label: dayLabel(d, todayKey), items: [tx] })
+  }
+  const bonusThisMonth = referral?.bonusThisMonth ?? 0
 
   return (
     <div
@@ -105,7 +166,40 @@ export function CreditHistoryScreen() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: '0 20px 20px' }}>
+      <div style={{ padding: '0 20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Cabeçalho espresso com o saldo (C7) */}
+        <div
+          style={{
+            background: 'var(--color-espresso)',
+            borderRadius: 22,
+            padding: '16px 18px',
+            color: 'var(--color-app-bg)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', color: 'var(--color-gold)' }}>
+              SALDO
+            </div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 32, letterSpacing: '-0.03em', marginTop: 4 }}>
+              {formatCredits(toMilli(user?.creditBalance ?? 0))}{' '}
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'rgba(250,245,236,0.7)' }}>
+                {toMilli(user?.creditBalance ?? 0) === 1000 ? 'pãozin' : 'pãezins'}
+              </span>
+            </div>
+          </div>
+          {bonusThisMonth > 0 && (
+            <div style={{ textAlign: 'right', fontFamily: 'var(--font-body)', fontSize: 12, color: 'rgba(250,245,236,0.7)', lineHeight: 1.4 }}>
+              Bônus de indicação
+              <br />
+              <b style={{ color: 'var(--color-gold)', fontSize: 15 }}>+{formatCredits(toMilli(bonusThisMonth))} este mês</b>
+            </div>
+          )}
+        </div>
+
         {isLoading && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[1, 2, 3].map((n) => (
@@ -123,6 +217,7 @@ export function CreditHistoryScreen() {
 
         {error && (
           <p
+            role="alert"
             style={{
               fontFamily: 'var(--font-body)',
               fontSize: 14,
@@ -142,7 +237,7 @@ export function CreditHistoryScreen() {
               alignItems: 'center',
               textAlign: 'center',
               gap: 10,
-              marginTop: 56,
+              marginTop: 40,
               padding: '0 24px',
             }}
           >
@@ -185,86 +280,123 @@ export function CreditHistoryScreen() {
         )}
 
         {!isLoading && !error && transactions.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {transactions.map((tx) => {
-              const isCredit = tx.quantity >= 0
-              return (
-                <div
-                  key={tx.id}
+          <>
+            {groups.map((g) => (
+              <section key={g.key}>
+                <h2
                   style={{
-                    background: 'var(--color-surface)',
-                    borderRadius: 'var(--radius-card)',
-                    padding: '14px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    boxShadow: 'var(--shadow-soft)',
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    letterSpacing: '0.08em',
+                    color: 'var(--color-text-ter)',
+                    textTransform: 'uppercase',
+                    margin: '0 4px 8px',
                   }}
                 >
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: '50%',
-                      background: isCredit ? 'var(--color-gold-soft)' : 'var(--color-surface-2)',
-                      display: 'grid',
-                      placeItems: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'grid',
-                        placeItems: 'center',
-                        transform: isCredit ? undefined : 'rotate(180deg)',
-                      }}
-                    >
-                      <Icon
-                        name="arrowU"
-                        size={18}
-                        color={isCredit ? 'var(--color-gold)' : 'var(--color-accent)'}
-                        stroke={2.2}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 14,
-                        fontWeight: 700,
-                        color: 'var(--color-text)',
-                      }}
-                    >
-                      {tx.description || TYPE_LABEL[tx.type] || 'Movimentação'}
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: 'var(--font-body)',
-                        fontSize: 12,
-                        color: 'var(--color-text-ter)',
-                        marginTop: 2,
-                      }}
-                    >
-                      {formatDate(tx.createdAt)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-display)',
-                      fontWeight: 700,
-                      fontSize: 16,
-                      color: isCredit ? 'var(--color-gold)' : 'var(--color-accent)',
-                      letterSpacing: '-0.02em',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {`${isCredit ? '+' : '−'}${formatCredits(toMilli(Math.abs(tx.quantity)))}`}
-                  </div>
+                  {g.label}
+                </h2>
+                <div
+                  style={{
+                    background: 'var(--color-surface)',
+                    borderRadius: 22,
+                    border: '1px solid var(--color-border-2)',
+                    boxShadow: 'var(--shadow-soft)',
+                    padding: '2px 14px',
+                  }}
+                >
+                  {g.items.map((tx, i) => {
+                    const isCredit = tx.quantity >= 0
+                    const meta = TYPE_ROW[tx.type]
+                    const bonus = !!meta?.bonus
+                    const created = new Date(tx.createdAt)
+                    return (
+                      <div
+                        key={tx.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '12px 0',
+                          borderBottom: i < g.items.length - 1 ? '1px solid var(--color-border-2)' : 'none',
+                        }}
+                      >
+                        <div
+                          aria-hidden="true"
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 999,
+                            background: bonus ? 'var(--color-gold-soft)' : 'var(--color-surface-2)',
+                            color: bonus ? 'var(--color-accent)' : 'var(--color-text-sec)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Icon name={meta?.icon ?? 'repeat'} size={19} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                            <span style={{ fontFamily: 'var(--font-body)', fontWeight: 700, fontSize: 14, color: 'var(--color-text)' }}>
+                              {rowTitle(tx)}
+                            </span>
+                            {bonus && (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '2px 8px',
+                                  borderRadius: 999,
+                                  background: 'var(--color-gold-soft)',
+                                  color: 'var(--color-accent)',
+                                  fontFamily: 'var(--font-body)',
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Bônus
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-sec)', marginTop: 2 }}>
+                            {tx.description || formatTime(created)}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-display)',
+                            fontWeight: 800,
+                            fontSize: 17,
+                            flexShrink: 0,
+                            color: !isCredit
+                              ? 'var(--color-text-sec)'
+                              : bonus
+                                ? 'var(--color-accent)'
+                                : 'var(--color-good)',
+                          }}
+                        >
+                          {`${isCredit ? '+' : '−'}${formatCredits(toMilli(Math.abs(tx.quantity)))}`}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
-          </div>
+              </section>
+            ))}
+            <p
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12,
+                color: 'var(--color-text-ter)',
+                textAlign: 'center',
+                lineHeight: 1.5,
+                margin: 0,
+              }}
+            >
+              Pãezins de bônus não viram dinheiro e não expiram.
+            </p>
+          </>
         )}
       </div>
     </div>

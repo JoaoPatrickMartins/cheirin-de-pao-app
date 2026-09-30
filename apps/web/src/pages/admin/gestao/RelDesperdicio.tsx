@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { ReportAppBar, ReportScroll, ReportCard, StatRow, LoadingText, ErrorText, fmtInt, fmtPct } from './RelShared'
-import { buildCsv, downloadCsv } from '../../../lib/csv'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 type Period = 'day' | 'week' | 'month'
 
 interface WasteReport {
-  period: Period
+  period?: Period
+  window: { from: string; to: string; label: string; isPartial: boolean }
   ordered: number
   delivered: number
   waste: number
@@ -27,14 +33,8 @@ interface WasteReport {
 
 const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
-
 export function RelDesperdicio({ onBack }: { onBack: () => void }) {
-  const [period, setPeriod] = useState<Period>('month')
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'month' })
   const [data, setData] = useState<WasteReport | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -42,7 +42,7 @@ export function RelDesperdicio({ onBack }: { onBack: () => void }) {
     const run = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/reports/waste?period=${period}`)
+        const res = await apiFetch(`/admin/reports/waste?${periodQuery(sel)}`)
         setData(res.ok ? ((await res.json()) as WasteReport) : null)
       } catch {
         setData(null)
@@ -51,48 +51,70 @@ export function RelDesperdicio({ onBack }: { onBack: () => void }) {
       }
     }
     void run()
-  }, [period])
+  }, [sel])
 
   // waste > 0 = sobra (desperdício); waste < 0 = faltou (ruptura)
   const shortage = (data?.waste ?? 0) < 0
   const headlineLabel = shortage ? 'Ruptura (faltou)' : 'Desperdício (sobra)'
   const headlineColor = shortage ? 'var(--color-warn, #B23A2E)' : 'var(--color-text)'
 
+  // Pão e item em abas SEPARADAS pelo mesmo motivo que a tela os separa (D-1): comparar potes de
+  // geleia com pães comprados não significa nada, e numa planilha as duas séries na mesma coluna
+  // convidam exatamente essa soma.
   const onExport = data
     ? () =>
-        downloadCsv(
-          `desperdicio-${period}.csv`,
-          buildCsv(
-            ['Métrica', 'Valor'],
-            [
+        void downloadXlsx(`desperdicio-${selectionSlug(sel)}.xlsx`, [
+          {
+            name: 'Pão',
+            notes: [`Desperdício — ${data.window.label}`],
+            head: ['Métrica', 'Valor'],
+            rows: [
               ['Comprado do fornecedor (pães)', data.ordered],
               ['Entregue aos clientes (pães)', data.delivered],
               ['Diferença (pães)', data.waste],
-              ['Taxa (%)', fmtPct(data.wasteRate)],
-              ...(data.items
-                ? ([
-                    ['Itens comprometidos', data.items.committed],
-                    ['Itens entregues', data.items.delivered],
-                    ['Itens perdidos', data.items.lost],
-                    ['Itens devolvidos ao estoque', data.items.returned],
-                    ['Itens sem desfecho', data.items.pending],
-                    ['Valor perdido (R$)', data.items.lostValue.toFixed(2)],
-                    ['Taxa de perda de itens (%)', fmtPct(data.items.lossRate)],
-                    ...data.items.byProduct.map(
-                      (p) => [`Perda: ${p.productName}`, `${p.lost} un · R$ ${p.lostValue.toFixed(2)}`] as [string, string],
-                    ),
-                  ] as Array<[string, string | number]>)
-                : []),
             ],
-          ),
-        )
+            integer: [1],
+            footer: [
+              'Diferença positiva = sobra (desperdício); negativa = faltou (ruptura).',
+              `Taxa: ${fmtPct(data.wasteRate)}`,
+              ...(data.window.isPartial ? ['Período EM CURSO — números parciais.'] : []),
+            ],
+          },
+          ...(data.items
+            ? [
+                {
+                  name: 'Itens da Cestinha',
+                  head: ['Métrica', 'Unidades'],
+                  rows: [
+                    ['Comprometidos', data.items.committed],
+                    ['Entregues', data.items.delivered],
+                    ['Perdidos', data.items.lost],
+                    ['Devolvidos ao estoque', data.items.returned],
+                    ['Sem desfecho', data.items.pending],
+                  ],
+                  integer: [1],
+                  footer: [
+                    `Valor perdido: R$ ${data.items.lostValue.toFixed(2)} — custo pela matriz de fornecimento.`,
+                    `Taxa de perda: ${fmtPct(data.items.lossRate)} — perdidos sobre o que saiu para entrega.`,
+                  ],
+                },
+                {
+                  name: 'Perda por produto',
+                  head: ['Produto', 'Unidades perdidas', 'Valor perdido'],
+                  rows: data.items.byProduct.map((p) => [p.productName, p.lost, p.lostValue]),
+                  integer: [1],
+                  money: [2],
+                },
+              ]
+            : []),
+        ])
     : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <ReportAppBar title="Desperdício" onBack={onBack} onExport={onExport} />
       <ReportScroll>
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <LoadingText />

@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
-import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import {
+  PeriodPicker,
+  periodQuery,
+  selectionSlug,
+  type PeriodSelection,
+} from '../../../components/admin/PeriodPicker'
 import { KpiCard } from '../../../components/admin/KpiCard'
 import { ReportAppBar, ReportScroll, ReportCard, SectionTitle, StatRow, LoadingText, ErrorText, fmtInt, fmtPct } from './RelShared'
-import { buildCsv, downloadCsv } from '../../../lib/csv'
+import { downloadXlsx } from '../../../lib/xlsx'
 
 type Period = 'day' | 'week' | 'month'
 
@@ -16,7 +21,8 @@ interface DeliveryCounts {
 }
 
 interface DeliveryReport {
-  period: Period
+  period?: Period
+  window: { from: string; to: string; label: string; isPartial: boolean }
   counts: DeliveryCounts
   deliveryRate: number
   /** Pão × Cestinha (D3) — a taxa consolidada esconde de onde vem a falha. */
@@ -28,14 +34,8 @@ interface DeliveryReport {
   cancelReasons: Array<{ reason: string; count: number }>
 }
 
-const PERIOD_TABS = [
-  { key: 'day' as Period, label: 'Dia' },
-  { key: 'week' as Period, label: 'Semana' },
-  { key: 'month' as Period, label: 'Mês' },
-]
-
 export function RelEntregas({ onBack }: { onBack: () => void }) {
-  const [period, setPeriod] = useState<Period>('month')
+  const [sel, setSel] = useState<PeriodSelection>({ kind: 'preset', period: 'month' })
   const [data, setData] = useState<DeliveryReport | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -43,7 +43,7 @@ export function RelEntregas({ onBack }: { onBack: () => void }) {
     const run = async () => {
       setIsLoading(true)
       try {
-        const res = await apiFetch(`/admin/reports/delivery?period=${period}`)
+        const res = await apiFetch(`/admin/reports/delivery?${periodQuery(sel)}`)
         setData(res.ok ? ((await res.json()) as DeliveryReport) : null)
       } catch {
         setData(null)
@@ -52,7 +52,7 @@ export function RelEntregas({ onBack }: { onBack: () => void }) {
       }
     }
     void run()
-  }, [period])
+  }, [sel])
 
   const c = data?.counts
   const finalized = (c?.delivered ?? 0) + (c?.notDelivered ?? 0)
@@ -60,39 +60,57 @@ export function RelEntregas({ onBack }: { onBack: () => void }) {
   const onExport =
     data && c
       ? () =>
-          downloadCsv(
-            `entregas-${period}.csv`,
-            buildCsv(
-              ['Métrica', 'Valor'],
-              [
-                ['Taxa de entrega (%)', fmtPct(data.deliveryRate)],
+          void downloadXlsx(`entregas-${selectionSlug(sel)}.xlsx`, [
+            {
+              name: 'Resumo',
+              notes: [`Entregas & falhas — ${data.window.label}`],
+              head: ['Status', 'Pedidos'],
+              rows: [
                 ['Entregues', c.delivered],
                 ['Não entregues', c.notDelivered],
                 ['Cancelados', c.cancelled],
                 ['Em andamento', c.inProgress],
                 ['Total', c.total],
-                ...(data.byKind
-                  ? ([
-                      ['Pão — entregues', data.byKind.bread.delivered],
-                      ['Pão — não entregues', data.byKind.bread.notDelivered],
-                      ['Pão — taxa de entrega (%)', fmtPct(data.byKind.bread.deliveryRate)],
-                      ['Cestinha — entregues', data.byKind.cestinha.delivered],
-                      ['Cestinha — não entregues', data.byKind.cestinha.notDelivered],
-                      ['Cestinha — taxa de entrega (%)', fmtPct(data.byKind.cestinha.deliveryRate)],
-                    ] as Array<[string, string | number]>)
-                  : []),
-                ...data.failureReasons.map((r) => [`Falha: ${r.reason}`, r.count] as [string, number]),
-                ...data.cancelReasons.map((r) => [`Cancelamento: ${r.reason}`, r.count] as [string, number]),
               ],
-            ),
-          )
+              integer: [1],
+              footer: [
+                `Taxa de entrega: ${fmtPct(data.deliveryRate)}`,
+                'A unidade contada é o PEDIDO, não a parada: pão e Cestinha do mesmo cliente podem falhar de forma independente.',
+                ...(data.window.isPartial ? ['Período EM CURSO — números parciais.'] : []),
+              ],
+            },
+            ...(data.byKind
+              ? [
+                  {
+                    name: 'Por tipo',
+                    head: ['Tipo', 'Entregues', 'Não entregues', 'Cancelados', 'Em andamento', 'Taxa de entrega'],
+                    rows: [
+                      ['Pão', data.byKind.bread.delivered, data.byKind.bread.notDelivered, data.byKind.bread.cancelled, data.byKind.bread.inProgress, data.byKind.bread.deliveryRate],
+                      ['Cestinha', data.byKind.cestinha.delivered, data.byKind.cestinha.notDelivered, data.byKind.cestinha.cancelled, data.byKind.cestinha.inProgress, data.byKind.cestinha.deliveryRate],
+                    ],
+                    integer: [1, 2, 3, 4],
+                    percent: [5],
+                    footer: ['Cestinha aguardando pagamento não entra (nunca confirmou).'],
+                  },
+                ]
+              : []),
+            {
+              name: 'Motivos',
+              head: ['Tipo', 'Motivo', 'Ocorrências'],
+              rows: [
+                ...data.failureReasons.map((r) => ['Não-entrega', r.reason, r.count]),
+                ...data.cancelReasons.map((r) => ['Cancelamento', r.reason, r.count]),
+              ],
+              integer: [2],
+            },
+          ])
       : undefined
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <ReportAppBar title="Entregas & falhas" onBack={onBack} onExport={onExport} />
       <ReportScroll>
-        <SegmentedControl tabs={PERIOD_TABS} value={period} onChange={setPeriod} />
+        <PeriodPicker value={sel} onChange={setSel} />
 
         {isLoading ? (
           <LoadingText />

@@ -19,10 +19,13 @@ export interface CreditablePayment {
 
 /**
  * Credita o cliente a partir de um registro de Payment — ÚNICO ponto de fulfillment,
- * compartilhado por Stripe (webhook), Mercado Pago (webhook) e reconciliação por pull.
+ * compartilhado por Stripe (webhook), Mercado Pago (webhook), reconciliação por pull e a
+ * cobrança síncrona do cartão salvo.
  *
- * Idempotente: se o pagamento já está PAID, não faz nada (protege contra crédito em
- * dobro quando webhook e pull coincidem, ou o webhook chega duas vezes).
+ * Idempotente: o `status === 'PAID'` abaixo é só um atalho — o objeto foi lido antes e pode
+ * estar velho. A garantia de UM crédito por pagamento é a trava de
+ * `PaymentsRepository.claimAndCreditPurchase` (webhook e pull chegando juntos, webhook
+ * reentregue, webhook correndo com a cobrança síncrona do cartão salvo).
  *
  * Ramo `purpose === 'HOOK'`: pagamento de um gancho adicional — NÃO credita pães; marca
  * o HookRequest vinculado como REQUESTED (entra na fila de entrega do admin).
@@ -53,9 +56,11 @@ export async function creditForPayment(
   if (!quantity) return
 
   const repo = new PaymentsRepository(fastify)
-  await repo.creditUserBalance(payment.userId, quantity, payment.id)
-  await repo.updatePaymentStatus(payment.id, 'PAID')
-  await notifyAdminsCreditPurchase(fastify, { userId: payment.userId, quantity, amount: payment.amount })
+  const credited = await repo.claimAndCreditPurchase(payment.id, payment.userId, quantity)
+  // Só quem creditou avisa o admin — os caminhos irmãos que perderam a corrida saem em silêncio.
+  if (credited) {
+    await notifyAdminsCreditPurchase(fastify, { userId: payment.userId, quantity, amount: payment.amount })
+  }
 }
 
 /**

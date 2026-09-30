@@ -3,7 +3,10 @@ import { SplashScreen } from '../pages/splash/SplashScreen'
 import { AuthProvider } from '../contexts/AuthContext'
 import { RedirectIfAuthenticated } from '../components/RedirectIfAuthenticated'
 
-export const router = createBrowserRouter([
+// Função, não constante: o createBrowserRouter lê a URL NA HORA em que é criado. O main.tsx
+// reescreve `/?social=<id>` → `/entrar/social` (retorno do Google) ANTES de criar o router — com uma
+// constante criada no import, o router já nascia em `/` e mostrava a splash com a URL nova na barra.
+export const createAppRouter = () => createBrowserRouter([
   {
     Component: AuthProvider,
     children: [
@@ -32,6 +35,35 @@ export const router = createBrowserRouter([
               })),
           },
         ],
+      },
+      // Login com Google — retorno (L3a/L3b/L3c/L6). Fora da guarda de logado: o "conectar pelo
+      // Perfil" também volta por aqui, com a pessoa já logada.
+      {
+        path: '/entrar/social',
+        lazy: () =>
+          import('../pages/auth/SocialReturnScreen').then((m) => ({
+            Component: m.SocialReturnScreen,
+          })),
+      },
+      // Páginas públicas (L9) — abrem logado ou não; o Google e a LGPD pedem URL pública.
+      {
+        path: '/privacidade',
+        lazy: () => import('../pages/legal/LegalPage').then((m) => ({ Component: m.PrivacyPage })),
+      },
+      {
+        path: '/termos',
+        lazy: () => import('../pages/legal/LegalPage').then((m) => ({ Component: m.TermsPage })),
+      },
+      {
+        path: '/exclusao-de-dados',
+        lazy: () => import('../pages/legal/LegalPage').then((m) => ({ Component: m.DataDeletionPage })),
+      },
+      {
+        path: '/create-password',
+        lazy: () =>
+          import('../pages/auth/CreatePasswordScreen').then((m) => ({
+            Component: m.CreatePasswordScreen,
+          })),
       },
       {
         path: '/set-password',
@@ -178,6 +210,21 @@ export const router = createBrowserRouter([
             lazy: () =>
               import('../pages/client/HookScreen').then((m) => ({
                 Component: m.HookScreen,
+              })),
+          },
+          {
+            // Perfil › Ajuda › Privacidade e termos (hub das 3 páginas públicas).
+            path: 'perfil/privacidade',
+            lazy: () =>
+              import('../pages/legal/LegalPage').then((m) => ({
+                Component: m.LegalHubScreen,
+              })),
+          },
+          {
+            path: 'perfil/indique',
+            lazy: () =>
+              import('../pages/client/ReferralScreen').then((m) => ({
+                Component: m.ReferralScreen,
               })),
           },
           {

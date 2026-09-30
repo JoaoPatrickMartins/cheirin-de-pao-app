@@ -16,9 +16,33 @@ interface AppNotification {
 type Tone = 'good' | 'gold' | 'neutral'
 
 function getTone(type: string): Tone {
-  if (['ADMIN_DELIVERY_DONE', 'ADMIN_CREDIT_PURCHASED', 'ADMIN_ORDER_PLACED', 'ADMIN_AUTOGEN_DONE'].includes(type))
+  if (
+    [
+      'ADMIN_DELIVERY_DONE',
+      'ADMIN_CREDIT_PURCHASED',
+      'ADMIN_ORDER_PLACED',
+      'ADMIN_AUTOGEN_DONE',
+      // Indique e Ganhe: recompensa paga é boa notícia.
+      'ADMIN_REFERRAL_REWARDED',
+    ].includes(type)
+  )
     return 'good'
-  if (['ADMIN_DELIVERY_PENDING', 'ADMIN_AUTOGEN_WARNING', 'ADMIN_CUTOFF_REACHED', 'ADMIN_LOW_STOCK'].includes(type))
+  if (
+    [
+      'ADMIN_DELIVERY_PENDING',
+      'ADMIN_AUTOGEN_WARNING',
+      'ADMIN_CUTOFF_REACHED',
+      'ADMIN_LOW_STOCK',
+      // Financeiros (C1): todos são "olhe para isto", nenhum é boa notícia.
+      'ADMIN_EXPENSE_DUE',
+      'ADMIN_EXPENSE_ANOMALY',
+      'ADMIN_MARGIN_DROP',
+      'ADMIN_RESULT_NEGATIVE',
+      'ADMIN_GOAL_AT_RISK',
+      // Indique e Ganhe: indicação em análise espera uma decisão do admin (o dourado do selo "Em análise").
+      'ADMIN_REFERRAL_REVIEW',
+    ].includes(type)
+  )
     return 'gold'
   return 'neutral'
 }
@@ -41,8 +65,24 @@ function getIcon(type: string) {
       return 'truck'
     case 'ADMIN_CREDIT_PURCHASED':
       return 'coin'
+    case 'ADMIN_EXPENSE_DUE':
+      return 'clock'
+    case 'ADMIN_EXPENSE_ANOMALY':
+      return 'wallet'
+    case 'ADMIN_MARGIN_DROP':
+    case 'ADMIN_RESULT_NEGATIVE':
+      return 'trend'
+    case 'ADMIN_GOAL_AT_RISK':
+      return 'star'
     case 'ADMIN_CUTOFF_REACHED':
       return 'bell'
+    // Indique e Ganhe — os ícones dos selos do A4 (análise = lupa) e do programa (presente).
+    case 'ADMIN_REFERRAL_REVIEW':
+      return 'search'
+    case 'ADMIN_REFERRAL_REWARDED':
+      return 'gift'
+    case 'ADMIN_CONDO_INTEREST':
+      return 'building'
     default:
       return 'repeat'
   }

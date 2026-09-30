@@ -207,6 +207,28 @@ export class AdminOrdersController {
   }
 
   /**
+   * GET /admin/orders/:id — resumo completo de um pedido (pão ou Cestinha).
+   *
+   * `kind` na query é dica para pular a busca na coleção errada; sem ele o service tenta as duas.
+   */
+  async orderDetail(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    const { kind } = request.query as { kind?: 'BREAD' | 'CESTINHA' }
+    try {
+      const data = await this.service.getOrderDetail(id, kind)
+      return reply.status(200).send(data)
+    } catch (err) {
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * POST /admin/orders/:id/refund — estorna créditos de um pedido.
    */
   async refundOrder(request: FastifyRequest, reply: FastifyReply) {

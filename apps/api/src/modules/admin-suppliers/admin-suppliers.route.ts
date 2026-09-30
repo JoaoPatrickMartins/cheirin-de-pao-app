@@ -39,6 +39,7 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
                 email: { type: 'string', nullable: true, description: 'E-mail de contato.' },
                 pricePerUnit: { type: 'number', description: 'Preço por unidade de pão cobrado pelo fornecedor.' },
                 isPrincipal: { type: 'boolean', description: 'true se é o fornecedor principal (padrão para pedidos).' },
+                isSelfSupply: { type: 'boolean', nullable: true, description: 'true se é FORNECIMENTO PRÓPRIO (null/ausente em fornecedor cadastrado antes do campo = não). Compra dele não vira conta a pagar — o custo já entra pelas despesas.' },
                 isActive: { type: 'boolean', description: 'Se o fornecedor está ativo.' },
                 address: {
                   type: 'object',
@@ -91,6 +92,7 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
               email: { type: 'string', nullable: true, description: 'E-mail de contato.' },
               pricePerUnit: { type: 'number', description: 'Preço por unidade de pão cobrado pelo fornecedor.' },
               isPrincipal: { type: 'boolean', description: 'true se é o fornecedor principal (padrão para pedidos).' },
+              isSelfSupply: { type: 'boolean', nullable: true, description: 'true se é FORNECIMENTO PRÓPRIO (null/ausente em fornecedor cadastrado antes do campo = não). Compra dele não vira conta a pagar — o custo já entra pelas despesas.' },
               isActive: { type: 'boolean', description: 'Se o fornecedor está ativo.' },
               address: {
                 type: 'object',
@@ -133,6 +135,7 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
             email: { type: 'string', format: 'email', description: 'E-mail de contato do fornecedor.' },
             pricePerUnit: { type: 'number', minimum: 0.01, description: 'Preço unitário do pão cobrado pelo fornecedor em reais.' },
             isPrincipal: { type: 'boolean', description: 'Se true, define como fornecedor principal (substitui o atual principal).' },
+            isSelfSupply: { type: 'boolean', description: 'Marca como FORNECIMENTO PRÓPRIO (a própria casa produzindo). Compra dele não gera conta a pagar, porque o custo real já é lançado como despesa.' },
             address: {
               type: 'object',
               description: 'Endereço da empresa fornecedora.',
@@ -159,6 +162,7 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
               email: { type: 'string', nullable: true, description: 'E-mail de contato.' },
               pricePerUnit: { type: 'number', description: 'Preço por unidade.' },
               isPrincipal: { type: 'boolean', description: 'Se é o fornecedor principal.' },
+              isSelfSupply: { type: 'boolean', nullable: true, description: 'true se é FORNECIMENTO PRÓPRIO (null/ausente em fornecedor cadastrado antes do campo = não). Compra dele não vira conta a pagar — o custo já entra pelas despesas.' },
               isActive: { type: 'boolean', description: 'Se o fornecedor está ativo.' },
               address: {
                 type: 'object',
@@ -206,6 +210,7 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
             email: { type: 'string', format: 'email', description: 'Novo e-mail.' },
             pricePerUnit: { type: 'number', minimum: 0.01, description: 'Novo preço unitário.' },
             isPrincipal: { type: 'boolean', description: 'Definir como fornecedor principal.' },
+            isSelfSupply: { type: 'boolean', description: 'Marca como FORNECIMENTO PRÓPRIO (a própria casa produzindo). Compra dele não gera conta a pagar, porque o custo real já é lançado como despesa.' },
             isActive: { type: 'boolean', description: 'Ativar (true) ou desativar (false) o fornecedor. Não é possível desativar o principal.' },
             address: { type: 'object', description: 'Novo endereço parcial.' },
           },
@@ -222,6 +227,7 @@ export const adminSuppliersRoute: FastifyPluginAsync = async (fastify) => {
               email: { type: 'string', nullable: true, description: 'E-mail de contato.' },
               pricePerUnit: { type: 'number', description: 'Preço por unidade.' },
               isPrincipal: { type: 'boolean', description: 'Se é o fornecedor principal.' },
+              isSelfSupply: { type: 'boolean', nullable: true, description: 'true se é FORNECIMENTO PRÓPRIO (null/ausente em fornecedor cadastrado antes do campo = não). Compra dele não vira conta a pagar — o custo já entra pelas despesas.' },
               isActive: { type: 'boolean', description: 'Se o fornecedor está ativo.' },
               address: {
                 type: 'object',

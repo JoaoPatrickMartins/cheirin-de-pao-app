@@ -106,9 +106,13 @@ export class AdminSeparationController {
       return reply.status(400).send({ error: 'Dados inválidos.' })
     }
 
+    // Uma forma só no service: o par solto (condominiumId + slotId) é um `scopes` de um item.
+    // O Zod já garantiu que uma das duas formas veio completa.
+    const scopes = body.scopes ?? [{ condominiumId: body.condominiumId as string, slotId: body.slotId ?? '' }]
+
     try {
-      const result = await this.service.conclude(body.condominiumId, body.slotId, body.date)
-      return reply.status(200).send({ ok: true, count: result.count })
+      const result = await this.service.concludeMany(scopes, body.date)
+      return reply.status(200).send({ ok: true, count: result.count, scopes: result.scopes })
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })

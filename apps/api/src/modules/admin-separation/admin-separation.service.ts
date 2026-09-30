@@ -11,6 +11,7 @@ import { AdminOrdersService } from '../admin-orders/admin-orders.service.js'
 import { brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { separateMarketOrders } from '../../lib/market-pipeline.js'
 import { CONFIRMED_MARKET_STATUSES } from '../../lib/bread-demand.js'
+import { firstDeliveryDayByUser } from '../../lib/first-delivery.js'
 
 const DEFAULT_SLOT_LABELS: Record<string, string> = { manha: 'Manhã', tarde: 'Tarde' }
 
@@ -44,6 +45,12 @@ export interface SeparationOrder {
   marketOrderIds: string[]
   marketItems: { name: string; qty: number }[]
   marketItemCount: number
+  /**
+   * Estreia do cliente — esta parada cai no dia da primeira entrega dele. Vai para a tela E para
+   * o cupom impresso, que é o que acompanha o saquinho (bilhete de boas-vindas, gancho, capricho).
+   * Ver `lib/first-delivery.ts`.
+   */
+  isFirstOrder: boolean
 }
 
 /**
@@ -82,6 +89,12 @@ export interface SeparationCondo {
   totalItems: number
   separatedItems: number
   slots: SeparationSlot[]
+}
+
+/** Um lote físico a concluir: condomínio + turno ('' = sem turno). */
+export interface SeparationScope {
+  condominiumId: string
+  slotId: string
 }
 
 export interface SeparationBoard {
@@ -189,7 +202,7 @@ export class AdminSeparationService {
       ),
     ]
 
-    const [users, condos] = await Promise.all([
+    const [users, condos, firstDayByUser] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, apartment: true, block: true, complement: true },
@@ -198,9 +211,14 @@ export class AdminSeparationService {
         where: { id: { in: condoIds } },
         select: { id: true, name: true, deliverySlots: true },
       }),
+      firstDeliveryDayByUser(this.prisma, userIds),
     ])
     const userById = new Map(users.map((u) => [u.id, u]))
     const condoById = new Map(condos.map((c) => [c.id, c]))
+
+    // O board inteiro é UM dia BRT (`date`), então a estreia se resolve comparando o dia do
+    // cliente com o do board — não precisa olhar o `scheduledDate` de cada pedido.
+    const isFirstOrderFor = (userId: string): boolean => firstDayByUser.get(userId) === date
 
     const slotLabelFor = (condoId: string, slotId: string): string => {
       const condo = condoById.get(condoId)
@@ -255,6 +273,7 @@ export class AdminSeparationService {
         marketOrderIds: [],
         marketItems: [],
         marketItemCount: 0,
+        isFirstOrder: isFirstOrderFor(o.userId),
       })
       slot.totalDeliveries += 1
       slot.totalBreads += o.quantity
@@ -335,6 +354,7 @@ export class AdminSeparationService {
           separated,
           marketItems: items,
           marketItemCount: itemCount,
+          isFirstOrder: isFirstOrderFor(mo.userId),
         })
         slot.totalDeliveries += 1
         slot.totalBreads += mo.breadQty
@@ -488,24 +508,59 @@ export class AdminSeparationService {
   }
 
   /**
-   * conclude — conclui a separação de um lote (condomínio + turno) de uma data.
+   * conclude — conclui a separação de UM lote (condomínio + turno) de uma data.
    * Move todos os pedidos SCHEDULED do escopo para SEPARATED (idempotente: ignora os
    * que já estão separados). A partir daqui eles entram na divisão de entregas.
    */
   async conclude(condominiumId: string, slotId: string, dateStr?: string): Promise<{ count: number }> {
+    return this.concludeMany([{ condominiumId, slotId }], dateStr)
+  }
+
+  /**
+   * concludeMany — conclui vários lotes de uma vez (seleção múltipla de condomínios na tela).
+   *
+   * Recebe PARES (condomínio, turno), não listas cruzadas: o quadro esconde turno cuja compra
+   * não foi finalizada, então um produto cartesiano concluiria lote invisível para o operador.
+   *
+   * Agrupa por turno e roda um `updateMany` por turno com `condominiumId: { in: [...] }` — 2
+   * queries por turno (pão + Cestinha) em vez de 2 por lote. Idempotente pelo guard de status.
+   */
+  async concludeMany(
+    scopes: SeparationScope[],
+    dateStr?: string,
+  ): Promise<{ count: number; scopes: number }> {
     const { start, end } = this.resolveDate(dateStr)
-    const result = await this.prisma.order.updateMany({
-      where: {
-        condominiumId,
-        // '' representa "sem turno" → casa com slotId nulo
-        slotId: slotId === '' ? null : slotId,
-        scheduledDate: { gte: start, lte: end },
-        status: 'SCHEDULED',
-      },
-      data: { status: 'SEPARATED', separatedAt: new Date() },
-    })
-    // A Cestinha pega carona: separa também os MarketOrder do mesmo (condo, slot, dia).
-    const marketCount = await separateMarketOrders(this.prisma, condominiumId, slotId, start, end)
-    return { count: result.count + marketCount }
+
+    // Dedup por par: a tela pode mandar o mesmo (condo, turno) mais de uma vez.
+    const condosBySlot = new Map<string, Set<string>>()
+    for (const s of scopes) {
+      if (!s.condominiumId) continue
+      const ids = condosBySlot.get(s.slotId) ?? new Set<string>()
+      ids.add(s.condominiumId)
+      condosBySlot.set(s.slotId, ids)
+    }
+
+    let count = 0
+    let pairs = 0
+    for (const [slotId, idSet] of condosBySlot) {
+      const condominiumIds = [...idSet]
+      pairs += condominiumIds.length
+
+      const result = await this.prisma.order.updateMany({
+        where: {
+          condominiumId: { in: condominiumIds },
+          // '' representa "sem turno" → casa com slotId nulo
+          slotId: slotId === '' ? null : slotId,
+          scheduledDate: { gte: start, lte: end },
+          status: 'SCHEDULED',
+        },
+        data: { status: 'SEPARATED', separatedAt: new Date() },
+      })
+      // A Cestinha pega carona: separa também os MarketOrder do mesmo (condo, slot, dia).
+      const marketCount = await separateMarketOrders(this.prisma, condominiumIds, slotId, start, end)
+      count += result.count + marketCount
+    }
+
+    return { count, scopes: pairs }
   }
 }

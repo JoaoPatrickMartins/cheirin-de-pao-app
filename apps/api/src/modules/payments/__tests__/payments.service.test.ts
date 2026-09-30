@@ -36,17 +36,25 @@ import { PaymentsService } from '../payments.service.js'
 type Mock = ReturnType<typeof vi.fn>
 
 function createMockFastify(): FastifyInstance {
-  return {
-    prisma: {
-      payment: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-      user: { findUnique: vi.fn(), update: vi.fn() },
-      creditTransaction: { create: vi.fn() },
-      combo: { findUnique: vi.fn() },
-      promotion: { findFirst: vi.fn().mockResolvedValue(null) },
-      setting: { findUnique: vi.fn() },
-      savedCard: { findUnique: vi.fn() },
-      $transaction: vi.fn(),
+  const prisma: Record<string, unknown> = {
+    payment: {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
+      // Trava do crédito (claimAndCreditPurchase): por padrão este caminho ganha.
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    user: { findUnique: vi.fn(), update: vi.fn() },
+    creditTransaction: { create: vi.fn() },
+    combo: { findUnique: vi.fn() },
+    promotion: { findFirst: vi.fn().mockResolvedValue(null) },
+    setting: { findUnique: vi.fn() },
+    savedCard: { findUnique: vi.fn() },
+  }
+  // Transação interativa: o callback recebe o próprio mock como `tx`.
+  prisma.$transaction = vi.fn().mockImplementation((arg: unknown) => (typeof arg === 'function' ? arg(prisma) : arg))
+  return {
+    prisma,
     log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
   } as unknown as FastifyInstance
 }
@@ -104,22 +112,55 @@ describe('PaymentsService (Stripe)', () => {
       expect(mockChargeOffSession).not.toHaveBeenCalled()
     })
 
-    it('cobra off_session e credita sincronamente quando succeeded', async () => {
-      const fastify = createMockFastify()
-      ;(fastify.prisma.combo.findUnique as Mock).mockResolvedValueOnce({ id: 'combo-1', name: 'Combo', quantity: 30, price: 24.9 })
+    // Pagamento como o `createPayment` devolve: PENDING e ainda com o combo.
+    const savedCardPayment = {
+      id: 'payment-2',
+      userId: 'user-1',
+      amount: 24.9,
+      status: 'PENDING',
+      comboId: 'combo-1',
+      customQuantity: null,
+      purpose: null,
+    }
+
+    function arrangeSavedCardCharge(fastify: FastifyInstance) {
+      // `mockResolvedValue` (não Once): o combo é lido no preço e de novo no creditForPayment.
+      ;(fastify.prisma.combo.findUnique as Mock).mockResolvedValue({ id: 'combo-1', name: 'Combo', quantity: 30, price: 24.9 })
       mockGetOrCreateCustomer.mockResolvedValueOnce('cus_1')
       ;(fastify.prisma.savedCard.findUnique as Mock).mockResolvedValueOnce({ id: 'card-1', userId: 'user-1', stripePaymentMethodId: 'pm_1' })
       mockChargeOffSession.mockResolvedValueOnce({ id: 'pi_2', status: 'succeeded' })
-      ;(fastify.prisma.payment.create as Mock).mockResolvedValueOnce({ id: 'payment-2' })
-      ;(fastify.prisma.$transaction as Mock).mockResolvedValueOnce([{}, {}])
-      ;(fastify.prisma.payment.update as Mock).mockResolvedValueOnce({})
+      ;(fastify.prisma.payment.create as Mock).mockResolvedValueOnce(savedCardPayment)
+    }
+
+    it('cobra off_session e credita sincronamente quando succeeded — marca PAID e credita na mesma transação', async () => {
+      const fastify = createMockFastify()
+      arrangeSavedCardCharge(fastify)
 
       const service = new PaymentsService(fastify)
       const result = await service.createCard({ savedCardId: 'card-1', comboId: 'combo-1', userId: 'user-1' })
 
       expect(mockChargeOffSession).toHaveBeenCalledWith(expect.objectContaining({ paymentMethodId: 'pm_1', customerId: 'cus_1' }))
       expect(result.status).toBe('approved')
-      expect(fastify.prisma.payment.update).toHaveBeenCalledWith({ where: { id: 'payment-2' }, data: { status: 'PAID' } })
+      expect(fastify.prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: 'payment-2', status: { in: ['PENDING', 'FAILED'] } },
+        data: { status: 'PAID' },
+      })
+      expect(fastify.prisma.creditTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ type: 'PURCHASE', quantityMilli: 30_000, referenceId: 'payment-2' }) }),
+      )
+    })
+
+    it('se o webhook do Stripe creditou primeiro (corrida), não credita de novo e segue aprovado', async () => {
+      const fastify = createMockFastify()
+      arrangeSavedCardCharge(fastify)
+      ;(fastify.prisma.payment.updateMany as Mock).mockResolvedValueOnce({ count: 0 })
+
+      const service = new PaymentsService(fastify)
+      const result = await service.createCard({ savedCardId: 'card-1', comboId: 'combo-1', userId: 'user-1' })
+
+      expect(result.status).toBe('approved')
+      expect(fastify.prisma.creditTransaction.create).not.toHaveBeenCalled()
+      expect(fastify.prisma.user.update).not.toHaveBeenCalled()
     })
   })
 

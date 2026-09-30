@@ -102,12 +102,17 @@ export class AuthRepository {
     return this.prisma.session.updateMany({ where: { id }, data: { isRevoked: true } })
   }
 
-  // Dados mínimos para claims do JWT + hasPassword. NÃO expor passwordHash em respostas.
+  // Dados mínimos para claims do JWT + hasPassword + bloqueio. NÃO expor passwordHash em respostas.
   findUserAuthInfo(userId: string) {
     return this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, name: true, passwordHash: true },
+      select: { id: true, role: true, name: true, passwordHash: true, isBlocked: true },
     })
+  }
+
+  // Login social: quantas contas externas (Google) o usuário tem — define o mustSetPassword.
+  countSocialAccounts(userId: string) {
+    return this.prisma.socialAccount.count({ where: { userId } })
   }
 
   updateSessionLastUsed(id: string) {

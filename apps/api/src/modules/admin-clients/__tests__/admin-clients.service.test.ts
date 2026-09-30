@@ -51,6 +51,11 @@ function makeFastifyMock(overrides: {
     type: string
     createdAt: Date
   } | null
+  /** Linhas de `groupBy` do selo de estreia: `{ userId, _min: { scheduledDate } }`. */
+  firstBreadDays?: Array<{ userId: string; _min: { scheduledDate: Date | null } }>
+  firstMarketDays?: Array<{ userId: string; _min: { scheduledDate: Date | null } }>
+  /** Ganchos de porta do cliente (HookRequest) — default: nenhum. */
+  hooks?: Array<Record<string, unknown>>
 } = {}) {
   const defaultClient = {
     id: 'user-01',
@@ -73,6 +78,10 @@ function makeFastifyMock(overrides: {
     orders = [],
     marketOrders = [],
     lastTransaction = { id: 'tx-01', userId: 'user-01', type: 'PURCHASE', createdAt: new Date('2024-06-01') },
+    // Linhas de `groupBy` do selo de estreia: `{ userId, _min: { scheduledDate } }`.
+    firstBreadDays = [],
+    firstMarketDays = [],
+    hooks = [],
   } = overrides
 
   const prisma = {
@@ -86,12 +95,16 @@ function makeFastifyMock(overrides: {
       findFirst: vi.fn().mockResolvedValue(schedule),
       update: vi.fn().mockResolvedValue({ id: 'schedule-01', isActive: false }),
     },
+    // Linha "Acesso" do detalhe (login com Google) — sem conta conectada por padrão.
+    socialAccount: { findMany: vi.fn().mockResolvedValue([]) },
     order: {
       findMany: vi.fn().mockResolvedValue(orders),
       findUnique: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue({ id: 'ord-1', status: 'CANCELLED' }),
       aggregate: vi.fn().mockResolvedValue({ _sum: { quantity: 0 }, _count: 0 }),
       count: vi.fn().mockResolvedValue(0),
+      // Selo de estreia (`lib/first-delivery.ts`) — vazio = ninguém estreia.
+      groupBy: vi.fn().mockResolvedValue(firstBreadDays),
     },
     delivery: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -112,6 +125,7 @@ function makeFastifyMock(overrides: {
         }
         return Promise.resolve(rows)
       }),
+      groupBy: vi.fn().mockResolvedValue(firstMarketDays),
     },
     payment: {
       aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 }, _count: 0 }),
@@ -119,6 +133,9 @@ function makeFastifyMock(overrides: {
     },
     savedCard: {
       findMany: vi.fn().mockResolvedValue([]),
+    },
+    hookRequest: {
+      findMany: vi.fn().mockResolvedValue(hooks),
     },
     combo: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -131,6 +148,7 @@ function makeFastifyMock(overrides: {
       findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue({ id: 'sess-01', isRevoked: true }),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     adminNote: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -261,6 +279,18 @@ describe('AdminClientsService', () => {
       expect(result).toHaveProperty('client')
       expect(result).toHaveProperty('schedule')
       expect(result).toHaveProperty('recentOrders')
+    })
+
+    it('linha Acesso: Google conectado + senha; sem nada, lista vazia', async () => {
+      const { fastify, prisma } = makeFastifyMock()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+
+      expect((await service.getDetail('user-01')).accessMethods).toEqual([])
+
+      prisma.socialAccount.findMany.mockResolvedValue([{ provider: 'GOOGLE' }])
+      prisma.user.findUnique.mockResolvedValueOnce({ ...(await prisma.user.findUnique()), passwordHash: '$2a$10$x' })
+      expect((await service.getDetail('user-01')).accessMethods).toEqual(['google', 'password'])
     })
 
     it('inclui condomínio e métricas agregadas', async () => {
@@ -627,6 +657,29 @@ describe('AdminClientsService', () => {
           data: expect.objectContaining({ isBlocked: false, blockReason: null, blockedAt: null, blockedById: null }),
         }),
       )
+    })
+
+    it('bloquear derruba todas as sessões abertas do cliente', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: false },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', 'Uso indevido', 'admin-01')
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-01', isRevoked: false },
+        data: { isRevoked: true },
+      })
+    })
+
+    it('desbloquear não mexe nas sessões', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        client: { id: 'user-01', name: 'João', role: 'CLIENT', isBlocked: true },
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminClientsService(fastify as any)
+      await service.blockToggle('user-01', undefined, 'admin-01')
+      expect(prisma.session.updateMany).not.toHaveBeenCalled()
     })
 
     it('lança { statusCode: 404 } quando cliente não existe', async () => {
@@ -1042,6 +1095,85 @@ describe('AdminClientsService', () => {
       // As 2 linhas mais recentes do conjunto UNIDO são as duas Cestinhas — o pedido de pão
       // antigo fica fora, mesmo sendo o único da sua coleção.
       expect(rows.map((r) => r.id)).toEqual(['mo-novo', 'mo-meio'])
+    })
+  })
+
+  describe('getHooks', () => {
+    const hook = (over: Record<string, unknown> = {}) => ({
+      id: 'hook-01',
+      userId: 'user-01',
+      type: 'BONUS',
+      status: 'DELIVERED',
+      reason: 'cortesia',
+      paymentId: null,
+      grantedById: 'admin-01',
+      deliveredById: 'admin-02',
+      requestedAt: new Date('2026-07-01T12:00:00.000Z'),
+      deliveredAt: new Date('2026-07-02T12:00:00.000Z'),
+      createdAt: new Date('2026-07-01T12:00:00.000Z'),
+      updatedAt: new Date('2026-07-02T12:00:00.000Z'),
+      ...over,
+    })
+
+    it('busca todos os ganchos do cliente, do mais recente', async () => {
+      const { fastify, prisma } = makeFastifyMock({ hooks: [hook()] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await new AdminClientsService(fastify as any).getHooks('user-01')
+
+      expect(prisma.hookRequest.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-01' },
+        orderBy: { createdAt: 'desc' },
+      })
+    })
+
+    it('resolve os nomes dos admins de concessão e entrega em UMA query batch', async () => {
+      const { fastify, prisma } = makeFastifyMock({ hooks: [hook()] })
+      prisma.user.findMany = vi.fn().mockResolvedValue([
+        { id: 'admin-01', name: 'Ana Admin' },
+        { id: 'admin-02', name: 'Beto Admin' },
+      ])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getHooks('user-01')
+
+      expect(prisma.user.findMany).toHaveBeenCalledOnce()
+      expect(rows[0]).toMatchObject({
+        id: 'hook-01',
+        type: 'BONUS',
+        status: 'DELIVERED',
+        grantedByName: 'Ana Admin',
+        deliveredByName: 'Beto Admin',
+        amount: null,
+      })
+    })
+
+    it('traz o valor do gancho pago a partir do Payment vinculado', async () => {
+      const { fastify, prisma } = makeFastifyMock({
+        hooks: [hook({ id: 'hook-02', type: 'PAID', status: 'REQUESTED', paymentId: 'pay-01', grantedById: null, deliveredById: null, deliveredAt: null })],
+      })
+      prisma.payment.findMany = vi.fn().mockResolvedValue([{ id: 'pay-01', amount: 5 }])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getHooks('user-01')
+
+      expect(rows[0].amount).toBe(5)
+      expect(rows[0].deliveredByName).toBeNull()
+    })
+
+    it('sem ganchos, não consulta admins nem pagamentos', async () => {
+      const { fastify, prisma } = makeFastifyMock({ hooks: [] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = await new AdminClientsService(fastify as any).getHooks('user-01')
+
+      expect(rows).toEqual([])
+      expect(prisma.user.findMany).not.toHaveBeenCalled()
+      expect(prisma.payment.findMany).not.toHaveBeenCalled()
+    })
+
+    it('lança 404 quando o alvo não é CLIENT', async () => {
+      const { fastify } = makeFastifyMock({ client: { role: 'ADMIN' } })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect(new AdminClientsService(fastify as any).getHooks('user-01')).rejects.toMatchObject({
+        statusCode: 404,
+      })
     })
   })
 })

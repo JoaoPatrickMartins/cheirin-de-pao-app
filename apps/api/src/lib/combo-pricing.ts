@@ -51,3 +51,48 @@ export function comboEconomy(
   if (percent <= 0) return null
   return { savings, percent }
 }
+
+/** Margem de um combo — o que a precificação assistida (D1) exibe ao vivo no formulário. */
+export interface ComboMargin {
+  /** `quantity × breadUnitCost` — o que os pães daquele combo custam para a casa. */
+  cost: number
+  /** `price − cost`, em R$. Negativo quando o combo é vendido no prejuízo. */
+  margin: number
+  /** Margem sobre o PREÇO (markup sobre receita), 1 casa. */
+  marginPct: number
+  /** Quanto a casa recebe por pãozinho vendido — a régua que compara combos de tamanhos diferentes. */
+  pricePerCredit: number
+  /** Custo unitário usado. Repetido aqui para a tela não precisar recalcular. */
+  breadUnitCost: number
+  /** `true` quando o preço não cobre nem o custo do pão. Avisa, não bloqueia (P-13). */
+  belowCost: boolean
+}
+
+/**
+ * comboMargin — margem do combo a partir do custo do PÃO (D1 · precificação assistida).
+ *
+ * `null` quando não há custo de pão cadastrado, **nunca zero**: custo zero renderizaria margem de
+ * 100% no formulário, que é a mentira mais confortável possível — a mesma disciplina de
+ * `productMargin` em `product-cost.ts`.
+ *
+ * O custo considerado é só o do pão. Não há rateio de despesa operacional aqui, e isso é
+ * deliberado: a margem exibida é de CONTRIBUIÇÃO (preço − custo da mercadoria), que é a conta que
+ * cabe num formulário de cadastro. Quem quer o resultado depois da operação lê o DRE.
+ */
+export function comboMargin(
+  price: number,
+  quantity: number,
+  breadUnitCost: number | null | undefined,
+): ComboMargin | null {
+  if (breadUnitCost == null || !(quantity > 0)) return null
+  const cost = Math.round(quantity * breadUnitCost * 100) / 100
+  const margin = Math.round((price - cost) * 100) / 100
+  return {
+    cost,
+    margin,
+    marginPct: price > 0 ? Math.round((margin / price) * 1000) / 10 : 0,
+    pricePerCredit: Math.round((price / quantity) * 100) / 100,
+    breadUnitCost,
+    belowCost: price < cost,
+  }
+}

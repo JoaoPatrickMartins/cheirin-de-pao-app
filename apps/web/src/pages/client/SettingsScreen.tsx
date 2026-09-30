@@ -6,6 +6,8 @@ import { usePushOptIn } from '../../hooks/usePushOptIn'
 import { ProfileAvatar } from '../../components/client/ProfileAvatar'
 import { ProfileMenuRow } from '../../components/client/ProfileMenuRow'
 import { resetOnboarding } from '../../lib/onboarding'
+import { useReferralSummary } from '../../hooks/useReferralSummary'
+import { breadsLabel } from '@cheirin-de-pao/shared'
 
 // Suporte via WhatsApp — número configurável por env (dígitos com DDI, ex.: 5511999998888).
 // Placeholder até o número oficial ser definido (defina VITE_SUPPORT_WHATSAPP no .env).
@@ -17,6 +19,10 @@ export function SettingsScreen() {
   const { user, logout } = useAuth()
   const { status: autoRecharge } = useAutoRecharge()
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
+  const { summary: referral } = useReferralSummary()
+  // Indique e Ganhe (C2): some com o programa desligado — menos para quem já indicou, que segue
+  // vendo o histórico na tela "pausada" (adendo A-4 do plano).
+  const showReferral = !!referral && (referral.active || referral.hasReferrals)
 
   // Re-dispara o fluxo de primeiro acesso (telas + tour).
   function replayOnboarding() {
@@ -133,6 +139,35 @@ export function SettingsScreen() {
           />
         </div>
 
+        {/* Indique e ganhe (C2) — entre Pedidos e Conta */}
+        {showReferral && referral && (
+          <>
+            <SectionLabel>Indique e ganhe</SectionLabel>
+            <div
+              style={{
+                background: 'var(--color-surface)',
+                borderRadius: 'var(--radius-card)',
+                padding: '6px 16px',
+                boxShadow: 'var(--shadow-soft)',
+                marginBottom: 20,
+              }}
+            >
+              <ProfileMenuRow
+                icon="gift"
+                tone="gold"
+                label="Indique e ganhe"
+                description={
+                  referral.active ? `Ganhe ${breadsLabel(referral.rewardBreads)} por amigo` : 'Acompanhe suas indicações'
+                }
+                badge={referral.active ? (referral.campaign?.label ?? (referral.isNew ? 'novo' : undefined)) : undefined}
+                badgeTone="gold"
+                badgeIcon={referral.active && referral.campaign ? 'spark' : undefined}
+                onClick={() => navigate('/client/perfil/indique')}
+              />
+            </div>
+          </>
+        )}
+
         {/* Conta */}
         <SectionLabel>Conta</SectionLabel>
         <div
@@ -202,6 +237,13 @@ export function SettingsScreen() {
             label="Rever tutorial"
             description="Ver as boas-vindas e o tour do app de novo"
             onClick={replayOnboarding}
+          />
+          <div style={{ height: 1, background: 'var(--color-border-2)', margin: '0 4px' }} />
+          <ProfileMenuRow
+            icon="shield"
+            label="Privacidade e termos"
+            description="Política de Privacidade, Termos e exclusão de dados"
+            onClick={() => navigate('/client/perfil/privacidade')}
           />
         </div>
 

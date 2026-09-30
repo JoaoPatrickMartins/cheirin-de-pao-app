@@ -9,14 +9,37 @@ interface ProfileMenuRowProps {
   danger?: boolean
   /** Pílula de status à direita (ex.: "Ativada"). */
   badge?: string
+  /** Cor da pílula: verde (padrão, status) ou dourada (Indique e Ganhe: "novo", campanha). */
+  badgeTone?: 'good' | 'gold'
+  /** Ícone opcional dentro da pílula (ex.: `spark` na campanha). */
+  badgeIcon?: keyof typeof Ic
+  /** `gold`: quadrado do ícone em dourado suave — a identidade do Indique e Ganhe (C2). */
+  tone?: 'default' | 'gold'
 }
+
+const BADGE_TONES = {
+  good: { fg: 'var(--color-good)', bg: 'var(--color-good-soft)' },
+  gold: { fg: 'var(--color-accent)', bg: 'var(--color-gold-soft)' },
+} as const
 
 /**
  * Linha de menu do hub de Perfil — ícone + label (+ descrição opcional) + chevron.
  * Variante `danger` (vermelho, sem chevron) usada para ações como "Sair".
  */
-export function ProfileMenuRow({ icon, label, description, onClick, danger = false, badge }: ProfileMenuRowProps) {
+export function ProfileMenuRow({
+  icon,
+  label,
+  description,
+  onClick,
+  danger = false,
+  badge,
+  badgeTone = 'good',
+  badgeIcon,
+  tone = 'default',
+}: ProfileMenuRowProps) {
   const color = danger ? '#C0392B' : 'var(--color-text)'
+  const iconBg = danger ? 'rgba(192,57,43,0.08)' : tone === 'gold' ? 'var(--color-gold-soft)' : 'var(--color-surface-2)'
+  const badgeColors = BADGE_TONES[badgeTone]
   return (
     <button
       onClick={onClick}
@@ -38,7 +61,7 @@ export function ProfileMenuRow({ icon, label, description, onClick, danger = fal
           width: 40,
           height: 40,
           borderRadius: 12,
-          background: danger ? 'rgba(192,57,43,0.08)' : 'var(--color-surface-2)',
+          background: iconBg,
           display: 'grid',
           placeItems: 'center',
           flexShrink: 0,
@@ -77,16 +100,20 @@ export function ProfileMenuRow({ icon, label, description, onClick, danger = fal
       {badge && (
         <span
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
             fontFamily: 'var(--font-body)',
             fontSize: 11.5,
             fontWeight: 700,
-            color: 'var(--color-good)',
-            background: 'var(--color-good-soft)',
+            color: badgeColors.fg,
+            background: badgeColors.bg,
             borderRadius: 999,
             padding: '3px 9px',
             flexShrink: 0,
           }}
         >
+          {badgeIcon && <Icon name={badgeIcon} size={11} stroke={2.6} />}
           {badge}
         </span>
       )}
