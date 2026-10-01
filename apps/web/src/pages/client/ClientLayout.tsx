@@ -144,11 +144,21 @@ export function ClientLayout() {
     if (to) navigate(to)
   }
 
-  function finishTour() {
+  // `next === 'sobre'`: "Saber mais sobre o Cheirin" no card final do tour. A /sobre/ é HTML estático
+  // (página inteira): espera a gravação antes de sair — sem ela o GET do próximo acesso reexibiria o
+  // tutorial —, com teto de 2,5 s para não prender a pessoa numa rede lenta. A fase fica em 'tour'
+  // até a página abrir, para o modal do gancho não piscar no meio.
+  function finishTour(next?: 'sobre') {
     if (!user) return
     markOnboardingSeen(user.id) // cache local + limpa flags de retomada (slides/step)
+    const saved = apiFetch('/client/onboarding/complete', { method: 'POST' }).catch(() => {})
+    if (next === 'sobre') {
+      void Promise.race([saved, new Promise((resolve) => window.setTimeout(resolve, 2500))]).then(() =>
+        window.location.assign('/sobre/'),
+      )
+      return
+    }
     setPhase('done')
-    void apiFetch('/client/onboarding/complete', { method: 'POST' }).catch(() => {})
   }
 
   return (

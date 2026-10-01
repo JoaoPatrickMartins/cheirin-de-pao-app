@@ -176,7 +176,21 @@ async function post<T>(path: string, body: Record<string, unknown>): Promise<{ s
 
 const flowBody = (flow: PendingSocialFlow) => ({ flowId: flow.flowId, secret: flow.secret })
 
-export async function claimSocial(flow: PendingSocialFlow): Promise<ClaimResponse | null> {
+// Um claim por fluxo de cada vez. A API entrega o LOGGED_IN UMA vez só; se a busca roda de novo com
+// um claim no ar (StrictMode em dev, ou o AuthProvider terminando de hidratar logo depois da volta do
+// Google), um 2º pedido levaria "expirou" e o 1º — o que levou os tokens — seria descartado. Quem pede
+// enquanto há um no ar recebe a mesma resposta.
+const claimsInFlight = new Map<string, Promise<ClaimResponse | null>>()
+
+export function claimSocial(flow: PendingSocialFlow): Promise<ClaimResponse | null> {
+  const inFlight = claimsInFlight.get(flow.flowId)
+  if (inFlight) return inFlight
+  const claim = requestClaim(flow).finally(() => claimsInFlight.delete(flow.flowId))
+  claimsInFlight.set(flow.flowId, claim)
+  return claim
+}
+
+async function requestClaim(flow: PendingSocialFlow): Promise<ClaimResponse | null> {
   try {
     const { status, data } = await post<ClaimResponse>('/auth/social/claim', { ...flowBody(flow), deviceId: getDeviceId() })
     return status === 200 ? data : null

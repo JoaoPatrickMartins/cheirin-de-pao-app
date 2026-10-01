@@ -103,3 +103,25 @@
 [data-tour^='tab-'].driver-active-element {
   outline: none;
 }
+
+/* Card final do tour (TourEndCard) — entra uma vez; sem animação com movimento reduzido. */
+@keyframes cdpTourEndFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cdpTourEndIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.cdp-tour-end {
+  animation: cdpTourEndFade 0.25s ease-out both;
+}
+.cdp-tour-end-card {
+  animation: cdpTourEndIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cdp-tour-end,
+  .cdp-tour-end-card {
+    animation: none;
+  }
+}

@@ -50,6 +50,7 @@ import { savedCardsRoute } from './modules/saved-cards/saved-cards.route.js'
 import { referralsRoute } from './modules/referrals/referrals.route.js'
 import { adminReferralsRoute } from './modules/admin-referrals/admin-referrals.route.js'
 import { condoInterestsRoute } from './modules/condo-interests/condo-interests.route.js'
+import { publicLandingRoute } from './modules/public-landing/public-landing.route.js'
 import cronPlugin from './plugins/cron.js'
 import { seedAdminIfAbsent } from './bootstrap/admin-seed.js'
 import {
@@ -323,6 +324,7 @@ const start = async () => {
     await fastify.register(referralsRoute)      // Indique e Ganhe — config/validação públicas + telas do cliente
     await fastify.register(adminReferralsRoute) // Indique e Ganhe — lista/detalhe/aprovar/recusar + card e vínculo do cliente (admin)
     await fastify.register(condoInterestsRoute) // Lista de espera de condomínio — pedido público (5/min) + grupos do admin (A7)
+    await fastify.register(publicLandingRoute)  // Página Sobre — GET /public/landing (turnos + Indique e Ganhe), pública
     await fastify.register(cronPlugin)          // cron jobs: meia-noite + domingo 20h + 21h (SCHED-03/04)
 
     const port = Number(process.env.API_PORT ?? 3001)

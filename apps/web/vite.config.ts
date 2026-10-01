@@ -1,7 +1,27 @@
-import { defineConfig } from 'vite'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+
+// O vite-plugin-pwa põe o manifest e o registerSW em TODA página HTML. A /sobre/ não é o app: sem
+// eles, instalar a partir dela não abre o app em `/` (plano-pagina-sobre.md §4.2). Fica DEPOIS do
+// VitePWA na lista, na mesma fase `post`, para rodar depois da injeção dele.
+function sobreSemPwa(): Plugin {
+  return {
+    name: 'cheirin:sobre-sem-pwa',
+    enforce: 'post',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        if (!ctx.path.startsWith('/sobre/')) return html
+        return html
+          .replace(/<link rel="manifest"[^>]*>/g, '')
+          .replace(/<script id="vite-plugin-pwa:register-sw"[^>]*><\/script>/g, '')
+      },
+    },
+  }
+}
 
 export default defineConfig({
   server: {
@@ -63,5 +83,15 @@ export default defineConfig({
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
     }),
+    sobreSemPwa(),
   ],
+  build: {
+    rollupOptions: {
+      // Página pública "Sobre" (/sobre/) — HTML estático, fora do React (plano-pagina-sobre.md §4.2).
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        sobre: fileURLToPath(new URL('./sobre/index.html', import.meta.url)),
+      },
+    },
+  },
 })
