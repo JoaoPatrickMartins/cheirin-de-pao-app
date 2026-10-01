@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cheirin de Pão — Página Sobre v2 · Telas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Roboto:wght@500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Hanken Grotesk',system-ui,sans-serif;color:#241608;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+a{color:#B0702A}a:hover{color:#1E1207}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="app/image-slot.js"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="app/brand.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/screens-onboarding.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth.jsx"></script>
+<script type="text/babel" src="app/screens-sobre.jsx"></script>
+<script type="text/babel" src="app/screens-sobre2.jsx"></script>
+<script type="text/babel" src="app/screens-sobre-v2.jsx"></script>
+<script type="text/babel" src="app/screens-sobre-v2b.jsx"></script>
+<script type="text/babel">
+const HCtx = React.createContext(() => {});
+/* Mede o conteúdo e ajusta a altura do artboard */
+function Fit({ id, children }) {
+  const set = React.useContext(HCtx);
+  const ref = React.useRef(null);
+  React.useLayoutEffect(() => {
+    const el = ref.current; if (!el) return;
+    const ro = new ResizeObserver(() => set(id, Math.ceil(el.offsetHeight)));
+    ro.observe(el); return () => ro.disconnect();
+  }, [id]);
+  return <div ref={ref}>{children}</div>;
+}
+const MW = 390, DW = 1280;
+const noop = () => {};
+
+function Board() {
+  const [hs, setHs] = React.useState({});
+  const setH = React.useCallback((id, h) => setHs(s => (s[id] === h ? s : { ...s, [id]: h })), []);
+  const [turno, setTurno] = React.useState('ambos');
+  const [ind, setInd] = React.useState('bonus');
+  const T = SOBRE_DEMO.turnos, I = SOBRE_DEMO.indique;
+  const A = (id, label, w, est, el) => <DCArtboard key={id} id={id} label={label} width={w} height={hs[id] || est}><Fit id={id}>{el}</Fit></DCArtboard>;
+  const pg = (bp, p = {}) => <SobrePageV2 motion={false} bp={bp} go={noop} turnos={T[turno]} indique={I[ind]} {...p} />;
+  const tl = { ambos: 'manhã + tarde', manha: 'só manhã', tarde: 'só tarde', neutro: 'neutro' }[turno];
+  const il = { bonus: 'Indique com bônus', sem: 'Indique sem bônus', off: 'Indique desligado' }[ind];
+  const heroes = [['ambos', 'Manhã + tarde'], ['manha', 'Só manhã'], ['tarde', 'Só tarde'], ['neutro', 'Neutro · texto do HTML']];
+  return (
+    <HCtx.Provider value={setH}>
+      <SobreDemoBar turno={turno} setTurno={setTurno} ind={ind} setInd={setInd} style={{ top: 14, right: 14 }} />
+      <DesignCanvas>
+        <DCSection id="pagina" title="Página completa · /sobre/" subtitle={`v2 · celular com o app no hero e no Além do Pãozin · agenda no S4 · quadros estáticos (o movimento está no site v2) · ${tl} · ${il}`}>
+          {A('m-full', 'Mobile · 390', MW, 6200, pg('m'))}
+          {A('d-full', 'Desktop · 1280', DW, 4600, pg('d'))}
+        </DCSection>
+        <DCSection id="hero-m" title="S1 + S2 · Topo e hero — mobile" subtitle="A frase do turno cabe nos 4 textos sem quebrar o layout">
+          {heroes.map(([k, l]) => A('hm-' + k, l, MW, 900, <SobrePageV2 motion={false} bp="m" go={noop} turnos={T[k]} only={['hero']} />))}
+        </DCSection>
+        <DCSection id="hero-d" title="S1 + S2 · Topo e hero — desktop" subtitle="Coluna de conteúdo limitada a 1080 px">
+          {heroes.map(([k, l]) => A('hd-' + k, l, DW, 720, <SobrePageV2 motion={false} bp="d" go={noop} turnos={T[k]} only={['hero']} />))}
+        </DCSection>
+        <DCSection id="core" title="S4 · Pãezins, combos e agenda" subtitle="A agenda do hero v1 mudou para cá, com a compra automática no lugar do aviso de entrega">
+          {A('core-m', 'Mobile', MW, 1500, <SobrePageV2 motion={false} bp="m" go={noop} only={['core']} />)}
+          {A('core-d', 'Desktop', DW, 1100, <SobrePageV2 motion={false} bp="d" go={noop} only={['core']} />)}
+        </DCSection>
+        <DCSection id="alem" title="S6 · Além do Pãozin" subtitle="Celular com a tela real do Além do Pãozin (assets/app-alem-do-paozin.jpg)">
+          {A('alem-m', 'Mobile', MW, 1000, <SobrePageV2 motion={false} bp="m" go={noop} only={['alem']} />)}
+          {A('alem-d', 'Desktop', DW, 800, <SobrePageV2 motion={false} bp="d" go={noop} only={['alem']} />)}
+        </DCSection>
+        <DCSection id="faq" title="S7 · Perguntas frequentes" subtitle="Acordeão simples · item 8 só com o Indique e Ganhe ligado">
+          {A('fq-bonus', 'Ligado · com bônus (item 8 aberto)', MW, 900, <SobrePageV2 motion={false} bp="m" go={noop} indique={I.bonus} faqOpen={[7]} only={['faq']} />)}
+          {A('fq-sem', 'Ligado · sem bônus (item 8 aberto)', MW, 900, <SobrePageV2 motion={false} bp="m" go={noop} indique={I.sem} faqOpen={[7]} only={['faq']} />)}
+          {A('fq-off', 'Desligado · 7 itens', MW, 800, <SobrePageV2 motion={false} bp="m" go={noop} indique={I.off} faqOpen={[]} only={['faq']} />)}
+          {A('fq-open', 'Item aberto × fechado', MW, 900, <SobrePageV2 motion={false} bp="m" go={noop} indique={I.bonus} faqOpen={[0]} only={['faq']} />)}
+          {A('fq-d', 'Desktop · com bônus', DW, 800, <SobrePageV2 motion={false} bp="d" go={noop} indique={I.bonus} faqOpen={[0, 7]} only={['faq']} />)}
+          {A('fq-d-off', 'Desktop · desligado', DW, 700, <SobrePageV2 motion={false} bp="d" go={noop} indique={I.off} faqOpen={[]} only={['faq']} />)}
+        </DCSection>
+        <DCSection id="b1" title="B1 · Boas-vindas do app" subtitle="Só um link novo e discreto: “Conheça o Cheirin” → /sobre/ · o resto da tela não muda">
+          <DCArtboard id="b1-new" label="Com o link" width={MW} height={844}><ThemeCtx.Provider value={THEMES.light}><div style={{ width: MW, height: 844, display: 'flex', flexDirection: 'column' }}><InstallScreen go={noop} /></div></ThemeCtx.Provider></DCArtboard>
+          <DCArtboard id="b1-old" label="Hoje (referência)" width={MW} height={844}><ThemeCtx.Provider value={THEMES.light}><div style={{ width: MW, height: 844, display: 'flex', flexDirection: 'column' }}><InstallScreen go={noop} about={false} /></div></ThemeCtx.Provider></DCArtboard>
+        </DCSection>
+        <DCSection id="kit" title="Kit" subtitle="Peças da página e ícones novos">
+          {A('kit', 'Componentes e ícones', MW, 1000, <SobreKit />)}
+        </DCSection>
+      </DesignCanvas>
+    </HCtx.Provider>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Board />);
+</script>
+</body>
+</html>

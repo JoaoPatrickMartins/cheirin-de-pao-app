@@ -59,6 +59,10 @@ export const Ic: Record<string, string> = {
   shield: 'M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6L12 3ZM8.8 12l2.2 2.2 4.2-4.4',
   unlink: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-.6.6M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l.6-.6M4 4l16 16',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  // Página Sobre (handoff página sobre) — link "Saiba como o Cheirin funciona" da splash
+  arrowR: 'M5 12h14M13 6l6 6-6 6',
+  // Perfil › Ajuda › "Saber mais sobre o Cheirin"
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 11v5M12 8h.01',
 }
 
 interface IconProps {

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cheirin de Pão — Pão fresquinho na sua porta</title>
+<meta name="description" content="O Cheirin de Pão entrega pão fresco na porta do seu apartamento, em condomínios parceiros. Você monta a agenda uma vez e o pão chega sozinho.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hanken Grotesk',system-ui,sans-serif;background:#FAF5EC;color:#241608;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+a{color:#B0702A}a:hover{color:#1E1207}
+.sb2-scroll{scrollbar-width:none}.sb2-scroll::-webkit-scrollbar{display:none}
+@keyframes sbToast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="app/image-slot.js"></script>
+<script type="text/babel" src="app/brand.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth.jsx"></script>
+<script type="text/babel" src="app/screens-sobre.jsx"></script>
+<script type="text/babel" src="app/screens-sobre2.jsx"></script>
+<script type="text/babel" src="app/screens-sobre-v2.jsx"></script>
+<script type="text/babel" src="app/screens-sobre-v2b.jsx"></script>
+<script type="text/babel">
+const DEST = { login: '/login', register: '/register', 'legal-privacy': '/privacidade', 'legal-terms': '/termos', whatsapp: 'o WhatsApp', mailto: 'o e-mail' };
+function Site() {
+  const [w, setW] = React.useState(window.innerWidth);
+  React.useEffect(() => { const r = () => setW(window.innerWidth); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
+  const [turno, setTurno] = React.useState('ambos');
+  const [ind, setInd] = React.useState('bonus');
+  const [toast, setToast] = React.useState(null);
+  const [run, setRun] = React.useState(0);
+  React.useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(null), 1800); return () => clearTimeout(id); }, [toast]);
+  const narrow = w < 820;
+  const [view, setViewS] = React.useState(() => { try { return localStorage.getItem('sobre_v2_view') || 'd'; } catch { return 'd'; } });
+  const setView = v => { setViewS(v); try { localStorage.setItem('sobre_v2_view', v); } catch {} };
+  const preview = !narrow && view === 'm';
+  const bp = narrow || preview ? 'm' : 'd';
+  const scroller = React.useRef(null);
+  const replay = () => { window.scrollTo(0, 0); if (scroller.current) scroller.current.scrollTop = 0; setRun(r => r + 1); };
+  const go = r => setToast(`No site, abre ${DEST[r] || r}`);
+  const page = <SobrePageV2 key={run + bp + view} bp={bp} sticky={preview ? scroller : true} go={go} turnos={SOBRE_DEMO.turnos[turno]} indique={SOBRE_DEMO.indique[ind]} />;
+  const fh = Math.min(844, (typeof window !== 'undefined' ? window.innerHeight : 900) - 48);
+  return (
+    <>
+      {preview ? (
+        <div style={{ minHeight: '100vh', background: '#E9DFCC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 0' }}>
+          <div style={{ padding: 12, borderRadius: 56, background: '#160C04', boxShadow: '0 50px 100px -40px rgba(43,26,12,.6), inset 0 0 0 1.5px rgba(250,245,236,.1)' }}>
+            <div style={{ width: 390, height: fh, borderRadius: 44, overflow: 'hidden', position: 'relative', transform: 'translateZ(0)', background: '#FAF5EC' }}>
+              <div ref={scroller} className="sb2-scroll" style={{ position: 'absolute', inset: 0, overflowY: 'auto', overflowX: 'hidden' }}>{page}</div>
+            </div>
+          </div>
+        </div>
+      ) : page}
+      <div style={{ position: 'fixed', zIndex: 1000, ...(narrow ? { left: 8, bottom: 8, transform: 'scale(0.84)', transformOrigin: 'bottom left' } : { right: 16, bottom: 16 }), display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+        {!narrow && (
+          <div style={{ display: 'flex', gap: 3, background: '#1E1207', borderRadius: 12, padding: 4, boxShadow: '0 10px 30px -10px rgba(0,0,0,.5)' }}>
+            {[['d', 'monitor', 'Desktop'], ['m', 'phone', 'Mobile']].map(([k, ic, l]) => <button key={k} onClick={() => setView(k)} style={{ border: 'none', cursor: 'pointer', borderRadius: 9, padding: '7px 13px', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, background: view === k ? '#E3AC3F' : 'transparent', color: view === k ? '#1E1207' : 'rgba(250,245,236,.7)' }}>{l}</button>)}
+          </div>
+        )}
+        <button onClick={replay} style={{ border: 'none', cursor: 'pointer', background: '#1E1207', color: '#FAF5EC', borderRadius: 12, padding: '9px 14px', fontWeight: 700, fontSize: 13, boxShadow: '0 10px 30px -10px rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', gap: 7 }}><Icon name="refresh" size={15} stroke={2.2} />Repetir animações</button>
+        <SobreDemoBar turno={turno} setTurno={setTurno} ind={ind} setInd={setInd} style={{ position: 'static' }} />
+      </div>
+      {toast && <div role="status" style={{ position: 'fixed', left: '50%', bottom: narrow ? 150 : 28, transform: 'translateX(-50%)', background: '#241608', color: '#FAF5EC', padding: '11px 18px', borderRadius: 14, fontWeight: 700, fontSize: 14, zIndex: 1001, animation: 'sbToast .2s ease-out', whiteSpace: 'nowrap' }}>{toast}</div>}
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Site />);
+</script>
+</body>
+</html>

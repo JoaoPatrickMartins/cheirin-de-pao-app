@@ -52,7 +52,12 @@ vi.mock('../../../components/client/OnboardingOverlay', () => ({
 }))
 vi.mock('../../../components/client/AppTour', () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  AppTour: ({ onFinish }: any) => <button onClick={onFinish}>TOUR</button>,
+  AppTour: ({ onFinish }: any) => (
+    <>
+      <button onClick={() => onFinish()}>TOUR</button>
+      <button onClick={() => onFinish('sobre')}>TOUR-SOBRE</button>
+    </>
+  ),
 }))
 
 import { ClientLayout } from '../ClientLayout'
@@ -116,6 +121,50 @@ describe('ClientLayout — gating de primeiro acesso', () => {
     expect(ob.markSeen).toHaveBeenCalledWith('u1')
     expect(api.fetch).toHaveBeenCalledWith('/client/onboarding/complete', { method: 'POST' })
     expect(screen.queryByText('TOUR')).toBeNull()
+  })
+
+  // Card final do tour → "Saber mais sobre o Cheirin": grava ANTES de abrir a /sobre/ (página inteira);
+  // sem a gravação, o GET do próximo acesso reexibiria o tutorial.
+  it('"Saber mais" no fim do tour grava a conclusão e só então abre a /sobre/', async () => {
+    api.completed = false
+    ob.slides.mockReturnValue(true)
+    let saved!: (v: unknown) => void
+    api.fetch.mockImplementation((path: string) => {
+      if (path === '/client/onboarding/complete') return new Promise((resolve) => (saved = resolve))
+      return api.defaultImpl(path)
+    })
+    const assign = vi.fn()
+    const loc = vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign })
+    renderCL()
+    fireEvent.click(await screen.findByText('TOUR-SOBRE'))
+    expect(ob.markSeen).toHaveBeenCalledWith('u1')
+    expect(api.fetch).toHaveBeenCalledWith('/client/onboarding/complete', { method: 'POST' })
+    expect(assign).not.toHaveBeenCalled()
+    expect(screen.getByText('TOUR')).toBeTruthy() // fase continua em 'tour' até a página abrir
+    await act(async () => saved({ ok: true }))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/sobre/'))
+    loc.mockRestore()
+  })
+
+  it('"Saber mais" com a gravação travada abre a /sobre/ depois de 2,5 s', async () => {
+    api.completed = false
+    ob.slides.mockReturnValue(true)
+    api.fetch.mockImplementation((path: string) => {
+      if (path === '/client/onboarding/complete') return new Promise(() => {})
+      return api.defaultImpl(path)
+    })
+    const assign = vi.fn()
+    const loc = vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign })
+    renderCL()
+    const btn = await screen.findByText('TOUR-SOBRE')
+    vi.useFakeTimers()
+    fireEvent.click(btn)
+    await act(async () => vi.advanceTimersByTimeAsync(2499))
+    expect(assign).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(assign).toHaveBeenCalledWith('/sobre/')
+    vi.useRealTimers()
+    loc.mockRestore()
   })
 
   it('offline (GET falha) e nunca visto localmente → mostra a partir do cache local', async () => {

@@ -1,14 +1,18 @@
 // Tela de retorno do login com Google (handoff L3a/L3b/L3c/L6 — plano-login-social.md §5.4).
+import { StrictMode } from 'react'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router'
 
 const api = vi.hoisted(() => ({ fetch: vi.fn() }))
-const finish = vi.hoisted(() => ({ fn: vi.fn() }))
+// `unstable`: o finishAuth ganha identidade nova a cada render, como quando o AuthProvider termina de hidratar.
+const finish = vi.hoisted(() => ({ fn: vi.fn(), unstable: false }))
 const nav = vi.hoisted(() => ({ goToProvider: vi.fn() }))
 
 vi.mock('../../../lib/apiFetch', () => ({ apiFetch: api.fetch, getDeviceId: () => 'device-1' }))
-vi.mock('../../../lib/finishAuth', () => ({ useFinishAuth: () => finish.fn }))
+vi.mock('../../../lib/finishAuth', () => ({
+  useFinishAuth: () => (finish.unstable ? (...args: unknown[]) => finish.fn(...args) : finish.fn),
+}))
 vi.mock('../../../lib/socialAuth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/socialAuth')>()),
   goToProvider: nav.goToProvider,
@@ -43,8 +47,8 @@ function StateProbe({ label }: { label: string }) {
   )
 }
 
-function renderAt(path: string) {
-  return render(
+function tree(path: string) {
+  return (
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/entrar/social" element={<SocialReturnScreen />} />
@@ -52,13 +56,30 @@ function renderAt(path: string) {
         <Route path="/register" element={<StateProbe label="REGISTER" />} />
         <Route path="/client/perfil/conta" element={<StateProbe label="CONTA" />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   )
+}
+
+function renderAt(path: string) {
+  return render(tree(path))
+}
+
+/** Como a API: o 1º claim leva o LOGGED_IN (segura até `release`); os seguintes, "expirou". */
+function serverDeliversOnce(session: unknown) {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  api.fetch
+    .mockImplementationOnce(() => gate.then(() => json(200, session)))
+    .mockImplementation(() => json(200, { status: 'ERROR', code: 'expired' }))
+  return release
 }
 
 beforeEach(() => {
   api.fetch.mockReset()
   finish.fn.mockReset()
+  finish.unstable = false
   nav.goToProvider.mockReset()
   localStorage.clear()
   sessionStorage.clear()
@@ -94,6 +115,32 @@ describe('SocialReturnScreen', () => {
 
     await waitFor(() => expect(finish.fn).toHaveBeenCalledWith(session, 'google', { replace: true }))
     expect(localStorage.getItem('cdp_social_flow')).toBeNull()
+  })
+
+  // Bug do teste real (01/10/2026): o efeito da busca rodava de novo com o 1º claim no ar; o 1º levava
+  // os tokens e era descartado, o 2º recebia "expirou" → "Demorou um pouquinho." com o login feito.
+  it('StrictMode (dev): o efeito em dobro não descarta o login que a API entrega uma vez só', async () => {
+    savePending()
+    const session = { status: 'LOGGED_IN', accessToken: 'a', refreshToken: 'r', hasPassword: false, mustSetPassword: false, user: { id: 'u1', role: 'CLIENT', name: 'Marina' } }
+    const release = serverDeliversOnce(session)
+    render(<StrictMode>{tree('/entrar/social?flow=flow1')}</StrictMode>)
+    release()
+
+    await waitFor(() => expect(finish.fn).toHaveBeenCalledWith(session, 'google', { replace: true }))
+    expect(screen.queryByText('Demorou um pouquinho.')).not.toBeInTheDocument()
+  })
+
+  it('a sessão terminar de carregar no meio da busca (finishAuth novo) não descarta o login', async () => {
+    savePending()
+    finish.unstable = true
+    const session = { status: 'LOGGED_IN', accessToken: 'a', refreshToken: 'r', hasPassword: false, mustSetPassword: false, user: { id: 'u1', role: 'CLIENT', name: 'Marina' } }
+    const release = serverDeliversOnce(session)
+    const { rerender } = renderAt('/entrar/social?flow=flow1')
+    rerender(tree('/entrar/social?flow=flow1'))
+    release()
+
+    await waitFor(() => expect(finish.fn).toHaveBeenCalledWith(session, 'google', { replace: true }))
+    expect(screen.queryByText('Demorou um pouquinho.')).not.toBeInTheDocument()
   })
 
   it('NEEDS_SIGNUP → cadastro "Quase lá" com o prefill (o fluxo continua guardado)', async () => {

@@ -239,6 +239,15 @@ export function SettingsScreen() {
             onClick={replayOnboarding}
           />
           <div style={{ height: 1, background: 'var(--color-border-2)', margin: '0 4px' }} />
+          {/* A /sobre/ é HTML estático, fora do router: navegação de página inteira. Para voltar, o
+              topo dela mostra "Voltar ao app" a quem tem sessão (plano-pagina-sobre.md, D-10). */}
+          <ProfileMenuRow
+            icon="info"
+            label="Saber mais sobre o Cheirin"
+            description="Como funcionam os pãezins, a agenda e o gancho"
+            onClick={() => window.location.assign('/sobre/')}
+          />
+          <div style={{ height: 1, background: 'var(--color-border-2)', margin: '0 4px' }} />
           <ProfileMenuRow
             icon="shield"
             label="Privacidade e termos"

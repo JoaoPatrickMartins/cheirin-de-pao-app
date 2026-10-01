@@ -99,6 +99,36 @@ export function SplashScreen() {
           >
             PÃO FRESCO NA PORTA
           </p>
+          {/* B1 — link discreto para a página pública /sobre/ (HTML estático, fora do router:
+              navegação de página inteira). Handoff página sobre. */}
+          <a
+            href="/sobre/"
+            style={{
+              marginTop: 14,
+              minHeight: 44,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '0 14px',
+              color: '#C7B595',
+              fontFamily: 'var(--font-body)',
+              fontSize: 13.5,
+              fontWeight: 700,
+              textDecoration: 'none',
+            }}
+          >
+            <span
+              style={{
+                textDecoration: 'underline',
+                textDecorationColor: 'rgba(227,172,63,0.55)',
+                textDecorationThickness: 1.5,
+                textUnderlineOffset: 4,
+              }}
+            >
+              Saiba como o Cheirin funciona
+            </span>
+            <Icon name="arrowR" size={15} stroke={2.2} />
+          </a>
         </div>
       </div>
 
