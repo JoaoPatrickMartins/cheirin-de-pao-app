@@ -1,7 +1,7 @@
 // Fase B — Tour do App (driver.js). jsdom não faz layout, então mockamos
 // driver.js e testamos a orquestração (steps/ordem/callbacks), não a posição.
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 
 const h = vi.hoisted(() => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,25 +66,59 @@ describe('AppTour (tour do app)', () => {
     expect(h.drive).toHaveBeenCalled()
   })
 
-  it('encerrar sem concluir chama onFinish (sem badge)', () => {
+  it('encerrar sem concluir chama onFinish direto (sem o card final)', () => {
     const onFinish = renderWithAnchor()
     act(() => h.config.onDestroyed(undefined, {}, {}))
     expect(onFinish).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText(/Bem-Vindo/)).toBeNull()
+    expect(onFinish).toHaveBeenCalledWith()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('concluir exibe o badge de boas-vindas e finaliza após o timer', () => {
-    vi.useFakeTimers()
-    const onFinish = renderWithAnchor()
+  // "Concluir" na última parada → driver.destroy real dispara onDestroyed (simulado).
+  function completeTour() {
     const fakeDriver = { isLastStep: () => true, destroy: vi.fn() }
-    // "Concluir" na última parada
     act(() => h.config.onNextClick(undefined, {}, { driver: fakeDriver }))
     expect(fakeDriver.destroy).toHaveBeenCalled()
-    // driver.destroy real dispara onDestroyed — simulamos:
     act(() => h.config.onDestroyed(undefined, {}, {}))
-    expect(screen.getByText(/Bem-Vindo/)).toBeTruthy()
+  }
+
+  it('concluir mostra o card final e espera a escolha (não finaliza sozinho)', () => {
+    vi.useFakeTimers()
+    const onFinish = renderWithAnchor()
+    completeTour()
+    expect(screen.getByRole('dialog', { name: 'Bem-vindo ao Cheirin de Pão!' })).toBeTruthy()
+    // "Começar a usar" é a ação principal: recebe o foco (Enter fecha o card).
+    expect(screen.getByRole('button', { name: 'Começar a usar' })).toHaveFocus()
+    act(() => vi.advanceTimersByTime(10_000))
     expect(onFinish).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(1800))
+  })
+
+  it('"Começar a usar" fecha e finaliza sem destino', () => {
+    const onFinish = renderWithAnchor()
+    completeTour()
+    fireEvent.click(screen.getByRole('button', { name: 'Começar a usar' }))
     expect(onFinish).toHaveBeenCalledTimes(1)
+    expect(onFinish).toHaveBeenCalledWith()
+  })
+
+  it('"Saber mais sobre o Cheirin" finaliza com destino /sobre/ e trava em "Abrindo…"', () => {
+    const onFinish = renderWithAnchor()
+    completeTour()
+    fireEvent.click(screen.getByRole('button', { name: /Saber mais sobre o Cheirin/ }))
+    expect(onFinish).toHaveBeenCalledWith('sobre')
+    const busy = screen.getByRole('button', { name: 'Abrindo…' })
+    expect(busy).toBeDisabled()
+    fireEvent.click(busy)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onFinish).toHaveBeenCalledTimes(1)
+  })
+
+  it('Esc e toque no fundo fecham como "Começar a usar"', () => {
+    const onFinish = renderWithAnchor()
+    completeTour()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onFinish).toHaveBeenCalledWith()
+    fireEvent.click(screen.getByRole('dialog'))
+    expect(onFinish).toHaveBeenCalledTimes(2)
   })
 })

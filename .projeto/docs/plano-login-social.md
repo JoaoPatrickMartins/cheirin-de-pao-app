@@ -711,6 +711,15 @@ link aberto dentro do Instagram**. Celular pelo túnel (§10.3); desktop em `loc
   depois, e o router, que já tinha lido `/`, mostrava a splash com a URL nova na barra. Correção:
   `createAppRouter()` (função), chamada no `main.tsx` depois de `captureSocialReturn()`. As capturas
   passaram a incluir o caminho real (abrir `/?social=<id>`), não só `/entrar/social` direto.
+- **Bug achado no teste real (01/10/2026) — "Demorou um pouquinho." com o login feito (local e
+  prod).** A API entrega o `LOGGED_IN` uma vez só (RESOLVED → CONSUMED); o 2º `claim` leva "expirou".
+  O efeito de busca do `SocialReturnScreen` rodava de novo com o 1º `claim` no ar — em prod porque o
+  `AuthProvider` termina de hidratar logo depois da volta (`isLoading` → novo `finishAuth` → novo
+  `handleResult`), em dev também pelo `StrictMode` —, descartava a resposta com os tokens e mostrava
+  o "expirou" do 2º. No banco o fluxo aparecia CONSUMED/LOGIN. Correção: `claimSocial` reaproveita o
+  pedido que já está no ar para o mesmo fluxo. Testes de regressão no `SocialReturnScreen.test.tsx`
+  (StrictMode e `finishAuth` mudando no meio da busca). A verificação da marca no Google **não**
+  tinha relação com essa falha.
 - **Revisão de produção da branch (30/09/2026) — bug do módulo de Despesas, fora do login social.**
   O `@@unique([recurrenceId, recurrenceMonth])` de `Expense` impedia a 2ª despesa avulsa (P2002).
   Virou índice parcial no `ensure-indexes` (detalhe no topo de `plano-financeiro-vendas.md`).
