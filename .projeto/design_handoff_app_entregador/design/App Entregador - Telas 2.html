@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cheirin de Pão — App do Entregador · Telas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Hanken Grotesk',system-ui,sans-serif;color:#241608;-webkit-font-smoothing:antialiased}
+button{font-family:inherit}
+a{color:#B0702A}a:hover{color:#1E1207}
+::-webkit-scrollbar{width:0;height:0}
+@keyframes crSpin{to{transform:rotate(360deg)}}
+@keyframes crShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes crBlink{50%{opacity:0}}
+@keyframes crUp{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes crPop{from{transform:scale(.94);opacity:0}to{transform:none;opacity:1}}
+@keyframes crCount{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes crScanLine{from{transform:translateY(-95px)}to{transform:translateY(95px)}}
+@keyframes crHalo{0%{box-shadow:0 0 0 0 rgba(62,124,83,.45)}100%{box-shadow:0 0 0 18px rgba(62,124,83,0)}}
+@keyframes crBeat{50%{transform:scale(1.08)}}
+.cr-col>*{flex-shrink:0}
+.cr-board *{animation-play-state:paused!important}
+.cr-board .cr-live,.cr-board .cr-live *{animation-play-state:running!important}
+@keyframes crSheen{0%{background-position:150% 0}55%,100%{background-position:-60% 0}}
+.cr-map .leaflet-tile-pane{filter:sepia(.3) saturate(.75) brightness(1.03)}
+.cr-map .leaflet-control-attribution{font-size:9px;background:rgba(255,255,255,.7)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>window.CR_LAZY_MAPS = true; window.CR_PART = 'b';</script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="app/brand.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/screens-courier.jsx"></script>
+<script type="text/babel" src="app/screens-courier2.jsx"></script>
+<script type="text/babel" src="app/screens-courier3.jsx"></script>
+<script type="text/babel" src="app/screens-courier4.jsx"></script>
+<script type="text/babel" src="app/screens-courier-admin.jsx"></script>
+<script type="text/babel" src="app/screens-courier-admin2.jsx"></script>
+<script type="text/babel" src="app/screens-courier-client.jsx"></script>
+<script type="text/babel">
+const W = 390;
+const LT = THEMES.light;
+const DARK = { ...LT, statusBar: '#FAF5EC' };
+/* dark: câmera/tela cheia (status bar clara, sobreposta) · esp: fundo espresso com status clara */
+function Phone({ h, children, dark, esp }) {
+  const t = dark || esp ? DARK : LT;
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, height: h, background: dark ? '#070402' : esp ? '#1E1207' : t.appBg, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        {dark ? <div style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 90 }}><StatusBar time="5:41" /></div> : <StatusBar time="5:41" />}
+        <ThemeCtx.Provider value={LT}><div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0 }}>{children}</div></ThemeCtx.Provider>
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+const S = (id, label, h, el) => <DCArtboard key={id} id={id} label={label} width={W} height={h}>{el}</DCArtboard>;
+const P = (id, label, h, el, o = {}) => S(id, label, h, <Phone h={h} {...o}>{el}</Phone>);
+const D = (id, label, el, h = 844) => P(id, label, h, el, { dark: true });
+const H = (st, o = {}) => <CourierHome st={st} {...o} />;
+
+function Kit() {
+  const t = LT;
+  const L = ({ children }) => <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.1em', color: t.textTer, marginTop: 8 }}>{children}</div>;
+  const NEW = ['camera', 'flash', 'keyboard', 'navigate', 'locate', 'play', 'flag', 'fuel', 'moto', 'car', 'bike', 'walk', 'image', 'cloudUp', 'cloudOff', 'hook', 'gate', 'badge', 'grip', 'dayoff', 'send'];
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, padding: 20, background: t.appBg, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <L>BOTÕES GRANDES (≥ 56 PX · ÁREA DO POLEGAR)</L>
+        <CRBig icon="camera">Escanear cupom</CRBig>
+        <CRBig variant="gold" icon="flag">Encerrar rota</CRBig>
+        <CRBig variant="danger" icon="x">Não consegui entregar</CRBig>
+        <CRBig variant="dangerFill" icon="x" disabled>Confirmar não entrega</CRBig>
+        <L>ESTADO — SEMPRE ÍCONE + TEXTO</L>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <CRTag ic="check" tone="good">entregue 05:31</CRTag><CRTag ic="x" tone="danger">não entregue</CRTag>
+          {['ok', 'enviando', 'pendente', 'falhou', 'sem', 'pulada'].map(s => <CRProof key={s} s={s} size="md" />)}
+          <CRTag emoji="✨" tone="gold">1ª entrega</CRTag><CRTag emoji="🪝">tem gancho</CRTag><CRTag emoji="🪝" tone="dark">+ entregar gancho</CRTag><CRTag ic="repeat">ordem alterada hoje</CRTag><CRTag ic="alert" tone="gold">reportado</CRTag><CRTag ic="pin" tone="warn">sem mapa</CRTag>
+        </div>
+        <L>FAIXAS DE SINCRONIZAÇÃO</L>
+        <CRSync kind="offline" /><CRSync kind="sending" /><CRSync kind="novas" />
+        <L>LINHA DE PARADA (E7)</L>
+        <Card pad={0} style={{ overflow: 'hidden' }}>
+          <CRStopRow p={CR_P.maria} n={1} />
+          <CRStopRow p={CR_P.pedro} n={2} />
+          <CRStopRow p={CR_P.ana} n={3} showBlock />
+          <CRStopRow p={CR_P.carlos} n={4} showBlock />
+          <CRStopRow p={CR_ENTREGAS[1].paradas[2]} n={5} last />
+        </Card>
+        <L>DOCK DO RODAPÉ — 3 MODOS</L>
+        {['scan', 'start', 'end'].map(m => <div key={m} style={{ position: 'relative', height: 96, borderRadius: 18, background: t.surface2, overflow: 'hidden' }}><CRDock mode={m} /></div>)}
+        <L>ÍCONES NOVOS (TRAÇO 24 · currentColor)</L>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          {NEW.map(n => <div key={n} style={{ background: t.surface, borderRadius: 14, padding: '13px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, color: t.text }}><Icon name={n} size={26} stroke={n === 'grip' ? 3.4 : 1.9} /><span style={{ fontSize: 11, fontWeight: 700, color: t.textSec }}>{n}</span></div>)}
+        </div>
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+function Buildings({ which }) {
+  const ws = Array.isArray(which) ? which : [which];
+  return <div className="cr-col" style={{ flex: 1, overflowY: 'auto', padding: '8px 16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>{ws.map(w => <CRBuilding key={w} c={CR_ENTREGAS[w]} idx={w} open onToggle={() => {}} />)}</div>;
+}
+function Cap({ children, first }) { return <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.1em', color: LT.textTer, marginTop: first ? 0 : 14 }}>{children}</div>; }
+function CRCodeBoxes({ val, ok }) {
+  const t = LT;
+  return <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: CR_H, fontWeight: 800, fontSize: 28, color: t.textTer }}>#</span>{Array.from({ length: 6 }).map((_, i) => { const ch = val[i], cur = !ok && i === val.length; return <div key={i} style={{ width: 42, height: 54, borderRadius: 14, border: `2.5px solid ${ch ? (ok ? t.good : t.text) : cur ? t.accent : t.border}`, background: t.surfaceAlt, display: 'grid', placeItems: 'center', fontFamily: CR_H, fontWeight: 800, fontSize: 26, color: t.text }}>{ch || (cur && <span style={{ width: 2.5, height: 26, background: t.accent }} />)}</div>; })}</div>;
+}
+function KitStates() {
+  const t = LT;
+  return (
+    <ThemeCtx.Provider value={t}>
+      <div style={{ width: W, padding: 20, background: t.appBg, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <Cap first>EM ANDAMENTO — MESMO PADRÃO EM TODAS AS TELAS</Cap>
+        <CRBig right={<CRSpin color={t.gold} />}>Conferindo… <span style={{ opacity: .6, fontWeight: 600 }}>(E3)</span></CRBig>
+        <CRBig right={<CRSpin color={t.gold} />}>Iniciando… <span style={{ opacity: .6, fontWeight: 600 }}>(E8)</span></CRBig>
+        <CRBig variant="dangerFill" right={<CRSpin color="#fff" />}>Enviando… <span style={{ opacity: .7, fontWeight: 600 }}>(E6)</span></CRBig>
+        <CRBig right={<CRSpin color={t.gold} />}>Enviando… <span style={{ opacity: .6, fontWeight: 600 }}>(E11 · E12 · E16)</span></CRBig>
+        <Cap>SEM SINAL — GUARDADO NA FILA</Cap>
+        <CRNote ic="cloudOff" tone="gold">Sem sinal agora. Guardamos a não entrega e enviamos sozinhos.</CRNote>
+        <CRBig variant="dangerFill" icon="x">Guardado · seguir para a foto</CRBig>
+        <CRNote ic="cloudOff" tone="gold">Sem sinal agora. Guardamos a ocorrência e enviamos sozinhos.</CRNote>
+        <CRNote ic="cloudOff" tone="gold">Sem sinal agora. O recado sai assim que o sinal voltar.</CRNote>
+        <Cap>ENVIADO</Cap>
+        <CRNote ic="check" tone="good">Ocorrência enviada às 05:52. A operação já recebeu.</CRNote>
+        <CRNote ic="check" tone="good">Recado enviado às 05:41</CRNote>
+        <CRBig icon="send" disabled>Enviado</CRBig>
+        <Cap>BLOQUEIOS E ERROS DE CAMPO</Cap>
+        <CRBig variant="dangerFill" icon="x" disabled>Confirmar não entrega</CRBig>
+        <div style={{ textAlign: 'center', fontSize: 13, color: t.textTer, fontWeight: 600, marginTop: -4 }}>Escolha um motivo</div>
+        <CRTextarea value="" err="Escreva o motivo para seguir" />
+        <Cap>DIGITAR CÓDIGO — DIGITANDO / OK</Cap>
+        <CRSheet inline><CRCodeBoxes val="A7K" /><div style={{ height: 12 }} /><CRCodeBoxes val="A7K2QX" ok /><div style={{ marginTop: 10 }}><CRNote ic="check" tone="good">Código encontrado · Apto 12 · Bloco 2 → abre o pop-up (E4)</CRNote></div></CRSheet>
+        <Cap>SEM CONSUMO DO VEÍCULO (E10 · E13)</Cap>
+        <CRNote ic="fuel">~9,6 km estimados. Sem consumo do veículo cadastrado, não calculamos combustível.</CRNote>
+        <Cap>INICIAR ROTA — MINHA LOCALIZAÇÃO (E8)</Cap>
+        <CRChoice ic="locate" on note="Onde você está agora">Minha localização</CRChoice>
+      </div>
+    </ThemeCtx.Provider>
+  );
+}
+function Parts({ items }) {
+  return (
+    <div style={{ width: W, background: '#EFE6D6', display: 'flex', flexDirection: 'column' }}>
+      {items.map(([l, el, hh, o = {}], i) => (
+        <div key={i}>
+          <div style={{ padding: '14px 16px 8px', fontSize: 11.5, fontWeight: 800, letterSpacing: '0.1em', color: LT.textSec, textTransform: 'uppercase' }}>{l}</div>
+          {hh ? <Phone h={hh} {...o}>{el}</Phone> : <ThemeCtx.Provider value={LT}><div style={{ background: LT.appBg }}>{el}</div></ThemeCtx.Provider>}
+        </div>
+      ))}
+    </div>
+  );
+}
+function SuggestSheet() {
+  return (
+    <CRSheet title="Sugerir correção" sub="Residencial Jardins · vai para a operação revisar" onClose={() => {}}>
+      <CRLabel>O que mudou?</CRLabel>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{['Portaria', 'Portão', 'Onde parar', 'Outro'].map((l, i) => <CRTag key={l} tone={i === 1 ? 'dark' : 'neutral'}>{l}</CRTag>)}</div>
+      <CRTextarea value="O interfone agora é 9, não 0." />
+      <div style={{ height: 16 }} />
+      <CRBig icon="send">Enviar sugestão</CRBig>
+    </CRSheet>
+  );
+}
+
+const PARTS = { a: ['kit', 'e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8'], b: ['e9', 'e10', 'e11', 'e12', 'e14', 'e15', 'e16', 'e17'], c: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'c1', 'c3'] };
+const PART_LINKS = [['a', 'App Entregador - Telas.html', 'Entregador 1 · E1–E8'], ['b', 'App Entregador - Telas 2.html', 'Entregador 2 · E9–E18'], ['c', 'App Entregador - Telas 3.html', 'Admin + Cliente']];
+function PartNav() {
+  return <div style={{ position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 1000, display: 'flex', gap: 4, background: '#1E1207', borderRadius: 14, padding: 4, boxShadow: '0 6px 20px rgba(0,0,0,.25)' }}>{PART_LINKS.map(([k, href, l]) => <a key={k} href={href} style={{ padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 800, textDecoration: 'none', background: k === window.CR_PART ? '#E3AC3F' : 'transparent', color: k === window.CR_PART ? '#1E1207' : '#FAF5EC', fontFamily: 'Hanken Grotesk, sans-serif' }}>{l}</a>)}</div>;
+}
+function Board() {
+  const secs = React.Children.toArray(BoardSections().props.children).filter(s => PARTS[window.CR_PART || 'a'].includes(s.props.id));
+  return <div className="cr-board" style={{ height: '100%' }}><PartNav /><DesignCanvas>{secs}</DesignCanvas></div>;
+}
+function BoardSections() {
+  return (
+    <DesignCanvas>
+      <DCSection id="kit" title="Kit do entregador" subtitle="Componentes e estados que se repetem — desenhados uma vez aqui, sem repetir a tela inteira">
+        {S('kit', 'Componentes e ícones', 1780, <Kit />)}
+        {S('kit-states', 'Estados comuns: enviando · sem sinal · enviado · erros', 1720, <KitStates />)}
+      </DCSection>
+      <DCSection id="e1" title="E1 · Tela principal" subtitle="Avatar abre o Perfil · Crachá no cabeçalho · estado da rota por turno · dock fixo no rodapé (Escanear / Iniciar rota)">
+        {P('e1-emrota', 'Em rota · lista aberta', 1240, H('emrota'))}
+        {P('e1-pronta', 'Rota pronta · push desligado · dock = Iniciar', 1060, H('pronta', { open: null, pushOff: true }))}
+        {P('e1-dois', 'Dois turnos · manhã encerrada, tarde pronta', 1180, H('dois', { open: 't0' }))}
+        {P('e1-encerrada', 'Encerrada · tudo Ok', 980, H('encerrada', { open: null }))}
+        {P('e1-offline', 'Sem sinal · fotos pendentes de envio', 1120, H('offline', { open: 'm2' }))}
+        {P('e1-novas', '3 entregas novas · prédio novo aberto', 1240, H('novas', { open: 'm4' }))}
+        {P('e1-loading', 'Carregando', 844, H('loading'))}
+        {P('e1-empty', 'Sem entregas hoje', 844, H('empty'))}
+        {P('e1-folga', 'Dia de folga · semana', 844, H('folga'))}
+      </DCSection>
+      <DCSection id="e2" title="E2 · Scanner" subtitle="Tela cheia · contador da rota · lanterna (se o aparelho suportar) · Digitar código · funciona no iPhone">
+        {D('e2-perm', 'Pedindo permissão', <ScanScreen st="perm" />)}
+        {D('e2-denied', 'Permissão negada', <ScanScreen st="denied" />)}
+        {D('e2-reading', 'Lendo', <ScanScreen st="reading" />)}
+        {D('e2-torch', 'Lanterna ligada', <ScanScreen st="torch" />)}
+        {D('e2-read', 'Lido · congela + bipe', <ScanScreen st="read" />)}
+        {D('e2-unav', 'Câmera indisponível', <ScanScreen st="unavailable" />)}
+      </DCSection>
+      <DCSection id="e3" title="E3 · Digitar código" subtitle="Sheet sobre o scanner · 6 caracteres do cupom · digitando/validando/ok no quadro de estados comuns">
+        {D('e3-empty', 'Vazio', <ScanScreen st="reading" overlay={<CRCodeSheet st="empty" />} />)}
+        {D('e3-notfound', 'Não está na sua rota', <ScanScreen st="reading" overlay={<CRCodeSheet st="notfound" />} />)}
+        {D('e3-already', 'Já confirmada', <ScanScreen st="reading" overlay={<CRCodeSheet st="already" />} />)}
+      </DCSection>
+      <DCSection id="e4" title="E4 · Resultado do scan ⭐" subtitle="Confirma na hora · Apto/Bloco em destaque máximo · ~3 s e vai sozinho para a foto · erros não fecham sozinhos">
+        {D('e4-ok', 'Sucesso · tem gancho', <ScanScreen st="read" overlay={<CRResult kind="ok" />} />)}
+        {D('e4-gancho', 'Gancho enviado na rota · pergunta', <ScanScreen st="read" overlay={<CRResult kind="gancho" />} />)}
+        {D('e4-offline', 'Sem sinal · sucesso com ressalva', <ScanScreen st="read" overlay={<CRResult kind="offline" p={CR_P.carlos} />} />)}
+        {D('e4-already', 'Já confirmada', <ScanScreen st="read" overlay={<CRResult kind="already" p={CR_P.pedro} />} />)}
+        {D('e4-other', 'Não é da sua rota', <ScanScreen st="read" overlay={<CRResult kind="other" />} />)}
+        {D('e4-notfound', 'Não encontrado', <ScanScreen st="reading" overlay={<CRResult kind="notfound" />} />)}
+        {P('e4-list', 'Pela lista · 1ª entrega', 900, H('emrota', { overlay: <CRResult kind="first" dark={false} /> }))}
+      </DCSection>
+      <DCSection id="e5" title="E5 · Foto da entrega" subtitle="Mesma câmera · obrigatória (sem Pular, exceção “sem foto”) ou opcional (com Pular) — definido pelo admin por entregador">
+        {D('e5-req', 'Entrega · obrigatória', <PhotoScreen variant="req" />)}
+        {D('e5-nao', 'Não entrega · opcional (Pular)', <PhotoScreen variant="opt" nao p={CR_P.ana} />)}
+        {D('e5-prev', 'Prévia', <PhotoScreen st="preview" />)}
+        {D('e5-exc', 'Não consigo tirar a foto', <PhotoScreen st="except" />)}
+        {D('e5-saved', 'Foto salva → próximo', <PhotoScreen st="saved" />)}
+      </DCSection>
+      <DCSection id="e6" title="E6 · Confirmar pela lista + Não consegui entregar" subtitle="Sheet de baixo · motivos padronizados · foto no mesmo fluxo · bloqueio/enviando/sem sinal no quadro de estados comuns">
+        {P('e6-confirm', 'Confirmar (sheet)', 900, H('emrota', { overlay: <CRConfirmSheet /> }))}
+        {P('e6-ready', 'Motivo escolhido', 980, H('emrota', { overlay: <CRFailSheet st="ready" /> }))}
+        {P('e6-other', 'Outro + texto', 1060, H('emrota', { overlay: <CRFailSheet st="other" /> }))}
+      </DCSection>
+      <DCSection id="e7" title="E7 · Prédio aberto + Acesso" subtitle="Portaria, portão, onde parar, obs., foto da entrada · Navegar até aqui · Sugerir correção">
+        {P('e7-full', 'Com todas + foto da entrada', 1000, <Buildings which={0} />)}
+        {P('e7-none', 'Sem dicas · sem foto da entrada', 1040, <Buildings which={[1, 2]} />)}
+        {P('e7-suggest', 'Sugerir correção (sheet)', 844, <><Buildings which={0} /><SuggestSheet /></>)}
+      </DCSection>
+      <DCSection id="e8" title="E8 · Iniciar rota" subtitle="Base ou minha localização · avisa que o cliente vê “saiu para entrega” e que a posição é compartilhada só na rota">
+        {P('e8-normal', 'Normal', 960, H('pronta', { open: null, overlay: <CRStartSheet /> }))}
+        {P('e8-noloc', 'Sem permissão de localização', 1000, H('pronta', { open: null, overlay: <CRStartSheet st="noloc" /> }))}
+      </DCSection>
+      <DCSection id="e9" title="E9 · Rota ativa (aba Rota)" subtitle="Mapa real · você está aqui · Próxima parada com Navegar · ordem com hora prevista · Reordenar hoje (se liberado)">
+        {P('e9-emrota', 'Em rota', 1340, H('emrota', { tab: 'rota' }))}
+        {P('e9-pronta', 'Não iniciada · rota salva', 1260, H('pronta', { tab: 'rota' }))}
+        {P('e9-reorder', 'Reordenando', 1340, H('emrota', { tab: 'rota', routeSt: 'reorder' }))}
+        {P('e9-dois', 'Dois turnos · seletor', 1400, H('dois', { tab: 'rota' }))}
+        {P('e9-done', 'Tudo entregue', 1280, H('emrota', { tab: 'rota', routeSt: 'done' }))}
+        {S('e9-variants', 'Variações (só o trecho que muda)', 1500, <ThemeCtx.Provider value={LT}><CRRouteVariants /></ThemeCtx.Provider>)}
+        {P('e9-nav-ios', 'Escolher app (Apple Maps só no iPhone)', 900, H('emrota', { tab: 'rota', overlay: <CRNavSheet iphone sel="apple" /> }))}
+      </DCSection>
+      <DCSection id="e10" title="E10 · Encerrar rota" subtitle="Pendências primeiro · resumo · km e combustível estimados · fechamento celebrativo">
+        {P('e10-pend', 'Com pendências', 1020, <CREndScreen st="pend" />)}
+        {P('e10-ok', 'Sem pendências', 844, <CREndScreen st="ok" />)}
+        {P('e10-done', 'Encerrada 🥖', 844, <CREndScreen st="done" />, { esp: true })}
+      </DCSection>
+      <DCSection id="e11" title="E11 · Realizadas" subtitle="Foto (miniatura) ou selo · motivo na não entrega · Reportar problema (sem desfazer)">
+        {P('e11-full', 'Entregues, não entregue e reportado', 1500, H('emrota', { tab: 'realizadas', doneSt: 'reported' }))}
+        {P('e11-sheet', 'Reportar problema (sheet)', 900, H('emrota', { tab: 'realizadas', overlay: <CRReportSheet /> }))}
+        {P('e11-empty', 'Vazio (antes da 1ª entrega)', 844, H('pronta', { tab: 'realizadas' }))}
+      </DCSection>
+      <DCSection id="e12" title="E12 · Falar com a operação · E13 · Meus ganhos" subtitle="WhatsApp + ocorrência (enviando/enviado/sem sinal no quadro de estados comuns) · modalidade, a receber estimado, extrato">
+        {P('e12-form', 'Operação · registrar ocorrência', 900, <CROpsScreen />)}
+        {P('e13-week', 'Ganhos · por entrega', 1080, <CREarnings />)}
+        {S('e13-mods', 'Ganhos · outras modalidades (topo)', 1640, <Parts items={[['Por rota', <CREarnings st="rota" />, 470], ['Semanal fixo', <CREarnings st="semanal" />, 470], ['Sem consumo cadastrado', <CREarnings st="nofuel" />, 560]]} />)}
+        {P('e13-nomod', 'Ganhos · sem modalidade', 844, <CREarnings st="nomod" />)}
+      </DCSection>
+      <DCSection id="e14" title="E14 · Perfil" subtitle="Dados só leitura · Meu trabalho · veículo · preferências · Sair com confirmação">
+        {P('e14-normal', 'Sem foto (iniciais) · com veículo', 1240, <CRProfile />)}
+        {P('e14-foto', 'Com foto · sem veículo (topo)', 780, <CRProfile st="foto" noveh />)}
+        {P('e14-logout', 'Sair', 844, <CRProfile st="logout" />)}
+        {P('e14-logoutPend', 'Sair com envios pendentes', 844, <CRProfile st="logoutPend" />)}
+      </DCSection>
+      <DCSection id="e15" title="E15 · Crachá digital ⭐" subtitle="Credencial para o porteiro · selo giratório + relógio com segundos + reflexo holográfico (não é print) · atalho no cabeçalho da E1 e no Perfil">
+        {P('e15-ativo', 'Ativo', 844, <CRBadgeScreen />, { esp: true })}
+        {P('e15-nofoto', 'Sem foto', 844, <CRBadgeScreen st="nofoto" />, { esp: true })}
+        {P('e15-off', 'Desativado pelo admin', 844, <CRBadgeScreen st="off" />, { esp: true })}
+      </DCSection>
+      <DCSection id="e16" title="E16 · Recados ao cliente" subtitle="Só se liberado · modelos prontos · telefone nunca aparece · enviando/enviado/sem sinal no quadro de estados comuns">
+        {P('e16-pick', 'Escolhendo', 900, H('emrota', { overlay: <CRRecadoSheet st="pick" /> }))}
+        {P('e16-optout', 'Cliente desligou os recados', 900, H('emrota', { overlay: <CRRecadoSheet st="optout" /> }))}
+      </DCSection>
+      <DCSection id="e17" title="E17 · Meus números · E18 · Minha escala" subtitle="Tom motivador, sem ranking · escala só leitura">
+        {P('e17-data', 'Números · 30 dias', 1180, <CRNumbers />)}
+        {P('e17-empty', 'Números · sem histórico', 844, <CRNumbers st="empty" />)}
+        {P('e18-normal', 'Escala · com folgas', 844, <CRSchedule />)}
+        {P('e18-hoje', 'Escala · hoje é folga', 844, <CRSchedule st="hoje" />)}
+      </DCSection>
+
+      <DCSection id="a1" title="A1 · Admin — Comprovante no detalhe do pedido" subtitle="Foto, hora, entregador · motivo padronizado na não entrega">
+        {P('a1-foto', 'Detalhe do pedido · com foto', 900, <CAOrderProof st="foto" />)}
+        {S('a1-states', 'Outros estados do bloco Comprovante', 1080, <Parts items={['sem:Sem foto (exceção)', 'pulada:Foto pulada', 'subindo:Foto ainda subindo', 'naoFoto:Não entrega com foto', 'reportado:Problema reportado'].map(x => { const [k, l] = x.split(':'); return [l, <div style={{ padding: '0 16px 6px' }}><CAOrderProof st={k} part="card" /></div>]; })} />)}
+        {P('a1-viewer', 'Tela cheia', 844, <CAOrderProof st="viewer" />, { dark: true })}
+      </DCSection>
+      <DCSection id="a2" title="A2 · Admin — Entregas" subtitle="Estado da rota por entregador · mapa ao vivo · sem foto · folga fora da divisão">
+        {P('a2-live', 'Rotas em andamento', 1500, <CAEntregas />)}
+        {P('a2-stale', 'Entregador sem posição recente (topo)', 780, <CAEntregas st="stale" />)}
+        {P('a2-none', 'Nenhuma rota iniciada (topo)', 720, <CAEntregas st="none" />)}
+        {P('a2-done', 'Todas encerradas (topo)', 700, <CAEntregas st="done" />)}
+        {P('a2-filter', 'Filtro “Sem foto”', 600, <CAEntregas st="filter" />)}
+      </DCSection>
+      <DCSection id="a3" title="A3 · Admin — Entregadores" subtitle="Lista + cadastro ampliado: foto, veículo, permissões, pagamento, disponibilidade, rota">
+        {P('a3-list', 'Lista', 844, <CACourierList />)}
+        {P('a3-edit', 'Edição', 2380, <CACourierForm />)}
+        {P('a3-new', 'Novo entregador (topo)', 1000, <CACourierForm st="new" />)}
+        {S('a3-variants', 'Variações por seção', 1400, <Parts items={[['2 · Veículo — bicicleta (sem consumo)', <CACourierForm st="bike" only={['2']} />], ['4 · Pagamento — modalidade não definida', <CACourierForm st="nomod" only={['4']} />], ['5 · Disponibilidade — folga sobre rota aprovada', <CACourierForm st="overlap" only={['5']} />]]} />)}
+      </DCSection>
+      <DCSection id="a4" title="A4 · Admin — Rota do entregador" subtitle="Sugestão → aceite/ajuste → rota salva · alterações do entregador">
+        {P('a4-first', 'Sem rota salva (1ª sugestão)', 900, <CARoute st="first" />)}
+        {P('a4-pending', 'Sugestão nova pendente', 1500, <CARoute st="pending" />)}
+        {P('a4-adjust', 'Ajustando', 1100, <CARoute st="adjust" />)}
+        {P('a4-savedOk', 'Salvo', 900, <CARoute st="savedOk" />)}
+        {P('a4-changes', 'Alterações do entregador', 1180, <CARoute st="changes" />)}
+      </DCSection>
+      <DCSection id="a5" title="A5 · Admin — Gestão › Rotas e comprovante" subtitle="Card novo no hub · base, volta à base, tempo por porta, preço do litro, cliente vê foto">
+        {P('a5-hub', 'Hub Gestão · card novo', 844, <CAGestaoHub />)}
+        {P('a5-ok', 'Configurado', 1260, <CARouteCfg />)}
+        {P('a5-nobase', 'Base não definida (topo)', 460, <CARouteCfg st="nobase" />)}
+      </DCSection>
+      <DCSection id="a6" title="A6 · Condomínio — Acesso para o entregador" subtitle="Formulário + sugestões dos entregadores">
+        {P('a6-empty', 'Vazio', 1000, <CACondoAccess st="empty" />)}
+        {P('a6-sug', 'Preenchido · com sugestões pendentes', 1400, <CACondoAccess st="sug" />)}
+      </DCSection>
+      <DCSection id="a7" title="A7 · Solicitação de Gancho — Enviar na rota" subtitle="Na fila · na rota · entregue pelo entregador · voltou para a fila">
+        {P('a7-list', 'Fila com os 4 estados', 1000, <CAHooks />)}
+        {P('a7-sheet', 'Enviar na rota (sheet)', 900, <CAHooks st="sheet" />)}
+      </DCSection>
+      <DCSection id="a8" title="A8 · Pagamentos dos entregadores ⭐" subtitle="Proposta por período · aprovar / editar / descartar · vira despesa (Entregador + Combustível)">
+        {P('a8-list', 'Propostas', 1900, <CAPayouts />)}
+        {P('a8-edit', 'Editar', 900, <CAPayouts st="edit" />)}
+        {P('a8-approve', 'Aprovar · pago agora', 1000, <CAPayouts st="approve" />)}
+        {P('a8-history', 'Histórico · estimado × pago', 900, <CAPayouts st="history" />)}
+      </DCSection>
+      <DCSection id="a9" title="A9 · Relatório Combustível & rotas · A10 · Avisos e falhas" subtitle="Tudo estimado · tipos novos de notificação · motivos padronizados">
+        {P('a9-data', 'Combustível & rotas', 1100, <CAFuelReport />)}
+        {S('a9-states', 'Carregando · sem dados', 880, <Parts items={[['Carregando', <CAFuelReport st="loading" />, 400], ['Sem dados', <CAFuelReport st="empty" />, 400]]} />)}
+        {P('a10-notifs', 'Notificações (tipos novos)', 1000, <CAAdminNotifs />)}
+        {P('a10-prefs', 'Preferências', 844, <CAAdminNotifs st="prefs" />)}
+        {P('a10-falhas', 'Entregas & falhas', 1000, <CAFailReport />)}
+      </DCSection>
+
+      <DCSection id="c1" title="C1 · C2 · Cliente — Acompanhamento e comprovante" subtitle="“Saiu para entrega” só depois de o entregador iniciar a rota · foto + primeiro nome · comprovante se o admin liberar">
+        {P('c1-agendado', 'Agendado', 844, <CCTrack st="agendado" />)}
+        {P('c1-caminho', 'A caminho', 844, <CCTrack st="caminho" />)}
+        {P('c1-entregue', 'Entregue · com foto', 960, <CCTrack st="entregue" />)}
+        {P('c1-nao', 'Não entregue', 960, <CCTrack st="nao" />)}
+        {P('c2-viewer', 'Visualizador', 844, <CCPhotoViewer />, { dark: true })}
+        {P('c2-hist', 'Histórico · câmera e foto expirada', 900, <CCHistory />)}
+      </DCSection>
+      <DCSection id="c3" title="C3 · Cliente — Notificações" subtitle="“Ver foto” na entrega · recado do entregador · toggle novo">
+        {P('c3-notifs', 'Central', 844, <CCNotifs />)}
+        {P('c3-prefs', 'Perfil › Notificações', 844, <CCNotifPrefs />)}
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Board />);
+</script>
+</body>
+</html>

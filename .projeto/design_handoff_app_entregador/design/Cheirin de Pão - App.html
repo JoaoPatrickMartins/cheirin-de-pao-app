@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cheirin de Pão — Protótipo do App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Roboto:wght@500&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Hanken Grotesk', system-ui, sans-serif;
+    background: #C9BBA2;
+    color: #241608;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  input::placeholder { color: #B5A789; opacity: 1; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+  #root { height: 100%; }
+  button { font-family: inherit; }
+  @keyframes rfShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  @keyframes rfSpin{to{transform:rotate(360deg)}}
+  @keyframes rfBlink{50%{opacity:0}}
+  @keyframes crSpin{to{transform:rotate(360deg)}}@keyframes crShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}@keyframes crBlink{50%{opacity:0}}@keyframes crUp{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}@keyframes crPop{from{transform:scale(.94);opacity:0}to{transform:none;opacity:1}}@keyframes crCount{from{transform:scaleX(1)}to{transform:scaleX(0)}}@keyframes crScanLine{from{transform:translateY(-95px)}to{transform:translateY(95px)}}@keyframes crHalo{0%{box-shadow:0 0 0 0 rgba(62,124,83,.45)}100%{box-shadow:0 0 0 18px rgba(62,124,83,0)}}@keyframes crBeat{50%{transform:scale(1.08)}}@keyframes crSheen{0%{background-position:150% 0}55%,100%{background-position:-60% 0}}
+  .cr-col>*{flex-shrink:0}.cr-map .leaflet-tile-pane{filter:sepia(.3) saturate(.75) brightness(1.03)}.cr-map .leaflet-control-attribution{font-size:9px;background:rgba(255,255,255,.7)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="app/image-slot.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script type="text/babel" src="app/brand.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/screens-onboarding.jsx"></script>
+<script type="text/babel" src="app/screens-home.jsx"></script>
+<script type="text/babel" src="app/screens-order.jsx"></script>
+<script type="text/babel" src="app/screens-client-extra.jsx"></script>
+<script type="text/babel" src="app/screens-roles.jsx"></script>
+<script type="text/babel" src="app/screens-admin.jsx"></script>
+<script type="text/babel" src="app/screens-admin2.jsx"></script>
+<script type="text/babel" src="app/screens-market.jsx"></script>
+<script type="text/babel" src="app/screens-market2.jsx"></script>
+<script type="text/babel" src="app/screens-market-admin.jsx"></script>
+<script type="text/babel" src="app/screens-referral.jsx"></script>
+<script type="text/babel" src="app/screens-referral2.jsx"></script>
+<script type="text/babel" src="app/screens-referral3.jsx"></script>
+<script type="text/babel" src="app/screens-referral-admin.jsx"></script>
+<script type="text/babel" src="app/screens-referral-admin2.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth2.jsx"></script>
+<script type="text/babel" src="app/screens-social-auth3.jsx"></script>
+<script type="text/babel" src="app/screens-courier.jsx"></script>
+<script type="text/babel" src="app/screens-courier2.jsx"></script>
+<script type="text/babel" src="app/screens-courier3.jsx"></script>
+<script type="text/babel" src="app/screens-courier4.jsx"></script>
+<script type="text/babel" src="app/screens-courier-admin.jsx"></script>
+<script type="text/babel" src="app/screens-courier-admin2.jsx"></script>
+<script type="text/babel" src="app/screens-courier-client.jsx"></script>
+<script type="text/babel" src="app/app.jsx"></script>
+</body>
+</html>
