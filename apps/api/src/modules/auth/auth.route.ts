@@ -282,40 +282,4 @@ export const authRoute: FastifyPluginAsync = async (fastify) => {
       },
     },
   }, ctrl.changePassword.bind(ctrl))
-
-  // Admin-only route — authenticate preHandler validates Bearer token
-  fastify.post(
-    '/auth/couriers',
-    {
-      preHandler: [fastify.authenticate],
-      schema: {
-        tags: ['auth'],
-        summary: 'Cadastrar entregador (admin)',
-        description: 'Cadastra um novo entregador no sistema. Restrito a administradores (role ADMIN). O entregador receberá um OTP por e-mail para acessar o app de entrega. O CPF deve ser único no sistema.',
-        security: [{ bearerAuth: [] }],
-        body: {
-          type: 'object',
-          required: ['name', 'cpf'],
-          properties: {
-            name: { type: 'string', description: 'Nome completo do entregador.' },
-            cpf: { type: 'string', minLength: 11, maxLength: 11, description: 'CPF do entregador sem pontuação (11 dígitos).' },
-            phone: { type: 'string', description: 'Telefone do entregador. Obrigatório se email não informado.' },
-            email: { type: 'string', format: 'email', description: 'E-mail do entregador para receber o OTP de acesso. Obrigatório se phone não informado.' },
-          },
-        },
-        response: {
-          201: {
-            type: 'object',
-            description: 'Entregador cadastrado com sucesso.',
-            properties: {
-              id: { type: 'string', description: 'ID do entregador criado (MongoDB ObjectId).' },
-              name: { type: 'string', description: 'Nome do entregador.' },
-              role: { type: 'string', description: 'Role sempre "COURIER" para entregadores.' },
-            },
-          },
-        },
-      },
-    },
-    ctrl.registerCourier.bind(ctrl),
-  )
 }

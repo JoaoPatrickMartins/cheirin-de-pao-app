@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { UpdateSlotsSchema, UpdateAvulsoSchema, UpdatePedidoMinimoSchema, UpdateGanchoSchema, UpdateReferralSettingsSchema, UpdateGatewayRatesSchema, UpdateRestricoesSchema, CreateDeliveryBlockSchema } from './admin-settings.schema.js'
+import { UpdateSlotsSchema, UpdateAvulsoSchema, UpdatePedidoMinimoSchema, UpdateGanchoSchema, UpdateReferralSettingsSchema, UpdateRouteSettingsSchema, UpdateGatewayRatesSchema, UpdateRestricoesSchema, CreateDeliveryBlockSchema } from './admin-settings.schema.js'
 import { AdminSettingsService } from './admin-settings.service.js'
 import { AdminBlocksService } from './admin-blocks.service.js'
 
@@ -296,6 +296,47 @@ export class AdminSettingsController {
         custo: body.custo,
       })
     } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * GET /admin/settings/rotas
+   * "Rotas e comprovante" (A5 do plano do entregador) + se o armazenamento de fotos está configurado.
+   */
+  async getRotas(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    try {
+      return reply.status(200).send(await this.service.getRouteSettings())
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
+   * PATCH /admin/settings/rotas
+   * Grava a config inteira. Forma inválida → 400.
+   */
+  async setRotas(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    let body: ReturnType<typeof UpdateRouteSettingsSchema.parse>
+    try {
+      body = UpdateRouteSettingsSchema.parse(request.body)
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      return reply.status(400).send({ error: 'Dados inválidos.' })
+    }
+    try {
+      return reply.status(200).send(await this.service.setRouteSettings(body))
+    } catch (err) {
+      const domain = domainError(err)
+      if (domain) return reply.status(domain.statusCode).send({ error: domain.message })
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }

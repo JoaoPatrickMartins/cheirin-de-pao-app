@@ -28,6 +28,9 @@ export default defineConfig({
     // host: true vincula em todas as interfaces (IPv4 0.0.0.0 + IPv6) — necessário p/
     // o port forwarding do Chrome (que encaminha p/ 127.0.0.1) e para acesso via LAN
     host: true,
+    // Teste no celular por túnel HTTPS (a câmera do scanner exige HTTPS fora do localhost): o Vite
+    // recusa host desconhecido. Só afeta `vite dev`. Ver o checklist do entregador (2.2).
+    allowedHosts: ['.ngrok-free.app', '.ngrok.app', '.trycloudflare.com'],
     // Proxy de dev: as chamadas de API vão para /api (mesma origem, porta 5173) e o Vite
     // as repassa server-side para a API. Assim TODO o tráfego usa a 5173 — a única porta
     // que o port-forward do VS Code encaminha de forma confiável no devcontainer — sem
@@ -60,6 +63,11 @@ export default defineConfig({
           // do precache de propósito: o navegador o busca na primeira exportação e o guarda no
           // cache HTTP como qualquer outro asset com hash no nome.
           '**/exceljs*.js',
+          // Leitor de QR do iPhone (zxing em WebAssembly, ~1,1 MB): mesmo motivo do exceljs — só o
+          // ENTREGADOR de iPhone usa. A tela do entregador o pré-carrega ao abrir
+          // (`warmUpQrDetector`), enquanto há sinal; fica no cache HTTP como asset com hash.
+          '**/zxing_reader*.wasm',
+          '**/ponyfill*.js',
         ],
       },
       devOptions: {

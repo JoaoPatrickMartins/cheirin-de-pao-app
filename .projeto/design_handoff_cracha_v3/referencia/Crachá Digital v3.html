@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="design_doc_mode" content="canvas">
+<title>Cheirin de Pão — Crachá digital v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hanken Grotesk',system-ui,sans-serif;color:#241608;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;border:0;background:none;cursor:pointer;color:inherit}
+a{color:#B0702A}a:hover{color:#1E1207}
+@keyframes ckQR{from{opacity:0;transform:scale(.975)}to{opacity:1;transform:none}}
+@keyframes ckDraw{from{stroke-dashoffset:var(--len)}to{stroke-dashoffset:0}}
+@keyframes ckPop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.04);opacity:1}100%{transform:none}}
+@keyframes ckBreath{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+@keyframes ckTick{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes v3Swing{0%{opacity:0;transform:translateY(-10px) rotate(-3.5deg)}35%{opacity:1;transform:rotate(1.6deg)}65%{transform:rotate(-.6deg)}85%{transform:rotate(.2deg)}100%{transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="image-slot.js"></script>
+<script type="text/babel" src="app/brand.jsx"></script>
+<script type="text/babel" src="cracha-kit.jsx"></script>
+<script type="text/babel">
+const T = CKT, HF = CK_HF, MONO = CK_MONO, P = CK_P;
+const CARD = '#FFFDF9', BW = 326;
+const glass = { background: 'rgba(255,253,249,.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', boxShadow: '0 2px 8px -2px rgba(43,26,12,.25)' };
+
+function Chip({ kind }) {
+  const m = { ativo: [T.good, null, 'Ativo'], ok: [T.good, 'check', 'Validado'], off: [T.danger, 'ban', 'Inativo'] }[kind];
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 32, padding: '0 13px 0 11px', borderRadius: 99, color: m[0], fontSize: 13, fontWeight: 800, ...glass }}>{m[1] ? <Icon name={m[1]} size={14} stroke={2.6} /> : <span style={{ width: 8, height: 8, borderRadius: 99, background: T.good, animation: 'ckBreath 2.8s ease-in-out infinite' }} />}{m[2]}</span>;
+}
+function Photo({ st }) {
+  const off = st === 'off';
+  return (
+    <div style={{ position: 'relative', margin: '0 12px', height: 272, borderRadius: 20, overflow: 'hidden', background: st === 'nofoto' ? T.goldSoft : T.surface2 }}>
+      {st === 'nofoto'
+        ? <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontFamily: HF, fontWeight: 800, fontSize: 112, letterSpacing: '-0.05em', color: T.espresso }}>{P.ini}</div>
+        : <div style={{ position: 'absolute', inset: 0, filter: off ? 'grayscale(1)' : 'none', opacity: off ? 0.55 : 1 }}><image-slot id={'v3-foto-' + st} shape="rect" placeholder="Foto do entregador" style={{ width: '100%', height: '100%', display: 'block' }}></image-slot></div>}
+      <span style={{ position: 'absolute', right: 12, top: 12, width: 34, height: 34, borderRadius: 11, background: T.espresso, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}><BreadMark size={19} color={T.gold} /></span>
+      {st === 'nofoto' && <span style={{ position: 'absolute', left: 12, top: 12, display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', borderRadius: 99, fontSize: 12.5, fontWeight: 700, color: '#6E4712', pointerEvents: 'none', ...glass }}><Icon name="camera" size={15} color={T.accent} />Peça sua foto à operação</span>}
+      <span style={{ position: 'absolute', left: 12, bottom: 12, pointerEvents: 'none' }}><Chip kind={off ? 'off' : st === 'validado' ? 'ok' : 'ativo'} /></span>
+    </div>
+  );
+}
+function KV({ k, v }) {
+  return <div style={{ minWidth: 0 }}><div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: T.textTer }}>{k}</div><div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, marginTop: 3, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{v}</div></div>;
+}
+const face = { width: BW, background: CARD, borderRadius: 28, border: '1px solid rgba(43,26,12,.07)', boxShadow: '0 1px 2px rgba(43,26,12,.05), 0 24px 48px -22px rgba(43,26,12,.34)', backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' };
+const Hole = () => <div style={{ height: 32, display: 'grid', placeItems: 'center' }}><span style={{ width: 46, height: 9, borderRadius: 99, background: T.appBg, boxShadow: 'inset 0 1px 2px rgba(43,26,12,.2)' }} /></div>;
+
+function Front({ st, c, onFlip }) {
+  const off = st === 'off', ok = st === 'validado';
+  return (
+    <div style={face}>
+      <Hole />
+      <Photo st={st} />
+      <div style={{ padding: '16px 20px 0' }}>
+        <div style={{ fontFamily: HF, fontWeight: 800, fontSize: 28, letterSpacing: '-0.035em', lineHeight: 1.05, color: off ? T.textSec : T.text }}>{P.nome.join(' ')}</div>
+        <div style={{ fontSize: 13.5, color: T.textSec, fontWeight: 600, marginTop: 4 }}>Entregador parceiro · desde {P.desde}</div>
+      </div>
+      <div style={{ display: 'flex', gap: 22, padding: '14px 20px 18px' }}><KV k="CPF" v={P.cpf} /><KV k="VEÍCULO" v={P.veiculo} /></div>
+      <div style={{ borderTop: `1px solid ${T.border2}`, background: ok ? T.goodSoft : T.surfaceAlt, borderRadius: '0 0 28px 28px', padding: '14px 16px 16px', display: 'flex', alignItems: 'center', gap: 14, minHeight: 128 }}>
+        {off ? (
+          <>
+            <span style={{ width: 96, height: 96, borderRadius: 18, border: `1.5px dashed ${T.border}`, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon name="lock" size={26} color={T.textTer} /></span>
+            <div><div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>QR indisponível</div><div style={{ fontSize: 13, color: T.textSec, marginTop: 3, lineHeight: 1.4 }}>Seu cadastro está desativado</div></div>
+          </>
+        ) : ok ? (
+          <>
+            <CKCheck size={60} />
+            <div><div style={{ fontFamily: HF, fontWeight: 800, fontSize: 20, color: T.good, letterSpacing: '-0.02em' }}>Entrada liberada</div><div style={{ fontSize: 13, color: T.good, fontWeight: 700, marginTop: 3, lineHeight: 1.4 }}>Portaria · Residencial Jardins<br />às {c.hm}</div></div>
+          </>
+        ) : (
+          <>
+            <button onClick={onFlip} aria-label="Virar o crachá e ampliar o QR" style={{ width: 98, height: 98, borderRadius: 18, background: '#fff', border: `1px solid ${T.border2}`, display: 'grid', placeItems: 'center', flexShrink: 0 }}><CKQR seed={ckSeed(c.win)} size={82} /></button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>Validação da portaria</div>
+              <div style={{ fontFamily: MONO, fontSize: 17, fontWeight: 700, color: T.text, letterSpacing: '0.1em', marginTop: 6 }}>{P.mat}<span style={{ color: T.gold }}> · </span><span key={c.win} style={{ display: 'inline-block', animation: 'ckTick .25s ease-out both' }}>{ckCode(c.win)}</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8, fontSize: 12.5, fontWeight: 700, color: T.textSec, fontVariantNumeric: 'tabular-nums' }}><CKDial left={c.left} />novo código em {c.left} s</div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+function Back({ c, onFlip }) {
+  const ring = 248, d = ckRing(ring, 30, 1.5);
+  return (
+    <div style={{ ...face, position: 'absolute', inset: 0, transform: 'rotateY(180deg)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <Hole />
+      <div style={{ alignSelf: 'stretch', display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px' }}>
+        <span style={{ width: 40, height: 40, borderRadius: 13, background: T.espresso, color: T.gold, display: 'grid', placeItems: 'center', fontFamily: HF, fontWeight: 800, fontSize: 16 }}>{P.ini}</span>
+        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontFamily: HF, fontWeight: 800, fontSize: 17, color: T.text, letterSpacing: '-0.02em' }}>{P.nome.join(' ')}</div><div style={{ fontSize: 12.5, color: T.textSec, fontWeight: 600 }}>Entregador · Cheirin de Pão</div></div>
+      </div>
+      <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+        <button onClick={onFlip} aria-label="Voltar para a frente do crachá" style={{ position: 'relative', width: ring, height: ring, display: 'grid', placeItems: 'center' }}>
+          <svg width={ring} height={ring} style={{ position: 'absolute', inset: 0 }} aria-hidden="true"><path d={d} fill="none" stroke={T.surface2} strokeWidth="3" /><path d={d} fill="none" stroke={T.gold} strokeWidth="3" strokeLinecap="round" pathLength="100" strokeDasharray={`${(c.left / 30) * 100} 100`} style={{ transition: c.left === 30 ? 'none' : 'stroke-dasharray 1s linear' }} /></svg>
+          <div style={{ width: ring - 14, height: ring - 14, borderRadius: 24, background: '#fff', border: `1px solid ${T.border2}`, display: 'grid', placeItems: 'center' }}><CKQR seed={ckSeed(c.win)} size={ring - 46} /></div>
+        </button>
+      </div>
+      <div style={{ fontSize: 13, color: T.textSec, fontWeight: 600 }}>ou digite o código</div>
+      <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 21, fontWeight: 700, color: T.text, letterSpacing: '0.14em', padding: '9px 18px', borderRadius: 12, background: T.surfaceAlt, border: `1px solid ${T.border2}` }}>{P.mat}<span style={{ color: T.gold }}> · </span>{ckCode(c.win)}</div>
+      <div style={{ margin: '12px 0 20px', fontSize: 12.5, color: T.textTer, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>Novo código em {c.left} s</div>
+    </div>
+  );
+}
+
+function Screen({ st, start }) {
+  const c = ckClock(start);
+  const [flip, setFlip] = React.useState(st === 'qr');
+  const off = st === 'off', ok = st === 'validado';
+  const canFlip = !off && !ok;
+  const toggle = () => canFlip && setFlip(f => !f);
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 16px 16px', position: 'relative', background: `radial-gradient(110% 55% at 50% 30%, ${T.surface} 0%, ${T.appBg} 70%)`, overflow: 'hidden' }}>
+      <span style={{ position: 'absolute', left: '50%', top: 0, height: 112, width: 24, transform: 'translateX(-50%)', background: off ? T.surface2 : T.goldSoft, borderLeft: `1px solid ${off ? T.border : 'rgba(176,112,42,.22)'}`, borderRight: `1px solid ${off ? T.border : 'rgba(176,112,42,.22)'}` }} />
+      <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
+        <button aria-label="Fechar" style={{ width: 44, height: 44, borderRadius: 14, background: T.surface, border: `1.5px solid ${T.border}`, display: 'grid', placeItems: 'center', color: T.text }}><Icon name="x" size={20} stroke={2.2} /></button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 13px', borderRadius: 99, background: T.surface, border: `1.5px solid ${T.border}`, fontSize: 13.5, fontWeight: 800, color: off ? T.textTer : T.text, fontVariantNumeric: 'tabular-nums' }}>
+          <Icon name="clock" size={15} color={off ? T.textTer : T.accent} />{off ? 'Sem validade' : <>{c.hm}:<span key={c.s} style={{ display: 'inline-block', color: T.accent, animation: 'ckTick .22s ease-out both' }}>{c.s}</span></>}
+        </span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14 }}>
+        <div style={{ position: 'relative', transformOrigin: '50% -70px', animation: 'v3Swing 1.1s cubic-bezier(.3,.7,.3,1) both' }}>
+          <span style={{ position: 'absolute', left: '50%', top: -16, transform: 'translateX(-50%)', width: 44, height: 24, borderRadius: 9, background: off ? T.textTer : T.espresso, zIndex: 3, display: 'grid', placeItems: 'center' }}><span style={{ width: 20, height: 5, borderRadius: 3, background: off ? T.surface2 : T.gold }} /></span>
+          <div style={{ perspective: 1400 }}>
+            <div style={{ position: 'relative', transformStyle: 'preserve-3d', transition: 'transform .6s cubic-bezier(.2,.7,.2,1)', transform: flip ? 'rotateY(180deg)' : 'none' }}>
+              <Front st={st} c={c} onFlip={toggle} />
+              {canFlip && <Back c={c} onFlip={toggle} />}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style={{ flex: 1 }} />
+      {off ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 13.5, color: T.textSec, textAlign: 'center', lineHeight: 1.45 }}>O crachá volta quando a operação reativar seu cadastro.</div>
+          <button style={{ height: 56, borderRadius: 16, background: T.espresso, color: '#FBF3E4', fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}><Icon name="chat" size={20} color={T.gold} stroke={2.2} />Falar com a operação</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: T.textSec }}>
+          <Icon name={ok ? 'shield' : 'repeat'} size={15} color={T.accent} />{ok ? 'Validado pela portaria do condomínio' : flip ? 'Toque no QR para voltar à frente' : 'Toque no QR para virar o crachá'}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <CKBoard eyebrow="APP DO ENTREGADOR · E15" title="Crachá digital — v3 · Cordão" desc="Crachá físico, só que no celular: cordão dourado, foto grande em primeiro plano (o que o porteiro confere) e o QR no rodapé. Tocar no QR vira o crachá e mostra o código ampliado no verso. Movimento: o crachá balança de leve ao abrir e vira em 0,6 s." render={(st, i) => <Screen st={st} start={36 + i * 5} />} />
+);
+</script>
+</body>
+</html>

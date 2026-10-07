@@ -96,4 +96,39 @@ export class AdminHooksController {
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
   }
+
+  // ── Gancho na rota (A7) ───────────────────────────────────────────────────
+
+  private async runRoute<T>(request: FastifyRequest, reply: FastifyReply, work: (id: string) => Promise<T>) {
+    if (request.user?.role !== 'ADMIN') return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    const { id } = request.params as { id: string }
+    if (!/^[0-9a-f]{24}$/i.test(id)) return reply.status(400).send({ error: 'Id inválido' })
+    try {
+      return reply.status(200).send(await work(id))
+    } catch (err) {
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode && [400, 404, 422].includes(e.statusCode)) return reply.status(e.statusCode).send({ error: e.message })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  routeOptions(request: FastifyRequest, reply: FastifyReply) {
+    return this.runRoute(request, reply, (id) => this.service.routeOptions(id))
+  }
+
+  sendOnRoute(request: FastifyRequest, reply: FastifyReply) {
+    const body = (request.body ?? {}) as { date?: unknown; slotId?: unknown; courierId?: unknown }
+    return this.runRoute(request, reply, (id) => {
+      if (typeof body.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.date) || typeof body.slotId !== 'string' || !body.slotId) {
+        throw { statusCode: 400, message: 'Escolha o dia e o turno' }
+      }
+      const courierId = typeof body.courierId === 'string' && /^[0-9a-f]{24}$/i.test(body.courierId) ? body.courierId : null
+      return this.service.sendOnRoute(id, body.date, body.slotId, courierId)
+    })
+  }
+
+  removeFromRoute(request: FastifyRequest, reply: FastifyReply) {
+    return this.runRoute(request, reply, (id) => this.service.removeFromRoute(id))
+  }
 }

@@ -1,5 +1,15 @@
 import { z } from 'zod'
 
+/** Acesso para o entregador (A6). Campos vazios viram null; tudo vazio = "nenhuma dica". */
+export const CourierAccessSchema = z.object({
+  portaria: z.string().trim().max(120).nullish(),
+  temPorteiro: z.boolean().nullish(),
+  portao: z.string().trim().max(200).nullish(),
+  parar: z.string().trim().max(200).nullish(),
+  obs: z.string().trim().max(500).nullish(),
+  fotoUrl: z.string().url('Foto inválida').max(500).nullish(),
+})
+
 /**
  * CreateCondominiumSchema — valida criação de condomínio.
  * T-07-02-03: Zod parse do body antes de qualquer chamada ao banco.
@@ -23,6 +33,8 @@ export const CreateCondominiumSchema = z.object({
   // geocodificação automática do endereço.
   lat: z.number().optional(),
   lng: z.number().optional(),
+  // Acesso para o entregador (A6 · aba Acesso). null limpa.
+  courierAccess: CourierAccessSchema.nullish(),
 })
 
 export type CreateCondominiumBody = z.infer<typeof CreateCondominiumSchema>
@@ -39,3 +51,8 @@ export const SlotUpdateSchema = z.object({
   isActive: z.boolean().optional(),
 })
 export type SlotUpdateBody = z.infer<typeof SlotUpdateSchema>
+
+export const AccessParams = z.object({
+  id: z.string().regex(/^[0-9a-f]{24}$/i, 'Id inválido'),
+  sid: z.string().regex(/^[0-9a-f]{24}$/i, 'Id inválido'),
+})

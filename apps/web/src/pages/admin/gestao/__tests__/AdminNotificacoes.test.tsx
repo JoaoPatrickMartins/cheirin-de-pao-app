@@ -20,7 +20,7 @@ beforeEach(() => {
 })
 
 describe('AdminNotificacoes (A8)', () => {
-  it('os 3 avisos novos aparecem com "novo"; recompensada desligada, os outros dois ligados', async () => {
+  it('os avisos novos aparecem com "novo"; recompensada desligada, os outros dois ligados', async () => {
     render(<AdminNotificacoes onBack={vi.fn()} />)
     const review = await screen.findByRole('switch', { name: /Indicação para analisar/ })
     const rewarded = screen.getByRole('switch', { name: /Indicação recompensada/ })
@@ -28,8 +28,16 @@ describe('AdminNotificacoes (A8)', () => {
     expect(review.getAttribute('aria-checked')).toBe('true')
     expect(rewarded.getAttribute('aria-checked')).toBe('false')
     expect(condo.getAttribute('aria-checked')).toBe('true')
-    expect(screen.getAllByText('novo')).toHaveLength(3)
+    // 3 do Indique e Ganhe + 5 do app do entregador + o turno recusado (plano-termos-legais).
+    expect(screen.getAllByText('novo')).toHaveLength(9)
     expect(screen.getByText('Quando alguém entra na lista de espera')).toBeDefined()
+  })
+
+  it('os 6 avisos do app do entregador nascem ligados (com o turno recusado)', async () => {
+    render(<AdminNotificacoes onBack={vi.fn()} />)
+    for (const name of [/Problema reportado/, /Ocorrência do entregador/, /Sugestão de acesso/, /Nova sugestão de rota/, /Pagamento a aprovar/, /Turno recusado/]) {
+      expect((await screen.findByRole('switch', { name })).getAttribute('aria-checked')).toBe('true')
+    }
   })
 
   it('ligar "recompensada" grava true', async () => {

@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify'
+import { failureClientText } from '@cheirin-de-pao/shared'
+import { proofFlags, clientProofPhoto, type ClientProofPhoto } from '../../lib/client-proof.js'
 import { NotificationType } from '@prisma/client'
 import { fromMilli, toMilli, wholeBreads } from '@cheirin-de-pao/shared'
 import { CreateOrderBody } from './orders.schema.js'
@@ -380,13 +382,52 @@ export class OrdersService {
    */
   async getTodayOrder(userId: string) {
     const { start, end } = getTodayRange()
-    return this.prisma.order.findFirst({
+    const order = await this.prisma.order.findFirst({
       where: {
         userId,
         scheduledDate: { gte: start, lte: end },
         status: { not: 'CANCELLED' },
       },
     })
+    if (!order) return null
+    // Não entrega com o motivo na linguagem do cliente (nunca o texto livre do entregador) e o
+    // selo do comprovante (C1/C2 do plano do entregador).
+    const { byOrder } = await proofFlags(this.prisma, { orderIds: [order.id] })
+    return {
+      ...order,
+      failureText: failureClientText(order.failureCode),
+      proof: byOrder.get(order.id) ?? { available: false, expired: false },
+      ...(await this.onTheWay(order)),
+    }
+  }
+
+  /**
+   * "A caminho" (C1 · D-7): só depois de o entregador INICIAR a rota do turno o cliente vê desde
+   * quando o pão saiu e quem traz (primeiro nome + foto). Antes disso, nada do entregador.
+   */
+  private async onTheWay(order: { courierId: string | null; slotId: string | null; scheduledDate: Date }): Promise<{
+    onTheWayAt: string | null
+    courier: { firstName: string; photoUrl: string | null } | null
+    courierName?: string
+  }> {
+    if (!order.courierId || !order.slotId) return { onTheWayAt: null, courier: null }
+    const run = await this.prisma.courierRun.findUnique({
+      where: { courierId_date_slotId: { courierId: order.courierId, date: brtDateStr(order.scheduledDate), slotId: order.slotId } },
+      select: { startedAt: true },
+    })
+    if (!run?.startedAt) return { onTheWayAt: null, courier: null }
+    const courier = await this.prisma.user.findUnique({ where: { id: order.courierId }, select: { name: true, courierPhotoUrl: true } })
+    const firstName = courier?.name?.trim().split(/\s+/)[0] ?? ''
+    return {
+      onTheWayAt: run.startedAt.toISOString(),
+      courier: firstName ? { firstName, photoUrl: courier?.courierPhotoUrl ?? null } : null,
+      ...(firstName ? { courierName: firstName } : {}),
+    }
+  }
+
+  /** Foto da entrega de um pedido do próprio cliente (C2). null = nada para mostrar. */
+  async getOrderProof(userId: string, orderId: string): Promise<ClientProofPhoto | null> {
+    return clientProofPhoto(this.prisma, userId, { orderId })
   }
 
   /**
@@ -473,12 +514,18 @@ export class OrdersService {
   async getOrderHistory(userId: string, days: number = 30) {
     const since = new Date()
     since.setDate(since.getDate() - days)
-    return this.prisma.order.findMany({
+    const orders = await this.prisma.order.findMany({
       where: {
         userId,
         scheduledDate: { gte: since },
       },
       orderBy: { scheduledDate: 'desc' },
     })
+    const { byOrder } = await proofFlags(this.prisma, { orderIds: orders.map((o) => o.id) })
+    return orders.map((o) => ({
+      ...o,
+      failureText: failureClientText(o.failureCode),
+      proof: byOrder.get(o.id) ?? { available: false, expired: false },
+    }))
   }
 }

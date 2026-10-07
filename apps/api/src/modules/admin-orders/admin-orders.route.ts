@@ -321,6 +321,27 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             description: 'Estado da divisão: sugestão (approved=false) ou divisão real aprovada (approved=true).',
             properties: {
               approved: { type: 'boolean', description: 'true quando a divisão já foi aprovada/despachada no dia/turno.' },
+              partial: {
+                type: 'object',
+                nullable: true,
+                description: 'Aprovada, mas com paradas sem entregador (recusa do turno ou separação depois): a sugestão é só delas.',
+                properties: { dispatchedStops: { type: 'integer', description: 'Paradas que já estão com entregador.' } },
+              },
+              declined: {
+                type: 'array',
+                description: 'Turnos recusados no dia (plano-termos-legais §5): quem recusou fica fora da sugestão.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    courierId: { type: 'string' },
+                    courierName: { type: 'string' },
+                    slotId: { type: 'string' },
+                    at: { type: 'string' },
+                    reason: { type: 'string', nullable: true, description: 'IMPREVISTO · VEICULO · SAUDE · OUTRO (opcional).' },
+                    stops: { type: 'integer' },
+                  },
+                },
+              },
               assignments: {
                 type: 'array',
                 description: 'Atribuição de condomínios por entregador (sugerida ou real).',
@@ -361,6 +382,7 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                     },
                     total: { type: 'integer', description: 'Pãezinhos atribuídos a este entregador (inclui o pão da Cestinha).' },
                     totalItems: { type: 'integer', description: 'Itens do mercadinho atribuídos a este entregador.' },
+                    offReason: { type: 'string', nullable: true, description: 'FOLGA | FORA_DA_ESCALA (F-8) | RECUSOU (recusou o turno) no dia/turno: fica fora da sugestão.' },
                   },
                 },
               },
@@ -590,7 +612,24 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
             properties: {
               ...ledgerRowProps,
               createdAt: { type: 'string', description: 'Quando o pedido nasceu (ISO 8601).' },
-              code: { type: 'string', description: 'Código curto (4 últimos do id) — o mesmo impresso no cupom.' },
+              code: { type: 'string', description: 'Código curto (6 últimos do id) — o mesmo impresso no cupom.' },
+              failureCode: { type: 'string', nullable: true, description: 'Motivo padronizado da não entrega (app do entregador).' },
+              proof: {
+                type: 'object',
+                nullable: true,
+                description: 'Comprovante da parada (foto). A foto vai como URL assinada de 10 min; null sem registro.',
+                properties: {
+                  status: { type: 'string', description: 'PENDING (subindo) | OK | NONE (exceção, com note) | SKIPPED (opcional, pulou).' },
+                  outcome: { type: 'string' },
+                  required: { type: 'boolean' },
+                  photoUrl: { type: 'string', nullable: true },
+                  photoAt: { type: 'string', nullable: true },
+                  note: { type: 'string', nullable: true },
+                  confirmedVia: { type: 'string', nullable: true, description: 'SCAN | CODE | LIST.' },
+                  expired: { type: 'boolean', description: 'Mais de 90 dias: a foto não é mais servida.' },
+                  clientVisible: { type: 'boolean', description: 'O cliente vê a foto (toggle global "Cliente vê a foto").' },
+                },
+              },
               creditsDebited: { type: 'number', description: 'Pãezinhos debitados na criação (decimal). Na Cestinha, o split aplicado.' },
               creditsDebitedDerived: {
                 type: 'boolean',
@@ -613,11 +652,51 @@ export const adminOrdersRoute: FastifyPluginAsync = async (fastify) => {
                   quantity: { type: 'integer', description: 'Pãezinhos que o pagamento creditou.' },
                 },
               },
+              issues: {
+                type: 'array',
+                description: 'Problemas reportados pelo entregador nesta parada (E11), do mais recente.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string' },
+                    type: { type: 'string' },
+                    label: { type: 'string' },
+                    text: { type: 'string', nullable: true },
+                    createdAt: { type: 'string' },
+                    courierName: { type: 'string', nullable: true },
+                    status: { type: 'string', description: 'OPEN · RESOLVED' },
+                    resolution: { type: 'string', nullable: true, description: 'KEPT (manteve entregue) · CORRECTED (marcou não entregue).' },
+                  },
+                },
+              },
+              correction: {
+                type: 'object',
+                nullable: true,
+                description: 'Correção entregue → não entregue feita pelo admin (H-2).',
+                properties: { at: { type: 'string' }, byName: { type: 'string', nullable: true }, note: { type: 'string', nullable: true } },
+              },
             },
           },
         },
       },
     },
     ctrl.orderDetail.bind(ctrl),
+  )
+
+  fastify.post(
+    '/admin/orders/:id/correct-not-delivered',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — dashboard'],
+        summary: 'Marcar não entregue (correção H-2)',
+        description:
+          'Corrige uma entrega ENTREGUE para NÃO ENTREGUE na parada inteira (pão + Cestinhas). SÓ o status: sem push ao cliente, sem mexer em pãezins e sem desfazer o Indique e Ganhe. Fecha os problemas reportados da parada como CORRECTED. 409 se não estiver entregue. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        body: { type: 'object', properties: { note: { type: 'string', nullable: true } } },
+      },
+    },
+    ctrl.correctNotDelivered.bind(ctrl),
   )
 }

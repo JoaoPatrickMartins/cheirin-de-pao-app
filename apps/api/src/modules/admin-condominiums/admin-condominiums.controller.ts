@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { ZodError } from 'zod'
-import { CreateCondominiumSchema, UpdateCondominiumSchema, SlotUpdateSchema } from './admin-condominiums.schema.js'
+import '@fastify/multipart'
+import { CreateCondominiumSchema, UpdateCondominiumSchema, SlotUpdateSchema, AccessParams } from './admin-condominiums.schema.js'
 import { AdminCondominiumsService } from './admin-condominiums.service.js'
 
 type ZodIssue = { message: string }
@@ -178,5 +179,51 @@ export class AdminCondominiumsController {
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }
+  }
+
+  // ── Acesso para o entregador (A6) ─────────────────────────────────────────
+
+  private async runAccess<T>(request: FastifyRequest, reply: FastifyReply, work: () => Promise<T>) {
+    if (request.user?.role !== 'ADMIN') return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    try {
+      return reply.status(200).send(await work())
+    } catch (err) {
+      if (err instanceof ZodError) return reply.status(400).send({ error: zodMessage(err) })
+      const e = err as { statusCode?: number; message?: string; code?: string }
+      if (e.code === 'FST_REQ_FILE_TOO_LARGE') return reply.status(400).send({ error: 'Imagem acima do limite de 5 MB.' })
+      if (e.statusCode && [400, 404, 409, 503].includes(e.statusCode)) return reply.status(e.statusCode).send({ error: e.message })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /** POST /admin/condominiums/access-photo — foto da entrada (multipart `file`). */
+  accessPhoto(request: FastifyRequest, reply: FastifyReply) {
+    return this.runAccess(request, reply, async () => {
+      const file = await request.file()
+      if (!file) throw { statusCode: 400, message: 'Envie a foto.' }
+      return this.service.uploadAccessPhoto(await file.toBuffer(), file.mimetype)
+    })
+  }
+
+  /** GET /admin/condominiums/:id/access-suggestions */
+  accessSuggestions(request: FastifyRequest, reply: FastifyReply) {
+    return this.runAccess(request, reply, () => this.service.listAccessSuggestions((request.params as { id: string }).id))
+  }
+
+  /** POST /admin/condominiums/:id/access-suggestions/:sid/apply */
+  applySuggestion(request: FastifyRequest, reply: FastifyReply) {
+    return this.runAccess(request, reply, () => {
+      const p = AccessParams.parse(request.params)
+      return this.service.applyAccessSuggestion(p.id, p.sid, request.user!.id)
+    })
+  }
+
+  /** POST /admin/condominiums/:id/access-suggestions/:sid/discard */
+  discardSuggestion(request: FastifyRequest, reply: FastifyReply) {
+    return this.runAccess(request, reply, () => {
+      const p = AccessParams.parse(request.params)
+      return this.service.discardAccessSuggestion(p.id, p.sid, request.user!.id)
+    })
   }
 }

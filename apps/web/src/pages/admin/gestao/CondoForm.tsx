@@ -3,6 +3,7 @@ import { apiFetch } from '../../../lib/apiFetch'
 import { lookupCep } from '../../../lib/viacep'
 import { Icon } from '../../../components/brand/Icon'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
+import { CondoAccessTab, accessFromApi, accessToBody, emptyAccess, type AccessDraft } from './CondoAccessTab'
 
 // ------------------------------------------------------------------ tipos
 type CondoTipo = 'SINGLE_ENTRANCE' | 'BLOCKS'
@@ -55,7 +56,14 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
   const [cepStatus, setCepStatus] = useState<'idle' | 'loading' | 'notfound'>('idle')
   const lastCepLookup = useRef('')
   const [coords, setCoords] = useState('')
+  // Só vira "coordenada manual" o que o admin digitou nesta edição. As coordenadas carregadas
+  // (muitas vezes geocodificadas e aproximadas) voltavam no PATCH como manuais e apagavam o aviso
+  // de "localização aproximada" sem ninguém ter mexido no campo.
+  const [coordsTouched, setCoordsTouched] = useState(false)
   const [locApprox, setLocApprox] = useState(false)
+  // Abas do formulário (A6 · V-4): Dados · Blocos · Acesso.
+  const [tab, setTab] = useState<'dados' | 'blocos' | 'acesso'>('dados')
+  const [access, setAccess] = useState<AccessDraft>(emptyAccess)
 
   useEffect(() => {
     if (!id) return
@@ -78,6 +86,7 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
             lat?: number | null
             lng?: number | null
             approxLocation?: boolean
+            courierAccess?: Record<string, unknown> | null
           }
           setNome(data.name)
           setRua(data.address?.street ?? '')
@@ -90,6 +99,7 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
           setNumBlocos(String(data.numBlocks ?? 1))
           if (data.lat != null && data.lng != null) setCoords(`${data.lat}, ${data.lng}`)
           setLocApprox(Boolean(data.approxLocation))
+          setAccess(accessFromApi(data.courierAccess as Partial<Record<keyof AccessDraft, unknown>> | null))
         }
       } catch {
         // falha silenciosa
@@ -129,6 +139,7 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
   // "localização aproximada" deixa de fazer sentido.
   const handleCoordsChange = (v: string) => {
     setCoords(v)
+    setCoordsTouched(true)
     if (parseCoords(v)) setLocApprox(false)
   }
 
@@ -136,7 +147,7 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
     setError(null)
     setIsSaving(true)
     try {
-      const parsedCoords = parseCoords(coords)
+      const parsedCoords = coordsTouched ? parseCoords(coords) : null
       const body = {
         name: nome.trim(),
         address: {
@@ -151,6 +162,8 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
         // Coordenadas manuais (têm prioridade sobre a geocodificação do endereço).
         ...(parsedCoords ? { lat: parsedCoords.lat, lng: parsedCoords.lng } : {}),
         ...(tipo === 'BLOCKS' ? { numBlocks: Number(numBlocos) } : {}),
+        // Acesso para o entregador (A6); vazio = sem dicas.
+        courierAccess: accessToBody(access),
       }
       const res = await apiFetch(id ? `/admin/condominiums/${id}` : '/admin/condominiums', {
         method: id ? 'PATCH' : 'POST',
@@ -242,156 +255,187 @@ export function CondoForm({ id, onBack, onSaved }: CondoFormProps) {
           gap: 16,
         }}
       >
-        <FormField
-          label="Nome"
-          icon="building"
-          value={nome}
-          onChange={setNome}
-          placeholder="Ex.: Residencial das Flores"
-        />
-
-        {/* Endereço */}
-        <div
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 13,
-            fontWeight: 700,
-            color: 'var(--color-text-sec)',
-            letterSpacing: '0.02em',
-            textTransform: 'uppercase',
-            marginTop: 4,
-          }}
-        >
-          Endereço
+        <div role="tablist" aria-label="Seções do condomínio" style={{ display: 'flex', gap: 4, background: 'var(--color-surface-2)', borderRadius: 13, padding: 4 }}>
+          {(
+            [
+              ['dados', 'Dados'],
+              ['blocos', 'Blocos'],
+              ['acesso', 'Acesso'],
+            ] as const
+          ).map(([k, l]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              style={{ flex: 1, height: 40, borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 13, fontFamily: 'var(--font-body)', background: tab === k ? 'var(--color-surface)' : 'transparent', color: tab === k ? 'var(--color-text)' : 'var(--color-text-sec)', boxShadow: tab === k ? 'var(--shadow-soft)' : 'none', cursor: 'pointer' }}
+            >
+              {l}
+            </button>
+          ))}
         </div>
 
-        <FormField
-          label="Rua"
-          icon="pin"
-          value={rua}
-          onChange={setRua}
-          placeholder="Rua das Flores"
-        />
+        {tab === 'acesso' && <CondoAccessTab condoId={id} value={access} onChange={setAccess} />}
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1 }}>
+        {tab === 'dados' && (
+          <>
             <FormField
-              label="Número"
-              icon="home"
-              value={numero}
-              onChange={setNumero}
-              placeholder="123"
+              label="Nome"
+              icon="building"
+              value={nome}
+              onChange={setNome}
+              placeholder="Ex.: Residencial das Flores"
             />
-          </div>
-          <div style={{ flex: 1 }}>
-            <FormField
-              label="Complemento"
-              icon="edit"
-              value={complemento}
-              onChange={setComplemento}
-              placeholder="Portaria, ponto de referência"
-            />
-          </div>
-        </div>
 
-        <FormField
-          label="Cidade"
-          icon="building"
-          value={cidade}
-          onChange={setCidade}
-          placeholder="São Paulo"
-        />
+            {/* Endereço */}
+            <div
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 13,
+                fontWeight: 700,
+                color: 'var(--color-text-sec)',
+                letterSpacing: '0.02em',
+                textTransform: 'uppercase',
+                marginTop: 4,
+              }}
+            >
+              Endereço
+            </div>
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ flex: 1 }}>
             <FormField
-              label="Estado (UF)"
+              label="Rua"
               icon="pin"
-              value={estado}
-              onChange={(v) => setEstado(v.toUpperCase().slice(0, 2))}
-              placeholder="SP"
+              value={rua}
+              onChange={setRua}
+              placeholder="Rua das Flores"
             />
-          </div>
-          <div style={{ flex: 1 }}>
-            <FormField
-              label="CEP"
-              icon="mail"
-              type="tel"
-              value={cep}
-              onChange={handleCepChange}
-              placeholder="00000-000"
-            />
-          </div>
-        </div>
 
-        {cepStatus !== 'idle' && (
-          <p
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 12,
-              fontWeight: 600,
-              color: cepStatus === 'notfound' ? 'var(--color-warn)' : 'var(--color-text-ter)',
-              margin: '-8px 0 0',
-            }}
-          >
-            {cepStatus === 'loading'
-              ? 'Buscando endereço pelo CEP…'
-              : 'CEP não encontrado — preencha o endereço manualmente.'}
-          </p>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <FormField
+                  label="Número"
+                  icon="home"
+                  value={numero}
+                  onChange={setNumero}
+                  placeholder="123"
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <FormField
+                  label="Complemento"
+                  icon="edit"
+                  value={complemento}
+                  onChange={setComplemento}
+                  placeholder="Portaria, ponto de referência"
+                />
+              </div>
+            </div>
+
+            <FormField
+              label="Cidade"
+              icon="building"
+              value={cidade}
+              onChange={setCidade}
+              placeholder="São Paulo"
+            />
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <FormField
+                  label="Estado (UF)"
+                  icon="pin"
+                  value={estado}
+                  onChange={(v) => setEstado(v.toUpperCase().slice(0, 2))}
+                  placeholder="SP"
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <FormField
+                  label="CEP"
+                  icon="mail"
+                  type="tel"
+                  value={cep}
+                  onChange={handleCepChange}
+                  placeholder="00000-000"
+                />
+              </div>
+            </div>
+
+            {cepStatus !== 'idle' && (
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: cepStatus === 'notfound' ? 'var(--color-warn)' : 'var(--color-text-ter)',
+                  margin: '-8px 0 0',
+                }}
+              >
+                {cepStatus === 'loading'
+                  ? 'Buscando endereço pelo CEP…'
+                  : 'CEP não encontrado — preencha o endereço manualmente.'}
+              </p>
+            )}
+
+            {/* Localização no mapa (coordenadas manuais — opcional) */}
+            <div>
+              <FormField
+                label="Localização no mapa (lat, long)"
+                icon="pin"
+                value={coords}
+                onChange={handleCoordsChange}
+                placeholder="-21.7546, -41.3242"
+              />
+              <p
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: locApprox ? 'var(--color-warn)' : 'var(--color-text-ter)',
+                  margin: '6px 0 0',
+                  lineHeight: 1.45,
+                }}
+              >
+                {locApprox
+                  ? '⚠ Localização aproximada (centro da cidade). Cole as coordenadas exatas do Google Maps para a rota ficar precisa.'
+                  : 'Opcional. No Google Maps, clique no local e copie as coordenadas. Em branco, localizamos pelo endereço.'}
+              </p>
+            </div>
+          </>
         )}
 
-        {/* Localização no mapa (coordenadas manuais — opcional) */}
-        <div>
-          <FormField
-            label="Localização no mapa (lat, long)"
-            icon="pin"
-            value={coords}
-            onChange={handleCoordsChange}
-            placeholder="-21.7546, -41.3242"
-          />
-          <p
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 12,
-              fontWeight: 600,
-              color: locApprox ? 'var(--color-warn)' : 'var(--color-text-ter)',
-              margin: '6px 0 0',
-              lineHeight: 1.45,
-            }}
-          >
-            {locApprox
-              ? '⚠ Localização aproximada (centro da cidade). Cole as coordenadas exatas do Google Maps para a rota ficar precisa.'
-              : 'Opcional. No Google Maps, clique no local e copie as coordenadas. Em branco, localizamos pelo endereço.'}
-          </p>
-        </div>
+        {tab === 'blocos' && (
+          <>
+            {/* Tipo */}
+            <div>
+              <div
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  color: 'var(--color-text-sec)',
+                  letterSpacing: '0.01em',
+                  marginBottom: 10,
+                }}
+              >
+                Tipo de condomínio
+              </div>
+              <SegmentedControl tabs={TIPO_TABS} value={tipo} onChange={setTipo} />
+            </div>
 
-        {/* Tipo */}
-        <div>
-          <div
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 12.5,
-              fontWeight: 700,
-              color: 'var(--color-text-sec)',
-              letterSpacing: '0.01em',
-              marginBottom: 10,
-            }}
-          >
-            Tipo de condomínio
-          </div>
-          <SegmentedControl tabs={TIPO_TABS} value={tipo} onChange={setTipo} />
-        </div>
-
-        {/* Número de blocos — condicional */}
-        {tipo === 'BLOCKS' && (
-          <FormField
-            label="Número de blocos/torres"
-            icon="building"
-            type="number"
-            value={numBlocos}
-            onChange={setNumBlocos}
-            placeholder="Ex.: 4"
-          />
+            {/* Número de blocos — condicional */}
+            {tipo === 'BLOCKS' && (
+              <FormField
+                label="Número de blocos/torres"
+                icon="building"
+                type="number"
+                value={numBlocos}
+                onChange={setNumBlocos}
+                placeholder="Ex.: 4"
+              />
+            )}
+          </>
         )}
 
         <div style={{ flex: 1 }} />

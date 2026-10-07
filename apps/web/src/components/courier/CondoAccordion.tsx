@@ -1,6 +1,9 @@
 import { blockLabel } from '@cheirin-de-pao/shared'
 import { Icon } from '../brand/Icon'
 import { StopRow, Stop, stopKey } from './StopRow'
+import type { CRProofState } from './kit'
+import { CondoAccessBlock } from './CondoAccess'
+import type { CondoAccess } from '../../lib/courierApi'
 
 /**
  * Agrupa paradas por bloco preservando a ordem já recebida (backend ordena por
@@ -23,6 +26,8 @@ export interface CondoGroup {
   address: string
   lat: number | null
   lng: number | null
+  /** Dicas de acesso (A6/E7); null = nenhuma dica ainda. */
+  access?: CondoAccess | null
   stops: Stop[]
 }
 
@@ -33,9 +38,17 @@ interface CondoAccordionProps {
   onToggle: () => void
   confirmedIds: Set<string>
   notDeliveredIds?: Set<string>
+  /** Comprovante das paradas resolvidas nesta sessão, por `stopKey`. */
+  proofStates?: Map<string, CRProofState>
   // Repassa para as paradas exibirem o turno (quando a rota mistura manhã e tarde).
   showSlot?: boolean
   onConfirm: (stop: Stop) => void
+  /** E16: recado ao cliente (só com a permissão). */
+  onRecado?: (stop: Stop) => void
+  /** E7: "Sugerir correção" do acesso. */
+  onSuggestAccess?: (condo: CondoGroup) => void
+  /** E7: "Navegar até aqui". */
+  onNavigate?: (condo: CondoGroup) => void
 }
 
 export function CondoAccordion({
@@ -45,8 +58,12 @@ export function CondoAccordion({
   onToggle,
   confirmedIds,
   notDeliveredIds = new Set(),
+  proofStates,
   showSlot = false,
   onConfirm,
+  onRecado,
+  onSuggestAccess,
+  onNavigate,
 }: CondoAccordionProps) {
   // "Resolvidas" = entregues OU marcadas como não entregues (ambas saem da fila de ação)
   const feitas = condo.stops.filter((s) => confirmedIds.has(stopKey(s)) || notDeliveredIds.has(stopKey(s))).length
@@ -207,13 +224,22 @@ export function CondoAccordion({
               order={idx + 1}
               isConfirmed={confirmedIds.has(stopKey(stop))}
               isNotDelivered={notDeliveredIds.has(stopKey(stop))}
+              proof={proofStates?.get(stopKey(stop)) ?? null}
               showSlot={showSlot}
               showBlock={!hasBlocks}
               onPress={onConfirm}
+              onRecado={onRecado}
             />
           ))
         return (
           <div style={{ borderTop: '1px solid var(--color-border-2)' }}>
+            {(onSuggestAccess || onNavigate || condo.access) && (
+              <CondoAccessBlock
+                access={condo.access}
+                onSuggest={onSuggestAccess ? () => onSuggestAccess(condo) : undefined}
+                onNavigate={onNavigate && (condo.lat !== null || condo.address) ? () => onNavigate(condo) : undefined}
+              />
+            )}
             {hasBlocks ? (
               // Condomínio com blocos: um subtítulo por bloco (crescente), apartamentos
               // crescentes sob cada bloco.

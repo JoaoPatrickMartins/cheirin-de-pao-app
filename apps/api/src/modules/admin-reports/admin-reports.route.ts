@@ -95,6 +95,22 @@ export const adminReportsRoute: FastifyPluginAsync = async (fastify) => {
   )
 
   fastify.get(
+    '/admin/reports/fuel',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — reports'],
+        summary: 'Combustível & rotas (admin)',
+        description:
+          'A9 do plano do entregador. Tudo ESTIMADO: km planejado dos turnos encerrados × consumo do veículo (o congelado no encerramento; sem ele, o cadastro e o preço de hoje). KPIs (km, litros, m³ de GNV, gasto, por entrega, por pão), por entregador e a economia das rotas aceitas (alternativa evitada − rota aceita, por turno encerrado). Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        querystring: periodQuerystring,
+      },
+    },
+    ctrl.getFuel.bind(ctrl),
+  )
+
+  fastify.get(
     '/admin/reports/waste',
     {
       preHandler: [fastify.authenticate],

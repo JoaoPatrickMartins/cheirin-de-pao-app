@@ -31,7 +31,19 @@
   /* Fundo suave do erro (Indique e Ganhe) — faixa de erro de formulário e sinais do admin.
      É o `dangerSoft` do handoff; o `danger` dele é o próprio --color-warn. */
   --color-warn-soft: #F6E0DC;
+  /* Âmbar (app do entregador): "sem sinal", "já confirmada", "pendente de envio". Não é erro —
+     é ressalva. Cabeçalho do pop-up, fundo e texto dos selos, borda da faixa de sincronização. */
+  --color-amber: #B07A1E;
+  --color-amber-soft: #FBE7C2;
+  --color-amber-ink: #8A5616;
+  --color-amber-line: #EBC98A;
+  --color-amber-text: #5E3B0C;
+  /* Aviso dourado (CRNote "gold" do handoff): dica/atenção dentro de sheets. */
+  --color-note-gold: #FBEFD3;
+  --color-note-gold-ink: #6E4712;
   --color-primary-btn-text: #FBF3E4;
+  /* Crachá digital v3 (app do entregador, Onda 11): o "papel" do cartão do crachá. */
+  --color-badge-card: #FFFDF9;
 
   /* Border colors (rgba — accessed via CSS var; no utility class generated) */
   --color-border: rgba(43, 26, 12, 0.10);
@@ -151,6 +163,45 @@
 }
 .cdp-spin {
   animation: cdp-spin 0.8s linear infinite;
+}
+
+/* ============================================================
+   App do entregador — câmera contínua (E2/E4 do handoff).
+   Com prefers-reduced-motion a linha fica parada e a barra de contagem some na hora; o avanço
+   do pop-up continua pelo timer, não pela animação.
+   ============================================================ */
+@keyframes cdp-scanline {
+  from { transform: translateY(-95px); }
+  to { transform: translateY(95px); }
+}
+.cdp-scanline {
+  animation: cdp-scanline 1.8s ease-in-out infinite alternate;
+}
+@keyframes cdp-count {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@keyframes cdp-pop {
+  from { transform: scale(0.94); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.cdp-pop {
+  animation: cdp-pop 0.18s ease-out;
+}
+@keyframes cdp-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.cdp-up {
+  animation: cdp-up 0.22s ease-out;
+}
+/* "Você está aqui" no mapa da rota (E9): halo que pulsa em volta do ponto. */
+@keyframes cdp-halo {
+  0% { box-shadow: 0 0 0 0 rgba(62, 124, 83, 0.45); }
+  100% { box-shadow: 0 0 0 16px rgba(62, 124, 83, 0); }
+}
+.cdp-halo {
+  animation: cdp-halo 2s ease-out infinite;
 }
 
 /* ============================================================
@@ -284,4 +335,36 @@
 #cardPaymentBrick_container input {
   pointer-events: auto !important;
   touch-action: manipulation !important;
+}
+
+/* ============================================================
+   Crachá digital v3 (app do entregador · E15 · Onda 11) — handoff §6.
+   A regra prefers-reduced-motion do topo zera todas.
+   ============================================================ */
+
+/* Balanço único ao abrir (a presilha balança junto; o cordão fica parado) */
+@keyframes cdp-badge-swing {
+  0%   { opacity: 0; transform: translateY(-10px) rotate(-3.5deg); }
+  35%  { opacity: 1; transform: rotate(1.6deg); }
+  65%  { transform: rotate(-0.6deg); }
+  85%  { transform: rotate(0.2deg); }
+  100% { transform: none; }
+}
+
+/* Ponto "Ativo" que respira */
+@keyframes cdp-badge-breath {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.8); }
+}
+
+/* Troca do código e dos segundos do relógio */
+@keyframes cdp-badge-tick {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Troca do QR a cada 30 s */
+@keyframes cdp-badge-qr {
+  from { opacity: 0; transform: scale(0.975); }
+  to   { opacity: 1; transform: none; }
 }

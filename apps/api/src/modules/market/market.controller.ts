@@ -109,6 +109,19 @@ export class MarketController {
     }
   }
 
+  /** GET /market/orders/:id/proof — URL assinada da foto da entrega (C2). 404 sem foto. */
+  async orderProof(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const photo = await this.ordersService.getProof(request.user!.id, id)
+      if (!photo) return reply.status(404).send({ error: 'Sem foto para esta entrega' })
+      return reply.status(200).send(photo)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
   async cancelOrder(request: FastifyRequest, reply: FastifyReply) {
     try {
       const { id } = request.params as { id: string }

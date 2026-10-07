@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { REFERRAL_LIMITS, ReferralCampaignSchema, ReferralGoalsSchema } from '@cheirin-de-pao/shared'
+import { ROUTE_LIMITS } from '../../lib/route-config.js'
 
 /**
  * UpdateSlotsSchema — valida as edições de slots, globais ou de UM condomínio.
@@ -187,6 +188,50 @@ export const UpdateReferralSettingsSchema = z.object({
 })
 
 export type UpdateReferralSettingsBody = z.infer<typeof UpdateReferralSettingsSchema>
+
+/**
+ * UpdateRouteSettingsSchema — "Rotas e comprovante" (A5 do plano do entregador). Grava a config
+ * inteira. `base: null` = sem base (a rota começa no primeiro prédio); preço `null` = não informado.
+ */
+const PriceSchema = z
+  .number()
+  .min(ROUTE_LIMITS.preco.min, 'Preço do litro precisa ser maior que zero')
+  .max(ROUTE_LIMITS.preco.max, 'Preço do litro acima de R$ 20 — confira o valor')
+  .nullable()
+
+/** Preço do m³ do GNV (Onda 11): mesma faixa, mensagem na unidade certa. */
+const GnvPriceSchema = z
+  .number()
+  .min(ROUTE_LIMITS.preco.min, 'Preço do m³ do GNV precisa ser maior que zero')
+  .max(ROUTE_LIMITS.preco.max, 'Preço do m³ do GNV acima de R$ 20 — confira o valor')
+  .nullable()
+
+export const UpdateRouteSettingsSchema = z.object({
+  base: z
+    .object({
+      endereco: z.string().trim().min(3, 'Informe o endereço da base').max(200),
+      lat: z.number().min(-90).max(90),
+      lng: z.number().min(-180).max(180),
+    })
+    .nullable(),
+  voltaBase: z.boolean(),
+  minPorPorta: z
+    .number()
+    .int()
+    .min(ROUTE_LIMITS.minPorPorta.min)
+    .max(ROUTE_LIMITS.minPorPorta.max, 'Máximo é 15 minutos por porta'),
+  precoGasolina: PriceSchema,
+  precoEtanol: PriceSchema,
+  // GNV (Onda 11), por m³. Opcional: ausente mantém o gravado.
+  precoGnv: GnvPriceSchema.optional(),
+  fotoClienteVisivel: z.boolean(),
+  // O que o entregador vê (Onda 10). Opcionais: ausente mantém o gravado (T-19).
+  entregadorVeCombNumeros: z.boolean().optional(),
+  entregadorVeCombFimRota: z.boolean().optional(),
+  entregadorVeCombGanhos: z.boolean().optional(),
+})
+
+export type UpdateRouteSettingsBody = z.infer<typeof UpdateRouteSettingsSchema>
 
 /**
  * UpdateGatewayRatesSchema — alíquotas usadas para ESTIMAR a taxa do gateway.

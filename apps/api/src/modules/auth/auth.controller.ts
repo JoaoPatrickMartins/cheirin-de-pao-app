@@ -4,7 +4,6 @@ import {
   RegisterSchema,
   SendOtpSchema,
   VerifyOtpSchema,
-  RegisterCourierSchema,
   RefreshSchema,
   LoginSchema,
   SetPasswordSchema,
@@ -258,33 +257,6 @@ export class AuthController {
         return reply.status(result.status).send({ error: result.error })
       }
       return reply.status(200).send({ ok: true })
-    } catch (err) {
-      this.fastify.log.error(err)
-      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
-    }
-  }
-
-  async registerCourier(request: FastifyRequest, reply: FastifyReply) {
-    // Role check — only ADMIN can register couriers (T-02-04)
-    if (request.user?.role !== 'ADMIN') {
-      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
-    }
-
-    let body: ReturnType<typeof RegisterCourierSchema.parse>
-    try {
-      body = RegisterCourierSchema.parse(request.body)
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return reply.status(400).send({ error: zodMessage(err) })
-      }
-      return reply.status(400).send({ error: 'Dados inválidos.' })
-    }
-    try {
-      const result = await this.service.registerCourier(body)
-      if ('error' in result) {
-        return reply.status(result.status).send({ error: result.error })
-      }
-      return reply.status(201).send(result)
     } catch (err) {
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })

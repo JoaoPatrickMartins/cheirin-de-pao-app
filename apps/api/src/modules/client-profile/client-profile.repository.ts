@@ -45,6 +45,10 @@ export class ClientProfileRepository {
     return this.prisma.user.update({ where: { id }, data })
   }
 
+  setCourierMessagesOff(id: string, off: boolean) {
+    return this.prisma.user.update({ where: { id }, data: { courierMessagesOff: off }, select: { id: true } })
+  }
+
   findCondominium(id: string) {
     return this.prisma.condominium.findUnique({ where: { id } })
   }

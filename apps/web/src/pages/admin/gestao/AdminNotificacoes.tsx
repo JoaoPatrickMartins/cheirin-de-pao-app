@@ -35,6 +35,13 @@ const NOTIF_ITEMS: { key: string; titulo: string; descricao: string; novo?: bool
   { key: 'ADMIN_REFERRAL_REVIEW', titulo: 'Indicação para analisar', descricao: 'Quando uma indicação cai em análise', novo: true },
   { key: 'ADMIN_REFERRAL_REWARDED', titulo: 'Indicação recompensada', descricao: 'A cada recompensa creditada', novo: true },
   { key: 'ADMIN_CONDO_INTEREST', titulo: 'Pedido de novo condomínio', descricao: 'Quando alguém entra na lista de espera', novo: true },
+  // App do entregador (A10) — todos nascem ligados.
+  { key: 'ADMIN_COURIER_ISSUE', titulo: 'Problema reportado', descricao: 'Quando o entregador reporta um problema numa entrega feita', novo: true },
+  { key: 'ADMIN_COURIER_INCIDENT', titulo: 'Ocorrência do entregador', descricao: 'Atraso, problema no veículo, acidente ou pedido faltando', novo: true },
+  { key: 'ADMIN_CONDO_ACCESS_SUGGESTION', titulo: 'Sugestão de acesso', descricao: 'Quando o entregador sugere corrigir o acesso de um condomínio', novo: true },
+  { key: 'ADMIN_ROUTE_SUGGESTION', titulo: 'Nova sugestão de rota', descricao: 'Quando a rota de um entregador muda ou um prédio entra sozinho na rota padrão', novo: true },
+  { key: 'ADMIN_PAYOUT_PENDING', titulo: 'Pagamento a aprovar', descricao: 'Às segundas, com as propostas de pagamento da semana', novo: true },
+  { key: 'ADMIN_SHIFT_DECLINED', titulo: 'Turno recusado', descricao: 'Quando um entregador recusa o turno e as paradas voltam para a divisão', novo: true },
 ]
 
 export function AdminNotificacoes({ onBack }: AdminNotificacoesProps) {

@@ -120,6 +120,22 @@ export class OrdersController {
   }
 
   /**
+   * GET /orders/:id/proof — URL assinada (10 min) da foto da entrega de um pedido do próprio cliente.
+   * 404 quando não há foto para mostrar (inclusive pedido de outro cliente: não vaza existência).
+   */
+  async getOrderProof(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const { id } = request.params as { id: string }
+      const photo = await this.service.getOrderProof(request.user!.id, id)
+      if (!photo) return reply.status(404).send({ error: 'Sem foto para esta entrega' })
+      return reply.status(200).send(photo)
+    } catch (err) {
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /**
    * GET /orders/next — retorna a próxima entrega futura (de amanhã em diante).
    * Fallback do card da Home quando não há entrega hoje. 404 se não houver futura.
    */

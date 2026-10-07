@@ -79,6 +79,24 @@ export const adminHooksRoute: FastifyPluginAsync = async (fastify) => {
                     complement: { type: 'string', nullable: true, description: 'Complemento do bloco (ex.: "Lado A").' },
                     condominiumId: { type: 'string', nullable: true, description: 'ID do condomínio.' },
                     condominiumName: { type: 'string', nullable: true, description: 'Nome do condomínio.' },
+                    route: {
+                      type: 'object',
+                      nullable: true,
+                      description: 'Gancho enviado na rota (A7).',
+                      properties: {
+                        date: { type: 'string' },
+                        slotId: { type: 'string' },
+                        slotLabel: { type: 'string' },
+                        courierName: { type: 'string', nullable: true },
+                        overdue: { type: 'boolean', description: 'A data passou sem resposta do entregador.' },
+                        alone: { type: 'boolean', description: 'Sem pão no dia/turno: parada só de gancho.' },
+                      },
+                    },
+                    routeFailedAt: { type: 'string', nullable: true, description: '"Ficou para outro dia" — voltou para a fila.' },
+                    routeFailedReason: { type: 'string', nullable: true, description: 'Motivo da volta à fila (não entregue ou turno recusado).' },
+                    deliveredVia: { type: 'string', nullable: true, description: 'ADMIN · COURIER' },
+                    deliveredByName: { type: 'string', nullable: true, description: 'Entregador que deixou o gancho.' },
+                    routeState: { type: 'string', description: 'fila · rota · entregue · volta' },
                     requestedAt: { type: 'string', nullable: true, description: 'Quando entrou na fila (ISO 8601).' },
                     deliveredAt: { type: 'string', nullable: true, description: 'Quando foi entregue (ISO 8601), ou null.' },
                   },
@@ -153,4 +171,86 @@ export const adminHooksRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.grant.bind(ctrl),
   )
+
+  // ── Gancho na rota (A7) ───────────────────────────────────────────────────
+  const errS = { type: 'object', properties: { error: { type: 'string' } } }
+  const idParams = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+  const courierS = { type: 'object', nullable: true, properties: { id: { type: 'string' }, name: { type: 'string' }, photoUrl: { type: 'string', nullable: true } } }
+
+  fastify.get('/admin/hook-requests/:id/route-options', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['admin — hooks'],
+      summary: 'Dias e turnos em que o gancho pode ir (A7)',
+      description:
+        'Hoje e os próximos 6 dias, nos turnos ativos do condomínio do cliente. Cada opção diz se vai junto com o pão (pedido ou agenda) ou sozinho, ' +
+        'e quem leva: o entregador da parada quando o pão já foi despachado (courierLocked), senão uma sugestão. Restrito a ADMIN.',
+      security: [{ bearerAuth: [] }],
+      params: idParams,
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            options: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  date: { type: 'string' },
+                  slotId: { type: 'string' },
+                  slotLabel: { type: 'string' },
+                  slotEmoji: { type: 'string' },
+                  slotTime: { type: 'string' },
+                  withBread: { type: 'boolean' },
+                  courierLocked: { type: 'boolean' },
+                  courier: courierS,
+                  unavailableCourierIds: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            },
+            couriers: { type: 'array', items: courierS },
+          },
+        },
+        404: errS,
+      },
+    },
+  }, ctrl.routeOptions.bind(ctrl))
+
+  fastify.post('/admin/hook-requests/:id/route', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['admin — hooks'],
+      summary: 'Enviar o gancho na rota (A7)',
+      description:
+        'Com o pão do dia já despachado, o gancho entra na parada do cliente. Senão vai com o entregador escolhido (courierId, obrigatório): ' +
+        'se o pão sair depois com outro entregador, o gancho vai junto com o pão; sem pão, vira parada só de gancho. ' +
+        '400 se o dia/turno não está disponível ou falta o entregador · 422 entregador indisponível. Restrito a ADMIN.',
+      security: [{ bearerAuth: [] }],
+      params: idParams,
+      body: { type: 'object', required: ['date', 'slotId'], properties: { date: { type: 'string' }, slotId: { type: 'string' }, courierId: { type: 'string' } } },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            route: { type: 'object', properties: { date: { type: 'string' }, slotId: { type: 'string' }, courierName: { type: 'string', nullable: true }, alone: { type: 'boolean' } } },
+          },
+        },
+        400: errS,
+        404: errS,
+        422: errS,
+      },
+    },
+  }, ctrl.sendOnRoute.bind(ctrl))
+
+  fastify.delete('/admin/hook-requests/:id/route', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['admin — hooks'],
+      summary: 'Tirar o gancho da rota (volta para a fila)',
+      security: [{ bearerAuth: [] }],
+      params: idParams,
+      response: { 200: { type: 'object', properties: { ok: { type: 'boolean' } } }, 404: errS },
+    },
+  }, ctrl.removeFromRoute.bind(ctrl))
 }

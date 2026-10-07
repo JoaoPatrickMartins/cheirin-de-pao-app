@@ -13,7 +13,7 @@ interface AppNotification {
   actionRoute?: string
 }
 
-type Tone = 'good' | 'gold' | 'neutral'
+type Tone = 'good' | 'gold' | 'neutral' | 'danger'
 
 function getTone(type: string): Tone {
   if (
@@ -24,15 +24,21 @@ function getTone(type: string): Tone {
       'ADMIN_AUTOGEN_DONE',
       // Indique e Ganhe: recompensa paga é boa notícia.
       'ADMIN_REFERRAL_REWARDED',
+      // App do entregador: pagamento a aprovar (A10, tom do design).
+      'ADMIN_PAYOUT_PENDING',
     ].includes(type)
   )
     return 'good'
+  // App do entregador: entrega confirmada por engano pede ação imediata.
+  if (type === 'ADMIN_COURIER_ISSUE') return 'danger'
   if (
     [
       'ADMIN_DELIVERY_PENDING',
       'ADMIN_AUTOGEN_WARNING',
       'ADMIN_CUTOFF_REACHED',
       'ADMIN_LOW_STOCK',
+      // Turno recusado: as paradas voltaram para a divisão e precisam de entregador.
+      'ADMIN_SHIFT_DECLINED',
       // Financeiros (C1): todos são "olhe para isto", nenhum é boa notícia.
       'ADMIN_EXPENSE_DUE',
       'ADMIN_EXPENSE_ANOMALY',
@@ -41,6 +47,9 @@ function getTone(type: string): Tone {
       'ADMIN_GOAL_AT_RISK',
       // Indique e Ganhe: indicação em análise espera uma decisão do admin (o dourado do selo "Em análise").
       'ADMIN_REFERRAL_REVIEW',
+      // App do entregador: ocorrência e sugestão de rota esperam um olhar do admin.
+      'ADMIN_COURIER_INCIDENT',
+      'ADMIN_ROUTE_SUGGESTION',
     ].includes(type)
   )
     return 'gold'
@@ -83,6 +92,19 @@ function getIcon(type: string) {
       return 'gift'
     case 'ADMIN_CONDO_INTEREST':
       return 'building'
+    // App do entregador (A10)
+    case 'ADMIN_COURIER_ISSUE':
+      return 'alert'
+    case 'ADMIN_COURIER_INCIDENT':
+      return 'moto'
+    case 'ADMIN_CONDO_ACCESS_SUGGESTION':
+      return 'gate'
+    case 'ADMIN_ROUTE_SUGGESTION':
+      return 'route'
+    case 'ADMIN_PAYOUT_PENDING':
+      return 'wallet'
+    case 'ADMIN_SHIFT_DECLINED':
+      return 'user'
     default:
       return 'repeat'
   }
@@ -92,6 +114,7 @@ const TONE_ICON_STYLES: Record<Tone, { icon: string; bg: string }> = {
   good: { icon: 'var(--color-good)', bg: 'var(--color-good-soft)' },
   gold: { icon: 'var(--color-accent)', bg: 'var(--color-gold-soft)' },
   neutral: { icon: 'var(--color-text-sec)', bg: 'var(--color-surface-2)' },
+  danger: { icon: 'var(--color-warn)', bg: 'var(--color-warn-soft)' },
 }
 
 function formatTimestamp(dateStr: string): string {

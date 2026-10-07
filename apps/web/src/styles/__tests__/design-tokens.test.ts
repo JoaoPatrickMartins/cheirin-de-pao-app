@@ -46,7 +46,6 @@ const STYLESHEETS = import.meta.glob('../*.css', {
  */
 const KNOWN_BROKEN = [
   'components/client/GanchoConsentModal.tsx → --color-destructive',
-  'components/courier/ConfirmDeliveryDialog.tsx → --color-destructive',
   'pages/admin/tabs/AdminPedido.tsx → --accent',
   'pages/admin/tabs/AdminPedido.tsx → --gold',
   'pages/admin/tabs/AdminPedido.tsx → --text-sec',
