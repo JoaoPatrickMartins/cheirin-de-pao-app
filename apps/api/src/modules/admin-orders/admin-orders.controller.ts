@@ -23,7 +23,7 @@ function zodMessage(err: ZodError): string {
  * - preHandler: fastify.authenticate garante JWT válido (na rota)
  * - Inline role check request.user?.role !== 'ADMIN' → 403 (no handler)
  *
- * Padrão baseado em auth.controller.ts (registerCourier) e orders.controller.ts.
+ * Padrão baseado em auth.controller.ts e orders.controller.ts.
  */
 export class AdminOrdersController {
   private service: AdminOrdersService
@@ -223,6 +223,25 @@ export class AdminOrdersController {
     } catch (err) {
       const e = err as { statusCode?: number; message?: string }
       if (e.statusCode === 404) return reply.status(404).send({ error: e.message })
+      this.fastify.log.error(err)
+      return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
+    }
+  }
+
+  /** POST /admin/orders/:id/correct-not-delivered — H-2 (só o status; sem push, sem crédito). */
+  async correctNotDelivered(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Acesso negado: apenas administradores' })
+    }
+    const { id } = request.params as { id: string }
+    const note = (request.body as { note?: unknown } | null)?.note
+    if (!/^[0-9a-f]{24}$/i.test(id)) return reply.status(400).send({ error: 'Id inválido' })
+    try {
+      const data = await this.service.correctNotDelivered(id, request.user.id, typeof note === 'string' ? note.slice(0, 300) : null)
+      return reply.status(200).send(data)
+    } catch (err) {
+      const e = err as { statusCode?: number; message?: string }
+      if (e.statusCode === 404 || e.statusCode === 409) return reply.status(e.statusCode).send({ error: e.message })
       this.fastify.log.error(err)
       return reply.status(500).send({ error: 'Erro interno. Tente novamente.' })
     }

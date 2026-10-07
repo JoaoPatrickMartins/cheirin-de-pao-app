@@ -90,6 +90,17 @@ export const marketRoute: FastifyPluginAsync = async (fastify) => {
     schema: { tags: ['market'], summary: 'Histórico de Cestinhas do usuário', security: [{ bearerAuth: [] }] },
   }, ctrl.ordersHistory.bind(ctrl))
 
+  fastify.get('/market/orders/:id/proof', {
+    ...auth,
+    schema: {
+      tags: ['market'],
+      summary: 'Foto da entrega da Cestinha (comprovante)',
+      description: 'URL ASSINADA (10 min) da foto do comprovante de uma Cestinha do próprio cliente. Só com a função ligada pelo admin e por 90 dias. 404 sem foto (inclusive Cestinha de outro cliente).',
+      security: [{ bearerAuth: [] }],
+      params: idParams,
+    },
+  }, ctrl.orderProof.bind(ctrl))
+
   fastify.post('/market/orders/:id/cancel', {
     ...auth,
     schema: {

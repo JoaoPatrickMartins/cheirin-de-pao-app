@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
+import { Icon } from '../../../components/brand/Icon'
 import {
   PeriodPicker,
   periodQuery,
@@ -32,6 +33,10 @@ interface DeliveryReport {
   }
   failureReasons: Array<{ reason: string; count: number }>
   cancelReasons: Array<{ reason: string; count: number }>
+  /** A10: motivos padronizados do app do entregador (pão + Cestinha por código). */
+  failureCodes?: Array<{ code: string; label: string; count: number }>
+  /** A10: paradas sem foto (exceção "Não consigo tirar a foto"), por motivo. */
+  noPhoto?: { count: number; byReason: Array<{ label: string; count: number }> }
 }
 
 export function RelEntregas({ onBack }: { onBack: () => void }) {
@@ -98,6 +103,8 @@ export function RelEntregas({ onBack }: { onBack: () => void }) {
               name: 'Motivos',
               head: ['Tipo', 'Motivo', 'Ocorrências'],
               rows: [
+                ...(data.failureCodes ?? []).map((r) => ['Não-entrega (padronizado)', r.label, r.count]),
+                ...(data.noPhoto?.byReason ?? []).map((r) => ['Sem foto', r.label, r.count]),
                 ...data.failureReasons.map((r) => ['Não-entrega', r.reason, r.count]),
                 ...data.cancelReasons.map((r) => ['Cancelamento', r.reason, r.count]),
               ],
@@ -151,7 +158,47 @@ export function RelEntregas({ onBack }: { onBack: () => void }) {
               </ReportCard>
             )}
 
-            {data.failureReasons.length > 0 && (
+            {/* A10: motivos padronizados (o app do entregador escolhe de uma lista). */}
+            {(data.failureCodes?.length ?? 0) > 0 && (
+              <ReportCard title="Motivos de não entrega">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {(() => {
+                    const codes = data.failureCodes ?? []
+                    const tot = codes.reduce((n, r) => n + r.count, 0)
+                    const max = Math.max(1, ...codes.map((r) => r.count))
+                    return codes.map((r, i) => (
+                      <div key={r.code} role="group" aria-label={`${r.label}: ${r.count}`}>
+                        <div style={{ display: 'flex', fontFamily: 'var(--font-body)', fontSize: 13.5, marginBottom: 4 }}>
+                          <span style={{ flex: 1, fontWeight: 700, color: 'var(--color-text)' }}>{r.label}</span>
+                          <b style={{ color: 'var(--color-text)' }}>{fmtInt(r.count)}</b>
+                          <span style={{ width: 44, textAlign: 'right', color: 'var(--color-text-sec)', fontWeight: 600 }}>{tot > 0 ? `${Math.round((r.count / tot) * 100)}%` : ''}</span>
+                        </div>
+                        <div style={{ height: 8, borderRadius: 99, background: 'var(--color-surface-2)' }}>
+                          <div style={{ height: '100%', width: `${(r.count / max) * 100}%`, borderRadius: 99, background: i === 0 ? 'var(--color-warn)' : 'var(--color-accent)' }} />
+                        </div>
+                      </div>
+                    ))
+                  })()}
+                </div>
+              </ReportCard>
+            )}
+
+            {data.noPhoto && data.noPhoto.count > 0 && (
+              <ReportCard>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontFamily: 'var(--font-body)' }}>
+                  <Icon name="ban" size={19} color="var(--color-warn)" aria-hidden="true" />
+                  <div style={{ flex: 1, fontSize: 13.5, color: 'var(--color-text)' }}>
+                    <b>
+                      {fmtInt(data.noPhoto.count)} {data.noPhoto.count === 1 ? 'entrega sem foto' : 'entregas sem foto'}
+                    </b>{' '}
+                    no período
+                    {data.noPhoto.byReason[0] ? ` · ${fmtInt(data.noPhoto.byReason[0].count)} “${data.noPhoto.byReason[0].label.toLowerCase()}”` : ''}
+                  </div>
+                </div>
+              </ReportCard>
+            )}
+
+            {data.failureReasons.length > 0 && !(data.failureCodes?.length ?? 0) && (
               <ReportCard title="Motivos de não-entrega">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {data.failureReasons.map((r) => (

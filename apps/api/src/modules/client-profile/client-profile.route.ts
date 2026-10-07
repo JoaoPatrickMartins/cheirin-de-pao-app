@@ -15,6 +15,18 @@ export const clientProfileRoute: FastifyPluginAsync = async (fastify) => {
     schema: { tags: ['client-profile'], security: [{ bearerAuth: [] }], summary: 'Atualizar perfil do cliente' },
   }, ctrl.updateProfile.bind(ctrl))
 
+  fastify.patch('/client/profile/courier-messages', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['client-profile'],
+      security: [{ bearerAuth: [] }],
+      summary: 'Recados do entregador (liga/desliga)',
+      description: '`off: true` → o entregador não consegue mandar recado (E16 mostra o aviso). Ausente = recebe.',
+      body: { type: 'object', required: ['off'], properties: { off: { type: 'boolean' } } },
+      response: { 200: { type: 'object', properties: { courierMessagesOff: { type: 'boolean' } } } },
+    },
+  }, ctrl.setCourierMessages.bind(ctrl))
+
   fastify.get('/client/onboarding', {
     preHandler: [fastify.authenticate],
     schema: {

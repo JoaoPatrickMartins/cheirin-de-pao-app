@@ -55,6 +55,10 @@ export const createAppRouter = () => createBrowserRouter([
         lazy: () => import('../pages/legal/LegalPage').then((m) => ({ Component: m.TermsPage })),
       },
       {
+        path: '/termos-entregador',
+        lazy: () => import('../pages/legal/LegalPage').then((m) => ({ Component: m.CourierTermsPage })),
+      },
+      {
         path: '/exclusao-de-dados',
         lazy: () => import('../pages/legal/LegalPage').then((m) => ({ Component: m.DataDeletionPage })),
       },
@@ -286,15 +290,6 @@ export const createAppRouter = () => createBrowserRouter([
           import('../pages/admin/AdminLayout').then((m) => ({
             Component: m.AdminLayout,
           })),
-        children: [
-          {
-            path: 'couriers/new',
-            lazy: () =>
-              import('../pages/admin/CourierRegisterScreen').then((m) => ({
-                Component: m.CourierRegisterScreen,
-              })),
-          },
-        ],
       },
     ],
   },

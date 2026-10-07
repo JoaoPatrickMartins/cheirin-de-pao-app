@@ -49,6 +49,10 @@ function makeDashboardFastifyMock(overrides: Record<string, any> = {}) {
         return Promise.resolve(avulsoPaidPayments)
       }),
     },
+    // Folgas (F-8) — ninguém de folga por padrão.
+    courierTimeOff: { findMany: vi.fn().mockResolvedValue([]) },
+    // Turnos oferecidos (plano-termos-legais §5) — ninguém recusou por padrão.
+    courierShiftOffer: { findMany: vi.fn().mockResolvedValue([]) },
     user: {
       count: vi.fn().mockResolvedValue(clientCount),
       findMany: vi.fn().mockResolvedValue([]),
@@ -352,7 +356,7 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDivisionSuggestion()
 
-    expect(result).toEqual({ approved: false, assignments: [] })
+    expect(result).toEqual({ approved: false, assignments: [], declined: [] })
   })
 
   it('retorna vazio quando nao ha orders separados para hoje', async () => {
@@ -366,7 +370,7 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     const service = new AdminOrdersService(fastify as any)
     const result = await service.getDivisionSuggestion()
 
-    expect(result).toEqual({ approved: false, assignments: [] })
+    expect(result).toEqual({ approved: false, assignments: [], declined: [] })
   })
 
   it('algoritmo greedy aloca condominio ao entregador com menor total (approved=false)', async () => {
@@ -408,6 +412,31 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     // Total combinado deve ser 25 (20 + 5)
     const totalAll = result.assignments.reduce((sum, c) => sum + c.total, 0)
     expect(totalAll).toBe(25)
+  })
+
+  // F-8: quem está de folga no dia (ou fora da escala) não entra na sugestão; volta no fim, marcado.
+  it('entregador de folga fica fora da sugestão e volta marcado no fim', async () => {
+    const { fastify, prisma } = makeDashboardFastifyMock({})
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'c-01', name: 'Joao', courierAvailability: null },
+      { id: 'c-02', name: 'Rui', courierAvailability: null },
+    ])
+    prisma.courierTimeOff.findMany.mockResolvedValue([{ courierId: 'c-01', startDate: '2026-10-02', endDate: '2026-10-02' }])
+    mockOrdersBySeparated(prisma, [
+      { condominiumId: 'condo-A', quantity: 10 },
+      { condominiumId: 'condo-B', quantity: 5 },
+    ])
+    prisma.condominium.findMany.mockResolvedValue([
+      { id: 'condo-A', name: 'Condo A' },
+      { id: 'condo-B', name: 'Condo B' },
+    ])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await new AdminOrdersService(fastify as any).getDivisionSuggestion('manha', '2026-10-02')
+    expect(result.assignments.map((a) => [a.courierName, a.total, a.offReason])).toEqual([
+      ['Rui', 15, null],
+      ['Joao', 0, 'FOLGA'],
+    ])
+    expect(prisma.courierTimeOff.findMany.mock.calls[0][0].where).toMatchObject({ startDate: { lte: '2026-10-02' }, endDate: { gte: '2026-10-02' } })
   })
 
   it('retorna entregadores sem condominio quando ha mais entregadores que condominios', async () => {
@@ -482,5 +511,49 @@ describe('AdminOrdersService.getDivisionSuggestion', () => {
     ])
     const maria = result.assignments.find((a) => a.courierId === 'c-02')!
     expect(maria.total).toBe(5)
+  })
+
+  it('recusa do turno (plano-termos-legais §5): aprovada com paradas sem entregador → sugestão só delas, sem quem recusou', async () => {
+    const { fastify, prisma } = makeDashboardFastifyMock({})
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'c-01', name: 'Joao' },
+      { id: 'c-02', name: 'Maria' },
+      { id: 'c-03', name: 'Rui' },
+    ])
+    // Maria segue com o Condo B na rua; o Condo A (do Joao, que recusou) voltou a SEPARATED
+    mockOrdersBySeparated(prisma, [{ userId: 'u1', condominiumId: 'condo-A', quantity: 10 }], [{ userId: 'u2', courierId: 'c-02', condominiumId: 'condo-B', quantity: 5 }])
+    prisma.condominium.findMany.mockResolvedValue([
+      { id: 'condo-A', name: 'Condo A' },
+      { id: 'condo-B', name: 'Condo B' },
+    ])
+    prisma.courierShiftOffer.findMany.mockResolvedValue([
+      { courierId: 'c-01', slotId: 'manha', status: 'DECLINED', reason: 'VEICULO', stops: 1, offeredAt: new Date('2026-10-02T07:00:00Z'), respondedAt: new Date('2026-10-02T07:20:00Z'), updatedAt: new Date('2026-10-02T07:20:00Z') },
+    ])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await new AdminOrdersService(fastify as any).getDivisionSuggestion('manha', '2026-10-02')
+
+    expect(result.approved).toBe(false)
+    expect(result.partial).toEqual({ dispatchedStops: 1 })
+    expect(result.declined).toEqual([{ courierId: 'c-01', courierName: 'Joao', slotId: 'manha', at: '2026-10-02T07:20:00.000Z', reason: 'VEICULO', stops: 1 }])
+    const joao = result.assignments.find((a) => a.courierId === 'c-01')!
+    expect(joao).toMatchObject({ offReason: 'RECUSOU', condominiums: [] })
+    // a sugestão leva só o Condo A, para quem não recusou
+    const withA = result.assignments.find((a) => a.condominiums.some((c) => c.condominiumId === 'condo-A'))!
+    expect(withA.courierId).not.toBe('c-01')
+    expect(result.assignments.flatMap((a) => a.condominiums.map((c) => c.condominiumId))).toEqual(['condo-A'])
+  })
+
+  it('quem recusou e recebeu o turno de novo depois não conta mais como recusa', async () => {
+    const { fastify, prisma } = makeDashboardFastifyMock({})
+    prisma.user.findMany.mockResolvedValue([{ id: 'c-01', name: 'Joao' }])
+    mockOrdersBySeparated(prisma, [], [{ userId: 'u1', courierId: 'c-01', condominiumId: 'condo-A', quantity: 10 }])
+    prisma.condominium.findMany.mockResolvedValue([{ id: 'condo-A', name: 'Condo A' }])
+    prisma.courierShiftOffer.findMany.mockResolvedValue([
+      { courierId: 'c-01', slotId: 'manha', status: 'OFFERED', stops: 1, offeredAt: new Date('2026-10-02T08:00:00Z'), respondedAt: null, updatedAt: new Date('2026-10-02T08:00:00Z') },
+      { courierId: 'c-01', slotId: 'manha', status: 'DECLINED', stops: 1, offeredAt: new Date('2026-10-02T07:00:00Z'), respondedAt: new Date('2026-10-02T07:20:00Z'), updatedAt: new Date('2026-10-02T07:20:00Z') },
+    ])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await new AdminOrdersService(fastify as any).getDivisionSuggestion('manha', '2026-10-02')
+    expect(result).toMatchObject({ approved: true, declined: [] })
   })
 })

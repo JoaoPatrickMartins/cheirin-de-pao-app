@@ -23,6 +23,8 @@ function at(hhmm: string): Date {
 function makeFastifyMock(opts: {
   condominiums: Array<{ id: string; name: string; deliverySlots: unknown[] }>
   orders?: Array<{ courierId: string | null; status: string }>
+  /** Entregadores com a rota do turno iniciada (Onda 5). */
+  startedRuns?: string[]
 }) {
   const orderFindMany = vi.fn().mockResolvedValue(opts.orders ?? [])
   const prisma = {
@@ -30,6 +32,7 @@ function makeFastifyMock(opts: {
     condominium: { findMany: vi.fn().mockResolvedValue(opts.condominiums) },
     order: { findMany: orderFindMany },
     marketOrder: { findMany: vi.fn().mockResolvedValue([]) },
+    courierRun: { findMany: vi.fn().mockResolvedValue((opts.startedRuns ?? []).map((courierId) => ({ courierId }))) },
   }
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,5 +108,18 @@ describe('sendCourierPendingReminders — disparo por horário efetivo', () => {
     const service = new CourierService(fastify)
     await service.sendCourierPendingReminders(at('06:30'))
     expect(notifyUser).not.toHaveBeenCalled()
+  })
+
+  it('não lembra quem já iniciou a rota do turno, mesmo sem entrega concluída', async () => {
+    const { fastify } = makeFastifyMock({
+      condominiums: [{ id: 'c1', name: 'Alfa', deliverySlots: [MANHA] }],
+      orders: [
+        { courierId: 'cour-1', status: 'OUT_FOR_DELIVERY' },
+        { courierId: 'cour-2', status: 'OUT_FOR_DELIVERY' },
+      ],
+      startedRuns: ['cour-1'],
+    })
+    await new CourierService(fastify).sendCourierPendingReminders(at('06:30'))
+    expect(notifyUser.mock.calls.map(([id]) => id)).toEqual(['cour-2'])
   })
 })

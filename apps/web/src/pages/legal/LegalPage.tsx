@@ -13,9 +13,11 @@ import {
   type LegalSection,
 } from '../../content/legal'
 import { supportWhatsappUrl } from '../../lib/support'
+import { COURIER_TERMS, COURIER_TERMS_DATE, COURIER_TERMS_INTRO, COURIER_TERMS_SECTIONS } from '../../content/courierTerms'
 
 /**
- * Páginas públicas (handoff L9): Política de Privacidade, Termos de Uso e Exclusão de dados.
+ * Páginas públicas (handoff L9): Política de Privacidade, Termos de Uso, Exclusão de dados e o Termo
+ * do Entregador Parceiro (plano-termos-legais §6 · T-T10).
  * Abrem logado ou não — o Google e a LGPD pedem URL pública. Texto em content/legal.ts (rascunho).
  */
 
@@ -25,7 +27,7 @@ function useBack() {
   return () => (window.history.length > 1 ? navigate(-1) : navigate('/'))
 }
 
-function LegalShell({ title, children }: { title: string; children: React.ReactNode }) {
+function LegalShell({ title, updated, children }: { title: string; updated?: string; children: React.ReactNode }) {
   const back = useBack()
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--color-app-bg)' }}>
@@ -40,7 +42,7 @@ function LegalShell({ title, children }: { title: string; children: React.ReactN
           {title}
         </h1>
         <div style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: 'var(--color-text-ter)', marginTop: 10, fontWeight: 600 }}>
-          Atualizado em {LEGAL_UPDATED_AT}
+          {updated ?? `Atualizado em ${LEGAL_UPDATED_AT}`}
         </div>
         {LEGAL_DRAFT && (
           <div style={{ marginTop: 16 }}>
@@ -74,7 +76,7 @@ function LegalShell({ title, children }: { title: string; children: React.ReactN
   )
 }
 
-function Sections({ sections }: { sections: LegalSection[] }) {
+export function Sections({ sections }: { sections: LegalSection[] }) {
   return (
     <>
       {sections.map((sec) => (
@@ -105,6 +107,15 @@ export function TermsPage() {
   return (
     <LegalShell title="Termos de Uso">
       <Sections sections={TERMS_SECTIONS} />
+    </LegalShell>
+  )
+}
+
+export function CourierTermsPage() {
+  return (
+    <LegalShell title={COURIER_TERMS.title} updated={`Versão ${COURIER_TERMS.version} · ${COURIER_TERMS_DATE}`}>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, lineHeight: 1.65, color: 'var(--color-text)', marginTop: 20, marginBottom: 0 }}>{COURIER_TERMS_INTRO}</p>
+      <Sections sections={COURIER_TERMS_SECTIONS} />
     </LegalShell>
   )
 }

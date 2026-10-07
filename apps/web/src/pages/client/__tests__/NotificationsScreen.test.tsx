@@ -1,11 +1,12 @@
 // NotificationsScreen page tests
 // Requirements: ACOMP-04 (cards por tipo + CTAs), ACOMP-05 (badge sync via NotifContext)
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 
 const mockApiFetch = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
+const mockNavigate = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../lib/apiFetch', () => ({ apiFetch: mockApiFetch }))
 vi.mock('../../../contexts/NotifContext', () => ({
@@ -14,7 +15,7 @@ vi.mock('../../../contexts/NotifContext', () => ({
 }))
 vi.mock('react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router')>()
-  return { ...actual, useNavigate: () => vi.fn() }
+  return { ...actual, useNavigate: () => mockNavigate }
 })
 
 import { NotificationsScreen } from '../NotificationsScreen'
@@ -30,7 +31,7 @@ function makeNotif(type: string) {
   }
 }
 
-function mockApiForNotifs(notifs: ReturnType<typeof makeNotif>[]) {
+function mockApiForNotifs(notifs: Array<ReturnType<typeof makeNotif> & { actionRoute?: string }>) {
   mockApiFetch.mockImplementation((url: string) => {
     if (url === '/notifications/me') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(notifs) })
@@ -69,13 +70,25 @@ describe('NotificationsScreen [ACOMP-04, ACOMP-05]', () => {
     expect(screen.getByText('Ver pedido')).toBeDefined()
   })
 
-  it('CTA_CONFIG inclui OUT_FOR_DELIVERY com label "Acompanhar"', async () => {
-    mockApiForNotifs([makeNotif('OUT_FOR_DELIVERY')])
+  // "Saiu para entrega" (H-1 do app do entregador). O mapa antigo usava 'OUT_FOR_DELIVERY', que
+  // nunca existiu no enum NotificationType — o botão nunca aparecia.
+  it('CTA_CONFIG inclui DELIVERY_OUT com label "Acompanhar"', async () => {
+    mockApiForNotifs([makeNotif('DELIVERY_OUT')])
     render(<MemoryRouter><NotificationsScreen /></MemoryRouter>)
     await waitFor(() => {
-      expect(screen.getByText('Título OUT_FOR_DELIVERY')).toBeDefined()
+      expect(screen.getByText('Título DELIVERY_OUT')).toBeDefined()
     })
     expect(screen.getByText('Acompanhar')).toBeDefined()
+  })
+
+  it('recado do entregador (COURIER_MESSAGE) aparece sem botão', async () => {
+    mockApiForNotifs([makeNotif('COURIER_MESSAGE')])
+    render(<MemoryRouter><NotificationsScreen /></MemoryRouter>)
+    await waitFor(() => {
+      expect(screen.getByText('Título COURIER_MESSAGE')).toBeDefined()
+    })
+    expect(screen.queryByText('Acompanhar')).toBeNull()
+    expect(screen.queryByText('Ver pedido')).toBeNull()
   })
 
   it('refresh() é chamado após PATCH mark-all-read', async () => {
@@ -112,5 +125,18 @@ describe('NotificationsScreen [ACOMP-04, ACOMP-05]', () => {
     expect(card.style.border).toContain('var(--color-gold)')
     const iconCircle = card.firstElementChild as HTMLElement
     expect(iconCircle.style.borderRadius).toBe('999px')
+  })
+
+  // C3 do plano do entregador: entrega com foto visível ao cliente → "Ver foto" abre o comprovante.
+  it('DELIVERY_DONE com comprovante: "Ver foto" leva à foto; sem comprovante segue "Ver pedido"', async () => {
+    mockApiForNotifs([
+      { ...makeNotif('DELIVERY_DONE'), id: 'n1', actionRoute: '/client/pedidos?comprovante=o1' },
+      { ...makeNotif('DELIVERY_DONE'), id: 'n2', title: 'Outra entrega', actionRoute: '/client/pedidos' },
+    ])
+    render(<MemoryRouter><NotificationsScreen /></MemoryRouter>)
+    const photo = await screen.findByRole('button', { name: 'Ver foto' })
+    expect(screen.getByRole('button', { name: 'Ver pedido' })).toBeDefined()
+    fireEvent.click(photo)
+    expect(mockNavigate).toHaveBeenCalledWith('/client/pedidos?comprovante=o1')
   })
 })

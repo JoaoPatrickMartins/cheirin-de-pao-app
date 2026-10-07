@@ -1,10 +1,12 @@
 import { formatCredits, toMilli, formatUnit } from '@cheirin-de-pao/shared'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../../lib/apiFetch'
 import { Icon } from '../brand/Icon'
 import { FirstOrderChip } from './FirstOrderChip'
 import { usePrintQueue } from './coupon/CouponShell'
 import { OrderCouponSheet, type CouponData } from './coupon/OrderCoupon'
+import { OrderProof, type ProofDetail } from './OrderProof'
+import { OrderIssues, type CorrectionDetail, type IssueDetail } from './OrderIssues'
 
 export interface LedgerRow {
   /** D-4: o ledger é unificado — 'BREAD' (pedido de pão) | 'CESTINHA' (mini market). */
@@ -74,6 +76,14 @@ export interface OrderDetailExtras {
   creditsDebitedDerived: boolean
   refundedCredits: number
   payment: OrderPayment | null
+  /** Motivo padronizado da não entrega (M-4); null no pedido antigo ou entregue. */
+  failureCode: string | null
+  /** Comprovante da parada (A1); null sem registro. */
+  proof: ProofDetail | null
+  /** Problemas reportados pelo entregador (E11). */
+  issues: IssueDetail[]
+  /** Correção entregue → não entregue (H-2). */
+  correction: CorrectionDetail | null
 }
 
 export type OrderDetailRow = LedgerRow & OrderDetailExtras
@@ -143,8 +153,16 @@ function toExtras(row: LedgerRow): OrderDetailExtras | null {
     creditsDebitedDerived: r.creditsDebitedDerived ?? false,
     refundedCredits: r.refundedCredits ?? 0,
     payment: r.payment ?? null,
+    failureCode: r.failureCode ?? null,
+    proof: r.proof ?? null,
+    issues: r.issues ?? [],
+    correction: r.correction ?? null,
   }
 }
+
+/** Foto ainda subindo: o detalhe se atualiza sozinho por alguns minutos. */
+const PROOF_POLL_MS = 20_000
+const PROOF_POLL_MAX = 9
 
 /**
  * Detalhe de um pedido com o "resolver": para um pedido ativo/parado, permite dar o
@@ -180,6 +198,36 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
       cancelled = true
     }
   }, [detailId, row.kind, extras])
+
+  // Busca o detalhe de novo: foto ainda subindo ou URL assinada vencida (10 min).
+  const aliveRef = useRef(true)
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+    }
+  }, [])
+  const refetchDetail = useCallback(async () => {
+    if (!detailId) return
+    try {
+      const res = await apiFetch(`/admin/orders/${detailId}?kind=${row.kind}`)
+      if (res.ok && aliveRef.current) setExtras(toExtras((await res.json()) as OrderDetailRow))
+    } catch {
+      // segue com o que já está na tela
+    }
+  }, [detailId, row.kind])
+
+  const proofPending = extras?.proof?.status === 'PENDING'
+  useEffect(() => {
+    if (!proofPending) return
+    let n = 0
+    const t = setInterval(() => {
+      n += 1
+      if (n > PROOF_POLL_MAX) clearInterval(t)
+      else void refetchDetail()
+    }, PROOF_POLL_MS)
+    return () => clearInterval(t)
+  }, [proofPending, refetchDetail])
 
   const meta = STATUS_META[row.status] ?? { label: row.status, color: 'var(--color-text-ter)', soft: 'var(--color-surface-2)' }
   const isCestinha = row.kind === 'CESTINHA'
@@ -338,7 +386,8 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
           {row.separatedAt && <DetailRow label="Separado em" value={fmt(row.separatedAt)} />}
           {row.deliveredAt && <DetailRow label="Entregue em" value={fmt(row.deliveredAt)} />}
           {row.failedAt && <DetailRow label="Não entregue em" value={fmt(row.failedAt)} />}
-          {row.failureReason && <DetailRow label="Motivo" value={row.failureReason} />}
+          {/* Com comprovante, o motivo aparece na seção dele (com o texto do entregador). */}
+          {row.failureReason && !extras?.proof && <DetailRow label="Motivo" value={row.failureReason} />}
           {row.cancelReason && <DetailRow label="Motivo do cancelamento" value={row.cancelReason} />}
           {row.deliveryNote && <DetailRow label="Nota da entrega" value={row.deliveryNote} />}
           {row.refunded && <DetailRow label="Pães" value="Devolvidos ao saldo ✓" />}
@@ -365,6 +414,31 @@ export function OrderDetailSheet({ row, onClose, onChanged }: { row: LedgerRow; 
           )}
           {extras?.createdAt && <DetailRow label="Pedido feito em" value={fmt(extras.createdAt)} />}
         </div>
+
+        {extras?.proof && (
+          <OrderProof
+            proof={extras.proof}
+            delivered={extras.proof.outcome === 'DELIVERED'}
+            at={(extras.proof.outcome === 'DELIVERED' ? row.deliveredAt : row.failedAt) || null}
+            courierName={row.courierName}
+            failureCode={extras.failureCode}
+            failureReason={row.failureReason}
+            place={formatUnit(row) || row.clientName}
+            onRefresh={() => void refetchDetail()}
+          />
+        )}
+        {extras && detailId && (
+          <OrderIssues
+            issues={extras.issues}
+            correction={extras.correction}
+            orderId={detailId}
+            canCorrect={row.status === 'DELIVERED' && !extras.correction}
+            onCorrected={() => {
+              void refetchDetail()
+              onChanged()
+            }}
+          />
+        )}
 
         {/* ── Pagamento ──────────────────────────────────────────────────────
             Um pedido de pão pode não ter pagamento nenhum (saiu do saldo). Dizer "pago com

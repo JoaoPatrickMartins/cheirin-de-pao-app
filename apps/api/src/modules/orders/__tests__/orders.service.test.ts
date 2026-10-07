@@ -28,6 +28,8 @@ function makeFastifyMock(overrides: {
   creditMilli?: number
   transactionError?: unknown
   orderFindFirst?: unknown
+  /** Rota do turno do pedido (C1). */
+  courierRun?: { startedAt: Date } | null
   orderFindMany?: unknown[]
   condominiumId?: string
   deliverySlots?: { name: string; time: string; cutoffTime: string; isActive: boolean }[]
@@ -83,6 +85,8 @@ function makeFastifyMock(overrides: {
 
   // Config de pedido mínimo (global). Default: chave ausente → mínimo efetivo 1.
   const setting = {
+    // getRouteConfig (foto da entrega visível ao cliente) — sem chaves = padrão (visível).
+    findMany: vi.fn().mockResolvedValue([]),
     findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) =>
       where.key === 'pedidoMinimoUnico' && overrides.pedidoMinimoUnico !== undefined
         ? Promise.resolve({ key: 'pedidoMinimoUnico', value: String(overrides.pedidoMinimoUnico) })
@@ -102,6 +106,9 @@ function makeFastifyMock(overrides: {
         condominium,
         setting,
         deliveryBlock,
+        deliveryProof: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
+        // Rota do turno (C1): sem rota iniciada por padrão.
+        courierRun: { findUnique: vi.fn().mockResolvedValue(overrides.courierRun ?? null) },
       },
       log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
     } as unknown,
@@ -564,7 +571,7 @@ describe('OrdersService', () => {
     expect(call.where.scheduledDate.lte).toBeInstanceOf(Date)
   })
 
-  it('05-03b: getTodayOrder retorna o order encontrado sem transformação', async () => {
+  it('05-03b: getTodayOrder devolve o order + motivo do cliente e o selo do comprovante', async () => {
     const fakeOrder = { id: 'order-today', status: 'SCHEDULED', quantity: 3 }
     const { fastify } = makeFastifyMock({ orderFindFirst: fakeOrder })
 
@@ -574,7 +581,40 @@ describe('OrdersService', () => {
 
     const result = await service.getTodayOrder('userId-abc')
 
-    expect(result).toEqual(fakeOrder)
+    expect(result).toEqual({ ...fakeOrder, failureText: null, proof: { available: false, expired: false }, onTheWayAt: null, courier: null })
+  })
+
+  // C1 / D-7: o cliente só vê "a caminho" e quem traz depois de o entregador INICIAR a rota.
+  it('getTodayOrder: com a rota do turno iniciada, mostra desde quando e o entregador (primeiro nome + foto)', async () => {
+    const fakeOrder = { id: 'order-today', status: 'OUT_FOR_DELIVERY', quantity: 4, courierId: 'k1', slotId: 'manha', scheduledDate: new Date('2026-10-02T15:00:00Z') }
+    const { fastify } = makeFastifyMock({ orderFindFirst: fakeOrder, courierRun: { startedAt: new Date('2026-10-02T08:40:00Z') } })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prisma = (fastify as any).prisma
+    prisma.user.findUnique = vi.fn().mockResolvedValue({ name: 'Antônio Ribeiro', courierPhotoUrl: 'https://cdn/couriers/a.jpg' })
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await new OrdersService(fastify as any).getTodayOrder('userId-abc')
+    expect(result).toMatchObject({ onTheWayAt: '2026-10-02T08:40:00.000Z', courier: { firstName: 'Antônio', photoUrl: 'https://cdn/couriers/a.jpg' }, courierName: 'Antônio' })
+    expect(prisma.courierRun.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { courierId_date_slotId: { courierId: 'k1', date: '2026-10-02', slotId: 'manha' } } }))
+  })
+
+  it('getTodayOrder: em rota pelo admin mas sem a rota iniciada → nada do entregador', async () => {
+    const fakeOrder = { id: 'order-today', status: 'OUT_FOR_DELIVERY', quantity: 4, courierId: 'k1', slotId: 'manha', scheduledDate: new Date('2026-10-02T15:00:00Z') }
+    const { fastify } = makeFastifyMock({ orderFindFirst: fakeOrder })
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await new OrdersService(fastify as any).getTodayOrder('userId-abc')
+    expect(result).toMatchObject({ onTheWayAt: null, courier: null })
+    expect(result).not.toHaveProperty('courierName')
+  })
+
+  it('getTodayOrder traduz o motivo padronizado para o cliente (nunca o texto livre)', async () => {
+    const fakeOrder = { id: 'order-today', status: 'NOT_DELIVERED', quantity: 3, failureCode: 'PORTARIA_NAO_LIBEROU', failureReason: 'porteiro dormindo' }
+    const { fastify } = makeFastifyMock({ orderFindFirst: fakeOrder })
+    const { OrdersService } = await import('../orders.service.js')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await new OrdersService(fastify as any).getTodayOrder('userId-abc')
+    expect(result?.failureText).toBe('não conseguimos acesso pela portaria')
   })
 
   it('05-03c: getTodayOrder retorna null quando findFirst retorna null', async () => {

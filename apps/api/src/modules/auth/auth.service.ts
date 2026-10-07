@@ -4,7 +4,7 @@ import { FastifyInstance } from 'fastify'
 import { AuthRepository } from './auth.repository.js'
 import { sendEmailOtp } from './otp.service.js'
 import { attachReferralAtSignup, markReferralVerified } from '../../lib/referral.js'
-import type { RegisterBody, RegisterCourierBody } from './auth.schema.js'
+import type { RegisterBody } from './auth.schema.js'
 
 const REFRESH_EXPIRY_MS = 90 * 24 * 60 * 60 * 1000 // 90 dias
 const BCRYPT_ROUNDS = 10
@@ -372,24 +372,6 @@ export class AuthService {
     // cadastro (inclusive versões antigas do PWA em cache). Enviar nos dois lugares mandava dois
     // e-mails, e o 2º invalidava o 1º — quem digitava o código do primeiro e-mail via "Código
     // incorreto".
-    return { userId: user.id }
-  }
-
-  async registerCourier(
-    body: RegisterCourierBody,
-  ): Promise<{ userId: string } | { error: string; status: 409 }> {
-    const { name, cpf, phone, email } = body
-
-    if (phone) {
-      const existing = await this.repo.findUserByPhone(phone)
-      if (existing) return { error: 'Telefone já cadastrado', status: 409 }
-    }
-    if (email) {
-      const existing = await this.repo.findUserByEmail(email)
-      if (existing) return { error: 'Email já cadastrado', status: 409 }
-    }
-
-    const user = await this.repo.createUser({ name, cpf, phone, email, role: 'COURIER' })
     return { userId: user.id }
   }
 }

@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify'
+import { failureClientText } from '@cheirin-de-pao/shared'
+import { proofFlags, clientProofPhoto, type ClientProofFlags, type ClientProofPhoto } from '../../lib/client-proof.js'
 import { fromMilli } from '@cheirin-de-pao/shared'
 import { brtDateStr, brtDayRange, isPastCutoffForDelivery } from '../../lib/cutoff.js'
 import { reverseMarketOrder } from '../../lib/market-reversal.js'
@@ -24,6 +26,12 @@ interface MarketOrderView {
   cancelReason: string | null
   /** Créditos devolvidos (só quando CANCELLED) — para "estornado em X pãezinhos". */
   refundedCredits: number | null
+  deliveredAt: string | null
+  failedAt: string | null
+  /** Motivo da não entrega na linguagem do cliente (app do entregador). */
+  failureText: string | null
+  /** Comprovante (foto) — só com a função ligada pelo admin, por 90 dias. */
+  proof: ClientProofFlags
 }
 
 /**
@@ -80,9 +88,13 @@ export class MarketOrdersService {
       moneyAmount: number
       createdAt: Date
       cancelReason: string | null
+      deliveredAt?: Date | null
+      failedAt?: Date | null
+      failureCode?: string | null
     },
     slots: Parameters<MarketOrdersService['cutoffPassed']>[1],
     refundedById: Map<string, number>,
+    proofById: Map<string, ClientProofFlags> = new Map(),
   ): MarketOrderView {
     const isOpen = (OPEN_STATUSES as readonly string[]).includes(order.status)
     const cancelable = isOpen && !this.cutoffPassed(order, slots)
@@ -102,6 +114,10 @@ export class MarketOrdersService {
       cancelable,
       cancelReason: order.cancelReason,
       refundedCredits: order.status === 'CANCELLED' ? refundedById.get(order.id) ?? 0 : null,
+      deliveredAt: order.deliveredAt ? order.deliveredAt.toISOString() : null,
+      failedAt: order.failedAt ? order.failedAt.toISOString() : null,
+      failureText: failureClientText(order.failureCode),
+      proof: proofById.get(order.id) ?? { available: false, expired: false },
     }
   }
 
@@ -125,7 +141,14 @@ export class MarketOrdersService {
   private async view(orders: Parameters<MarketOrdersService['serialize']>[0][], userId: string): Promise<MarketOrderView[]> {
     const slots = await this.userSlots(userId)
     const refunds = await this.refundsFor(orders.filter((o) => o.status === 'CANCELLED').map((o) => o.id))
-    return orders.map((o) => this.serialize(o, slots, refunds))
+    const done = orders.filter((o) => o.status === 'DELIVERED' || o.status === 'NOT_DELIVERED').map((o) => o.id)
+    const { byMarketOrder } = await proofFlags(this.prisma, { marketOrderIds: done })
+    return orders.map((o) => this.serialize(o, slots, refunds, byMarketOrder))
+  }
+
+  /** Foto da entrega de uma Cestinha do próprio cliente (C2). null = nada para mostrar. */
+  async getProof(userId: string, marketOrderId: string): Promise<ClientProofPhoto | null> {
+    return clientProofPhoto(this.prisma, userId, { marketOrderId })
   }
 
   // ── Acompanhamento / histórico (C7) ──────────────────────────────────────────

@@ -184,6 +184,9 @@ enum NotificationType {
   REFERRAL_REWARD // quem indicou: a indicação valeu (ganhou X pãezins)
   REFERRAL_WELCOME // o amigo: presente de boas-vindas (ganhou Y pãezins)
   REFERRAL_INVITE // convite para indicar, uma vez na vida, depois da 1ª entrega
+  // Cliente — app do entregador (plano-app-entregador)
+  DELIVERY_OUT // o entregador INICIOU a rota do turno: "Saiu para entrega" (H-1, com push)
+  COURIER_MESSAGE // recado pronto do entregador ("Estou na portaria") — o cliente pode desligar
   // Admin — avisos operacionais (cada um com toggle individual em adminNotificationPrefs)
   ADMIN_ORDER_PLACED
   ADMIN_HOOK_REQUESTED
@@ -200,6 +203,13 @@ enum NotificationType {
   ADMIN_REFERRAL_REVIEW // indicação caiu num sinal e aguarda aprovar/recusar
   ADMIN_REFERRAL_REWARDED // indicação recompensada (informativo)
   ADMIN_CONDO_INTEREST // visitante pediu um condomínio que ainda não é atendido
+  // App do entregador — todos nascem LIGADOS (toggle individual em adminNotificationPrefs).
+  ADMIN_COURIER_ISSUE // entregador reportou problema numa entrega realizada ("confirmei por engano")
+  ADMIN_COURIER_INCIDENT // ocorrência do entregador (atraso, veículo, acidente, pedido faltando)
+  ADMIN_CONDO_ACCESS_SUGGESTION // entregador sugeriu correção no acesso de um condomínio
+  ADMIN_ROUTE_SUGGESTION // a rota de um entregador mudou e há uma sugestão nova para aceitar
+  ADMIN_PAYOUT_PENDING // propostas de pagamento da semana aguardando aprovação
+  ADMIN_SHIFT_DECLINED // entregador recusou o turno: as paradas voltaram para a divisão (plano-termos-legais §5)
 
   // ── Alertas FINANCEIROS (C1 · escopo firmado da Fase 5) ────────────────────
   // O encanamento já existia inteiro — push, toggle por tipo, tela de preferências. O que faltava
@@ -356,6 +366,29 @@ model User {
   referralInviteAt        DateTime?
   // Card da Home fechado pelo cliente (D-11) — fica escondido por 30 dias, em qualquer aparelho.
   referralCardDismissedAt DateTime?
+  // ── App do entregador (plano-app-entregador §3.1) ─────────────────────────
+  // Todos ausentes em documento antigo: ler SEMPRE por `select` + `?? padrão`, nunca filtrar por
+  // null. Os de COURIER são definidos pelo ADMIN no cadastro (o entregador só vê).
+  courierPhotoUrl         String? // foto do crachá / avatar (pasta pública `couriers/`)
+  // { tipo: MOTO|CARRO|BIKE|A_PE, modelo?, placa?, combustivel?: GASOLINA|ETANOL|FLEX|GNV, kmPorLitro? }
+  // GNV só no carro; nele, `kmPorLitro` vale km/m³ (Onda 11 · T-34).
+  courierVehicle          Json?
+  // { fotoEntrega, fotoNaoEntrega, podeReordenar, podeRecados } — AUSENTE = foto obrigatória nos
+  // dois desfechos, reordenar e recados desligados (V-17). Resolução em `lib/courier-profile.ts`.
+  courierRules            Json?
+  // { modalidade: PER_DELIVERY|PER_ROUTE|WEEKLY_FIXED, valor, pagaCombustivel } — ausente = sem modalidade
+  courierPay              Json?
+  // { dias: ['seg'..'dom'], turnos: [slotId] } — AUSENTE = todos os dias e turnos (comportamento antigo)
+  courierAvailability     Json?
+  // Nº do crachá, sequencial (H-3). SEM `@unique` de propósito: único PARCIAL em ensure-indexes
+  // (o `db push` criaria um único comum e todo documento sem a chave colidiria). NUNCA gravar null.
+  badgeNumber             Int?
+  badgeValidUntil         DateTime? // validade do crachá; vencido = crachá inativo
+  // Segredo do QR do crachá v3 (Onda 11 · T-23): o aparelho gera QR e código a cada 30 s com ele.
+  // Gerado na 1ª chamada de GET /courier/badge-key. NUNCA sai nas rotas do admin.
+  badgeSecret             String?
+  // CLIENTE — desligou os recados do entregador (ausente = recebe)
+  courierMessagesOff      Boolean?
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 }
@@ -390,6 +423,9 @@ model Condominium {
   pedidoMinimoUnicoOverride    Int? // pães por pedido único, 1..20
   pedidoMinimoAgendaOverride   Json? // mapa completo {seg..dom}, 0..12 (por turno)
   marketMinimoCestinhaOverride Float? // valor mínimo da Cestinha em R$, >= 0 (0 = sem mínimo)
+  // Acesso para o entregador (F-3): { portaria?, temPorteiro?, portao?, parar?, obs?, fotoUrl? }.
+  // Ausente = "Nenhuma dica ainda". Foto da entrada na pasta pública `condos/`.
+  courierAccess                Json?
   createdAt                    DateTime       @default(now())
   updatedAt                    DateTime       @updatedAt
 }
@@ -496,6 +532,14 @@ model Order {
   cancelledAt    DateTime? // quando foi cancelado
   cancelReason   String? // motivo do cancelamento
   deliveryNote   String? // nota da entrega manual/retroativa (resolução de pedido parado marcado como entregue)
+  // App do entregador. failureCode = motivo PADRONIZADO (lista em packages/shared/src/courier.ts);
+  // failureReason continua sendo o texto livre ("Outro" e detalhes).
+  failureCode    String?
+  confirmedVia   String? // 'SCAN' | 'CODE' | 'LIST' (T-17)
+  // Correção entregue → não entregue feita pelo admin a partir de um problema reportado (H-2).
+  correctedAt    DateTime?
+  correctedById  String?     @db.ObjectId
+  correctionNote String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -668,18 +712,27 @@ model Payment {
 // Substitui os campos hook* do User (single-slot) por histórico: 1 grátis + N pagos/bônus.
 // Regra do grátis "uma vez só": cliente elegível ⇔ NÃO possui nenhum HookRequest.
 model HookRequest {
-  id            String            @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String            @db.ObjectId
-  type          HookRequestType
-  status        HookRequestStatus
-  reason        String? // motivo (defeito/perda no PAID; texto da bonificação no BONUS)
-  paymentId     String?           @db.ObjectId // vínculo ao Payment (apenas PAID)
-  grantedById   String?           @db.ObjectId // admin que concedeu (apenas BONUS)
-  requestedAt   DateTime? // quando entrou na fila de entrega (status REQUESTED)
-  deliveredAt   DateTime? // quando o admin registrou a entrega
-  deliveredById String?           @db.ObjectId // admin que entregou (auditoria)
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id                String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String            @db.ObjectId
+  type              HookRequestType
+  status            HookRequestStatus
+  reason            String? // motivo (defeito/perda no PAID; texto da bonificação no BONUS)
+  paymentId         String?           @db.ObjectId // vínculo ao Payment (apenas PAID)
+  grantedById       String?           @db.ObjectId // admin que concedeu (apenas BONUS)
+  requestedAt       DateTime? // quando entrou na fila de entrega (status REQUESTED)
+  deliveredAt       DateTime? // quando o admin registrou a entrega
+  deliveredById     String?           @db.ObjectId // quem registrou a entrega: admin ou entregador (ver deliveredVia)
+  // Gancho enviado na rota (F-5): o admin escolhe dia + turno; o entregador é o da rota do cliente,
+  // gravado no despacho. "Ficou para outro dia" limpa a rota e grava routeFailedAt (volta à fila).
+  routeDate         String? // "YYYY-MM-DD" BRT
+  routeSlotId       String?
+  routeCourierId    String?           @db.ObjectId
+  routeFailedAt     DateTime?
+  // Motivo da volta à fila: "não consegui entregar" (código do app) ou recusa do turno.
+  routeFailedReason String?
+  deliveredVia      String? // 'ADMIN' | 'COURIER'
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([userId, createdAt])
   @@index([status, requestedAt])
@@ -958,6 +1011,12 @@ model MarketOrder {
   lossResolvedBy      String?           @db.ObjectId // admin que deu o desfecho (auditoria)
   stockReturned       Boolean? // true = itens voltaram à prateleira; false = perda real
   lossReason          String? // o que aconteceu (perdido, avariado, devolvido…)
+  // App do entregador — mesmos campos do Order (parada só-Cestinha).
+  failureCode         String?
+  confirmedVia        String?
+  correctedAt         DateTime?
+  correctedById       String?           @db.ObjectId
+  correctionNote      String?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
@@ -1346,4 +1405,244 @@ model CondoInterest {
 
   @@index([groupKey, createdAt])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// App do entregador (plano-app-entregador §3.2). Coleções NOVAS: nascem com todas as chaves.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 33. DeliveryProof — comprovante de UMA parada (cliente + condomínio + turno + dia) num desfecho.
+// Parada combinada (pão + Cestinha) tem um comprovante só.
+model DeliveryProof {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  courierId      String    @db.ObjectId
+  userId         String    @db.ObjectId
+  condominiumId  String    @db.ObjectId
+  slotId         String
+  date           String // "YYYY-MM-DD" BRT
+  orderId        String?   @db.ObjectId // pão da parada (quando há)
+  marketOrderIds String[]  @db.ObjectId
+  // Parada SÓ de gancho (sem pão nem Cestinha no turno): o gancho que ela entregou. Por definição não
+  // há parada de pão do mesmo cliente no mesmo turno, então a chave única abaixo continua valendo.
+  hookRequestId  String?   @db.ObjectId
+  outcome        String // 'DELIVERED' | 'NOT_DELIVERED'
+  required       Boolean // snapshot da regra do entregador no desfecho
+  status         String // 'PENDING' | 'OK' | 'NONE' (exceção, com motivo) | 'SKIPPED' (opcional, pulou)
+  photoKey       String? // chave S3 PRIVADA (T-4) — nunca URL pública
+  photoAt        DateTime?
+  note           String? // motivo da exceção "sem foto"
+  confirmedVia   String?
+  lastClientOpId String? // idempotência da fila offline (T-7)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([courierId, userId, slotId, date, outcome])
+  @@index([orderId])
+  @@index([hookRequestId])
+  @@index([date, status])
+}
+
+// 34. CourierRun — a rota de um turno num dia. Nasce ao reordenar (PLANNED) ou ao iniciar (STARTED).
+model CourierRun {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  courierId      String    @db.ObjectId
+  date           String // "YYYY-MM-DD" BRT
+  slotId         String
+  status         String // 'PLANNED' | 'STARTED' | 'ENDED'
+  condominiumIds String[]  @db.ObjectId // ordem usada no dia
+  reordered      Boolean   @default(false) // o entregador mudou a ordem hoje
+  startedAt      DateTime?
+  endedAt        DateTime?
+  startMode      String? // 'BASE' | 'GPS'
+  startLat       Float?
+  startLng       Float?
+  plannedKm      Float?
+  plannedMin     Int?
+  lastLat        Float? // só a ÚLTIMA posição — sem trilha (T-9)
+  lastLng        Float?
+  lastPosAt      DateTime?
+  kmPerLiter     Float? // snapshot no encerramento
+  fuelPrice      Float?
+  fuelEstimate   Float?
+  summary        Json? // { entregues, naoEntregues, paes, cestinhas, ganchos } no encerramento
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([courierId, date, slotId])
+  @@index([date, status])
+}
+
+// 35. CourierRouteTemplate — rota salva de um entregador num turno + a sugestão pendente (D-5).
+model CourierRouteTemplate {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  courierId      String    @db.ObjectId
+  slotId         String
+  condominiumIds String[]  @db.ObjectId
+  km             Float?
+  durationMin    Int?
+  acceptedAt     DateTime?
+  acceptedById   String?   @db.ObjectId
+  // { condominiumIds, km, durationMin, reason, newIds, removedIds, createdAt } | null
+  suggestion     Json?
+  // Histórico das mudanças da rota salva (A9 · economia das rotas aceitas), do mais antigo ao mais
+  // novo, no máximo 50: [{ at, date, kind: 'ACCEPT'|'KEEP'|'ADJUST'|'ADOPT', km, kmAlt }]. `kmAlt` =
+  // km da alternativa que o aceite evitou (a rota salva com os prédios novos); só no ACCEPT.
+  acceptLog      Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([courierId, slotId])
+}
+
+// Rota padrão (plano-rota-padrao): ordem única dos condomínios ativos com localização, para todos
+// os turnos — a base das rotas dos entregadores sem rota própria (D-1/D-2). Registro único:
+// key = "global". Sem registro = não há rota padrão (o fluxo da 1ª sugestão por entregador vale).
+model DefaultRoute {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  key            String   @unique
+  condominiumIds String[] @db.ObjectId
+  km             Float?
+  durationMin    Int?
+  // Encaixes automáticos que o admin ainda não revisou (D-3/D-11):
+  // [{ id, kind: 'NOVO'|'REENCAIXADO', at, kmAdded }]. Some ao salvar a rota ou em "Está bom assim".
+  autoPlaced     Json?
+  // Último "Salvar" do admin ("salva em 06/10 por …"). O `updatedAt` muda também nos encaixes.
+  savedAt        DateTime?
+  savedById      String?  @db.ObjectId
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// 36. CourierTimeOff — folga cadastrada pelo admin (F-8). A divisão de entregas não sugere quem
+// está de folga.
+model CourierTimeOff {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  courierId   String   @db.ObjectId
+  startDate   String // "YYYY-MM-DD"
+  endDate     String
+  reason      String?
+  createdById String   @db.ObjectId
+  createdAt   DateTime @default(now())
+
+  @@index([courierId, startDate])
+}
+
+// 37. CourierPayout — proposta de pagamento semanal (T-12 … T-15). Aprovada, vira Expense.
+model CourierPayout {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  courierId         String    @db.ObjectId
+  weekStart         String // "YYYY-MM-DD" (segunda, BRT)
+  weekEnd           String
+  payMode           String? // snapshot da modalidade (null = sem modalidade)
+  payAmount         Float?
+  units             Int // entregas ou rotas contadas
+  remunerationEst   Float
+  kmEst             Float
+  fuelEst           Float // 0 sem consumo ou sem preço
+  fuelBasis         Json? // { kmPorLitro, preco, combustivel }
+  remunerationFinal Float?
+  fuelFinal         Float?
+  adjustReason      String?
+  status            String // 'PENDING' | 'EDITED' | 'APPROVED' | 'DISCARDED'
+  discardReason     String?
+  approvedAt        DateTime?
+  approvedById      String?   @db.ObjectId
+  paidAt            DateTime?
+  dueDate           DateTime?
+  paymentMethod     String?
+  expenseIds        String[]  @db.ObjectId
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([courierId, weekStart])
+  @@index([weekStart, status])
+}
+
+// 38. CourierReport — problema numa entrega realizada (E11) ou ocorrência geral (E12).
+model CourierReport {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  kind          String // 'STOP_ISSUE' | 'INCIDENT'
+  courierId     String    @db.ObjectId
+  orderId       String?   @db.ObjectId
+  marketOrderId String?   @db.ObjectId
+  type          String // lista do shared (por kind)
+  text          String?
+  photoUrl      String?
+  status        String // 'OPEN' | 'RESOLVED'
+  resolution    String? // 'KEPT' | 'CORRECTED' | texto
+  resolvedAt    DateTime?
+  resolvedById  String?   @db.ObjectId
+  // Idempotência da fila offline. Único PARCIAL em ensure-indexes — NÃO declarar @unique aqui.
+  clientOpId    String?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([orderId])
+}
+
+// 39. CondoAccessSuggestion — correção do acesso de um condomínio sugerida pelo entregador (E7).
+model CondoAccessSuggestion {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  condominiumId String    @db.ObjectId
+  courierId     String    @db.ObjectId
+  field         String // 'PORTARIA' | 'PORTAO' | 'PARAR' | 'OUTRO'
+  text          String
+  status        String // 'PENDING' | 'APPLIED' | 'DISCARDED'
+  reviewedAt    DateTime?
+  reviewedById  String?   @db.ObjectId
+  createdAt     DateTime  @default(now())
+
+  @@index([condominiumId, status])
+}
+
+// 40. CourierMessage — recado pronto do entregador ao cliente (E16). O único é a trava T-16:
+// no máximo 1 envio por modelo, por cliente, por dia.
+model CourierMessage {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  courierId String   @db.ObjectId
+  userId    String   @db.ObjectId
+  date      String // "YYYY-MM-DD"
+  template  String // chave do modelo (shared)
+  sentAt    DateTime @default(now())
+
+  @@unique([courierId, userId, date, template])
+}
+
+// 41. LegalAcceptance — aceite de um documento legal (plano-termos-legais §6 · T-T5). Genérico: hoje
+// só o Termo do Entregador Parceiro ('COURIER_TERMS'); depois, os termos do cliente, o regulamento do
+// Indique e Ganhe e a confidencialidade da equipe. A versão vigente fica em `shared/legal.ts`.
+// Nunca apagar: é a prova do aceite (versão, quando, de onde).
+model LegalAcceptance {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  doc        String // 'COURIER_TERMS' | …
+  version    String
+  acceptedAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+  deviceId   String?
+
+  @@index([userId, doc])
+}
+
+// 42. CourierShiftOffer — o turno oferecido ao entregador na aprovação da divisão (plano-termos-
+// legais §5 · T-T1). Ele pode aceitar ou recusar, sem penalidade; sem resposta, o turno segue com
+// ele. SEM único de propósito: depois de uma recusa, o admin pode oferecer de novo. O histórico é a
+// prova da autonomia — não entra em métrica nenhuma.
+model CourierShiftOffer {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  courierId   String    @db.ObjectId
+  date        String // "YYYY-MM-DD" BRT
+  slotId      String
+  status      String // 'OFFERED' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN'
+  stops       Int // paradas oferecidas (pão + Cestinha do mesmo cliente = 1)
+  offeredAt   DateTime  @default(now())
+  respondedAt DateTime?
+  via         String? // aceite: 'BUTTON' (tocou em Aceitar) | 'START' (iniciou a rota)
+  reason      String? // recusa (opcional): chave de SHIFT_DECLINE_REASONS
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([courierId, date, slotId])
+  @@index([date, slotId, status])
 }

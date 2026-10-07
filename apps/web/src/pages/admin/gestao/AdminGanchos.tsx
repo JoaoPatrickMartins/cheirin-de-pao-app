@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, type CSSProperties, type MouseEvent } from 'react'
 import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
 import { HOOK_TYPE_BADGE, type HookStatus, type HookType } from '../../../lib/hookLabels'
@@ -6,6 +6,7 @@ import { Icon } from '../../../components/brand/Icon'
 import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
 import { usePrintQueue } from '../../../components/admin/coupon/CouponShell'
 import { HookCouponSheet, type HookCouponData } from '../../../components/admin/coupon/HookCoupon'
+import { HookRouteSheet } from '../../../components/admin/HookRouteSheet'
 
 // ------------------------------------------------------------------ tipos
 interface HookItem {
@@ -23,6 +24,15 @@ interface HookItem {
   condominiumName?: string | null
   requestedAt: string | null
   deliveredAt: string | null
+  /** Gancho na rota (A7). */
+  route?: { date: string; slotId: string; slotLabel: string; courierName: string | null; overdue: boolean; alone?: boolean } | null
+  routeFailedAt?: string | null
+  /** Motivo da volta à fila: "não consegui entregar" ou recusa do turno. */
+  routeFailedReason?: string | null
+  deliveredVia?: string | null
+  deliveredByName?: string | null
+  /** fila · rota · entregue · volta */
+  routeState?: 'fila' | 'rota' | 'entregue' | 'volta'
 }
 
 type StatusFiltro = 'pending' | 'delivered' | 'all'
@@ -138,6 +148,17 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
   // ação de entrega
   const [confirmItem, setConfirmItem] = useState<HookItem | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
+  // A7: enviar / tirar da rota.
+  const [routeFor, setRouteFor] = useState<HookItem | null>(null)
+
+  const removeFromRoute = async (item: HookItem) => {
+    try {
+      const res = await apiFetch(`/admin/hook-requests/${item.id}/route`, { method: 'DELETE' })
+      if (res.ok) await refetch()
+    } catch {
+      // falha silenciosa — o cartão continua como estava
+    }
+  }
 
   // seleção para impressão em lote + fila de impressão
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -293,6 +314,8 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
       onToggleSelect={() => toggleSelected(item.id)}
       onPrint={() => print([toCoupon(item)])}
       onDeliver={() => setConfirmItem(item)}
+      onRoute={() => setRouteFor(item)}
+      onRemoveRoute={() => void removeFromRoute(item)}
       onViewClient={() =>
         window.dispatchEvent(new CustomEvent('cdp:open-admin-client', { detail: { clientId: item.userId } }))
       }
@@ -687,6 +710,19 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
       {/* Folha de cupons (oculta na tela; impressa via window.print) */}
       <HookCouponSheet coupons={coupons} />
 
+      {routeFor && (
+        <HookRouteSheet
+          hookId={routeFor.id}
+          clientName={routeFor.name}
+          place={localLabel(routeFor)}
+          onClose={() => setRouteFor(null)}
+          onSent={() => {
+            setRouteFor(null)
+            void refetch()
+          }}
+        />
+      )}
+
       <ConfirmSheet
         open={confirmItem !== null}
         title="Marcar gancho como entregue?"
@@ -706,12 +742,63 @@ export function AdminGanchos({ onBack }: AdminGanchosProps) {
 }
 
 // ------------------------------------------------------------------ HookCard
+const ROUTE_TAG: Record<NonNullable<HookItem['routeState']>, [string, string, string]> = {
+  fila: ['Pendente', 'var(--color-gold-soft)', 'var(--color-accent)'],
+  rota: ['Na rota', 'var(--color-gold)', 'var(--color-espresso)'],
+  volta: ['Não entregue na rota', 'var(--color-amber-soft)', 'var(--color-amber-ink)'],
+  entregue: ['Entregue', 'var(--color-good-soft)', 'var(--color-good)'],
+}
+
+/** Linha do gancho na rota (A7): na rota de quando, voltou para a fila, quem entregou. */
+function routeLine(item: HookItem): { text: string; tone: string } | null {
+  const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+  if (item.status === 'DELIVERED' && item.deliveredVia === 'COURIER') {
+    return { text: `Entregue por ${item.deliveredByName ?? 'entregador'} na rota · ${formatDate(item.deliveredAt)}`, tone: 'var(--color-good)' }
+  }
+  if (item.route && !item.route.overdue) {
+    const who = item.route.courierName ? ` · ${item.route.courierName.split(' ')[0]}` : ''
+    return { text: `Na rota de ${dm(item.route.date)} · ${item.route.slotLabel}${who}${item.route.alone ? ' · só o gancho' : ''}`, tone: 'var(--color-accent)' }
+  }
+  if (item.route?.overdue) return { text: `A rota de ${dm(item.route.date)} passou sem resposta — envie de novo`, tone: 'var(--color-amber-ink)' }
+  if (item.routeFailedAt) {
+    const why = item.routeFailedReason ? ` · ${item.routeFailedReason}` : ''
+    return { text: `Ficou para outro dia (${formatDateShort(item.routeFailedAt)}${why}) · voltou para a fila`, tone: 'var(--color-amber-ink)' }
+  }
+  return null
+}
+
+/** Ação do card: não deixa o clique subir para o card, que abre o cliente (D-2). */
+const own = (fn: () => void) => (e: MouseEvent) => {
+  e.stopPropagation()
+  fn()
+}
+
+/** Botões de ação lado a lado (D-1): mesma largura, texto encurta antes de estourar o card. */
+const actionBtn: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  minWidth: 0,
+  minHeight: 40,
+  padding: '0 8px',
+  borderRadius: 12,
+  fontFamily: 'var(--font-body)',
+  fontSize: 13,
+  fontWeight: 700,
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
+}
+const ellipsis: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis' }
+
 function HookCard({
   item,
   selected,
   onToggleSelect,
   onPrint,
   onDeliver,
+  onRoute,
+  onRemoveRoute,
   onViewClient,
 }: {
   item: HookItem
@@ -719,13 +806,22 @@ function HookCard({
   onToggleSelect: () => void
   onPrint: () => void
   onDeliver: () => void
+  onRoute: () => void
+  onRemoveRoute: () => void
   onViewClient: () => void
 }) {
   const entregue = item.status === 'DELIVERED'
   const badge = HOOK_TYPE_BADGE[item.type]
+  const state = item.routeState ?? (entregue ? 'entregue' : 'fila')
+  const [stateLabel, stateBg, stateFg] = ROUTE_TAG[state]
+  const line = routeLine(item)
+  const onRouteNow = state === 'rota'
 
   return (
+    // O card inteiro abre o cliente (D-2). Não é role="button": teria botões dentro de botão, e o
+    // nome acessível dele engoliria o texto das ações. Teclado e leitor de tela usam o nome.
     <div
+      onClick={onViewClient}
       style={{
         background: 'var(--color-surface)',
         border: selected ? '1.5px solid var(--color-accent)' : '1px solid var(--color-border-2)',
@@ -734,6 +830,7 @@ function HookCard({
         display: 'flex',
         flexDirection: 'column',
         gap: 12,
+        cursor: 'pointer',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -744,7 +841,7 @@ function HookCard({
           role="checkbox"
           aria-checked={selected}
           aria-label={`Selecionar gancho de ${item.name}`}
-          onClick={onToggleSelect}
+          onClick={own(onToggleSelect)}
           style={{
             width: 44,
             height: 44,
@@ -767,12 +864,35 @@ function HookCard({
         </button>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, fontWeight: 700, color: 'var(--color-text)', margin: 0, lineHeight: 1.3 }}>
+          {/* Sem handler próprio: o clique sobe para o card. */}
+          <button
+            type="button"
+            aria-label={`Ver cliente ${item.name}`}
+            style={{
+              display: 'block',
+              maxWidth: '100%',
+              padding: 0,
+              border: 'none',
+              background: 'none',
+              textAlign: 'left',
+              fontFamily: 'var(--font-body)',
+              fontSize: 15,
+              fontWeight: 700,
+              color: 'var(--color-text)',
+              lineHeight: 1.3,
+              cursor: 'pointer',
+            }}
+          >
             {item.name}
-          </p>
+          </button>
           <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 500, color: 'var(--color-text-ter)', margin: '2px 0 0', lineHeight: 1.3 }}>
             {aptLabel(item)}
           </p>
+          {line && (
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, fontWeight: 700, color: line.tone, margin: '4px 0 0', lineHeight: 1.3 }}>
+              🪝 {line.text}
+            </p>
+          )}
         </div>
 
         {/* Pílulas de tipo + status */}
@@ -797,11 +917,11 @@ function HookCard({
               fontFamily: 'var(--font-body)',
               fontSize: 11,
               fontWeight: 700,
-              background: entregue ? 'var(--color-good-soft)' : 'var(--color-gold-soft)',
-              color: entregue ? 'var(--color-good)' : 'var(--color-accent)',
+              background: stateBg,
+              color: stateFg,
             }}
           >
-            {entregue ? 'Entregue' : 'Pendente'}
+            {stateLabel}
           </span>
         </div>
       </div>
@@ -825,98 +945,60 @@ function HookCard({
         </p>
       )}
 
-      {/* Datas + ação */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          rowGap: 10,
-          flexWrap: 'wrap',
-          paddingTop: 12,
-          borderTop: '1px solid var(--color-border-2)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <Icon name="clock" size={13} color="var(--color-text-ter)" />
-          <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 500, color: 'var(--color-text-ter)' }}>
-            {entregue ? `Entregue ${formatDate(item.deliveredAt)}` : `Solicitado ${formatDate(item.requestedAt)}`}
-          </span>
-        </div>
-
-        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={onViewClient}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              minHeight: 38,
-              padding: '0 14px',
-              borderRadius: 12,
-              border: '1.5px solid var(--color-border)',
-              background: 'transparent',
-              color: 'var(--color-text-sec)',
-              fontFamily: 'var(--font-body)',
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            <Icon name="user" size={16} color="var(--color-text-sec)" />
-            Ver cliente
-          </button>
+      {/* Data + Cupom, e embaixo as duas ações da fila lado a lado (D-1). */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12, borderTop: '1px solid var(--color-border-2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <Icon name="clock" size={13} color="var(--color-text-ter)" />
+            <span style={{ ...ellipsis, whiteSpace: 'nowrap', fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 500, color: 'var(--color-text-ter)' }}>
+              {entregue ? `Entregue ${formatDate(item.deliveredAt)}` : `Solicitado ${formatDate(item.requestedAt)}`}
+            </span>
+          </div>
 
           {/* Impressão avulsa — imprimir NÃO registra entrega: o cupom sai na montagem, a
               entrega é marcada quando o gancho chega na porta. */}
           <button
-            onClick={onPrint}
+            onClick={own(onPrint)}
             aria-label={`Imprimir cupom do gancho de ${item.name}`}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              minHeight: 38,
-              padding: '0 14px',
-              borderRadius: 12,
+              ...actionBtn,
+              flexShrink: 0,
+              minHeight: 34,
+              padding: '0 12px',
               border: '1.5px solid var(--color-border)',
               background: 'transparent',
               color: 'var(--color-text-sec)',
-              fontFamily: 'var(--font-body)',
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: 'pointer',
             }}
           >
             <Icon name="doc" size={16} stroke={2} color="var(--color-text-sec)" />
             Cupom
           </button>
+        </div>
 
-          {!entregue && (
+        {!entregue && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <button
-              onClick={onDeliver}
+              onClick={own(onRouteNow ? onRemoveRoute : onRoute)}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                minHeight: 38,
-                padding: '0 14px',
-                borderRadius: 12,
-                border: 'none',
-                background: 'var(--color-espresso)',
-                color: '#FAF5EC',
-                fontFamily: 'var(--font-body)',
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: 'pointer',
+                ...actionBtn,
+                border: onRouteNow ? '1.5px solid var(--color-border)' : 'none',
+                background: onRouteNow ? 'transparent' : 'var(--color-gold)',
+                color: onRouteNow ? 'var(--color-text-sec)' : 'var(--color-espresso)',
               }}
             >
-              <Icon name="check" size={16} color="#FAF5EC" stroke={2.4} />
-              Marcar entregue
+              <Icon name={onRouteNow ? 'x' : 'route'} size={16} stroke={2.2} color={onRouteNow ? 'var(--color-text-sec)' : 'var(--color-espresso)'} />
+              <span style={ellipsis}>{onRouteNow ? 'Tirar da rota' : 'Enviar na rota'}</span>
             </button>
-          )}
-        </div>
+
+            <button
+              onClick={own(onDeliver)}
+              style={{ ...actionBtn, border: 'none', background: 'var(--color-espresso)', color: '#FAF5EC' }}
+            >
+              <Icon name="check" size={16} color="#FAF5EC" stroke={2.4} />
+              <span style={ellipsis}>Marcar entregue</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

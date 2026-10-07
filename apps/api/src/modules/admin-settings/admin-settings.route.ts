@@ -498,6 +498,87 @@ export const adminSettingsRoute: FastifyPluginAsync = async (fastify) => {
     ctrl.setIndicacao.bind(ctrl),
   )
 
+  // ---------------------------------------------------------------- rotas e comprovante
+  // A5 do plano do entregador. ATENÇÃO: o fast-json-stringify descarta propriedade de resposta
+  // não declarada aqui — campo novo da config precisa entrar em `routeConfigProperties`.
+  const routeConfigProperties = {
+    base: {
+      type: 'object',
+      nullable: true,
+      description: 'Base de saída (onde o pão é retirado). null = não definida: a rota começa no primeiro prédio.',
+      properties: {
+        endereco: { type: 'string' },
+        lat: { type: 'number' },
+        lng: { type: 'number' },
+      },
+    },
+    voltaBase: { type: 'boolean', description: 'A volta à base entra no km e no combustível estimados.' },
+    minPorPorta: { type: 'integer', description: 'Tempo médio por porta (min, 0..15), usado na hora prevista.' },
+    precoGasolina: { type: 'number', nullable: true, description: 'Preço do litro da gasolina (R$). null = não informado.' },
+    precoEtanol: { type: 'number', nullable: true, description: 'Preço do litro do etanol (R$). null = não informado.' },
+    precoGnv: { type: 'number', nullable: true, description: 'Preço do m³ do GNV (R$). null = não informado. Ausente no PATCH = mantém.' },
+    fotoClienteVisivel: { type: 'boolean', description: 'O cliente vê a foto da entrega (90 dias). A obrigatoriedade é por entregador.' },
+    entregadorVeCombNumeros: { type: 'boolean', description: 'O entregador vê km e combustível estimados em Meus números. Padrão false. Ausente no PATCH = mantém.' },
+    entregadorVeCombFimRota: { type: 'boolean', description: 'O entregador vê km e combustível estimados no Fim da rota. Padrão false. Ausente no PATCH = mantém.' },
+    entregadorVeCombGanhos: { type: 'boolean', description: 'O entregador vê a conta do combustível (km ÷ km/l × preço) em Meus ganhos; desligado, só o valor. Padrão false. Ausente no PATCH = mantém.' },
+  }
+  const routeConfigResponse = {
+    type: 'object',
+    properties: {
+      ...routeConfigProperties,
+      precoAtualizadoEm: { type: 'string', nullable: true, description: 'Dia BRT (YYYY-MM-DD) da última mudança de preço.' },
+      storageConfigured: { type: 'boolean', description: 'Armazenamento de fotos (S3) configurado no servidor.' },
+      rotaPadrao: {
+        type: 'object',
+        nullable: true,
+        description: 'Resumo da rota padrão para o card da A5 (plano-rota-padrao). null = ainda não há.',
+        properties: {
+          count: { type: 'integer', description: 'Prédios na rota.' },
+          km: { type: 'number', nullable: true },
+          durationMin: { type: 'integer', nullable: true },
+          savedAt: { type: 'string', description: 'Último "Salvar" do admin.' },
+          toReview: { type: 'integer', description: 'Encaixes automáticos à espera de revisão.' },
+          outside: { type: 'integer', description: 'Ativos sem localização ("fora do mapa").' },
+        },
+      },
+    },
+  }
+
+  fastify.get(
+    '/admin/settings/rotas',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Consultar "Rotas e comprovante" (admin)',
+        description: 'Base de saída, cálculo da rota (volta à base, tempo por porta), preço do litro, se o cliente vê a foto da entrega e o que o entregador vê de km e combustível, mais `storageConfigured`. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        response: { 200: routeConfigResponse },
+      },
+    },
+    ctrl.getRotas.bind(ctrl),
+  )
+
+  fastify.patch(
+    '/admin/settings/rotas',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['admin — settings'],
+        summary: 'Atualizar "Rotas e comprovante" (admin)',
+        description: 'Grava a config inteira. `base: null` remove a base; preço `null` = não informado (sem cálculo de combustível). A data do preço só muda quando algum preço muda. 400 = forma inválida. Restrito a ADMIN.',
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          required: ['base', 'voltaBase', 'minPorPorta', 'precoGasolina', 'precoEtanol', 'fotoClienteVisivel'],
+          properties: routeConfigProperties,
+        },
+        response: { 200: routeConfigResponse },
+      },
+    },
+    ctrl.setRotas.bind(ctrl),
+  )
+
   // ---------------------------------------------------------------- alíquotas do gateway
   const gatewayRatesSchema = {
     type: 'object',

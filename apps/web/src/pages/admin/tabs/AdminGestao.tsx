@@ -13,6 +13,7 @@ import { AdminBloqueiosLimites } from '../gestao/AdminBloqueiosLimites'
 import { AdminCortes } from '../gestao/AdminCortes'
 import { AdminFornecedores } from '../gestao/AdminFornecedores'
 import { AdminEntregadores } from '../gestao/AdminEntregadores'
+import { AdminRotasConfig } from '../gestao/AdminRotasConfig'
 import { AdminGanchos } from '../gestao/AdminGanchos'
 import { AdminGancho } from '../gestao/AdminGancho'
 import { AdminNotificacoes } from '../gestao/AdminNotificacoes'
@@ -35,6 +36,7 @@ type AdminGestaoSub =
   | 'cortes'
   | 'fornecedores'
   | 'entregadores'
+  | 'rotas'
   | 'ganchos'
   | 'gancho-config'
   | 'notificacoes'
@@ -63,7 +65,9 @@ const HUB_ITEMS: HubItem[] = [
   { key: 'restricoes', icon: 'calendar', titulo: 'Bloqueios e limites', descricao: 'Dias, datas e teto de pedidos — geral ou por condomínio' },
   { key: 'cortes', icon: 'clock', titulo: 'Horários e corte', descricao: 'Prazo por turno e horário de entrega por condomínio' },
   { key: 'fornecedores', icon: 'factory', titulo: 'Fornecedores', descricao: 'Padarias e preço do pão' },
-  { key: 'entregadores', icon: 'truck', titulo: 'Entregadores', descricao: 'Equipe e disponibilidade' },
+  { key: 'entregadores', icon: 'truck', titulo: 'Entregadores', descricao: 'Cadastro, regras, escala e pagamentos' },
+  // A5 do plano do entregador (V-2: só o card novo, no estilo atual do hub).
+  { key: 'rotas', icon: 'route', titulo: 'Rotas e comprovante', descricao: 'Base de saída, rota padrão, cálculo da rota, combustível e foto' },
   { key: 'ganchos', icon: 'pin', titulo: 'Solicitação de Gancho', descricao: 'Entregas de gancho de porta' },
   { key: 'gancho-config', icon: 'gift', titulo: 'Regras do Gancho', descricao: 'Mínimo do grátis e preço extra' },
   { key: 'notificacoes', icon: 'bell', titulo: 'Notificações', descricao: 'Ative ou desative os avisos' },
@@ -83,6 +87,8 @@ export function AdminGestao() {
   const [pendingHooks, setPendingHooks] = useState(0)
   // Indicações em análise — selo "N em análise" no card do Indique e Ganhe (A1).
   const [pendingReferrals, setPendingReferrals] = useState(0)
+  // Propostas de pagamento dos entregadores a aprovar (A8) — selo no card de Entregadores.
+  const [openPayouts, setOpenPayouts] = useState(0)
 
   // Depende de `sub`: este componente NÃO desmonta ao entrar numa subtela (só troca o que
   // renderiza), então um efeito de mount deixaria o número congelado no que era ao abrir Gestão.
@@ -98,6 +104,22 @@ export function AdminGestao() {
         if (!cancelled) setPendingHooks(data.pending)
       } catch {
         // falha silenciosa — sem badge, o hub continua navegável
+      }
+    })()
+    void (async () => {
+      try {
+        // Selo de Entregadores: propostas de pagamento + problemas/ocorrências em aberto.
+        const [pay, rep] = await Promise.all([apiFetch('/admin/courier-payouts/summary'), apiFetch('/admin/courier-reports/summary')])
+        if (cancelled) return
+        const count = async (r: Response) => {
+          if (!r.ok) return 0
+          const data = (await r.json().catch(() => null)) as { open?: unknown } | null
+          return typeof data?.open === 'number' ? data.open : 0
+        }
+        const total = (await count(pay)) + (await count(rep))
+        if (!cancelled) setOpenPayouts(total)
+      } catch {
+        // idem — sem o selo, o card continua abrindo
       }
     })()
     void (async () => {
@@ -127,6 +149,7 @@ export function AdminGestao() {
   if (sub === 'cortes') return <AdminCortes onBack={onBack} />
   if (sub === 'fornecedores') return <AdminFornecedores onBack={onBack} />
   if (sub === 'entregadores') return <AdminEntregadores onBack={onBack} />
+  if (sub === 'rotas') return <AdminRotasConfig onBack={onBack} onOpenCondos={() => setSub('condos')} />
   if (sub === 'ganchos') return <AdminGanchos onBack={onBack} />
   if (sub === 'gancho-config') return <AdminGancho onBack={onBack} />
   if (sub === 'notificacoes') return <AdminNotificacoes onBack={onBack} />
@@ -155,7 +178,7 @@ export function AdminGestao() {
             titulo={item.titulo}
             descricao={item.descricao}
             gold={item.gold}
-            badge={item.key === 'ganchos' ? pendingHooks : 0}
+            badge={item.key === 'ganchos' ? pendingHooks : item.key === 'entregadores' ? openPayouts : 0}
             badgeText={item.key === 'indicacao' && pendingReferrals > 0 ? `${pendingReferrals} em análise` : undefined}
             onClick={() => setSub(item.key)}
           />

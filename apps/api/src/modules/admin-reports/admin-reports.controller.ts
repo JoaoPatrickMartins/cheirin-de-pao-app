@@ -7,6 +7,7 @@ import { SalesService } from './sales.service.js'
 import { CustomersService } from './customers.service.js'
 import { ReferralsReportService } from './referrals-report.service.js'
 import { CreditMovementService } from './credit-movement.service.js'
+import { FuelReportService } from './fuel-report.service.js'
 
 type ZodIssue = { message: string }
 
@@ -29,6 +30,7 @@ export class AdminReportsController {
   private customers: CustomersService
   private referrals: ReferralsReportService
   private creditMovement: CreditMovementService
+  private fuel: FuelReportService
 
   constructor(private fastify: FastifyInstance) {
     this.service = new AdminReportsService(fastify)
@@ -36,6 +38,7 @@ export class AdminReportsController {
     this.customers = new CustomersService(fastify)
     this.referrals = new ReferralsReportService(fastify)
     this.creditMovement = new CreditMovementService(fastify)
+    this.fuel = new FuelReportService(fastify)
   }
 
   /**
@@ -94,6 +97,11 @@ export class AdminReportsController {
   /** GET /admin/reports/delivery — entregas & falhas. */
   async getDelivery(request: FastifyRequest, reply: FastifyReply) {
     return this.run(request, reply, (w) => this.service.getDeliveryReport(w))
+  }
+
+  /** GET /admin/reports/fuel — combustível & rotas (A9 do plano do entregador). */
+  async getFuel(request: FastifyRequest, reply: FastifyReply) {
+    return this.run(request, reply, (w) => this.fuel.getReport(w))
   }
 
   /** GET /admin/reports/waste — desperdício (pedido × entregue). */

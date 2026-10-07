@@ -103,12 +103,51 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
               slotId: { type: 'string', description: 'Identificador estável do slot do pedido (manha | tarde).' },
               courierName: { type: 'string', description: 'Nome do entregador atribuído (quando disponível).' },
               deliveredAt: { type: 'string', description: 'Hora de entrega confirmada pelo entregador (ISO 8601), quando disponível.' },
+              failedAt: { type: 'string', nullable: true, description: 'Quando foi marcado como não entregue (ISO 8601).' },
+              failureText: { type: 'string', nullable: true, description: 'Motivo da não entrega em linguagem do cliente (completa "Tentamos entregar, mas ___").' },
+              proof: {
+                type: 'object',
+                description: 'Comprovante (foto) da entrega — só com a função ligada pelo admin, por 90 dias.',
+                properties: { available: { type: 'boolean' }, expired: { type: 'boolean' } },
+              },
+              onTheWayAt: { type: 'string', nullable: true, description: 'Quando o entregador iniciou a rota do turno (ISO). null antes disso — o "a caminho" só acende depois (D-7).' },
+              courier: {
+                type: 'object',
+                nullable: true,
+                description: 'Quem traz o pão (primeiro nome + foto) — só com a rota iniciada.',
+                properties: { firstName: { type: 'string' }, photoUrl: { type: 'string', nullable: true } },
+              },
             },
           },
         },
       },
     },
     ctrl.getTodayOrder.bind(ctrl),
+  )
+
+  fastify.get(
+    '/orders/:id/proof',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['orders'],
+        summary: 'Foto da entrega (comprovante)',
+        description: 'URL ASSINADA (10 min) da foto do comprovante de um pedido do próprio cliente. Só com a função ligada pelo admin e por 90 dias. 404 quando não há foto para mostrar — inclusive para pedido de outro cliente.',
+        security: [{ bearerAuth: [] }],
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              url: { type: 'string', description: 'URL assinada da foto (expira em 10 min).' },
+              at: { type: 'string', description: 'Quando a foto foi tirada (ISO 8601).' },
+              outcome: { type: 'string', description: 'DELIVERED | NOT_DELIVERED.' },
+            },
+          },
+        },
+      },
+    },
+    ctrl.getOrderProof.bind(ctrl),
   )
 
   fastify.get(
@@ -169,6 +208,13 @@ export const ordersRoute: FastifyPluginAsync = async (fastify) => {
                 slotId: { type: 'string', description: 'Identificador estável do slot do pedido (manha | tarde).' },
                 type: { type: 'string', description: 'Tipo: "SCHEDULE" (da agenda) ou "SINGLE" (avulso).' },
                 deliveredAt: { type: 'string', description: 'Data/hora de entrega confirmada, se entregue.' },
+                failedAt: { type: 'string', nullable: true, description: 'Quando foi marcado como não entregue (ISO 8601).' },
+                failureText: { type: 'string', nullable: true, description: 'Motivo da não entrega em linguagem do cliente (completa "Tentamos entregar, mas ___").' },
+                proof: {
+                  type: 'object',
+                  description: 'Comprovante (foto) da entrega — só com a função ligada pelo admin, por 90 dias.',
+                  properties: { available: { type: 'boolean' }, expired: { type: 'boolean' } },
+                },
               },
             },
           },

@@ -7,8 +7,10 @@ import { AdminSupplierOrdersService } from '../modules/admin-supplier-orders/adm
 import { CourierService } from '../modules/courier/courier.service.js'
 import { MarketCheckoutService } from '../modules/market/market-checkout.service.js'
 import { FinancialAlertsService } from '../modules/admin-financial/financial-alerts.service.js'
+import { AdminCourierPayoutsService } from '../modules/admin-courier-payouts/admin-courier-payouts.service.js'
 import { sweepReferrals } from '../lib/referral.js'
 import { cleanupExpiredSocialFlows } from '../lib/social-flow-cleanup.js'
+import { clearStaleCourierPositions } from '../lib/courier-position-cleanup.js'
 
 const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // Não inicializar crons em ambiente de teste
@@ -66,6 +68,15 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.info({ removed }, '[cron] cleanupExpiredSocialFlows concluído')
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em cleanupExpiredSocialFlows — servidor mantido ativo')
+      }
+
+      // App do entregador — apaga a localização das rotas de dias anteriores que ficaram sem
+      // encerrar (encerrar já apaga). A posição vale só durante a rota (Política de Privacidade).
+      try {
+        const cleared = await clearStaleCourierPositions(fastify.prisma)
+        fastify.log.info({ cleared }, '[cron] clearStaleCourierPositions concluído')
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em clearStaleCourierPositions — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'daily-jobs' },
@@ -202,6 +213,7 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
   // é acionável, e o dono decide o dia dele cedo. A deduplicação mora no serviço — este job roda
   // todo dia e quase todo dia não envia nada, que é o comportamento desejado.
   const financialAlerts = new FinancialAlertsService(fastify)
+  const courierPayouts = new AdminCourierPayoutsService(fastify)
   cron.schedule(
     '0 8 * * *',
     async () => {
@@ -211,6 +223,16 @@ const cronPlugin: FastifyPluginAsync = fp(async (fastify) => {
         fastify.log.info(`[cron] financialAlerts concluído — ${sent.length} alerta(s) enviado(s)`)
       } catch (err) {
         fastify.log.error({ err }, '[cron] erro em financialAlerts — servidor mantido ativo')
+      }
+
+      // Pagamento dos entregadores (A8 · T-12): às segundas, gera as propostas da semana que fechou
+      // e avisa "Pagamento a aprovar". Nos outros dias não faz nada. A geração também acontece ao
+      // abrir Pagamentos — este aviso não é crítico.
+      try {
+        const n = await courierPayouts.notifyPending()
+        if (n > 0) fastify.log.info(`[cron] courierPayouts — aviso de ${n} proposta(s) a aprovar`)
+      } catch (err) {
+        fastify.log.error({ err }, '[cron] erro em courierPayouts.notifyPending — servidor mantido ativo')
       }
     },
     { timezone: 'America/Sao_Paulo', name: 'financial-alerts' },

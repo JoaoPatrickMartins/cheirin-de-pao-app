@@ -28,6 +28,14 @@ export const ADMIN_NOTIFICATION_TYPES = [
   'ADMIN_REFERRAL_REVIEW',
   'ADMIN_REFERRAL_REWARDED',
   'ADMIN_CONDO_INTEREST',
+  // App do entregador — todos nascem ligados.
+  'ADMIN_COURIER_ISSUE',
+  'ADMIN_COURIER_INCIDENT',
+  'ADMIN_CONDO_ACCESS_SUGGESTION',
+  'ADMIN_ROUTE_SUGGESTION',
+  'ADMIN_PAYOUT_PENDING',
+  // Termo do entregador: recusou o turno (plano-termos-legais §5) — nasce ligado.
+  'ADMIN_SHIFT_DECLINED',
 ] as const
 
 export type AdminNotificationType = (typeof ADMIN_NOTIFICATION_TYPES)[number]

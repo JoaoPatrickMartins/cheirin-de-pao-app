@@ -82,3 +82,28 @@ export async function geocodeWithFallback(a: AddressLike): Promise<GeocodeResult
 
   return null
 }
+
+export interface AddressCandidate extends Coords {
+  /** Endereço como o Nominatim descreve (para o admin escolher). */
+  label: string
+}
+
+/**
+ * Busca de endereço para o admin escolher (A5 — base de saída). Até 5 resultados no Brasil.
+ * Vazio em qualquer falha — nunca lança.
+ */
+export async function searchAddress(query: string): Promise<AddressCandidate[]> {
+  const q = query.trim()
+  if (q.length < 3) return []
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=br`
+    const res = await fetch(url, { headers: { 'User-Agent': 'CheirimdePao-app/1.0 (contato@cheirindepao.com.br)' } })
+    if (!res.ok) return []
+    const data = (await res.json()) as Array<{ lat: string; lon: string; display_name?: string }>
+    return data
+      .map((d) => ({ label: d.display_name ?? q, lat: parseFloat(d.lat), lng: parseFloat(d.lon) }))
+      .filter((d) => Number.isFinite(d.lat) && Number.isFinite(d.lng))
+  } catch {
+    return []
+  }
+}

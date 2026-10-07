@@ -11,6 +11,7 @@ import { RelPagamentos } from './RelPagamentos'
 import { RelVendas } from './RelVendas'
 import { RelClientes } from './RelClientes'
 import { RelIndicacoes } from './RelIndicacoes'
+import { RelCombustivel } from './RelCombustivel'
 
 // ------------------------------------------------------------------ tipos
 type RelSub =
@@ -25,6 +26,7 @@ type RelSub =
   | 'vendas'
   | 'clientes'
   | 'indicacoes'
+  | 'combustivel'
 
 interface HubItem {
   key: Exclude<RelSub, null>
@@ -70,6 +72,7 @@ const GROUPS: Array<{ title: string; items: HubItem[] }> = [
       { key: 'desperdicio', icon: 'factory', titulo: 'Desperdício', descricao: 'Pedido ao fornecedor × entregue' },
       { key: 'agenda', icon: 'calendar', titulo: 'Perfil da agenda', descricao: 'Pães/semana, dias e mix de pedidos' },
       { key: 'pagamentos', icon: 'card', titulo: 'Pagamentos', descricao: 'Aprovação, estorno e mix de método' },
+      { key: 'combustivel', icon: 'fuel', titulo: 'Combustível & rotas', descricao: 'Km, gasto estimado e economia das rotas' },
     ],
   },
 ]
@@ -96,6 +99,7 @@ export function AdminRelatorios({ onBack }: AdminRelatoriosProps) {
   if (sub === 'vendas') return <RelVendas onBack={backToHub} />
   if (sub === 'clientes') return <RelClientes onBack={backToHub} />
   if (sub === 'indicacoes') return <RelIndicacoes onBack={backToHub} />
+  if (sub === 'combustivel') return <RelCombustivel onBack={backToHub} />
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

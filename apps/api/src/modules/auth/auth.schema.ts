@@ -63,13 +63,3 @@ export const VerifyOtpSchema = z.object({
 
 export type VerifyOtpBody = z.infer<typeof VerifyOtpSchema>
 
-export const RegisterCourierSchema = z
-  .object({
-    name: z.string().min(2),
-    cpf: CpfSchema,
-    phone: PhoneSchema.optional(),
-    email: z.string().email().optional(),
-  })
-  .refine((d) => d.phone || d.email, { message: 'phone ou email obrigatório' })
-
-export type RegisterCourierBody = z.infer<typeof RegisterCourierSchema>

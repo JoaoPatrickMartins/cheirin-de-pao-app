@@ -22,9 +22,12 @@ import {
 } from '../../lib/order-minimums.js'
 import { getGanchoConfig, type GanchoConfig } from '../../lib/gancho-config.js'
 import { getReferralConfig, REFERRAL_SETTING_KEYS, type ReferralConfig } from '../../lib/referral-config.js'
+import { getRouteConfig, setRouteConfig, type RouteConfig } from '../../lib/route-config.js'
+import { defaultRouteSummary, refreshDefaultRouteMetrics, type DefaultRouteSummary } from '../../lib/default-route.js'
+import { isStorageConfigured } from '../../lib/storage.js'
 import { estimateBreadUnitPrice } from '../../lib/bread-price.js'
 import { referralMessageHasCodeOrLink } from '@cheirin-de-pao/shared'
-import type { UpdateReferralSettingsBody } from './admin-settings.schema.js'
+import type { UpdateReferralSettingsBody, UpdateRouteSettingsBody } from './admin-settings.schema.js'
 import { FEE_SETTING_KEYS, DEFAULT_FEE_PCT } from '../../lib/gateway-fee.js'
 import type { PaymentMethod } from '@prisma/client'
 import {
@@ -55,6 +58,9 @@ function createOsClient() {
   })
   return new OneSignal.DefaultApi(configuration)
 }
+
+/** A5: config + armazenamento de fotos + resumo da rota padrão (plano-rota-padrao, D-4). */
+export type RouteSettingsView = RouteConfig & { storageConfigured: boolean; rotaPadrao: DefaultRouteSummary | null }
 
 export class AdminSettingsService {
   constructor(private fastify: FastifyInstance) {}
@@ -437,6 +443,25 @@ export class AdminSettingsService {
     )
     // Devolve o que a LEITURA enxerga — é o que o programa vai de fato usar.
     return getReferralConfig(this.prisma)
+  }
+
+  /**
+   * "Rotas e comprovante" (A5) + `storageConfigured`: sem o S3 configurado a foto obrigatória vira
+   * "sem foto · armazenamento indisponível" (R-1) — a tela avisa o admin em vez de ele descobrir
+   * pelos comprovantes vazios.
+   */
+  async getRouteSettings(): Promise<RouteSettingsView> {
+    const [cfg, rotaPadrao] = await Promise.all([getRouteConfig(this.prisma), defaultRouteSummary(this.prisma)])
+    return { ...cfg, storageConfigured: isStorageConfigured(), rotaPadrao }
+  }
+
+  async setRouteSettings(body: UpdateRouteSettingsBody, now: Date = new Date()): Promise<RouteSettingsView> {
+    const before = await getRouteConfig(this.prisma)
+    const saved = await setRouteConfig(this.prisma, body, now)
+    // Base ou volta mudaram: o km guardado da rota padrão (resumo da A5) fica velho.
+    const moved = before.base?.lat !== saved.base?.lat || before.base?.lng !== saved.base?.lng || before.voltaBase !== saved.voltaBase
+    if (moved) await refreshDefaultRouteMetrics(this.fastify)
+    return { ...saved, storageConfigured: isStorageConfigured(), rotaPadrao: await defaultRouteSummary(this.prisma) }
   }
 
   /**

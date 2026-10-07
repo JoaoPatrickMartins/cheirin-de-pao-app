@@ -30,6 +30,18 @@ export class ClientProfileController {
     }
   }
 
+  /** PATCH /client/profile/courier-messages — `{ off }` (V-3: "Recados do entregador"). */
+  async setCourierMessages(request: FastifyRequest, reply: FastifyReply) {
+    if (request.user?.role !== 'CLIENT') return reply.status(403).send({ error: 'Acesso negado' })
+    const off = (request.body as { off?: unknown } | null)?.off
+    if (typeof off !== 'boolean') return reply.status(400).send({ error: 'Informe off: true ou false' })
+    try {
+      return reply.status(200).send(await this.service.setCourierMessages(request.user.id, off))
+    } catch {
+      return reply.status(500).send({ error: 'Erro interno' })
+    }
+  }
+
   async updateProfile(request: FastifyRequest, reply: FastifyReply) {
     if (request.user?.role !== 'CLIENT') {
       return reply.status(403).send({ error: 'Acesso negado' })
