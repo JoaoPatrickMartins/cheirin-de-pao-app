@@ -30,6 +30,9 @@ import { adminBannersRoute } from './modules/admin-banners/admin-banners.route.j
 import { bannersRoute } from './modules/banners/banners.route.js'
 import { adminSuppliersRoute } from './modules/admin-suppliers/admin-suppliers.route.js'
 import { adminCouriersRoute } from './modules/admin-couriers/admin-couriers.route.js'
+import { adminCourierRoutesRoute } from './modules/admin-courier-routes/admin-courier-routes.route.js'
+import { adminCourierPayoutsRoute } from './modules/admin-courier-payouts/admin-courier-payouts.route.js'
+import { adminCourierReportsRoute } from './modules/admin-courier-reports/admin-courier-reports.route.js'
 import { adminClientsRoute } from './modules/admin-clients/admin-clients.route.js'
 import { adminSupplierOrdersRoute } from './modules/admin-supplier-orders/admin-supplier-orders.route.js'
 import { adminSeparationRoute } from './modules/admin-separation/admin-separation.route.js'
@@ -58,8 +61,10 @@ import {
   seedExpenseCategories,
   seedGatewayFeeRates,
   seedReferralDefaults,
+  seedRouteDefaults,
 } from './bootstrap/defaults-seed.js'
 import { backfillHooksIfNeeded } from './bootstrap/hooks-backfill.js'
+import { backfillBadgeNumbers } from './lib/courier-badge.js'
 import { backfillSupplierProductsIfNeeded } from './bootstrap/supplier-products-backfill.js'
 import { backfillCreditMilliIfNeeded } from './bootstrap/credit-milli-backfill.js'
 
@@ -248,6 +253,18 @@ const start = async () => {
     // e liga em Gestão › Indique e Ganhe.
     await seedReferralDefaults(fastify.prisma)
 
+    // Bootstrap — padrões da rota do entregador (volta à base, tempo por porta, cliente vê a foto).
+    await seedRouteDefaults(fastify.prisma)
+
+    // Bootstrap — nº do crachá dos entregadores que ainda não têm (H-3). Idempotente; nunca
+    // derruba o boot.
+    try {
+      const numbered = await backfillBadgeNumbers(fastify.prisma)
+      if (numbered > 0) fastify.log.info({ numbered }, '[boot] nº do crachá gerado para entregadores sem número')
+    } catch (err) {
+      fastify.log.warn({ err }, '[boot] falha ao numerar crachás — segue sem')
+    }
+
     // Bootstrap — migra o gancho legado do User → coleção HookRequest (execução única via flag)
     await backfillHooksIfNeeded(fastify.prisma, fastify.log)
 
@@ -278,7 +295,7 @@ const start = async () => {
     // Health route — GET /health returns {ok:true, db:'connected'} on success
     await fastify.register(healthRoute)
 
-    // Auth routes — POST /auth/register, /auth/otp/send, /auth/otp/verify, /auth/couriers
+    // Auth routes — POST /auth/register, /auth/otp/send, /auth/otp/verify (entregador é cadastrado em /admin/couriers)
     await fastify.register(authRoute)
     await fastify.register(socialAuthRoute) // Login com Google — plano-login-social.md
 
@@ -305,6 +322,9 @@ const start = async () => {
     await fastify.register(bannersRoute)             // Banners e avisos — peças do cliente + telemetria
     await fastify.register(adminSuppliersRoute)      // Phase 7 — CRUD /admin/suppliers (07-03)
     await fastify.register(adminCouriersRoute)       // Phase 7 — CRUD /admin/couriers (07-03)
+    await fastify.register(adminCourierRoutesRoute)  // Rotas dos entregadores — A4 rota salva/sugestão, A2 ao vivo, busca da base
+    await fastify.register(adminCourierPayoutsRoute)  // Pagamentos dos entregadores — A8 propostas da semana, aprovar → despesas
+    await fastify.register(adminCourierReportsRoute)  // Problemas e ocorrências dos entregadores (E11/E12 no admin)
     await fastify.register(adminClientsRoute)        // Phase 7 — GET /admin/clients (07-03)
     await fastify.register(adminSupplierOrdersRoute)  // Phase 7 — GET/POST /admin/supplier-orders + PDF/Excel (ADMO-05..09)
     await fastify.register(adminSeparationRoute)      // Separação — GET board + PATCH conclude/orders (gate da entrega)

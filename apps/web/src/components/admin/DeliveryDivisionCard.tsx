@@ -13,6 +13,7 @@ import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Icon } from '../brand/Icon'
+import { CRTag } from '../courier/kit'
 
 export interface BlockBreakdown {
   block: string
@@ -44,6 +45,8 @@ export interface Assignment {
   courierId: string
   courierName: string
   condos: DeliveryUnit[]
+  /** De folga / fora da escala no dia (F-8) ou recusou o turno (plano-termos-legais §5): fora da sugestão (V-5). */
+  offReason?: 'FOLGA' | 'FORA_DA_ESCALA' | 'RECUSOU' | null
 }
 
 export interface DeliveryDivisionCardProps {
@@ -467,8 +470,25 @@ export function DeliveryDivisionCard({
                       {assignment.courierName}
                     </p>
                     <p style={{ fontFamily: 'var(--font-body)', fontSize: 12, color: 'var(--color-text-ter)', margin: '2px 0 0', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {assignment.condos.length > 0 ? assignment.condos.map((c) => unitLabel(c)).join(', ') : 'Sem entregas atribuídas'}
+                      {assignment.condos.length > 0
+                        ? assignment.condos.map((c) => unitLabel(c)).join(', ')
+                        : assignment.offReason
+                          ? 'fora da sugestão'
+                          : 'Sem entregas atribuídas'}
                     </p>
+                    {assignment.offReason && (
+                      <span style={{ display: 'inline-flex', marginTop: 4 }}>
+                        {assignment.offReason === 'RECUSOU' ? (
+                          <CRTag icon="ban" tone="danger" size="sm">
+                            recusou o turno
+                          </CRTag>
+                        ) : (
+                          <CRTag icon="dayoff" tone="good" size="sm">
+                            {assignment.offReason === 'FOLGA' ? 'de folga' : 'fora da escala'}
+                          </CRTag>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--color-gold)', flexShrink: 0, whiteSpace: 'nowrap' }}>
                     {totalForCourier(assignment)}

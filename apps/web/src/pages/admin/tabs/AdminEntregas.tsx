@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { formatUnit } from '@cheirin-de-pao/shared'
+import { formatUnit, shiftDeclineLabel } from '@cheirin-de-pao/shared'
+import { CRNote } from '../../../components/courier/kit'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { SegmentedControl } from '../../../components/admin/SegmentedControl'
@@ -12,6 +13,8 @@ import {
 import { Icon } from '../../../components/brand/Icon'
 import { FirstOrderChip } from '../../../components/admin/FirstOrderChip'
 import { OrderDetailSheet, STATUS_META, type LedgerRow } from '../../../components/admin/OrderDetailSheet'
+import { LiveRoutesCard } from '../../../components/admin/LiveRoutesCard'
+import { CourierRouteScreen } from '../../../components/admin/CourierRouteScreen'
 import { resolveDefaultSlot, nowMinutesLocal, slotTabLabel, type SlotOption } from '../../../lib/slots'
 
 type Segment = 'hoje' | 'historico'
@@ -24,6 +27,18 @@ interface DivisionSuggestionItem {
   total: number
   /** Itens do mercadinho atribuídos — carga paralela aos pães. */
   totalItems: number
+  /** De folga / fora da escala no dia (F-8) ou recusou o turno (plano-termos-legais §5): fora da sugestão. */
+  offReason?: 'FOLGA' | 'FORA_DA_ESCALA' | 'RECUSOU' | null
+}
+
+/** Turno recusado (plano-termos-legais §5): as paradas voltaram para a divisão. */
+interface DeclinedShift {
+  courierId: string
+  courierName: string
+  slotId: string
+  at: string
+  reason: string | null
+  stops: number
 }
 
 // Contagens são de PARADAS (D-5): pão + Cestinha do mesmo cliente = 1, e só entra em
@@ -104,6 +119,9 @@ export function AdminEntregas({
   const [isLoadingHoje, setIsLoadingHoje] = useState(true)
   const [isApproved, setIsApproved] = useState(false)
   const [isApproving, setIsApproving] = useState(false)
+  // Aprovada, mas com paradas sem entregador (recusa do turno): quantas já estão na rua.
+  const [partialStops, setPartialStops] = useState<number | null>(null)
+  const [declined, setDeclined] = useState<DeclinedShift[]>([])
 
   // Próximos / Histórico (ledger)
   const [rows, setRows] = useState<LedgerRow[]>([])
@@ -112,6 +130,8 @@ export function AdminEntregas({
   const [kindFilter, setKindFilter] = useState<KindFilter>('')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<LedgerRow | null>(null)
+  // A4: rota do entregador aberta a partir do card de rota do mapa ao vivo.
+  const [routeOpen, setRouteOpen] = useState<{ courierId: string; slotId: string } | null>(null)
 
   // Carrega os turnos e define o padrão (automático pelo horário de corte)
   useEffect(() => {
@@ -140,7 +160,7 @@ export function AdminEntregas({
   // entregador confirma. Só roda quando aprovado — antes disso não há o que
   // acompanhar e evitamos sobrescrever ajustes manuais da divisão.
   useEffect(() => {
-    if (segment !== 'hoje' || !isApproved) return
+    if (segment !== 'hoje' || (!isApproved && partialStops === null)) return
     const tick = () => void fetchHojeData({ silent: true })
     const id = setInterval(tick, 20000)
     const onVisible = () => {
@@ -154,7 +174,7 @@ export function AdminEntregas({
       document.removeEventListener('visibilitychange', onVisible)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segment, slotId, isApproved])
+  }, [segment, slotId, isApproved, partialStops])
 
   // Refetch do histórico ao mudar filtro/busca (com debounce simples na busca)
   useEffect(() => {
@@ -171,11 +191,13 @@ export function AdminEntregas({
       const qs = slotId ? `?slotId=${slotId}` : ''
       const divRes = await apiFetch(`/admin/orders/division-suggestion${qs}`)
       if (divRes.ok) {
-        const divData = (await divRes.json()) as { approved: boolean; assignments: DivisionSuggestionItem[] }
+        const divData = (await divRes.json()) as { approved: boolean; assignments: DivisionSuggestionItem[]; partial?: { dispatchedStops: number } | null; declined?: DeclinedShift[] }
         const items = divData.assignments ?? []
-        setAssignments(items.map((i) => ({ courierId: i.courierId, courierName: i.courierName, condos: i.condominiums ?? [] })))
+        setAssignments(items.map((i) => ({ courierId: i.courierId, courierName: i.courierName, condos: i.condominiums ?? [], offReason: i.offReason ?? null })))
         // A aprovação é derivada do servidor → o badge sobrevive a reload/saída de tela.
         setIsApproved(Boolean(divData.approved))
+        setPartialStops(divData.partial?.dispatchedStops ?? null)
+        setDeclined(divData.declined ?? [])
       }
       const statusRes = await apiFetch(`/admin/orders/delivery-status${qs}`)
       if (statusRes.ok) setDeliveryStatus((await statusRes.json()) as DeliveryStatus[])
@@ -251,6 +273,17 @@ export function AdminEntregas({
     void fetchHistorico()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [histFilter, kindFilter, search])
+
+  if (routeOpen) {
+    return (
+      <CourierRouteScreen
+        courierId={routeOpen.courierId}
+        slotId={routeOpen.slotId}
+        slots={slots.map((s) => ({ slotId: s.slotId, label: s.label ?? s.slotId, emoji: s.emoji }))}
+        onBack={() => setRouteOpen(null)}
+      />
+    )
+  }
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
@@ -328,7 +361,14 @@ export function AdminEntregas({
           </div>
         )}
 
-        {segment === 'hoje' && <HojeView {...{ isLoadingHoje, assignments, setAssignments, handleApprove, isApproved, isApproving, deliveryStatus }} />}
+        {/* A2: mapa ao vivo + rotas de hoje + paradas (aparece quando há rota no dia). */}
+        {segment === 'hoje' && <LiveRoutesCard onOpenRoute={(courierId, slotId) => setRouteOpen({ courierId, slotId })} />}
+        {segment === 'hoje' && (
+          <HojeView
+            {...{ isLoadingHoje, assignments, setAssignments, handleApprove, isApproved, isApproving, deliveryStatus, partialStops }}
+            declined={declined.map((d) => ({ ...d, slotLabel: slots.find((s) => s.slotId === d.slotId)?.label ?? d.slotId }))}
+          />
+        )}
         {segment === 'historico' && (
           <>
             <SearchInput value={search} onChange={setSearch} />
@@ -369,6 +409,8 @@ function HojeView({
   isApproved,
   isApproving,
   deliveryStatus,
+  partialStops,
+  declined,
 }: {
   isLoadingHoje: boolean
   assignments: Assignment[]
@@ -377,8 +419,31 @@ function HojeView({
   isApproved: boolean
   isApproving: boolean
   deliveryStatus: DeliveryStatus[]
+  partialStops: number | null
+  declined: Array<DeclinedShift & { slotLabel: string }>
 }) {
   if (isLoadingHoje) return <Centered><Spinner /></Centered>
+
+  // Turno recusado (plano-termos-legais §5): quem recusou e o que voltou para a divisão.
+  const declinedNotes = declined.length > 0 && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+      {declined.map((d) => {
+        const hora = new Date(d.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+        const motivo = shiftDeclineLabel(d.reason)
+        return (
+          <CRNote key={`${d.courierId}|${d.slotId}`} icon="user" tone="danger">
+            <b>{d.courierName}</b> recusou o turno da {d.slotLabel.toLowerCase()} às {hora}
+            {motivo ? ` (${motivo.toLowerCase()})` : ''} · {d.stops === 1 ? '1 parada' : `${d.stops} paradas`}.
+          </CRNote>
+        )
+      })}
+      {partialStops !== null && (
+        <CRNote icon="route" tone="gold">
+          {partialStops === 1 ? '1 parada já está' : `${partialStops} paradas já estão`} na rua com os entregadores. Distribua só as que voltaram e aprove.
+        </CRNote>
+      )}
+    </div>
+  )
 
   if (assignments.length === 0) {
     return (
@@ -405,6 +470,7 @@ function HojeView({
 
   return (
     <>
+      {declinedNotes}
       <DeliveryDivisionCard
         assignments={assignments}
         onAssignmentsChange={setAssignments}

@@ -17,7 +17,9 @@ interface AppNotification {
 type Tone = 'good' | 'gold' | 'neutral'
 
 function getTone(type: string): Tone {
-  if (['DELIVERY_EVE', 'DELIVERY_DONE', 'OUT_FOR_DELIVERY', 'HOOK_DELIVERED', 'REFERRAL_SIGNUP'].includes(type)) return 'good'
+  if (['DELIVERY_EVE', 'DELIVERY_DONE', 'DELIVERY_OUT', 'HOOK_DELIVERED', 'REFERRAL_SIGNUP'].includes(type)) return 'good'
+  // Recado do entregador ('Estou na portaria') — dourado, como no design (C3).
+  if (type === 'COURIER_MESSAGE') return 'gold'
   // Cestinha cancelada/não entregue vem com crédito de volta — dourado, não vermelho.
   if (['LOW_CREDIT', 'CREDIT_GRANTED', 'MARKET_ORDER_CANCELLED', 'MARKET_NOT_DELIVERED'].includes(type)) return 'gold'
   // Indique e Ganhe (C6): pãezins que chegaram são dourados; o convite (REFERRAL_INVITE) é neutro.
@@ -28,7 +30,8 @@ function getTone(type: string): Tone {
 function getIcon(type: string) {
   if (type === 'DELIVERY_EVE') return 'bell'
   if (type === 'DELIVERY_DONE') return 'check'
-  if (type === 'OUT_FOR_DELIVERY') return 'truck'
+  if (type === 'DELIVERY_OUT') return 'truck'
+  if (type === 'COURIER_MESSAGE') return 'chat'
   if (type === 'LOW_CREDIT') return 'alert'
   if (type === 'CREDIT_GRANTED') return 'coin'
   if (type === 'HOOK_DELIVERED') return 'pin'
@@ -49,7 +52,8 @@ const CTA_CONFIG: Record<string, { label: string; path: string }> = {
   LOW_CREDIT:       { label: 'Comprar pãezins',  path: '/client/creditos' },
   DELIVERY_DONE:    { label: 'Ver pedido',        path: '/client/pedidos' },
   DELIVERY_EVE:     { label: 'Ver pedido',        path: '/client/pedidos' },
-  OUT_FOR_DELIVERY: { label: 'Acompanhar',        path: '/client/pedidos' },
+  // "Saiu para entrega" (H-1): o tipo antigo 'OUT_FOR_DELIVERY' nunca existiu no enum.
+  DELIVERY_OUT:     { label: 'Acompanhar',        path: '/client/pedidos' },
   RECONFIGURE:      { label: 'Ajustar agenda',    path: '/client/agenda'  },
   CREDIT_GRANTED:   { label: 'Ver saldo',         path: '/client/home'    },
   HOOK_DELIVERED:   { label: 'Ir para o início',  path: '/client/home'    },
@@ -61,6 +65,17 @@ const CTA_CONFIG: Record<string, { label: string; path: string }> = {
   REFERRAL_REWARD:  { label: 'Ver saldo',         path: '/client/creditos/extrato' },
   REFERRAL_WELCOME: { label: 'Ver saldo',         path: '/client/creditos/extrato' },
   REFERRAL_INVITE:  { label: 'Indicar agora',     path: '/client/perfil/indique' },
+}
+
+/**
+ * Entrega com foto visível ao cliente: o aviso traz `/client/pedidos?comprovante=<id>` e o botão
+ * vira "Ver foto" (C3), que abre a foto direto no acompanhamento.
+ */
+function ctaFor(n: AppNotification): { label: string; path: string; photo?: boolean } | undefined {
+  if (n.type === 'DELIVERY_DONE' && n.actionRoute?.includes('comprovante=')) {
+    return { label: 'Ver foto', path: n.actionRoute, photo: true }
+  }
+  return CTA_CONFIG[n.type]
 }
 
 function formatTimestamp(dateStr: string): string {
@@ -202,7 +217,7 @@ export function NotificationsScreen() {
             const tone = getTone(n.type)
             const iconName = getIcon(n.type)
             const { icon: iconColor, bg: iconBg } = TONE_ICON_STYLES[tone]
-            const cta = CTA_CONFIG[n.type]
+            const cta = ctaFor(n)
             const read = isRead || n.isRead
 
             return (
@@ -293,12 +308,17 @@ export function NotificationsScreen() {
                         fontSize: 13,
                         border: 'none',
                         cursor: 'pointer',
-                        background: tone === 'gold' ? 'var(--color-gold)' : 'var(--color-surface-2)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        // "Ver foto" é a ação principal do aviso (C3): botão escuro com a câmera.
+                        background: cta.photo ? 'var(--color-espresso)' : tone === 'gold' ? 'var(--color-gold)' : 'var(--color-surface-2)',
                         // Texto espresso sobre o dourado (o `onGold` do handoff · D-17) — o creme
                         // de antes tinha pouco contraste.
-                        color: tone === 'gold' ? 'var(--color-espresso)' : 'var(--color-text)',
+                        color: cta.photo ? 'var(--color-app-bg)' : tone === 'gold' ? 'var(--color-espresso)' : 'var(--color-text)',
                       }}
                     >
+                      {cta.photo && <Icon name="camera" size={15} aria-hidden="true" />}
                       {cta.label}
                     </button>
                   )}

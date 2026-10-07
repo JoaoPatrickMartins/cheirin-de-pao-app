@@ -44,6 +44,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
                 },
                 isActive: { type: 'boolean', description: 'Se o condomínio está ativo (atendido).' },
                 clientCount: { type: 'integer', description: 'Clientes ativos (não bloqueados) vinculados a este condomínio.' },
+                pendingSuggestions: { type: 'integer', description: 'Sugestões de acesso dos entregadores à espera de revisão (A6).' },
                 deliverySlots: {
                   type: 'array',
                   description: 'Slots de entrega configurados.',
@@ -111,6 +112,19 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
               lat: { type: 'number', nullable: true, description: 'Latitude (manual ou geocodificada).' },
               lng: { type: 'number', nullable: true, description: 'Longitude (manual ou geocodificada).' },
               approxLocation: { type: 'boolean', description: 'true se a localização é aproximada (centro da cidade).' },
+              courierAccess: {
+                type: 'object',
+                nullable: true,
+                description: 'Acesso para o entregador (A6). null = nenhuma dica.',
+                properties: {
+                  portaria: { type: 'string', nullable: true },
+                  temPorteiro: { type: 'boolean', nullable: true },
+                  portao: { type: 'string', nullable: true },
+                  parar: { type: 'string', nullable: true },
+                  obs: { type: 'string', nullable: true },
+                  fotoUrl: { type: 'string', nullable: true },
+                },
+              },
               isActive: { type: 'boolean', description: 'Se o condomínio está ativo.' },
               deliverySlots: {
                 type: 'array',
@@ -224,6 +238,21 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
             type: { type: 'string', enum: ['SINGLE_ENTRANCE', 'BLOCKS'], description: 'Novo tipo de condomínio.' },
             numBlocks: { type: 'integer', minimum: 1, description: 'Número de blocos/torres (apenas type == BLOCKS).' },
             isActive: { type: 'boolean', description: 'Ativar (true) ou desativar (false) o atendimento ao condomínio.' },
+            lat: { type: 'number', description: 'Latitude manual (só quando o admin editou as coordenadas).' },
+            lng: { type: 'number', description: 'Longitude manual.' },
+            courierAccess: {
+                type: 'object',
+                nullable: true,
+                description: 'Acesso para o entregador (A6). null limpa.',
+                properties: {
+                  portaria: { type: 'string', nullable: true },
+                  temPorteiro: { type: 'boolean', nullable: true },
+                  portao: { type: 'string', nullable: true },
+                  parar: { type: 'string', nullable: true },
+                  obs: { type: 'string', nullable: true },
+                  fotoUrl: { type: 'string', nullable: true },
+                },
+              },
             address: {
               type: 'object',
               description: 'Endereço parcialmente atualizado.',
@@ -260,6 +289,7 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
                 },
               },
               isActive: { type: 'boolean', description: 'Se o condomínio está ativo.' },
+              courierAccess: { type: 'object', nullable: true, properties: { portaria: { type: 'string', nullable: true }, temPorteiro: { type: 'boolean', nullable: true }, portao: { type: 'string', nullable: true }, parar: { type: 'string', nullable: true }, obs: { type: 'string', nullable: true }, fotoUrl: { type: 'string', nullable: true } } },
             },
           },
         },
@@ -351,4 +381,80 @@ export const adminCondominiumsRoute: FastifyPluginAsync = async (fastify) => {
     },
     ctrl.remove.bind(ctrl),
   )
+
+  // ── Acesso para o entregador (A6) ────────────────────────────────────────
+  const err = { type: 'object', properties: { error: { type: 'string' } } }
+  const suggestion = {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      field: { type: 'string', description: 'PORTARIA · PORTAO · PARAR · OUTRO' },
+      fieldLabel: { type: 'string' },
+      text: { type: 'string' },
+      createdAt: { type: 'string' },
+      courierName: { type: 'string' },
+      courierPhotoUrl: { type: 'string', nullable: true },
+    },
+  }
+  const accessView = {
+                type: 'object',
+                nullable: true,
+                description: 'Acesso para o entregador (A6). null = nenhuma dica.',
+                properties: {
+                  portaria: { type: 'string', nullable: true },
+                  temPorteiro: { type: 'boolean', nullable: true },
+                  portao: { type: 'string', nullable: true },
+                  parar: { type: 'string', nullable: true },
+                  obs: { type: 'string', nullable: true },
+                  fotoUrl: { type: 'string', nullable: true },
+                },
+              }
+  const idParams = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }
+  const sugParams = { type: 'object', required: ['id', 'sid'], properties: { id: { type: 'string' }, sid: { type: 'string' } } }
+
+  fastify.post('/admin/condominiums/access-photo', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['admin — condominiums'],
+      summary: 'Foto da entrada (acesso do entregador, A6)',
+      description: 'Multipart `file`. Pasta pública `condos/`; devolve a URL para gravar em `courierAccess.fotoUrl`. 503 sem armazenamento.',
+      security: [{ bearerAuth: [] }],
+      consumes: ['multipart/form-data'],
+      response: { 200: { type: 'object', properties: { url: { type: 'string' } } }, 400: err, 503: err },
+    },
+  }, ctrl.accessPhoto.bind(ctrl))
+
+  fastify.get('/admin/condominiums/:id/access-suggestions', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['admin — condominiums'],
+      summary: 'Sugestões de acesso dos entregadores (pendentes)',
+      security: [{ bearerAuth: [] }],
+      params: idParams,
+      response: { 200: { type: 'array', items: suggestion }, 404: err },
+    },
+  }, ctrl.accessSuggestions.bind(ctrl))
+
+  fastify.post('/admin/condominiums/:id/access-suggestions/:sid/apply', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['admin — condominiums'],
+      summary: 'Aplicar a sugestão ao acesso',
+      description: 'O texto vai para o campo da sugestão (Portaria, Portão, Onde parar; Outro soma às observações).',
+      security: [{ bearerAuth: [] }],
+      params: sugParams,
+      response: { 200: { type: 'object', properties: { courierAccess: accessView, suggestions: { type: 'array', items: suggestion } } }, 404: err, 409: err },
+    },
+  }, ctrl.applySuggestion.bind(ctrl))
+
+  fastify.post('/admin/condominiums/:id/access-suggestions/:sid/discard', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['admin — condominiums'],
+      summary: 'Descartar a sugestão',
+      security: [{ bearerAuth: [] }],
+      params: sugParams,
+      response: { 200: { type: 'object', properties: { suggestions: { type: 'array', items: suggestion } } }, 404: err, 409: err },
+    },
+  }, ctrl.discardSuggestion.bind(ctrl))
 }

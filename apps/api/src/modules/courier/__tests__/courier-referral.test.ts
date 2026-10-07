@@ -4,6 +4,13 @@ import type { FastifyInstance } from 'fastify'
 
 vi.mock('../../../lib/referral.js', () => ({ afterDelivery: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('../../../lib/market-pipeline.js', () => ({ completeMarketStop: vi.fn() }))
+// O resumo da parada (pop-up) e o comprovante não são o assunto deste teste.
+vi.mock('../courier-stop.js', () => ({
+  buildStopSummary: vi.fn().mockResolvedValue({ marketOrderIds: ['m1'], proofRequired: true }),
+  recordStopOutcome: vi.fn().mockResolvedValue(undefined),
+  lastClientOpId: vi.fn().mockResolvedValue(null),
+  clampOccurredAt: vi.fn().mockReturnValue(null),
+}))
 vi.mock('../../market/market-notify.js', () => ({
   notifyMarketDelivered: vi.fn(),
   notifyMarketNotDelivered: vi.fn(),
@@ -24,7 +31,7 @@ const stop = {
 }
 
 function makeService() {
-  const prisma = { marketOrder: { findUnique: vi.fn().mockResolvedValue(stop) } }
+  const prisma = { marketOrder: { findUnique: vi.fn().mockResolvedValue(stop), updateMany: vi.fn().mockResolvedValue({ count: 1 }) } }
   const fastify = { prisma, log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } } as unknown as FastifyInstance
   return { service: new CourierService(fastify), fastify }
 }
@@ -50,7 +57,7 @@ describe('CourierService — gatilho do Indique e Ganhe na Cestinha', () => {
 
   it('não entregue não dispara', async () => {
     vi.mocked(completeMarketStop).mockResolvedValue(1)
-    await makeService().service.markMarketNotDelivered('m1', 'courier1', 'ausente')
+    await makeService().service.markMarketNotDelivered('m1', 'courier1', { reason: 'ausente' })
     expect(afterDelivery).not.toHaveBeenCalled()
   })
 })

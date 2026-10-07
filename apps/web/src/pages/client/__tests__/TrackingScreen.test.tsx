@@ -87,4 +87,39 @@ describe('TrackingScreen [ACOMP-01, ACOMP-04]', () => {
       expect(screen.getByText('Nenhuma entrega ainda')).toBeDefined()
     })
   })
+
+  // Antes, SEPARATED e NOT_DELIVERED ficavam fora da timeline (tudo apagado) e o histórico
+  // mostrava "Agendado" para um pedido que não foi entregue.
+  it('pedido SEPARATED fica em "Agendado · agora" na timeline', async () => {
+    mockUseOrderTracking.mockReturnValue({ order: { ...scheduledOrder, status: 'SEPARATED' }, isLoading: false })
+    render(<MemoryRouter><TrackingScreen /></MemoryRouter>)
+    expect(screen.getByText('Agendado')).toBeDefined()
+    expect(screen.getByText('agora')).toBeDefined()
+  })
+
+  it('pedido NOT_DELIVERED mostra "Não entregue" no último passo, sem "agora"', async () => {
+    mockUseOrderTracking.mockReturnValue({ order: { ...scheduledOrder, status: 'NOT_DELIVERED' }, isLoading: false })
+    render(<MemoryRouter><TrackingScreen /></MemoryRouter>)
+    expect(screen.getByText('Não entregue')).toBeDefined()
+    expect(screen.queryByText('Entregue')).toBeNull()
+    expect(screen.queryByText('agora')).toBeNull()
+    expect(screen.getByText(/Não conseguimos entregar desta vez/)).toBeDefined()
+  })
+
+  it('histórico mostra "Não entregue" para pedido não entregue', async () => {
+    mockUseOrderTracking.mockReturnValue({ order: null, isLoading: false })
+    mockApiFetch.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.startsWith('/orders/history')
+              ? [{ id: 'hist-1', status: 'NOT_DELIVERED', quantity: 2, scheduledDate: new Date().toISOString(), type: 'SCHEDULED' }]
+              : [],
+          ),
+      }),
+    )
+    render(<MemoryRouter><TrackingScreen /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('Não entregue')).toBeDefined())
+  })
 })

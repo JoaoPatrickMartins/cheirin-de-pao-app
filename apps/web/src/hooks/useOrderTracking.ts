@@ -18,6 +18,16 @@ export interface TodayOrder {
   quantity: number
   scheduledDate: string
   deliveryTime?: string
+  deliveredAt?: string | null
+  failedAt?: string | null
+  /** Motivo da não entrega na linguagem do cliente — completa "Tentamos entregar, mas ___". */
+  failureText?: string | null
+  /** Selo do comprovante (foto) — só com a função ligada pelo admin, por 90 dias. */
+  proof?: { available: boolean; expired: boolean }
+  /** Quando o entregador INICIOU a rota do turno (D-7). null = ainda não saiu. */
+  onTheWayAt?: string | null
+  /** Quem traz o pão — só com a rota iniciada. */
+  courier?: { firstName: string; photoUrl: string | null } | null
 }
 
 /**

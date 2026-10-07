@@ -1,5 +1,6 @@
 import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
 import { Icon } from '../brand/Icon'
+import { CRProof, CRTag, type CRProofState } from './kit'
 
 export interface CompletedStop {
   orderId: string
@@ -16,9 +17,15 @@ export interface CompletedStop {
   marketOrderIds?: string[]
   marketItems?: { name: string; qty: number }[]
   marketItemCount?: number
+  /** Parada só de gancho (sem pão nem Cestinha). */
+  hookId?: string
+  /** Comprovante da parada (do servidor ou desta sessão). */
+  proof?: CRProofState | null
+  /** Problema já reportado à operação (E11). */
+  reported?: boolean
 }
 
-const completedKey = (s: CompletedStop) => s.orderId || s.marketOrderId || ''
+const completedKey = (s: CompletedStop) => s.orderId || s.marketOrderId || s.hookId || ''
 
 export interface CompletedCondo {
   condominiumId: string
@@ -49,7 +56,7 @@ function timeLabel(iso: string | null): string {
   }).format(d)
 }
 
-function CompletedRow({ stop, showBlock }: { stop: CompletedStop; showBlock: boolean }) {
+function CompletedRow({ stop, showBlock, onReport }: { stop: CompletedStop; showBlock: boolean; onReport?: (stop: CompletedStop) => void }) {
   const delivered = stop.status === 'DELIVERED'
   const title = formatUnit(stop, {
     block: showBlock ? 'bare' : 'omit',
@@ -105,6 +112,27 @@ function CompletedRow({ stop, showBlock }: { stop: CompletedStop; showBlock: boo
         >
           {stop.clientName}
         </p>
+        {(stop.proof || stop.reported) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
+            {stop.proof && <CRProof state={stop.proof} />}
+            {stop.reported && (
+              <CRTag icon="alert" tone="gold" size="sm">
+                reportado
+              </CRTag>
+            )}
+          </div>
+        )}
+        {/* "Reportar problema" vai para a operação pelo pedido — a parada só de gancho não tem. */}
+        {onReport && !stop.reported && !stop.hookId && (
+          <button
+            type="button"
+            onClick={() => onReport(stop)}
+            style={{ marginTop: 4, height: 36, padding: 0, background: 'none', border: 'none', color: 'var(--color-accent)', fontWeight: 800, fontSize: 13, fontFamily: 'var(--font-body)', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}
+          >
+            <Icon name="alert" size={14} stroke={2.4} aria-hidden="true" />
+            Reportar problema
+          </button>
+        )}
         {stop.marketItems && stop.marketItems.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
             {stop.marketItems.map((it, i) => (
@@ -144,7 +172,8 @@ function CompletedRow({ stop, showBlock }: { stop: CompletedStop; showBlock: boo
         </span>
         {time && (
           <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontWeight: 700, color: 'var(--color-text-ter)' }}>
-            {time}{stop.quantity > 0 ? ` · ${stop.quantity} 🥖` : ' · 🧺'}
+            {time}
+            {stop.quantity > 0 ? ` · ${stop.quantity} 🥖` : stop.hookId ? ' · 🪝 gancho' : ' · 🧺'}
           </span>
         )}
       </div>
@@ -156,7 +185,7 @@ function CompletedRow({ stop, showBlock }: { stop: CompletedStop; showBlock: boo
  * Lista somente-leitura das entregas concluídas do dia (entregues + não entregues),
  * agrupadas por condomínio e, dentro dele, por bloco (quando houver).
  */
-export function CourierCompletedList({ condos }: { condos: CompletedCondo[] }) {
+export function CourierCompletedList({ condos, onReport }: { condos: CompletedCondo[]; onReport?: (stop: CompletedStop) => void }) {
   const total = condos.reduce((n, c) => n + c.stops.length, 0)
 
   if (total === 0) {
@@ -215,11 +244,11 @@ export function CourierCompletedList({ condos }: { condos: CompletedCondo[] }) {
                   <div key={g.block ?? '—'}>
                     <p style={captionStyle}>{g.block ? blockLabel(g.block) : 'Sem bloco'}</p>
                     {g.stops.map((stop) => (
-                      <CompletedRow key={completedKey(stop)} stop={stop} showBlock={false} />
+                      <CompletedRow key={completedKey(stop)} stop={stop} showBlock={false} onReport={onReport} />
                     ))}
                   </div>
                 ))
-              : condo.stops.map((stop) => <CompletedRow key={completedKey(stop)} stop={stop} showBlock={true} />)}
+              : condo.stops.map((stop) => <CompletedRow key={completedKey(stop)} stop={stop} showBlock={true} onReport={onReport} />)}
           </div>
         )
       })}

@@ -89,6 +89,8 @@ function makeFastify(over: {
       aggregate: vi.fn().mockResolvedValue({ _sum: { creditMilli: 0 } }),
     },
     schedule: { findMany: vi.fn().mockResolvedValue([]) },
+    // A10 · paradas sem foto (Onda 8 do entregador).
+    deliveryProof: { findMany: vi.fn().mockResolvedValue([]) },
     creditTransaction: {
       aggregate: vi.fn().mockImplementation((args: { where?: { type?: unknown } }) => {
         const type = args.where?.type
@@ -111,6 +113,7 @@ function makeFastify(over: {
   return {
     service: new AdminReportsService({ prisma, log: { error: vi.fn(), warn: vi.fn() } } as unknown as FastifyInstance),
     calls,
+    prisma,
   }
 }
 
@@ -155,6 +158,23 @@ describe('getDeliveryReport — pão + Cestinha (D3)', () => {
       { reason: 'Endereço', count: 1 },
     ])
     expect(r.cancelReasons[0]).toEqual({ reason: 'Pagamento não concluído no prazo', count: 4 })
+  })
+
+  it('A10: motivos padronizados (pão + Cestinha por código) e paradas sem foto por motivo', async () => {
+    const { service, prisma } = makeFastify()
+    const withCodes = (codes: Array<{ failureCode: string | null; _count: number }>, base: (args: { by: string[] }) => unknown) =>
+      vi.fn().mockImplementation((args: { by: string[] }) => (args.by.includes('failureCode') ? Promise.resolve(codes) : base(args)))
+    prisma.order.groupBy = withCodes([{ failureCode: 'CLIENTE_AUSENTE', _count: 9 }, { failureCode: null, _count: 2 }, { failureCode: 'CORRIGIDO_ADMIN', _count: 1 }], prisma.order.groupBy as unknown as (args: { by: string[] }) => unknown)
+    prisma.marketOrder.groupBy = withCodes([{ failureCode: 'CLIENTE_AUSENTE', _count: 5 }, { failureCode: 'PORTARIA_NAO_LIBEROU', _count: 3 }], prisma.marketOrder.groupBy as unknown as (args: { by: string[] }) => unknown)
+    prisma.deliveryProof.findMany.mockResolvedValue([{ note: 'Local sem luz' }, { note: 'Local sem luz' }, { note: 'portão quebrado' }])
+    const r = await service.getDeliveryReport('week')
+    expect(r.failureCodes).toEqual([
+      { code: 'CLIENTE_AUSENTE', label: 'Cliente ausente', count: 14 },
+      { code: 'PORTARIA_NAO_LIBEROU', label: 'Portaria não liberou', count: 3 },
+      { code: 'SEM_CODIGO', label: 'Sem motivo padronizado', count: 2 },
+      { code: 'CORRIGIDO_ADMIN', label: 'Corrigido pelo admin', count: 1 },
+    ])
+    expect(r.noPhoto).toEqual({ count: 3, byReason: [{ label: 'Local sem luz', count: 2 }, { label: 'Outro', count: 1 }] })
   })
 
   it('período sem nada → taxa 0, sem divisão por zero', async () => {

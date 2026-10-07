@@ -1,5 +1,6 @@
 import { PrismaClient, type ExpenseGroup } from '@prisma/client'
 import { REFERRAL_DEFAULTS, REFERRAL_SETTING_KEYS } from '../lib/referral-config.js'
+import { ROUTE_SEED_DEFAULTS } from '../lib/route-config.js'
 
 /**
  * seedDefaultsIfAbsent — garante valores padrão no banco quando o admin ainda não configurou.
@@ -232,6 +233,19 @@ export async function seedReferralDefaults(prisma: PrismaClient): Promise<void> 
       update: {},
       create: { key, value: values[field as keyof typeof values] },
     })
+  }
+}
+
+/**
+ * seedRouteDefaults — padrões da tela "Rotas e comprovante" (plano do entregador, A5): volta à base
+ * no km, 1 min por porta e o cliente vê a foto da entrega. Base de saída e preço do litro NÃO são
+ * semeados: ausência significa "não configurado" (ver `lib/route-config.ts`).
+ *
+ * `update: {}`: cria só se ausente, nunca sobrescreve o que o admin configurou.
+ */
+export async function seedRouteDefaults(prisma: PrismaClient): Promise<void> {
+  for (const [key, value] of Object.entries(ROUTE_SEED_DEFAULTS)) {
+    await prisma.setting.upsert({ where: { key }, update: {}, create: { key, value } })
   }
 }
 

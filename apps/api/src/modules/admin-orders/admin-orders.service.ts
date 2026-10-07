@@ -1,7 +1,9 @@
 import { FastifyInstance } from 'fastify'
 import * as OneSignal from '@onesignal/node-onesignal'
 import { NotificationType, OrderStatus, MarketOrderStatus, PaymentStatus, TransactionType, Prisma } from '@prisma/client'
-import { fromMilli, toMilli } from '@cheirin-de-pao/shared'
+import { fromMilli, toMilli, stopShortCode, isProofExpired, CORRECTED_BY_ADMIN_CODE, STOP_ISSUE_LABELS, type StopIssueType } from '@cheirin-de-pao/shared'
+import { getRouteConfig } from '../../lib/route-config.js'
+import { getSignedReadUrl, isStorageConfigured } from '../../lib/storage.js'
 import { getGlobalDeliverySlots } from '../../lib/delivery-slots.js'
 import { dayKeyOf, type DayKey, brtDateStr, brtNoonFromStr, brtDayRange } from '../../lib/cutoff.js'
 import { projectScheduleForDate } from '../../lib/schedule-projection.js'
@@ -12,14 +14,20 @@ import { reverseMarketOrder } from '../../lib/market-reversal.js'
 import { propagateMarketStatusForOrder, dispatchMarketForOrders, assignMarketByCondoDay } from '../../lib/market-pipeline.js'
 import { notifyMarketCancelled, notifyMarketDelivered, notifyMarketNotDelivered } from '../market/market-notify.js'
 import { NotificationsService } from '../notifications/notifications.service.js'
+import { ensureSuggestion } from '../courier/courier-plan.js'
+import { courierOffMap } from '../../lib/courier-availability.js'
 import { clientLabel } from '../../lib/client-label.js'
 import { afterDelivery } from '../../lib/referral.js'
+import { syncShiftOffers, type ShiftKey } from '../../lib/courier-shift-offers.js'
 
 /** Centavos, sem lixo de ponto flutuante em somas de R$. */
 const round2 = (n: number) => Math.round(n * 100) / 100
 
-/** Código curto do pedido — o mesmo impresso no cupom, por onde o operador chama o pedido. */
-const shortOrderCode = (id: string) => id.slice(-4).toUpperCase()
+/**
+ * Código curto do pedido — o mesmo impresso no cupom, por onde o operador chama o pedido e o
+ * entregador digita quando a câmera falha (6 caracteres desde o app do entregador, T-1).
+ */
+const shortOrderCode = (id: string) => stopShortCode(id)
 
 /**
  * Soma movimentos de crédito em MILÉSIMOS e converte no fim, em valor absoluto.
@@ -96,6 +104,21 @@ export interface DivisionAssignment {
   total: number
   /** Itens do mercadinho atribuídos — carga real do entregador, ao lado dos pães. */
   totalItems: number
+  /**
+   * De folga / fora da escala no dia (F-8) ou RECUSOU o turno (plano-termos-legais §5): fica fora da
+   * sugestão; o admin ainda pode atribuir.
+   */
+  offReason?: 'FOLGA' | 'FORA_DA_ESCALA' | 'RECUSOU' | null
+}
+
+/** Turno recusado no dia/turno (plano-termos-legais §5) — o aviso no card de divisão. */
+export interface DivisionDeclined {
+  courierId: string
+  courierName: string
+  slotId: string
+  at: string
+  reason: string | null
+  stops: number
 }
 
 /**
@@ -224,7 +247,7 @@ export interface OrderPayment {
  */
 export interface OrderDetail extends LedgerRow {
   createdAt: string
-  /** 4 últimos do id, como no cupom — é por ele que o operador chama o pedido. */
+  /** 6 últimos do id, como no cupom — é por ele que o operador chama o pedido. */
   code: string
   /** Pãezinhos debitados na criação do pedido (split aplicado, na Cestinha). */
   creditsDebited: number
@@ -236,6 +259,44 @@ export interface OrderDetail extends LedgerRow {
   /** Pãezinhos já devolvidos deste pedido. */
   refundedCredits: number
   payment: OrderPayment | null
+  /** Motivo padronizado da não entrega (app do entregador); null em pedido antigo. */
+  failureCode: string | null
+  /** Comprovante da parada (A1 do plano do entregador); null sem registro. */
+  proof: ProofDetail | null
+  /** Problemas que o entregador reportou nesta parada (E11), do mais recente. */
+  issues: IssueDetail[]
+  /** Correção entregue → não entregue feita pelo admin (H-2); null sem correção. */
+  correction: { at: string; byName: string | null; note: string | null } | null
+}
+
+/** Problema reportado pelo entregador numa entrega realizada (A1 · "reportado"). */
+export interface IssueDetail {
+  id: string
+  type: string
+  label: string
+  text: string | null
+  createdAt: string
+  courierName: string | null
+  status: string
+  resolution: string | null
+}
+
+/** Comprovante no detalhe do pedido. A foto é PRIVADA: vai como URL assinada de curta duração. */
+export interface ProofDetail {
+  /** 'PENDING' (foto ainda subindo) | 'OK' | 'NONE' (exceção, com `note`) | 'SKIPPED' (opcional, pulou). */
+  status: string
+  outcome: string
+  required: boolean
+  photoUrl: string | null
+  photoAt: string | null
+  note: string | null
+  confirmedVia: string | null
+  /** Mais de 90 dias: a foto não é mais servida (D-4b). */
+  expired: boolean
+  /** O cliente vê esta foto (toggle global `fotoClienteVisivel`) — rótulo "cliente vê"/"só admin". */
+  clientVisible: boolean
+  /** Ids da parada (pão + Cestinhas) — para achar os reportes. Não vai para a tela. */
+  stopIds?: string[]
 }
 
 /** Filtros do ledger de pedidos. */
@@ -333,11 +394,16 @@ export class AdminOrdersService {
     const marketMoved = await propagateMarketStatusForOrder(this.prisma, order, newStatus, reason)
 
     if (newStatus === 'DELIVERED') {
-      await this.notifyAndPersist(order)
-      // MKT-35: se o cliente tinha Cestinha nesta parada, avisa a entrega dela também. O gatilho é
-      // a transição desta chamada, não o estado atual: uma Cestinha já entregue pelo fluxo
-      // só-market receberia um segundo aviso quando o pedido de pão fosse concluído depois.
-      if (marketMoved > 0) await notifyMarketDelivered(this.fastify, order.userId)
+      // UM aviso por parada (V-18 do plano do entregador): com Cestinha junto, o aviso do pão a
+      // menciona — antes saíam dois "entregue" para a mesma campainha. O gatilho continua sendo a
+      // transição desta chamada (MKT-35): Cestinha já entregue antes pelo fluxo só-market não
+      // entra no texto.
+      // Entrega feita pelo entregador com a foto visível ao cliente: o aviso leva ao comprovante.
+      const proofRoute =
+        order.courierId && (await getRouteConfig(this.prisma)).fotoClienteVisivel
+          ? `/client/pedidos?comprovante=${order.id}`
+          : undefined
+      await this.notifyAndPersist(order, { withCestinha: marketMoved > 0, proofRoute })
       // Indique e Ganhe — a 1ª entrega paga pode qualificar a indicação do cliente. Cobre o
       // entregador, a separação e o admin (todos passam por aqui), e a Cestinha propagada acima.
       // Nunca lança.
@@ -417,11 +483,18 @@ export class AdminOrdersService {
    * D-06: Falha do push é silenciosa — não bloqueia o fluxo.
    * Persist é obrigatório e acontece fora do try do push.
    */
-  private async notifyAndPersist(order: {
-    id: string
-    userId: string
-    quantity: number
-  }): Promise<void> {
+  private async notifyAndPersist(
+    order: {
+      id: string
+      userId: string
+      quantity: number
+    },
+    opts: { withCestinha?: boolean; proofRoute?: string } = {},
+  ): Promise<void> {
+    const paes = order.quantity === 1 ? 'Seu pão foi entregue' : `Seus ${order.quantity} pães foram entregues`
+    const body = opts.withCestinha
+      ? `${order.quantity === 1 ? 'Seu pão e a Cestinha foram entregues' : `Seus ${order.quantity} pães e a Cestinha foram entregues`}. Bom apetite!`
+      : `${paes}. Bom apetite!`
     const user = await this.prisma.user.findUnique({
       where: { id: order.userId },
       select: { oneSignalPlayerId: true },
@@ -435,9 +508,7 @@ export class AdminOrdersService {
         notification.app_id = process.env.ONESIGNAL_APP_ID!
         notification.include_subscription_ids = [user.oneSignalPlayerId]
         notification.headings = { pt: 'Entrega realizada! 🎉' }
-        notification.contents = {
-          pt: `Seus ${order.quantity} pães foram entregues. Bom apetite!`,
-        }
+        notification.contents = { pt: body }
         notification.data = { screen: 'pedidos' }
         await osClient.createNotification(notification)
       } catch (pushErr) {
@@ -453,8 +524,8 @@ export class AdminOrdersService {
       userId: order.userId,
       type: 'DELIVERY_DONE',
       title: 'Entrega realizada',
-      body: `Seus ${order.quantity} pães foram entregues. Bom apetite!`,
-      actionRoute: '/client/pedidos',
+      body,
+      actionRoute: opts.proofRoute ?? '/client/pedidos',
     })
   }
 
@@ -592,10 +663,90 @@ export class AdminOrdersService {
       }
 
       count += dispatched
-      // Avisa o entregador que foi despachado (best-effort, por entregador).
-      await this.notifyCourierNewOrders(a.courierId, dispatched)
     }
+    // Turno OFERECIDO a cada entregador (plano-termos-legais §5): cria/atualiza a oferta e avisa
+    // "Turno da manhã: N paradas · aceitar ou recusar" — substitui o "Novas entregas" daqui.
+    await syncShiftOffers(this.fastify, await this.shiftKeysOf(assignments))
+    // Rota de cada entregador/turno: prédio novo (fora da rota salva) → sugestão para o admin (D-5).
+    await this.suggestRoutesAfterDivision(assignments)
+    // Gancho na rota (A7): o gancho enviado para o dia/turno vai com o entregador da parada.
+    await this.dispatchHooksAfterDivision(assignments)
     return { count }
+  }
+
+  /** Dias/turnos das paradas de uma divisão (para acertar as ofertas de turno). */
+  private async shiftKeysOf(assignments: { courierId: string; orderIds: string[]; marketOrderIds?: string[] }[]): Promise<ShiftKey[]> {
+    const orderIds = assignments.flatMap((a) => a.orderIds ?? [])
+    const marketIds = assignments.flatMap((a) => a.marketOrderIds ?? [])
+    const [orders, markets] = await Promise.all([
+      orderIds.length ? this.prisma.order.findMany({ where: { id: { in: orderIds } }, select: { slotId: true, scheduledDate: true } }) : [],
+      marketIds.length ? this.prisma.marketOrder.findMany({ where: { id: { in: marketIds } }, select: { slotId: true, scheduledDate: true } }) : [],
+    ])
+    return [...orders, ...markets].flatMap((o) => (o.slotId ? [{ date: brtDateStr(o.scheduledDate), slotId: o.slotId }] : []))
+  }
+
+  /**
+   * Despacho dos ganchos enviados na rota (A7): para cada parada da divisão, o gancho do cliente
+   * marcado para aquele dia/turno passa a ter o entregador da parada. Best-effort.
+   */
+  private async dispatchHooksAfterDivision(assignments: { courierId: string; orderIds: string[]; marketOrderIds?: string[] }[]): Promise<void> {
+    try {
+      for (const a of assignments) {
+        const [orders, markets] = await Promise.all([
+          a.orderIds?.length ? this.prisma.order.findMany({ where: { id: { in: a.orderIds } }, select: { userId: true, slotId: true, scheduledDate: true } }) : [],
+          a.marketOrderIds?.length ? this.prisma.marketOrder.findMany({ where: { id: { in: a.marketOrderIds } }, select: { userId: true, slotId: true, scheduledDate: true } }) : [],
+        ])
+        const stops = new Map<string, { userId: string; slotId: string; date: string }>()
+        for (const o of [...orders, ...markets]) {
+          if (!o.slotId) continue
+          const date = brtDateStr(o.scheduledDate)
+          stops.set(`${o.userId}|${o.slotId}|${date}`, { userId: o.userId, slotId: o.slotId, date })
+        }
+        for (const st of stops.values()) {
+          await this.prisma.hookRequest.updateMany({
+            where: { userId: st.userId, status: 'REQUESTED', routeDate: st.date, routeSlotId: st.slotId },
+            data: { routeCourierId: a.courierId },
+          })
+        }
+      }
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[admin-orders] falha ao despachar os ganchos da rota — ignorado')
+    }
+  }
+
+  /**
+   * Depois da divisão aprovada, compara os prédios de cada entregador/turno com a rota salva e,
+   * se entrou prédio novo, calcula a sugestão (`ADMIN_ROUTE_SUGGESTION`). Best-effort: a divisão
+   * já foi gravada, e nada aqui pode desfazê-la.
+   */
+  private async suggestRoutesAfterDivision(assignments: { courierId: string; orderIds: string[]; marketOrderIds?: string[] }[]): Promise<void> {
+    try {
+      const slots = await getGlobalDeliverySlots(this.prisma)
+      for (const a of assignments) {
+        const [orders, markets] = await Promise.all([
+          a.orderIds?.length ? this.prisma.order.findMany({ where: { id: { in: a.orderIds } }, select: { slotId: true, condominiumId: true } }) : [],
+          a.marketOrderIds?.length ? this.prisma.marketOrder.findMany({ where: { id: { in: a.marketOrderIds } }, select: { slotId: true, condominiumId: true } }) : [],
+        ])
+        const bySlot = new Map<string, Set<string>>()
+        for (const o of [...orders, ...markets]) {
+          if (!o.slotId || !o.condominiumId) continue
+          const set = bySlot.get(o.slotId) ?? new Set<string>()
+          set.add(o.condominiumId)
+          bySlot.set(o.slotId, set)
+        }
+        for (const [slotId, ids] of bySlot) {
+          const rows = await this.prisma.condominium.findMany({ where: { id: { in: [...ids] } }, select: { id: true, name: true, lat: true, lng: true } })
+          await ensureSuggestion(this.fastify, {
+            courierId: a.courierId,
+            slotId,
+            condos: rows.map((r) => ({ id: r.id, name: r.name, lat: r.lat ?? null, lng: r.lng ?? null })),
+            slotLabel: slots.find((s) => s.slotId === slotId)?.label ?? slotId,
+          })
+        }
+      }
+    } catch (err) {
+      this.fastify.log.warn({ err }, '[admin-orders] falha ao sugerir rotas depois da divisão — ignorado')
+    }
   }
 
   /**
@@ -976,13 +1127,19 @@ export class AdminOrdersService {
    *    courierId gravado nos pedidos OUT_FOR_DELIVERY/DELIVERED/NOT_DELIVERED. É o que
    *    faz o badge "Aprovada" sobreviver a reload / saída de tela.
    *
+   *  - aprovada, mas com paradas SEPARATED sem entregador (o entregador RECUSOU o turno, ou houve
+   *    separação depois da aprovação) → volta à sugestão SÓ dessas paradas, com `partial` (quantas
+   *    já estão na rua) e `declined` (quem recusou fica fora da sugestão, como `RECUSOU`).
+   *
    * Pipeline por turno: com slotId, a divisão é só daquele turno (entregador nunca
    * recebe manhã+tarde misturados).
-   * Retorna: { approved, assignments: [{ courierId, courierName, condominiums, total }] }
+   * Retorna: { approved, assignments: [{ courierId, courierName, condominiums, total }], partial?, declined }
    */
   async getDivisionSuggestion(slotId?: string, dateStr?: string): Promise<{
     approved: boolean
     assignments: DivisionAssignment[]
+    partial?: { dispatchedStops: number }
+    declined: DivisionDeclined[]
   }> {
     // Buscar entregadores ativos
     const couriers = (await this.prisma.user.findMany({
@@ -990,20 +1147,22 @@ export class AdminOrdersService {
       select: { id: true, name: true },
     })) as { id: string; name: string }[]
 
-    if (couriers.length === 0) return { approved: false, assignments: [] }
+    if (couriers.length === 0) return { approved: false, assignments: [], declined: [] }
 
     const { start, end } = this.resolveDayRange(dateStr)
+    const dayStr = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : brtDateStr(new Date(), 0)
+    const declined = await this.declinedShifts(dayStr, slotId, couriers)
 
     // 1) Estado pós-aprovação: se já há paradas despachadas (com entregador) no dia/turno,
     // a divisão foi aprovada — devolvemos a divisão REAL persistida (não a sugestão greedy).
     const dispatched = await this.collectDivisionStops(start, end, slotId, 'dispatched')
-    if (dispatched.length > 0) {
-      return { approved: true, assignments: await this.groupByCourier(couriers, dispatched) }
-    }
-
-    // 2) Ainda não aprovado: sugestão greedy sobre as paradas SEPARATED do dia/turno.
+    // 2) Paradas SEPARATED: antes da aprovação, tudo; depois, as que sobraram sem entregador.
     const stops = await this.collectDivisionStops(start, end, slotId, 'separated')
-    if (stops.length === 0) return { approved: false, assignments: [] }
+    if (dispatched.length > 0 && stops.length === 0) {
+      return { approved: true, assignments: await this.groupByCourier(couriers, dispatched), declined }
+    }
+    if (stops.length === 0) return { approved: false, assignments: [], declined }
+    const partial = dispatched.length > 0 ? { dispatchedStops: dispatched.length } : undefined
 
     // Agrupar por condominiumId (mantém as paradas cruas p/ ids + breakdown de blocos)
     const condoMap = new Map<string, DivisionStop[]>()
@@ -1035,6 +1194,12 @@ export class AdminOrdersService {
       // 20 potes de geleia não é "leve"; ordenar só por pães o jogaria pro fim da fila.
       .sort((a, b) => b.quantity + b.items - (a.quantity + a.items))
 
+    // Folga e escala (F-8): quem está fora no dia/turno não entra na sugestão. Se todo mundo
+    // estiver fora, a sugestão usa todos (melhor sugerir do que deixar a divisão vazia). Quem recusou
+    // o turno hoje também fica fora (plano-termos-legais §5).
+    const off: Map<string, DivisionAssignment['offReason']> = new Map(await courierOffMap(this.prisma, couriers.map((c) => c.id), dayStr, slotId))
+    for (const d of declined) off.set(d.courierId, 'RECUSOU')
+
     // Algoritmo greedy: inicializar contadores por entregador
     const courierList: DivisionAssignment[] = couriers.map((c) => ({
       courierId: c.id,
@@ -1042,25 +1207,42 @@ export class AdminOrdersService {
       condominiums: [],
       total: 0,
       totalItems: 0,
+      offReason: off.get(c.id) ?? null,
     }))
+    const eligible = courierList.some((c) => !c.offReason) ? courierList.filter((c) => !c.offReason) : courierList
 
     for (const unit of sortedUnits) {
       // Encontrar entregador com menor carga (pães + itens)
       let minIdx = 0
-      for (let i = 1; i < courierList.length; i++) {
-        const cur = courierList[i].total + courierList[i].totalItems
-        const min = courierList[minIdx].total + courierList[minIdx].totalItems
+      for (let i = 1; i < eligible.length; i++) {
+        const cur = eligible[i].total + eligible[i].totalItems
+        const min = eligible[minIdx].total + eligible[minIdx].totalItems
         if (cur < min) minIdx = i
       }
-      courierList[minIdx].condominiums.push(unit)
-      courierList[minIdx].total += unit.quantity
-      courierList[minIdx].totalItems += unit.items
+      eligible[minIdx].condominiums.push(unit)
+      eligible[minIdx].total += unit.quantity
+      eligible[minIdx].totalItems += unit.items
     }
 
-    // Retornar todos os entregadores ativos — inclusive os sem condomínio sugerido.
-    // A sugestão greedy acima já balanceia a carga; manter os entregadores vazios
+    // Retornar todos os entregadores ativos — inclusive os sem condomínio sugerido e os de folga
+    // (no fim). A sugestão greedy acima já balanceia a carga; manter os entregadores vazios
     // permite que o admin reatribua condomínios manualmente (drag-and-drop no front).
-    return { approved: false, assignments: courierList }
+    return { approved: false, assignments: [...courierList.filter((c) => !c.offReason), ...courierList.filter((c) => c.offReason)], partial, declined }
+  }
+
+  /**
+   * Recusas de turno do dia (e do turno, se informado) que ainda valem: quem recusou e não recebeu
+   * o turno de novo depois. Mais recente primeiro.
+   */
+  private async declinedShifts(date: string, slotId: string | undefined, couriers: { id: string; name: string }[]): Promise<DivisionDeclined[]> {
+    const rows = await this.prisma.courierShiftOffer.findMany({ where: { date, ...(slotId ? { slotId } : {}) }, orderBy: { offeredAt: 'desc' } })
+    const latest = new Map<string, (typeof rows)[number]>()
+    for (const r of rows) if (!latest.has(`${r.courierId}|${r.slotId}`)) latest.set(`${r.courierId}|${r.slotId}`, r)
+    const name = new Map(couriers.map((c) => [c.id, c.name]))
+    return [...latest.values()]
+      .filter((r) => r.status === 'DECLINED')
+      .map((r) => ({ courierId: r.courierId, courierName: name.get(r.courierId) ?? 'Entregador', slotId: r.slotId, at: (r.respondedAt ?? r.updatedAt).toISOString(), reason: r.reason ?? null, stops: r.stops }))
+      .sort((a, b) => b.at.localeCompare(a.at))
   }
 
   /**
@@ -1702,7 +1884,7 @@ export class AdminOrdersService {
         ? null
         : await this.prisma.order.findUnique({
             where: { id },
-            select: { ...this._ledgerSelect, createdAt: true },
+            select: { ...this._ledgerSelect, createdAt: true, failureCode: true, correctedAt: true, correctedById: true, correctionNote: true },
           })
 
     if (order) {
@@ -1711,7 +1893,7 @@ export class AdminOrdersService {
       // só passou a amarrar depois — em pedido antigo não há linha, e aí o valor é DERIVADO da
       // quantidade (1 pão = 1 crédito na criação). Derivar é honesto: é exatamente a regra que
       // debitou. Ver o comentário no corte, em schedules.service.ts.
-      const [debit, refund, payment] = await Promise.all([
+      const [debit, refund, payment, proof] = await Promise.all([
         this.prisma.creditTransaction.findFirst({
           where: { type: TransactionType.DELIVERY, referenceId: id },
           select: { quantityMilli: true },
@@ -1721,6 +1903,7 @@ export class AdminOrdersService {
           select: { quantityMilli: true },
         }),
         this._loadPayment(order.paymentId),
+        this._loadProof({ orderId: id }),
       ])
 
       return {
@@ -1731,6 +1914,10 @@ export class AdminOrdersService {
         creditsDebitedDerived: !debit,
         refundedCredits: sumMilliAbs(refund),
         payment,
+        failureCode: order.failureCode ?? null,
+        proof,
+        issues: await this._loadIssues(id, proof),
+        correction: await this._correctionOf(order),
       }
     }
 
@@ -1739,7 +1926,7 @@ export class AdminOrdersService {
         ? null
         : await this.prisma.marketOrder.findUnique({
             where: { id },
-            select: { ...this._marketLedgerSelect, createdAt: true },
+            select: { ...this._marketLedgerSelect, createdAt: true, failureCode: true, correctedAt: true, correctedById: true, correctionNote: true },
           })
 
     if (!marketOrder) {
@@ -1747,12 +1934,13 @@ export class AdminOrdersService {
     }
 
     const [row] = await this._enrichMarketOrders([marketOrder])
-    const [refund, payment] = await Promise.all([
+    const [refund, payment, proof] = await Promise.all([
       this.prisma.creditTransaction.findMany({
         where: { type: TransactionType.MARKET_REFUND, referenceId: id },
         select: { quantityMilli: true },
       }),
       this._loadPayment(marketOrder.paymentId),
+      this._loadProof({ marketOrderId: id }),
     ])
 
     return {
@@ -1764,6 +1952,101 @@ export class AdminOrdersService {
       creditsDebitedDerived: false,
       refundedCredits: sumMilliAbs(refund),
       payment,
+      failureCode: marketOrder.failureCode ?? null,
+      proof,
+      issues: await this._loadIssues(id, proof),
+      correction: await this._correctionOf(marketOrder),
+    }
+  }
+
+  /** Problemas reportados na parada: pelo id do pedido e pelos da parada no comprovante. */
+  private async _loadIssues(id: string, proof: ProofDetail | null): Promise<IssueDetail[]> {
+    const ids = [...new Set([id, ...(proof?.stopIds ?? [])])]
+    const rows = await this.prisma.courierReport.findMany({
+      where: { kind: 'STOP_ISSUE', OR: [{ orderId: { in: ids } }, { marketOrderId: { in: ids } }] },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (rows.length === 0) return []
+    const couriers = await this.prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.courierId))] } }, select: { id: true, name: true } })
+    const nameOf = new Map(couriers.map((c) => [c.id, c.name]))
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      label: STOP_ISSUE_LABELS[r.type as StopIssueType] ?? r.type,
+      text: r.text ?? null,
+      createdAt: r.createdAt.toISOString(),
+      courierName: nameOf.get(r.courierId) ?? null,
+      status: r.status,
+      resolution: r.resolution ?? null,
+    }))
+  }
+
+  private async _correctionOf(o: { correctedAt?: Date | null; correctedById?: string | null; correctionNote?: string | null }) {
+    if (!o.correctedAt) return null
+    const by = o.correctedById ? await this.prisma.user.findUnique({ where: { id: o.correctedById }, select: { name: true } }) : null
+    return { at: o.correctedAt.toISOString(), byName: by?.name ?? null, note: o.correctionNote ?? null }
+  }
+
+  /**
+   * H-2 · "Marcar não entregue": corrige uma entrega reportada de ENTREGUE para NÃO ENTREGUE, na
+   * parada inteira (pão + Cestinhas do mesmo cliente/turno/dia/entregador). SÓ corrige o status:
+   * sem push ao cliente, sem mexer em pãezins e sem desfazer o Indique e Ganhe — o admin trata o
+   * resto por fora. Fica fora do `VALID_TRANSITIONS` de propósito. Fecha os reportes da parada como
+   * `CORRECTED`. @throws 404 · 409 não está entregue
+   */
+  async correctNotDelivered(id: string, adminId: string, note: string | null, now: Date = new Date()): Promise<OrderDetail> {
+    const order = await this.prisma.order.findUnique({ where: { id }, select: { id: true, userId: true, courierId: true, slotId: true, scheduledDate: true, status: true } })
+    const market = order ? null : await this.prisma.marketOrder.findUnique({ where: { id }, select: { id: true, userId: true, courierId: true, slotId: true, scheduledDate: true, status: true } })
+    const base = order ?? market
+    if (!base) throw { statusCode: 404, message: 'Pedido não encontrado' }
+    if (base.status !== 'DELIVERED') throw { statusCode: 409, message: 'Só dá para corrigir uma entrega marcada como entregue' }
+    const { start, end } = brtDayRange(base.scheduledDate)
+    const scope = { userId: base.userId, courierId: base.courierId ?? undefined, slotId: base.slotId ?? undefined, scheduledDate: { gte: start, lte: end }, status: 'DELIVERED' as const }
+    const [breads, markets] = await Promise.all([
+      this.prisma.order.findMany({ where: scope, select: { id: true } }),
+      this.prisma.marketOrder.findMany({ where: scope, select: { id: true } }),
+    ])
+    const data = { failedAt: now, failureCode: CORRECTED_BY_ADMIN_CODE, correctedAt: now, correctedById: adminId, correctionNote: note?.trim() || null }
+    if (breads.length) await this.prisma.order.updateMany({ where: { id: { in: breads.map((b) => b.id) }, status: 'DELIVERED' }, data: { ...data, status: 'NOT_DELIVERED' } })
+    if (markets.length) await this.prisma.marketOrder.updateMany({ where: { id: { in: markets.map((m) => m.id) }, status: 'DELIVERED' }, data: { ...data, status: 'NOT_DELIVERED' } })
+    const ids = [...breads.map((b) => b.id), ...markets.map((m) => m.id)]
+    await this.prisma.courierReport.updateMany({
+      where: { kind: 'STOP_ISSUE', status: 'OPEN', OR: [{ orderId: { in: ids } }, { marketOrderId: { in: ids } }] },
+      data: { status: 'RESOLVED', resolution: 'CORRECTED', resolvedAt: now, resolvedById: adminId },
+    })
+    return this.getOrderDetail(id, order ? 'BREAD' : 'CESTINHA')
+  }
+
+  /**
+   * Comprovante da parada do pedido (A1). A foto só vai como URL ASSINADA (T-4), e só enquanto
+   * está dentro dos 90 dias. Falha ao assinar (S3 fora) não derruba o detalhe: vai sem a URL.
+   */
+  private async _loadProof(ref: { orderId?: string; marketOrderId?: string }): Promise<ProofDetail | null> {
+    const proof = await this.prisma.deliveryProof.findFirst({
+      where: ref.orderId ? { orderId: ref.orderId } : { marketOrderIds: { has: ref.marketOrderId! } },
+      orderBy: { updatedAt: 'desc' },
+    })
+    if (!proof) return null
+    const expired = !!proof.photoAt && isProofExpired(proof.photoAt)
+    let photoUrl: string | null = null
+    if (proof.status === 'OK' && proof.photoKey && !expired && isStorageConfigured()) {
+      try {
+        photoUrl = await getSignedReadUrl(proof.photoKey)
+      } catch (err) {
+        this.fastify.log.warn({ err, proofId: proof.id }, '[admin-orders] falha ao assinar a foto do comprovante')
+      }
+    }
+    return {
+      status: proof.status,
+      outcome: proof.outcome,
+      required: proof.required,
+      photoUrl,
+      photoAt: proof.photoAt ? proof.photoAt.toISOString() : null,
+      note: proof.note ?? null,
+      confirmedVia: proof.confirmedVia ?? null,
+      expired,
+      clientVisible: (await getRouteConfig(this.prisma)).fotoClienteVisivel,
+      stopIds: [proof.orderId, ...(proof.marketOrderIds ?? [])].filter((x): x is string => !!x),
     }
   }
 

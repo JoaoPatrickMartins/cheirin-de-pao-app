@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
-import { fromMilli, wholeBreads } from '@cheirin-de-pao/shared'
+import { fromMilli, wholeBreads, FAILURE_LABELS, NO_PHOTO_LABELS, CORRECTED_BY_ADMIN_CODE, type FailureCode } from '@cheirin-de-pao/shared'
+import { brtDateStr } from '../../lib/cutoff.js'
 import {
   toWindow,
   presetOf,
@@ -106,6 +107,10 @@ export interface DeliveryReport {
   }
   failureReasons: Array<{ reason: string; count: number }>
   cancelReasons: Array<{ reason: string; count: number }>
+  /** Motivos padronizados do app do entregador (A10). `SEM_CODIGO` = pedido de antes do motivo padronizado. */
+  failureCodes: Array<{ code: string; label: string; count: number }>
+  /** Paradas entregues/não entregues sem foto (exceção "Não consigo tirar a foto"), por motivo. */
+  noPhoto: { count: number; byReason: Array<{ label: string; count: number }> }
 }
 
 export interface WasteReport {
@@ -720,9 +725,35 @@ export class AdminReportsService {
       return [...acc.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count)
     }
 
+    // A10 · motivos padronizados (pão + Cestinha somados por código) e as paradas sem foto.
+    const [codeGroups, marketCodeGroups, noPhotoRows] = await Promise.all([
+      this.prisma.order.groupBy({ by: ['failureCode'], where: { ...where, status: 'NOT_DELIVERED' }, _count: true }),
+      this.prisma.marketOrder.groupBy({ by: ['failureCode'], where: { ...where, status: 'NOT_DELIVERED' }, _count: true }),
+      this.prisma.deliveryProof.findMany({
+        where: { status: 'NONE', date: { gte: brtDateStr(startDate), lte: brtDateStr(new Date(Math.max(startDate.getTime(), endDate.getTime() - 1))) } },
+        select: { note: true },
+      }),
+    ])
+    const codeAcc = new Map<string, number>()
+    for (const g of [...(codeGroups as Array<{ failureCode: string | null; _count: number }>), ...(marketCodeGroups as Array<{ failureCode: string | null; _count: number }>)]) {
+      const code = g.failureCode ?? 'SEM_CODIGO'
+      codeAcc.set(code, (codeAcc.get(code) ?? 0) + g._count)
+    }
+    const codeLabel = (code: string) =>
+      code === CORRECTED_BY_ADMIN_CODE ? 'Corrigido pelo admin' : code === 'SEM_CODIGO' ? 'Sem motivo padronizado' : FAILURE_LABELS[code as FailureCode] ?? code
+    const failureCodes = [...codeAcc.entries()].map(([code, count]) => ({ code, label: codeLabel(code), count })).sort((a, b) => b.count - a.count)
+    const knownNoPhoto = new Set(Object.values(NO_PHOTO_LABELS))
+    const noPhotoAcc = new Map<string, number>()
+    for (const p of noPhotoRows) {
+      const label = p.note && knownNoPhoto.has(p.note) ? p.note : NO_PHOTO_LABELS.OUTRO
+      noPhotoAcc.set(label, (noPhotoAcc.get(label) ?? 0) + 1)
+    }
+
     return {
       period: presetOf(win),
       window: windowDescriptor(win),
+      failureCodes,
+      noPhoto: { count: noPhotoRows.length, byReason: [...noPhotoAcc.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count) },
       counts: {
         total: bread.total + cestinha.total,
         delivered,

@@ -1,6 +1,13 @@
 // AdminOrdersService unit tests — Fase D (ledger / stuck / refund)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AdminOrdersService } from '../admin-orders.service.js'
+import { ROUTE_SETTING_KEYS } from '../../../lib/route-config.js'
+
+// Foto do comprovante no detalhe (A1): URL assinada do S3, sem rede.
+vi.mock('../../../lib/storage.js', () => ({
+  isStorageConfigured: () => true,
+  getSignedReadUrl: vi.fn(async (key: string) => `https://s3/signed/${key}`),
+}))
 
 vi.mock('@onesignal/node-onesignal', () => ({
   createConfiguration: vi.fn().mockReturnValue({}),
@@ -73,6 +80,11 @@ function makeMock(overrides: Record<string, any> = {}) {
       findFirst: vi.fn().mockResolvedValue(creditDebit ?? existingRefund),
       create: vi.fn().mockResolvedValue({ id: 'tx-1' }),
     },
+    // Comprovante da parada no detalhe (A1 do plano do entregador). Default: sem registro.
+    deliveryProof: { findFirst: vi.fn().mockResolvedValue(null) },
+    // A1 · problemas reportados pelo entregador (Onda 8).
+    courierReport: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    setting: { findMany: vi.fn().mockResolvedValue([{ key: ROUTE_SETTING_KEYS.fotoClienteVisivel, value: 'true' }]) },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     $transaction: vi.fn().mockImplementation((ops: any[]) => Promise.all(ops)),
   }
@@ -436,6 +448,35 @@ describe('AdminOrdersService — ledger / stuck / refund', () => {
     const detailOrder = (over: Record<string, unknown> = {}) =>
       makeOrder({ deliveryNote: null, paymentId: null, createdAt: new Date('2026-06-18T12:00:00.000Z'), ...over })
 
+    // A1 do plano do entregador: comprovante da parada com a foto por URL assinada.
+    it('traz o comprovante com a foto assinada e o motivo padronizado', async () => {
+      const { fastify, prisma } = makeMock({ order: detailOrder({ failureCode: null }), users: USERS, condos: CONDOS })
+      prisma.deliveryProof.findFirst.mockResolvedValue({
+        id: 'p1',
+        status: 'OK',
+        outcome: 'DELIVERED',
+        required: true,
+        photoKey: 'deliveries/abc.jpg',
+        photoAt: new Date(),
+        note: null,
+        confirmedVia: 'SCAN',
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = await new AdminOrdersService(fastify as any).getOrderDetail('o1', 'BREAD')
+      expect(d.proof).toMatchObject({ status: 'OK', photoUrl: 'https://s3/signed/deliveries/abc.jpg', confirmedVia: 'SCAN', expired: false, clientVisible: true })
+      expect(prisma.deliveryProof.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { orderId: 'o1' } }))
+    })
+
+    it('sem foto (exceção) vem com o motivo e sem URL; foto com mais de 90 dias não é servida', async () => {
+      const { fastify, prisma } = makeMock({ order: detailOrder(), users: USERS, condos: CONDOS })
+      prisma.deliveryProof.findFirst.mockResolvedValueOnce({ id: 'p1', status: 'NONE', outcome: 'DELIVERED', required: true, photoKey: null, photoAt: null, note: 'Local sem luz', confirmedVia: 'LIST' })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new AdminOrdersService(fastify as any)
+      expect((await service.getOrderDetail('o1', 'BREAD')).proof).toMatchObject({ status: 'NONE', note: 'Local sem luz', photoUrl: null })
+      prisma.deliveryProof.findFirst.mockResolvedValueOnce({ id: 'p1', status: 'OK', outcome: 'DELIVERED', required: true, photoKey: 'deliveries/abc.jpg', photoAt: new Date('2026-01-01T00:00:00Z'), note: null, confirmedVia: 'SCAN' })
+      expect((await service.getOrderDetail('o1', 'BREAD')).proof).toMatchObject({ expired: true, photoUrl: null })
+    })
+
     it('devolve a linha do ledger mais criação, código e créditos debitados', async () => {
       const { fastify } = makeMock({
         order: detailOrder(),
@@ -450,7 +491,7 @@ describe('AdminOrdersService — ledger / stuck / refund', () => {
       expect(d.kind).toBe('BREAD')
       expect(d.clientName).toBe('Ana')
       expect(d.condominiumName).toBe('Cond 1')
-      expect(d.code).toBe('O1') // 4 últimos do id, em caixa alta — igual ao cupom
+      expect(d.code).toBe('O1') // últimos do id (6, T-1), em caixa alta — igual ao cupom
       expect(d.createdAt).toBe('2026-06-18T12:00:00.000Z')
       expect(d.creditsDebited).toBe(4)
       expect(d.creditsDebitedDerived).toBe(false)

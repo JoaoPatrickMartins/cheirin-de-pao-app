@@ -1,5 +1,6 @@
 import { formatCredits, toMilli } from '@cheirin-de-pao/shared'
 import { Icon } from '../brand/Icon'
+import { ProofHistoryBadge } from './ClientProofViewer'
 import { InlineCancelConfirm, inlineCancelBtnStyle } from './InlineCancelConfirm'
 
 export interface MarketOrderView {
@@ -17,6 +18,12 @@ export interface MarketOrderView {
   cancelable: boolean
   cancelReason: string | null
   refundedCredits: number | null
+  deliveredAt?: string | null
+  failedAt?: string | null
+  /** Motivo da não entrega na linguagem do cliente. */
+  failureText?: string | null
+  /** Selo do comprovante (foto) — só com a função ligada pelo admin, por 90 dias. */
+  proof?: { available: boolean; expired: boolean }
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -62,6 +69,8 @@ interface MarketOrderCardProps {
   onAskCancel: () => void
   onConfirmCancel: () => void
   onBack: () => void
+  /** Abre a foto do comprovante (C2) — o botão só aparece quando há foto. */
+  onViewPhoto?: () => void
 }
 
 /**
@@ -79,6 +88,7 @@ export function MarketOrderCard({
   onAskCancel,
   onConfirmCancel,
   onBack,
+  onViewPhoto,
 }: MarketOrderCardProps) {
   const tone = statusTone(o.status)
   return (
@@ -158,6 +168,7 @@ export function MarketOrderCard({
               : ''}
           </p>
         </div>
+        {onViewPhoto && <ProofHistoryBadge proof={o.proof} onView={onViewPhoto} />}
       </div>
 
       {/* Cancelar (antes do corte) */}

@@ -15,6 +15,7 @@ import { FinMargem } from './FinMargem'
 import { FinMetas } from './FinMetas'
 import { FinAliquotas } from './FinAliquotas'
 import { FinTendencia } from './FinTendencia'
+import { CourierPayouts } from './CourierPayouts'
 
 /**
  * AdminFinanceiro — hub do Financeiro (decisão 8 do plano-financeiro-vendas).
@@ -42,6 +43,7 @@ type FinSub =
   | 'metas'
   | 'aliquotas'
   | 'tendencia'
+  | 'entregadores'
 
 interface HubItem {
   key: Exclude<FinSub, null>
@@ -68,6 +70,7 @@ const GROUPS: Array<{ title: string; items: HubItem[] }> = [
     items: [
       { key: 'caixa', icon: 'repeat', titulo: 'Fluxo de caixa', descricao: 'Entradas, saídas e saldo do período' },
       { key: 'contas-pagar', icon: 'clock', titulo: 'Contas a pagar', descricao: 'O que vence e o que atrasou' },
+      { key: 'entregadores', icon: 'wallet', titulo: 'Pagamentos dos entregadores', descricao: 'Propostas da semana: aprovar vira despesa' },
       { key: 'gateway', icon: 'card', titulo: 'Conciliação de gateway', descricao: 'Bruto, taxa e líquido recebido' },
       { key: 'passivo', icon: 'coin', titulo: 'Passivo de crédito', descricao: 'Quanto a empresa deve em pão' },
     ],
@@ -132,6 +135,7 @@ export function AdminFinanceiro({ onBack }: { onBack: () => void }) {
   if (sub === 'metas') return <FinMetas onBack={backToHub} />
   if (sub === 'aliquotas') return <FinAliquotas onBack={backToHub} />
   if (sub === 'tendencia') return <FinTendencia onBack={backToHub} />
+  if (sub === 'entregadores') return <CourierPayouts onBack={backToHub} />
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

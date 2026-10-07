@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../../hooks/useAuth'
 import { useAutoRecharge } from '../../hooks/useAutoRecharge'
@@ -8,6 +8,9 @@ import { ProfileMenuRow } from '../../components/client/ProfileMenuRow'
 import { resetOnboarding } from '../../lib/onboarding'
 import { useReferralSummary } from '../../hooks/useReferralSummary'
 import { breadsLabel } from '@cheirin-de-pao/shared'
+import { apiFetch } from '../../lib/apiFetch'
+import { Icon } from '../../components/brand/Icon'
+import { SwitchToggle } from '../../components/admin/SwitchToggle'
 
 // Suporte via WhatsApp — número configurável por env (dígitos com DDI, ex.: 5511999998888).
 // Placeholder até o número oficial ser definido (defina VITE_SUPPORT_WHATSAPP no .env).
@@ -212,6 +215,7 @@ export function SettingsScreen() {
         {/* Notificações */}
         <SectionLabel>Notificações</SectionLabel>
         <NotificationsSetting />
+        <CourierMessagesSetting />
 
         {/* Ajuda */}
         <SectionLabel>Ajuda</SectionLabel>
@@ -437,6 +441,69 @@ function NotificationsSetting() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * "Recados do entregador" (C3 · V-3): o entregador manda recados prontos ("Estou na portaria")
+ * como notificação. Desligado, ele vê o aviso e não consegue mandar.
+ */
+function CourierMessagesSetting() {
+  const [off, setOff] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const res = await apiFetch('/client/profile')
+        if (!res.ok || !alive) return
+        const body = (await res.json()) as { courierMessagesOff?: boolean }
+        if (alive) setOff(body.courierMessagesOff === true)
+      } catch {
+        // sem o perfil, o switch fica escondido
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (off === null) return null
+  const toggle = async () => {
+    const next = !off
+    setOff(next)
+    setBusy(true)
+    setError(false)
+    try {
+      const res = await apiFetch('/client/profile/courier-messages', { method: 'PATCH', body: JSON.stringify({ off: next }) })
+      if (!res.ok) throw new Error('falhou')
+    } catch {
+      setOff(!next)
+      setError(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-card)', padding: '12px 16px', boxShadow: 'var(--shadow-soft)', marginBottom: 20, marginTop: -8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--color-surface-2)', color: 'var(--color-accent)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+          <Icon name="chat" size={19} aria-hidden="true" />
+        </span>
+        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-body)' }}>
+          <span id="cdp-recados-label" style={{ display: 'block', fontWeight: 700, fontSize: 14.5, color: 'var(--color-text)' }}>
+            Recados do entregador
+          </span>
+          <span style={{ display: 'block', fontSize: 12.5, color: 'var(--color-text-sec)', marginTop: 1 }}>“Estou na portaria”, “Deixei com o porteiro”…</span>
+        </span>
+        <SwitchToggle on={!off} onChange={() => !busy && void toggle()} aria-label="Recados do entregador" />
+      </div>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 12.5, color: error ? 'var(--color-warn)' : 'var(--color-text-sec)', lineHeight: 1.45, margin: '10px 0 0' }}>
+        {error ? 'Não deu para salvar agora. Tente de novo.' : 'O entregador não vê o seu telefone. Os recados chegam só como notificação.'}
+      </p>
     </div>
   )
 }

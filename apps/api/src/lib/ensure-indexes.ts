@@ -54,6 +54,27 @@ const INDEX_SPECS: Array<{
         unique: true,
         partialFilterExpression: { referralCode: { $type: 'string' } },
       },
+      // Nº do crachá do entregador (H-3). Mesmo motivo do referralCode: só entregador tem número,
+      // e um único comum faria todos os "sem número" colidirem. O Prisma grava `Int` como int32.
+      {
+        key: { badgeNumber: 1 },
+        name: 'badgeNumber_1',
+        unique: true,
+        partialFilterExpression: { badgeNumber: { $type: 'int' } },
+      },
+    ],
+  },
+  {
+    collection: 'CourierReport',
+    indexes: [
+      // Idempotência da fila offline do entregador (T-7): o mesmo relato reenviado não duplica.
+      // Relato criado pelo admin/sem fila não tem clientOpId — por isso PARCIAL.
+      {
+        key: { clientOpId: 1 },
+        name: 'clientOpId_1',
+        unique: true,
+        partialFilterExpression: { clientOpId: { $type: 'string' } },
+      },
     ],
   },
   {

@@ -63,6 +63,29 @@ export const Ic: Record<string, string> = {
   arrowR: 'M5 12h14M13 6l6 6-6 6',
   // Perfil › Ajuda › "Saber mais sobre o Cheirin"
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 11v5M12 8h.01',
+  // App do entregador (handoff app do entregador, kit) — `camera` já existia acima.
+  flash: 'M8 2.5h8v3.5l-2 3V21h-4V9L8 6V2.5ZM8 6h8M12 13v2.5',
+  keyboard: 'M3 6.5h18v11H3zM7 10h1M11 10h1M15 10h1M7 14h10',
+  navigate: 'M3 11 21 3l-8 18-2-8-8-2Z',
+  locate: 'M12 19a7 7 0 1 0 0-14 7 7 0 0 0 0 14ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12 2v3M12 19v3M2 12h3M19 12h3',
+  play: 'M7 4.5v15l12-7.5-12-7.5Z',
+  flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
+  fuel: 'M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16M3 21h12M4 10h10M14 8h2.5A1.5 1.5 0 0 1 18 9.5V17a1.5 1.5 0 0 0 3 0V8l-3-3',
+  moto: 'M5.5 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18.5 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.5 15h5l3-6h-4M14 6h3l1.5 3M5.5 15 9 9h4',
+  car: 'M5 17H3v-5l2-5h14l2 5v5h-2M5 12h14M7.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM16.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM9.5 17h5',
+  bike: 'M5.5 18a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM18.5 18a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM5.5 14.5 9 8h6l3.5 6.5M12 14.5 9 8M15 8l-1-3h-2',
+  walk: 'M13 5.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM10 21l2-6 3 3v3M12 15l-1-5 4 1 2 3M11 10l-3 2v3',
+  image: 'M4 5h16v14H4zM4 16l4.5-4.5 3.5 3.5 2.5-2.5L20 17M15.5 9.5h.01',
+  cloudUp: 'M7 18a4.5 4.5 0 0 1-.7-8.9A6 6 0 0 1 17.8 8 4.5 4.5 0 0 1 17 18M12 20v-7M9 15.5l3-3 3 3',
+  cloudOff: 'M7 18a4.5 4.5 0 0 1-.7-8.9 6 6 0 0 1 1.3-2.7M11 5.1a6 6 0 0 1 6.8 2.9A4.5 4.5 0 0 1 20.4 16M17 18H7M3 3l18 18',
+  hook: 'M12 3v9a4 4 0 1 1-4 4M10 3h4',
+  gate: 'M3 21V5M21 21V5M3 21h18M7 10v11M12 9v12M17 10v11M3 9c3-3 15-3 18 0',
+  badge: 'M5 4h14v17H5zM9 4V2.5h6V4M12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM8.5 17c.5-2 2-3 3.5-3s3 1 3.5 3',
+  grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
+  dayoff: 'M4 6.5h16v14H4zM4 10h16M8 3v4M16 3v4M8.5 15.5h7',
+  send: 'M4 12 20 4l-6 16-3-7-7-1Z',
+  // Não desenhado no handoff (V-7): caixa no mesmo traço — "sem lugar para deixar", "pedido faltando".
+  box: 'M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5v-9ZM3.5 7.5 12 12l8.5-4.5M12 12v9',
 }
 
 interface IconProps {
@@ -70,11 +93,14 @@ interface IconProps {
   size?: number
   stroke?: number
   color?: string
+  /** Vários chamadores já passavam `aria-hidden` e ele era descartado — agora chega ao <svg>. */
+  'aria-hidden'?: boolean | 'true' | 'false'
 }
 
-export function Icon({ name, size = 22, stroke = 1.9, color = 'currentColor' }: IconProps) {
+export function Icon({ name, size = 22, stroke = 1.9, color = 'currentColor', 'aria-hidden': ariaHidden }: IconProps) {
   return (
     <svg
+      aria-hidden={ariaHidden}
       width={size}
       height={size}
       viewBox="0 0 24 24"

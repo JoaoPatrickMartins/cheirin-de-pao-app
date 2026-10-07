@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../../lib/apiFetch'
 import { Icon } from '../../../components/brand/Icon'
+import { CRTag } from '../../../components/courier/kit'
 import { SwitchToggle } from '../../../components/admin/SwitchToggle'
 import { ConfirmSheet } from '../../../components/admin/ConfirmSheet'
 import { Toast, useToast } from '../../../components/admin/Toast'
@@ -15,6 +16,8 @@ interface Condo {
   numBlocks?: number | null
   isActive: boolean
   clientCount?: number
+  /** Sugestões de acesso dos entregadores à espera de revisão (A6). */
+  pendingSuggestions?: number
 }
 
 type SubTelaSub = null | 'criar' | 'editar'
@@ -306,6 +309,13 @@ function CondoCard({ condo: c, busy, onEdit, onToggle }: CondoCardProps) {
             {c.type === 'BLOCKS' && c.numBlocks ? ` · ${c.numBlocks} blocos` : ''}
             {clienteCount > 0 ? ` · ${plural(clienteCount, 'cliente', 'clientes')}` : ''}
           </p>
+          {(c.pendingSuggestions ?? 0) > 0 && (
+            <span style={{ display: 'inline-flex', marginTop: 5 }}>
+              <CRTag icon="gate" tone="gold" size="sm">
+                {c.pendingSuggestions === 1 ? '1 sugestão de acesso' : `${c.pendingSuggestions} sugestões de acesso`}
+              </CRTag>
+            </span>
+          )}
         </div>
 
         {/* Chevron */}

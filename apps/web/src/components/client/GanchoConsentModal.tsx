@@ -40,7 +40,7 @@ function Ponto({ icon, children }: { icon: 'gift' | 'check' | 'bag'; children: R
  * Exibido pelo ClientLayout após o cliente fazer o primeiro pedido (needsConsent).
  * É obrigatório: não fecha por backdrop/ESC e não tem botão de dispensar — só sai
  * quando o cliente PEDE o gancho (POST /client/hook-request). Reaparece enquanto não
- * pedido. Modelado em ConfirmDeliveryDialog (tokens + isLoading/error).
+ * pedido. Modelado no antigo ConfirmDeliveryDialog do entregador (tokens + isLoading/error).
  *
  * O CTA fala na primeira pessoa e no futuro ("Quero receber meu gancho") de propósito:
  * "Confirmar recebimento do gancho" fazia o cliente entender que estava dando baixa num

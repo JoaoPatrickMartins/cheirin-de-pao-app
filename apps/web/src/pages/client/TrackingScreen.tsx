@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
+import { blockLabel } from "@cheirin-de-pao/shared";
+import { useNavigate, useSearchParams } from "react-router";
 import { useOrderTracking, TodayOrder } from "../../hooks/useOrderTracking";
 import { useAuth } from "../../hooks/useAuth";
 import { apiFetch } from "../../lib/apiFetch";
@@ -14,16 +15,43 @@ import {
   MarketOrderCard,
   MarketOrderView,
 } from "../../components/client/MarketOrderCard";
+import {
+  ClientProofViewer,
+  ProofCard,
+  ProofHistoryBadge,
+} from "../../components/client/ClientProofViewer";
+import { CRAvatar, CRNote, CRTag } from "../../components/courier/kit";
+import type { ClientProofFlags } from "../../lib/clientProof";
 
 interface HistoryOrder {
   id: string;
-  status: "SCHEDULED" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
+  status:
+    | "SCHEDULED"
+    | "SEPARATED"
+    | "OUT_FOR_DELIVERY"
+    | "DELIVERED"
+    | "NOT_DELIVERED"
+    | "CANCELLED";
   quantity: number;
   scheduledDate: string;
   deliveryTime?: string;
   slotId?: string;
   type: "SCHEDULED" | "SINGLE";
   createdAt?: string;
+  failureText?: string | null;
+  /** Selo do comprovante (foto) — só com a função ligada pelo admin, por 90 dias. */
+  proof?: ClientProofFlags;
+}
+
+/** Foto aberta em tela cheia (C2). */
+type ViewerTarget = { kind: "bread" | "market"; id: string; failureText?: string | null };
+
+/** "05:52" no horário de Brasília. */
+function brtHour(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
 }
 
 /** Item da lista única de histórico: pedido de pão ou Cestinha ("Além do Pãozin"). */
@@ -96,11 +124,32 @@ const STEPS: { key: StepKey; label: string; desc: string }[] = [
   },
 ];
 
+// Posição do pedido na timeline. SEPARATED (separado na padaria) ainda é "Agendado" para o
+// cliente; NOT_DELIVERED chega ao último passo, que vira "Não entregue". Sem isso os dois
+// caíam fora da lista e a timeline aparecia inteira apagada.
+function timelineStatus(orderStatus: string): StepKey {
+  if (orderStatus === "SEPARATED") return "SCHEDULED";
+  if (orderStatus === "NOT_DELIVERED") return "DELIVERED";
+  return (STATUSES as readonly string[]).includes(orderStatus)
+    ? (orderStatus as StepKey)
+    : "SCHEDULED";
+}
+
+/**
+ * Status para a timeline do cliente (D-7): "Saiu para entrega" só acende depois de o entregador
+ * INICIAR a rota. Em rota pelo admin, mas sem a rota iniciada, ainda é "Agendado". Sem o campo
+ * (API antiga), vale o status.
+ */
+export function clientStatus(order: Pick<TodayOrder, "status" | "onTheWayAt">): string {
+  if (order.status === "OUT_FOR_DELIVERY" && "onTheWayAt" in order && !order.onTheWayAt) return "SCHEDULED";
+  return order.status;
+}
+
 function getStepState(
   stepKey: StepKey,
   orderStatus: string,
 ): "done" | "cur" | "future" {
-  const statusIndex = STATUSES.indexOf(orderStatus as StepKey);
+  const statusIndex = STATUSES.indexOf(timelineStatus(orderStatus));
   const stepIndex = STATUSES.indexOf(stepKey);
   if (stepIndex < statusIndex) return "done";
   if (stepIndex === statusIndex) return "cur";
@@ -149,6 +198,7 @@ interface PillProps {
     | "scheduled"
     | "transit"
     | "delivered"
+    | "failed"
     | "cancelled";
   dot?: boolean;
   iconName?: keyof typeof Ic;
@@ -175,6 +225,10 @@ function Pill({ children, tone, dot, iconName, ariaLive }: PillProps) {
     delivered: {
       background: "var(--color-good-soft)",
       color: "var(--color-good)",
+    },
+    failed: {
+      background: "var(--color-warn-soft)",
+      color: "var(--color-warn)",
     },
     cancelled: {
       background: "var(--color-surface-2)",
@@ -235,6 +289,12 @@ function StatusPill({ status }: { status: string }) {
         Entregue
       </Pill>
     );
+  if (status === "NOT_DELIVERED")
+    return (
+      <Pill tone="failed" iconName="x">
+        Não entregue
+      </Pill>
+    );
   if (status === "CANCELLED") return <Pill tone="cancelled">Cancelado</Pill>;
   return (
     <Pill tone="scheduled" iconName="clock">
@@ -247,6 +307,7 @@ function StatusPill({ status }: { status: string }) {
 function statusLabel(status: string): string {
   if (status === "DELIVERED") return "Entregue";
   if (status === "OUT_FOR_DELIVERY") return "A caminho";
+  if (status === "NOT_DELIVERED") return "Não entregue";
   if (status === "CANCELLED") return "Cancelado";
   return "Agendado";
 }
@@ -255,20 +316,28 @@ function HeroCard({
   order,
   isToday,
   slotLabel,
+  slotEmoji,
   displayTime,
+  place,
 }: {
   order: TodayOrder;
   isToday: boolean;
   slotLabel?: string;
+  slotEmoji?: string;
   displayTime?: string;
+  /** "Residencial Jardins · Bloco 1 · Apto 101" (V-16). */
+  place?: string;
 }) {
   // Linha de slot + horário previsto. `displayTime` vem do slot ATUAL (dinâmico) quando o
   // slot é reconhecido; senão cai no snapshot do pedido. Avulsos sem slot caem em copy neutra.
   const slotTime = [slotLabel, displayTime ? `previsto ${displayTime}` : null]
     .filter(Boolean)
     .join(" · ");
-  const subtitle =
-    slotTime || (isToday ? "Entrega no seu condomínio" : "Sua próxima entrega");
+  // Com o endereço conhecido (V-16): turno na linha de cima e condomínio/bloco/apto embaixo.
+  const subtitle = place
+    ? [place, displayTime ? `previsto ${displayTime}` : null].filter(Boolean).join(" · ")
+    : slotTime || (isToday ? "Entrega no seu condomínio" : "Sua próxima entrega");
+  const topLine = `${formatHeroDate(order.scheduledDate)}${place && slotLabel ? ` · ${slotEmoji ? `${slotEmoji} ` : ""}${slotLabel.toUpperCase()}` : ""}`;
   return (
     <div
       style={{
@@ -302,7 +371,7 @@ function HeroCard({
           margin: "0 0 6px",
         }}
       >
-        {formatHeroDate(order.scheduledDate)}
+        {topLine}
       </p>
       <p
         style={{
@@ -351,10 +420,17 @@ function Timeline({ order }: { order: TodayOrder }) {
       style={{ paddingLeft: 6, position: "relative", marginBottom: 18 }}
     >
       {STEPS.map((step, i) => {
-        const state = getStepState(step.key, order.status);
+        const status = clientStatus(order);
+        const state = getStepState(step.key, status);
         const isLast = i === STEPS.length - 1;
+        // Último passo de um pedido não entregue: "Não entregue", em vermelho, com X.
+        const failed = isLast && order.status === "NOT_DELIVERED";
+        const label = failed ? "Não entregue" : step.label;
+        const stepColor = failed ? "var(--color-warn)" : "var(--color-accent)";
         const prevDone =
-          i > 0 && getStepState(STEPS[i - 1].key, order.status) === "done";
+          i > 0 && getStepState(STEPS[i - 1].key, status) === "done";
+        const outStep = step.key === "OUT_FOR_DELIVERY";
+        const outSince = outStep && order.onTheWayAt ? brtHour(order.onTheWayAt) : null;
 
         return (
           <div
@@ -377,10 +453,8 @@ function Timeline({ order }: { order: TodayOrder }) {
                   height: 34,
                   borderRadius: 99,
                   background:
-                    state !== "future"
-                      ? "var(--color-accent)"
-                      : "var(--color-surface)",
-                  border: `2px solid ${state !== "future" ? "var(--color-accent)" : "var(--color-border)"}`,
+                    state !== "future" ? stepColor : "var(--color-surface)",
+                  border: `2px solid ${state !== "future" ? stepColor : "var(--color-border)"}`,
                   display: "grid",
                   placeItems: "center",
                   zIndex: 1,
@@ -396,7 +470,16 @@ function Timeline({ order }: { order: TodayOrder }) {
                     aria-hidden="true"
                   />
                 )}
-                {state === "cur" && (
+                {state === "cur" && failed && (
+                  <Icon
+                    name="x"
+                    size={18}
+                    color="var(--color-app-bg)"
+                    stroke={2.6}
+                    aria-hidden="true"
+                  />
+                )}
+                {state === "cur" && !failed && (
                   <div
                     style={{
                       width: 11,
@@ -448,15 +531,16 @@ function Timeline({ order }: { order: TodayOrder }) {
                     fontWeight: 700,
                     fontSize: 16.5,
                     letterSpacing: "-0.01em",
-                    color:
-                      state !== "future"
+                    color: failed
+                      ? "var(--color-warn)"
+                      : state !== "future"
                         ? "var(--color-text)"
                         : "var(--color-text-ter)",
                   }}
                 >
-                  {step.label}
+                  {label}
                 </span>
-                {state === "cur" && (
+                {state === "cur" && !failed && (
                   <Pill tone="good" dot ariaLive="polite">
                     agora
                   </Pill>
@@ -471,10 +555,24 @@ function Timeline({ order }: { order: TodayOrder }) {
                   lineHeight: 1.45,
                 }}
               >
-                {step.key === "DELIVERED"
-                  ? `${step.desc} ${greeting}`
-                  : step.desc}
+                {failed
+                  ? order.failureText
+                    ? // "Tentamos entregar às 05:52 — não conseguimos acesso pela portaria."
+                      `Tentamos entregar${brtHour(order.failedAt) ? ` às ${brtHour(order.failedAt)}` : ""} — ${order.failureText}.`
+                    : "Não conseguimos entregar desta vez. Se precisar, fale com o suporte."
+                  : step.key === "DELIVERED"
+                    ? `${step.desc} ${greeting}`
+                    : outStep && state === "future"
+                      ? "Acende quando o entregador sair com o seu pão"
+                      : outStep && order.courier
+                        ? `${order.courier.firstName} está a caminho do seu condomínio`
+                        : step.desc}
               </p>
+              {outSince && state !== "future" && (
+                <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--color-text-ter)", margin: "4px 0 0", fontWeight: 600 }}>
+                  a caminho desde {outSince}
+                </p>
+              )}
             </div>
           </div>
         );
@@ -485,7 +583,10 @@ function Timeline({ order }: { order: TodayOrder }) {
 
 export function TrackingScreen() {
   const navigate = useNavigate();
-  const { updateCreditBalance } = useAuth();
+  const { updateCreditBalance, user } = useAuth();
+  const heroPlace = user?.condominiumName
+    ? [user.condominiumName, user.block ? blockLabel(user.block) : null, user.apartment ? `Apto ${user.apartment}` : null].filter(Boolean).join(" · ")
+    : undefined;
   // fallbackToNext: mostra a próxima entrega agendada mesmo antes da meia-noite
   // (mesmo comportamento do card da Home).
   const { order, isToday } = useOrderTracking({ fallbackToNext: true });
@@ -499,6 +600,25 @@ export function TrackingScreen() {
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // Foto do comprovante em tela cheia — também aberta pelo aviso "Ver foto" (?comprovante=<id>).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedProof = searchParams.get("comprovante");
+  const [viewer, setViewer] = useState<ViewerTarget | null>(
+    linkedProof ? { kind: "bread", id: linkedProof } : null,
+  );
+  const closeViewer = () => {
+    setViewer(null);
+    if (searchParams.has("comprovante")) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("comprovante");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  };
 
   useEffect(() => {
     // Slots do condomínio para resolver o nome real (manhã/tarde) pelo deliveryTime
@@ -705,16 +825,38 @@ export function TrackingScreen() {
             order={order}
             isToday={isToday}
             slotLabel={slotLabel}
+            slotEmoji={heroSlot ? (heroSlot.emoji ?? SLOT_EMOJI[heroSlot.name]) : undefined}
             displayTime={heroTime}
+            place={heroPlace}
           />
         )}
         {order && <Timeline order={order} />}
 
-        {/* Card do entregador — só quando a entrega já saiu (sem telefone, Fase 6) */}
-        {order && order.status === "OUT_FOR_DELIVERY" && (
+        {/* Comprovante (C2): foto da porta/portaria quando o admin liberou para o cliente. */}
+        {order &&
+          isToday &&
+          order.proof?.available &&
+          (order.status === "DELIVERED" || order.status === "NOT_DELIVERED") && (
+            <ProofCard
+              kind="bread"
+              id={order.id}
+              onOpen={() =>
+                setViewer({ kind: "bread", id: order.id, failureText: order.failureText })
+              }
+            />
+          )}
+        {order && isToday && order.proof?.expired && (
+          <div style={{ marginBottom: 14 }}>
+            <CRNote icon="camera">O comprovante fica disponível por 90 dias.</CRNote>
+          </div>
+        )}
+
+        {/* Card do entregador (C1) — só depois de a rota começar: foto + primeiro nome, sem telefone. */}
+        {order && isToday && order.courier && (order.status === "OUT_FOR_DELIVERY" || order.status === "DELIVERED") && (
           <div
             style={{
               display: "flex",
+              alignItems: "center",
               gap: 12,
               padding: "14px 16px",
               background: "var(--color-surface)",
@@ -723,44 +865,22 @@ export function TrackingScreen() {
               marginBottom: 18,
             }}
           >
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 99,
-                background: "var(--color-surface-2)",
-                display: "grid",
-                placeItems: "center",
-                flexShrink: 0,
-              }}
-            >
-              <Icon name="user" size={22} color="var(--color-accent)" />
-            </div>
+            <CRAvatar name={order.courier.firstName} photoUrl={order.courier.photoUrl} size={48} />
             <div style={{ flex: 1 }}>
-              <p
-                style={{
-                  fontFamily: "var(--font-body)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "var(--color-text-ter)",
-                  margin: "0 0 2px",
-                }}
-              >
-                Seu entregador
-              </p>
-              <p
-                style={{
-                  fontFamily: "var(--font-body)",
-                  fontSize: 14.5,
-                  fontWeight: 700,
-                  color: "var(--color-text)",
-                  margin: 0,
-                }}
-              >
-                A definir
-              </p>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 600, color: "var(--color-text-ter)", margin: "0 0 2px" }}>Seu entregador</p>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: 16, fontWeight: 800, color: "var(--color-text)", margin: 0 }}>{order.courier.firstName}</p>
             </div>
+            {order.status === "OUT_FOR_DELIVERY" && (
+              <CRTag icon="truck" tone="good">
+                a caminho
+              </CRTag>
+            )}
           </div>
+        )}
+        {order && isToday && clientStatus(order) === "SCHEDULED" && (
+          <p style={{ fontFamily: "var(--font-body)", fontSize: 13, color: "var(--color-text-ter)", textAlign: "center", padding: "4px 20px", lineHeight: 1.45, margin: "0 0 18px" }}>
+            Quando o entregador sair com o seu pão, você vê aqui quem vai entregar.
+          </p>
         )}
 
         {/* Histórico — lista única: pedidos de pão + Cestinhas (Além do Pãozin) */}
@@ -849,6 +969,9 @@ export function TrackingScreen() {
                     }
                     onConfirmCancel={() => void cancelMarketOrder(entry.id)}
                     onBack={closeCancel}
+                    onViewPhoto={() =>
+                      setViewer({ kind: "market", id: entry.id, failureText: entry.order.failureText })
+                    }
                   />
                 );
               }
@@ -956,6 +1079,12 @@ export function TrackingScreen() {
                       </p>
                     </div>
                     <StatusPill status={o.status} />
+                    <ProofHistoryBadge
+                      proof={o.proof}
+                      onView={() =>
+                        setViewer({ kind: "bread", id: o.id, failureText: o.failureText })
+                      }
+                    />
                   </div>
 
                   {canCancel && !confirming && (
@@ -998,7 +1127,23 @@ export function TrackingScreen() {
             })}
           </div>
         )}
+
+        {!isLoadingList &&
+          entries.some((e) => e.order.proof?.available || e.order.proof?.expired) && (
+            <div style={{ marginTop: 12 }}>
+              <CRNote icon="camera">O comprovante fica disponível por 90 dias.</CRNote>
+            </div>
+          )}
       </div>
+
+      {viewer && (
+        <ClientProofViewer
+          kind={viewer.kind}
+          id={viewer.id}
+          failureText={viewer.failureText}
+          onClose={closeViewer}
+        />
+      )}
     </div>
   );
 }

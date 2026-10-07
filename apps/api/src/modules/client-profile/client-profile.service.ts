@@ -39,7 +39,15 @@ export class ClientProfileService {
       // Saldo em pãezinhos DECIMAIS (1 pão = 1000 milésimos no banco): depois do crédito
       // fracionado, o campo legado é só um arredondamento e mostraria 43 onde há 43,5.
       creditBalance: fromMilli((user.creditMilli ?? 0)),
+      // Recados do entregador (V-3): ausente = recebe.
+      courierMessagesOff: user.courierMessagesOff === true,
     }
+  }
+
+  /** Liga/desliga os recados do entregador ("Estou na portaria"…). */
+  async setCourierMessages(userId: string, off: boolean): Promise<{ courierMessagesOff: boolean }> {
+    await this.repo.setCourierMessagesOff(userId, off)
+    return { courierMessagesOff: off }
   }
 
   async updateProfile(userId: string, body: UpdateProfileBody) {

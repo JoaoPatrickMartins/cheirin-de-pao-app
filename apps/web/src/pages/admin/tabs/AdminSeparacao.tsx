@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { blockLabel, formatUnit } from '@cheirin-de-pao/shared'
+import { blockLabel, formatUnit, stopShortCode } from '@cheirin-de-pao/shared'
 import { apiFetch } from '../../../lib/apiFetch'
 import { AdminHead } from '../../../components/admin/AdminHead'
 import { ProgressBar } from '../../../components/admin/ProgressBar'
@@ -96,7 +96,8 @@ function formatDateLabel(dateStr: string): string {
   return new Date(y, m - 1, d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })
 }
 
-const shortCode = (orderId: string) => orderId.slice(-4).toUpperCase()
+// Código impresso embaixo do QR — o entregador digita quando a câmera falha (6 caracteres, T-1).
+const shortCode = (orderId: string) => stopShortCode(orderId)
 
 const countSep = (orders: { separated: boolean }[]) => orders.filter((o) => o.separated).length
 
