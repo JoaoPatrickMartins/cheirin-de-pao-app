@@ -67,11 +67,17 @@ Tudo verde em cada linha. `vite build` ok desde a Onda 2.
 
 ### 2.1 Código
 - [ ] Todas as ondas concluídas e registradas no plano (§10).
-- [ ] Testes, typecheck e build do passo 1.1 verdes, com os números da última onda.
-- [ ] Commits feitos **com a sua autorização** (regra do projeto), branch `feat/add-complementocliente`
+- [x] Testes, typecheck e build do passo 1.1 verdes, com os números da última onda.
+      ✅ 07/10/2026: api 2.045 + 3, web 696 + 17, shared 117 + 4; `vite build` e `tsup` ok.
+- [x] Commits feitos **com a sua autorização** (regra do projeto), branch `feat/add-complementocliente`
       → `development` → `main` (o deploy dispara na `main`).
 
 ### 2.2 Teste em celular de verdade, ainda sem deploy
+
+> ⏭️ **Pulado por decisão do usuário (07/10/2026):** o teste em aparelho real fica para a
+> produção, na **4.4** (que passa a ser o UAT principal). O roteiro e o seed abaixo continuam
+> valendo para testar uma correção depois.
+
 A câmera só funciona em HTTPS. Sem ambiente DEV, o caminho é o **túnel HTTPS** do Vite local
 (ngrok ou Cloudflare), como na §10.3 do `plano-login-social.md`, com a API local apontada para o
 **banco de teste** (`cheirin-de-pao-teste`).
@@ -138,15 +144,17 @@ o "Bela Vista" não tem ("Nenhuma dica ainda · Sugerir").
 9. Terminar com `npm run seed:courier-test -- --clean`.
 
 ### 2.3 Banco de produção (MongoDB Atlas)
-- [ ] **Snapshot/backup** do cluster de produção antes do deploy.
-- [ ] Saber o que muda: só **acréscimos** (campos opcionais em `User` — inclusive o
+- [x] **Snapshot/backup** do cluster de produção antes do deploy.
+      ✅ 07/10/2026: o Atlas faz backup automático diário do banco inteiro (confirmado pelo usuário).
+      Antes do merge, ver na aba **Backup** do cluster se o último snapshot é do dia.
+- [x] Saber o que muda: só **acréscimos** (campos opcionais em `User` — inclusive o
       `badgeSecret` do crachá v3, Onda 11 —, `Order`, `MarketOrder`, `Condominium`, `HookRequest`,
       `CourierRouteTemplate.acceptLog`; 11 coleções novas — inclusive `LegalAcceptance` e
       `CourierShiftOffer` do termo e `DefaultRoute` da rota padrão, com o índice único `key` —; 8 tipos
       novos de notificação, com `ADMIN_SHIFT_DECLINED`). Nada é removido.
-- [ ] O `prisma db push` **roda sozinho** no deploy do backend (playbook do Ansible, depois do
+- [x] O `prisma db push` **roda sozinho** no deploy do backend (playbook do Ansible, depois do
       `up -d`, **sem** `--accept-data-loss`). Não precisa rodar à mão.
-- [ ] Os índices únicos **parciais** (`User.badgeNumber_1`, `CourierReport.clientOpId_1`) são
+- [x] Os índices únicos **parciais** (`User.badgeNumber_1`, `CourierReport.clientOpId_1`) são
       criados pelo `ensure-indexes` no boot da API.
 
 ### 2.4 Armazenamento das fotos (S3)
@@ -156,11 +164,14 @@ O app usa o **AWS S3** (`lib/storage.ts`). Pastas **públicas**: `products/`, `b
 **privadas** (só por URL assinada de 10 min): `deliveries/` (foto da entrega) e `reports/` (foto da
 ocorrência, E12). Nos comandos abaixo, troque `BUCKET` pelo valor do secret `S3_BUCKET_PROD`.
 
-- [ ] **Secrets no GitHub:** `S3_REGION_PROD`, `S3_BUCKET_PROD`, `S3_ACCESS_KEY_ID_PROD` e
+- [x] **Secrets no GitHub:** `S3_REGION_PROD`, `S3_BUCKET_PROD`, `S3_ACCESS_KEY_ID_PROD` e
       `S3_SECRET_ACCESS_KEY_PROD` (`S3_PUBLIC_BASE_URL_PROD` é opcional). Eles entram no `.env` da
       imagem. Sem eles, a foto não sobe (503) e o app segue "sem foto" (R-1).
-- [ ] **Regra de ciclo de vida: 90 dias para `deliveries/` e `reports/`** (R-2, V-79). O app já
+- [x] **Regra de ciclo de vida: 90 dias para `deliveries/` e `reports/`** (R-2, V-79). O app já
       trata como expirada depois de 90 dias; a regra é o que apaga de fato.
+      ✅ **Feito em 07/10/2026** pelo console (`fotos-entrega-90d` e `fotos-ocorrencia-90d`, filtradas
+      por prefixo). Conferido pelo `HeadObject`: as fotos de `deliveries/` e `reports/` trazem
+      `x-amz-expiration` com o `rule-id` certo; `products/` e `couriers/` não. Versionamento desligado.
       1. Ver se já existe regra: `aws s3api get-bucket-lifecycle-configuration --bucket BUCKET`.
          O `put` abaixo **substitui** todas as regras: se já houver alguma, junte as duas no JSON.
       2. Ver se o versionamento está ligado: `aws s3api get-bucket-versioning --bucket BUCKET`.
@@ -179,8 +190,13 @@ ocorrência, E12). Nos comandos abaixo, troque `BUCKET` pelo valor do secret `S3
          Pelo console: S3 › bucket › **Management** › **Lifecycle rules** › *Create*, uma regra por
          prefixo, "Expire current versions of objects" = 90 dias.
       4. Conferir: o `get-bucket-lifecycle-configuration` mostra as 2 regras.
-- [ ] **Política do bucket: leitura pública só nas pastas públicas** (R-2b). **Nunca** em
+- [x] **Política do bucket: leitura pública só nas pastas públicas** (R-2b). **Nunca** em
       `deliveries/*` nem em `reports/*`.
+      ✅ **Conferido em 07/10/2026:** a política tem `products/*`, `banners/*`, `couriers/*` e
+      `condos/*` (um statement por pasta), e nada de `deliveries/` ou `reports/`. Pelo
+      comportamento, `deliveries/` e `reports/` dão **403** sem login. `receipts/*` (comprovante de
+      despesa, que o código grava como link público) estava faltando e foi **incluída em 07/10/2026**
+      (`PublicReadExpenseReceipts`). Conferir abrindo um comprovante em Financeiro › Despesas.
       1. Ver a atual: `aws s3api get-bucket-policy --bucket BUCKET --query Policy --output text`.
       2. Se ela libera `arn:aws:s3:::BUCKET/*` (o bucket inteiro), trocar o `Resource` por esta lista.
          Mantenha os outros statements que existirem:
@@ -210,18 +226,21 @@ ocorrência, E12). Nos comandos abaixo, troque `BUCKET` pelo valor do secret `S3
       4. **Se houver CDN** (o `S3_PUBLIC_BASE_URL_PROD` aponta para um CloudFront, por exemplo): a
          permissão do CloudFront no bucket **também** não pode cobrir `deliveries/*` nem
          `reports/*`. Use os mesmos prefixos acima.
-- [ ] **Permissão da chave (IAM)** usada pela API: além do que já tem para as pastas públicas,
+- [x] **Permissão da chave (IAM)** usada pela API: além do que já tem para as pastas públicas,
       `s3:PutObject` e `s3:GetObject` nas privadas. A URL assinada usa a mesma chave:
       ```json
       { "Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"], "Resource": ["arn:aws:s3:::BUCKET/deliveries/*", "arn:aws:s3:::BUCKET/reports/*", "arn:aws:s3:::BUCKET/couriers/*", "arn:aws:s3:::BUCKET/condos/*"] }
       ```
+      ✅ 07/10/2026: o `S3_ACCESS_KEY_ID_PROD` é do usuário IAM `cheirin-pao-s3-upload` (confirmado
+      pelo usuário), o mesmo que subiu fotos em `deliveries/`, `reports/` e `couriers/` e gerou URL
+      assinada nos testes.
 
 ### 2.5 Variáveis do front (WhatsApp)
-- [ ] Secret **`SUPPORT_WHATSAPP_PROD`** com o número real, só dígitos, com DDI e DDD (ex.:
+- [x] Secret **`SUPPORT_WHATSAPP_PROD`** com o número real, só dígitos, com DDI e DDD (ex.:
       `5511987654321`). É o "Fale com o suporte" da foto do cliente e o "Falar com a operação" do
       entregador (H-4), além do suporte que já existia no Perfil e no Gancho. Sem ele, o link vai para
       o número de exemplo `5599999999999`.
-- [ ] O número entra **no build** do front (variável `VITE_`): o secret precisa existir **antes** do
+- [x] O número entra **no build** do front (variável `VITE_`): o secret precisa existir **antes** do
       deploy do frontend. Se for criado depois, é preciso rodar o deploy do front de novo.
 
 ### 2.5b Rotas (OSRM e mapas): nada a criar
@@ -374,8 +393,17 @@ ocorrência, E12). Nos comandos abaixo, troque `BUCKET` pelo valor do secret `S3
       (nulos) e o card do A2 não mostra mais "posição há N min".
 
 ### 4.4 Teste em produção com contas de teste
+> Como a 2.2 foi pulada (07/10/2026), este é o **UAT principal**. Fazer o deploy com tempo para
+> rodar esta seção **antes do próximo turno** de entrega.
+
 - [ ] Um entregador de teste e um cliente de teste num condomínio de teste. Rodar o essencial da
       §5 (scan + foto, não entrega, modo avião, iniciar/encerrar rota, cliente vê a foto).
+- [ ] Nos **dois aparelhos** (iPhone e Android), em aba e com o PWA instalado: termo, turno
+      oferecido, câmera/scanner (o `.wasm` no iPhone), foto, crachá.
+- [ ] Se a câmera ou a foto falhar num aparelho: o entregador ainda tem **"Digitar código"**, a
+      confirmação **pela lista** e **"Não consigo tirar a foto"**; o admin pode deixar a foto
+      **opcional** no A3 até corrigir. Se o app do entregador não servir para o turno, voltar à
+      imagem anterior (§6).
 - [ ] Limpar os dados de teste depois (pedidos, despesas de pagamento de teste).
 
 ### 4.5 Primeira semana
@@ -709,7 +737,8 @@ Marque em cada aparelho: **iPhone Safari · iPhone PWA · Android Chrome · Andr
 | — | Termo do entregador **sem revisão jurídica** (D-T3); revisão vira versão nova com novo aceite | Pendências na §4 do plano de termos |
 | — | **Próximos documentos** (Termos de Uso do cliente + aceite no cadastro, regulamento do Indique e Ganhe, Privacidade completa, confidencialidade da equipe, contratos fora do app) | Registrados para implementação futura (§3/§9 do `plano-termos-legais.md`) |
 | — | Textos legais sem revisão jurídica (razão social, CNPJ, encarregado, prazo de exclusão) | Decisão de 30/09: publicar assim; revisar quando der (2.5c) |
-| — | Regra de 90 dias e política do bucket são passos manuais | Antes do deploy (2.4) |
-| — | UAT em aparelho real de tudo | Antes do deploy (2.2) |
+| — | ~~Regra de 90 dias e política do bucket são passos manuais~~ | ✅ Feitos e conferidos em 07/10/2026 (2.4) |
+| — | ~~`receipts/` (comprovante de despesa) fora da política do bucket~~ | ✅ Incluída em 07/10/2026. Futuro, se quiser: pasta privada com URL assinada (documento financeiro; mudança de código) |
+| — | UAT em aparelho real de tudo | Pulado antes do deploy (decisão de 07/10/2026): feito em produção, na 4.4, antes do 1º turno |
 | — | Rota padrão: a sugestão de entregador do gancho (passo 2) só enxerga **rota própria**; quem segue a padrão só é sugerido pela divisão aprovada | Aceito (§3.8 do `plano-rota-padrao.md`) |
 | — | Rota padrão: o OSRM público calcula até **99 prédios** por vez; acima disso a sugestão diz "mapa fora do ar" | Aceito por agora (R-1 do `plano-rota-padrao.md`) |
